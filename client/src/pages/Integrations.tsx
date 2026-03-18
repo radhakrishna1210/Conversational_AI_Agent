@@ -1,5 +1,3 @@
-import DashboardLayout from '../components/DashboardLayout';
-
 const integrationsList = [
   {
     name: 'Cal.com',
@@ -71,7 +69,7 @@ const integrationsList = [
 
 export default function Integrations() {
   return (
-    <DashboardLayout>
+    <>
       <div style={{ marginBottom: '32px' }}>
         <h1 style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-0.5px', marginBottom: '6px' }}>Integrations</h1>
         <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
@@ -200,6 +198,6 @@ export default function Integrations() {
           </div>
         ))}
       </div>
-    </DashboardLayout>
+    </>
   );
 }

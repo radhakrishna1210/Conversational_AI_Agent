@@ -1,11 +1,9 @@
 import { useState } from 'react';
-import DashboardLayout from '../components/DashboardLayout';
-
 export default function CloneVoice() {
   const [activeTab, setActiveTab] = useState<'record' | 'upload'>('record');
 
   return (
-    <DashboardLayout>
+    <>
       {/* Header Section */}
       <div style={{ marginBottom: '32px' }}>
         <h1 style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-0.5px', marginBottom: '6px' }}>Clone Voice</h1>
@@ -164,6 +162,6 @@ export default function CloneVoice() {
         </p>
       </div>
 
-    </DashboardLayout>
+    </>
   );
 }

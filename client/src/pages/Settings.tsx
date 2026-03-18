@@ -1,8 +1,6 @@
-import DashboardLayout from '../components/DashboardLayout';
-
 export default function Settings() {
   return (
-    <DashboardLayout>
+    <>
       <div style={{ marginBottom: '32px' }}>
         <h1 style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-0.5px', marginBottom: '6px' }}>Settings</h1>
         <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
@@ -149,6 +147,6 @@ export default function Settings() {
 
       </div>
 
-    </DashboardLayout>
+    </>
   );
 }

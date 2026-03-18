@@ -58,10 +58,10 @@ export default function Navbar() {
         <li><Link to="/pricing" className={`nav-link ${isActive('/pricing')}`}>Pricing</Link></li>
         <li><Link to="/contact" className={`nav-link ${isActive('/contact')}`}>Contact Us</Link></li>
         <li><Link to="/book-appointment" className={`nav-link ${isActive('/book-appointment')}`}>Book an Appointment</Link></li>
-        <li><Link to="/dashboard" className="nav-link">Dashboard</Link></li>
       </ul>
       <div className="navbar-actions">
-        <button className="btn-sign-out">Sign Out</button>
+        <Link to="/login" style={{ color: 'var(--text-secondary)', fontSize: '14px', fontWeight: 500, textDecoration: 'none' }}>Log In</Link>
+        <Link to="/signup" className="btn btn-primary" style={{ padding: '8px 18px', fontSize: '14px' }}>Get Started Free</Link>
       </div>
     </nav>
   );

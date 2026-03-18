@@ -1,8 +1,6 @@
-import DashboardLayout from '../components/DashboardLayout';
-
 export default function WhatsApp() {
   return (
-    <DashboardLayout>
+    <>
       <div style={{ marginBottom: '64px' }}>
         <h1 style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-0.5px', marginBottom: '6px' }}>WhatsApp</h1>
         <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
@@ -117,6 +115,6 @@ export default function WhatsApp() {
         </div>
 
       </div>
-    </DashboardLayout>
+    </>
   );
 }

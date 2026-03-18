@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import DashboardLayout from '../components/DashboardLayout';
 
 export default function Dashboard() {
   const [prompt, setPrompt] = useState('');
@@ -20,7 +19,7 @@ export default function Dashboard() {
   const setTemplate = (template: string) => setPrompt(template);
 
   return (
-    <DashboardLayout>
+    <>
       <div style={{marginBottom:'32px'}}>
         <h1 style={{fontSize:'28px', fontWeight:800, letterSpacing:'-0.5px', marginBottom:'6px'}}>Voice AI Assistants</h1>
         <p style={{color:'var(--text-secondary)', fontSize:'14px'}}>Create and manage your voice AI assistants</p>
@@ -73,6 +72,6 @@ export default function Dashboard() {
           </button>
         </div>
       </div>
-    </DashboardLayout>
+    </>
   );
 }

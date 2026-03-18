@@ -1,8 +1,6 @@
-import DashboardLayout from '../components/DashboardLayout';
-
 export default function Files() {
   return (
-    <DashboardLayout>
+    <>
       <div style={{ marginBottom: '24px' }}>
         <h1 style={{ fontSize: '24px', fontWeight: 700, letterSpacing: '-0.5px' }}>File Management</h1>
       </div>
@@ -96,6 +94,6 @@ export default function Files() {
         </div>
 
       </div>
-    </DashboardLayout>
+    </>
   );
 }

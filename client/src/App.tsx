@@ -1,9 +1,10 @@
-import { BrowserRouter as Router, Routes, Route, useLocation } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useLocation, Outlet } from 'react-router-dom';
 import { useEffect } from 'react';
 
 // Layout Components
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
+import DashboardLayout from './components/DashboardLayout';
 
 // Pages
 import Home from './pages/Home';
@@ -23,6 +24,8 @@ import WhatsApp from './pages/WhatsApp';
 import Billing from './pages/Billing';
 import ApiKeys from './pages/ApiKeys';
 import Settings from './pages/Settings';
+import SignUp from './pages/SignUp';
+import Login from './pages/Login';
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -44,6 +47,14 @@ function DefaultLayout({ children }: { children: React.ReactNode }) {
   );
 }
 
+function DashboardLayoutWrapper() {
+  return (
+    <DashboardLayout>
+      <Outlet />
+    </DashboardLayout>
+  );
+}
+
 function App() {
   return (
     <Router>
@@ -54,19 +65,23 @@ function App() {
         <Route path="/documentation" element={<DefaultLayout><Documentation /></DefaultLayout>} />
         <Route path="/book-appointment" element={<DefaultLayout><BookAppointment /></DefaultLayout>} />
         <Route path="/contact" element={<DefaultLayout><Contact /></DefaultLayout>} />
+        <Route path="/signup" element={<SignUp />} />
+        <Route path="/login" element={<Login />} />
         {/* Dashboard layouts without Navbar/Footer */}
-        <Route path="/dashboard" element={<Dashboard />} />
-        <Route path="/bulk_call" element={<BulkCall />} />
-        <Route path="/clone_voice" element={<CloneVoice />} />
-        <Route path="/files" element={<Files />} />
-        <Route path="/integrations" element={<Integrations />} />
-        <Route path="/phone_numbers" element={<PhoneNumbers />} />
-        <Route path="/call_logs" element={<CallLogs />} />
-        <Route path="/analytics" element={<Analytics />} />
-        <Route path="/whatsapp" element={<WhatsApp />} />
-        <Route path="/billing" element={<Billing />} />
-        <Route path="/api_keys" element={<ApiKeys />} />
-        <Route path="/settings" element={<Settings />} />
+        <Route element={<DashboardLayoutWrapper />}>
+          <Route path="/dashboard" element={<Dashboard />} />
+          <Route path="/bulk_call" element={<BulkCall />} />
+          <Route path="/clone_voice" element={<CloneVoice />} />
+          <Route path="/files" element={<Files />} />
+          <Route path="/integrations" element={<Integrations />} />
+          <Route path="/phone_numbers" element={<PhoneNumbers />} />
+          <Route path="/call_logs" element={<CallLogs />} />
+          <Route path="/analytics" element={<Analytics />} />
+          <Route path="/whatsapp" element={<WhatsApp />} />
+          <Route path="/billing" element={<Billing />} />
+          <Route path="/api_keys" element={<ApiKeys />} />
+          <Route path="/settings" element={<Settings />} />
+        </Route>
       </Routes>
     </Router>
   );

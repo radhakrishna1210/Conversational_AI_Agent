@@ -1,8 +1,6 @@
-import DashboardLayout from '../components/DashboardLayout';
-
 export default function BulkCall() {
   return (
-    <DashboardLayout>
+    <>
       {/* Header Section */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '32px' }}>
         <div>
@@ -73,6 +71,6 @@ export default function BulkCall() {
           </p>
         </div>
       </div>
-    </DashboardLayout>
+    </>
   );
 }

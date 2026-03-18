@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [showBanner, setShowBanner] = useState(true);
   const location = useLocation();
+  const navigate = useNavigate();
   const path = location.pathname;
 
   return (
@@ -130,7 +131,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <span className="sidebar-text">Settings</span>
             </div>
           </Link>
-          <div className="sidebar-item">
+          <div
+            className="sidebar-item"
+            onClick={() => navigate('/')}
+            style={{ cursor: 'pointer' }}
+          >
             <span className="sidebar-icon">↩️</span>
             <span className="sidebar-text">Logout</span>
           </div>
