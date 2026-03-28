@@ -12,7 +12,7 @@ export default function Login() {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
 
@@ -22,11 +22,34 @@ export default function Login() {
     }
 
     setStatus('submitting');
-    // Simulate API call
-    setTimeout(() => {
+
+    try {
+      const res = await fetch('/api/v1/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: form.email, password: form.password }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setErrorMsg(data.error || 'Invalid email or password.');
+        setStatus('error');
+        return;
+      }
+
+      localStorage.setItem('token', data.accessToken);
+      localStorage.setItem('refreshToken', data.refreshToken);
+      if (data.workspace?.id) {
+        localStorage.setItem('workspaceId', data.workspace.id);
+      }
+
       setStatus('success');
-      setTimeout(() => navigate('/dashboard'), 800);
-    }, 1500);
+      setTimeout(() => navigate('/wh'), 600);
+    } catch {
+      setErrorMsg('Network error. Please check your connection.');
+      setStatus('error');
+    }
   };
 
   return (
@@ -200,7 +223,7 @@ export default function Login() {
               disabled={status === 'submitting' || status === 'success'}
               style={{ width: '100%', padding: '13px', fontSize: '15px', fontWeight: 700, background: status === 'success' ? '#22c55e' : undefined }}
             >
-              {status === 'idle' && 'Sign In →'}
+              {(status === 'idle' || status === 'error') && 'Sign In →'}
               {status === 'submitting' && (
                 <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
                   <span style={{ display: 'inline-block', width: '14px', height: '14px', border: '2px solid rgba(0,0,0,0.3)', borderTopColor: '#0a0a0a', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />

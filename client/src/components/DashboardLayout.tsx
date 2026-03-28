@@ -1,11 +1,14 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import WHSidebar from './WHSidebar';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [showBanner, setShowBanner] = useState(true);
   const location = useLocation();
   const navigate = useNavigate();
   const path = location.pathname;
+  
+  const isWHPage = path === '/wh' || path.startsWith('/wh/');
 
   return (
     <div className="dashboard-layout">
@@ -22,22 +25,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               🔔
               <span style={{position:'absolute', top:'-2px', right:'-2px', width:'8px', height:'8px', background:'var(--orange)', borderRadius:'50%', display:'block'}}></span>
             </button>
-            <div className="topbar-avatar">CP</div>
+            <div className="topbar-avatar">O</div>
             <button style={{background:'none', border:'none', color:'var(--text-secondary)', fontSize:'18px', cursor:'pointer'}}>🌙</button>
           </div>
         </div>
       </div>
 
       {/* Expandable Sidebar */}
-      <aside className="sidebar">
-        <Link to="/" style={{textDecoration: 'none'}}>
+      <aside className={`sidebar ${isWHPage ? 'sidebar-locked' : ''}`} style={isWHPage ? { pointerEvents: 'none' } : {}}>
+        <Link to="/" style={{textDecoration: 'none', pointerEvents: isWHPage ? 'auto' : 'auto'}}>
           <div className="sidebar-header">
             <div className="sidebar-logo-icon">O</div>
             <div className="sidebar-logo-text">OMNI<span style={{color: 'white', fontWeight: 300}}>DIMENSION</span></div>
           </div>
         </Link>
 
-        <div className="sidebar-content-scroll">
+        {/* Re-enable pointer events for inner content to allow clicking active icons even if locked */}
+        <div className="sidebar-content-scroll" style={isWHPage ? { pointerEvents: 'auto' } : {}}>
           <div className="sidebar-section">
             <div className="sidebar-category">VOICE AI SETUP</div>
             <Link to="/dashboard" style={{textDecoration: 'none'}}>
@@ -103,6 +107,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <span className="sidebar-text">WhatsApp</span>
               </div>
             </Link>
+            <Link to="/wh" style={{textDecoration: 'none'}}>
+              <div className={`sidebar-item ${path === '/wh' ? 'active' : ''}`}>
+                <span className="sidebar-icon" style={{fontSize: '15px'}}>📝</span>
+                <span className="sidebar-text">WH</span>
+              </div>
+            </Link>
           </div>
 
           <div className="sidebar-section">
@@ -124,7 +134,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         
         <div className="sidebar-spacer"></div>
 
-        <div className="sidebar-bottom">
+        <div className="sidebar-bottom" style={isWHPage ? { pointerEvents: 'auto' } : {}}>
           <Link to="/settings" style={{textDecoration: 'none'}}>
             <div className={`sidebar-item ${path === '/settings' ? 'active' : ''}`}>
               <span className="sidebar-icon">⚙️</span>
@@ -142,8 +152,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </aside>
 
+      {isWHPage && <WHSidebar />}
+
       {/* Main Content Area */}
-      <main className="dashboard-main" style={{marginTop: '56px'}}>
+      <main className="dashboard-main" style={{ marginTop: '56px', marginLeft: isWHPage ? '136px' : '64px', transition: 'margin-left 0.3s' }}>
         {showBanner && (
           <div className="announcement-dash">
             <span>✨ Get your own phone number and attach your assistant now!</span>

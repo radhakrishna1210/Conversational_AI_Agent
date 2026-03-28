@@ -24,8 +24,20 @@ import WhatsApp from './pages/WhatsApp';
 import Billing from './pages/Billing';
 import ApiKeys from './pages/ApiKeys';
 import Settings from './pages/Settings';
+import WH from './pages/WH';
 import SignUp from './pages/SignUp';
 import Login from './pages/Login';
+
+// WH Sub-pages
+import WHHome from './pages/wh/WHHome';
+import WHNumberSetup from './pages/wh/WHNumberSetup';
+import WHApiManagement from './pages/wh/WHApiManagement';
+import WHTemplates from './pages/wh/WHTemplates';
+import WHCampaigns from './pages/wh/WHCampaigns';
+import WHInbox from './pages/wh/WHInbox';
+import WHAutomation from './pages/wh/WHAutomation';
+import WHAnalytics from './pages/wh/WHAnalytics';
+import WHSettings from './pages/wh/WHSettings';
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -81,6 +93,17 @@ function App() {
           <Route path="/billing" element={<Billing />} />
           <Route path="/api_keys" element={<ApiKeys />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/wh" element={<WH />}>
+            <Route index element={<WHHome />} />
+            <Route path="number-setup" element={<WHNumberSetup />} />
+            <Route path="api" element={<WHApiManagement />} />
+            <Route path="templates" element={<WHTemplates />} />
+            <Route path="campaigns" element={<WHCampaigns />} />
+            <Route path="inbox" element={<WHInbox />} />
+            <Route path="automation" element={<WHAutomation />} />
+            <Route path="analytics" element={<WHAnalytics />} />
+            <Route path="settings" element={<WHSettings />} />
+          </Route>
         </Route>
       </Routes>
     </Router>

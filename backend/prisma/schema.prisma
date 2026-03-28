@@ -1,0 +1,405 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ────────────────────────────────────────────────────────────────────
+
+enum Role {
+  Admin
+  Agent
+  Viewer
+}
+
+enum TemplateStatus {
+  APPROVED
+  PENDING
+  REJECTED
+}
+
+enum TemplateCategory {
+  MARKETING
+  UTILITY
+  AUTHENTICATION
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  RUNNING
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageType {
+  TEXT
+  TEMPLATE
+  IMAGE
+  DOCUMENT
+  AUDIO
+  VIDEO
+  STICKER
+}
+
+enum ConvStatus {
+  OPEN
+  RESOLVED
+  PENDING
+}
+
+enum NumberStatus {
+  AVAILABLE
+  ASSIGNED
+  BANNED
+}
+
+// ─── Models ───────────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  name         String
+  avatarUrl    String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  memberships            WorkspaceMember[]
+  refreshTokens          RefreshToken[]
+  assignedConversations  Conversation[]
+  sentMessages           Message[]
+}
+
+model Workspace {
+  id               String   @id @default(cuid())
+  name             String
+  slug             String   @unique
+  logoUrl          String?
+  metaWabaId       String?
+  metaAccessToken  String?
+  metaBusinessId   String?
+  planName         String   @default("Starter")
+  wabaId           String?
+  numberAssigned   Boolean  @default(false)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  members          WorkspaceMember[]
+  invites          WorkspaceInvite[]
+  whatsappNumbers  WhatsappNumber[]
+  apiKeys          ApiKey[]
+  webhookConfig    WebhookConfig?
+  templates        Template[]
+  contacts         Contact[]
+  campaigns        Campaign[]
+  conversations    Conversation[]
+  keywordTriggers  KeywordTrigger[]
+  automationFlow   AutomationFlow?
+  settings         WorkspaceSettings?
+  invoices         Invoice[]
+  messages         Message[]
+  numberPool       NumberPool?
+}
+
+model WorkspaceMember {
+  id          String    @id @default(cuid())
+  userId      String
+  workspaceId String
+  role        Role      @default(Agent)
+  joinedAt    DateTime  @default(now())
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+}
+
+model RefreshToken {
+  id          String    @id @default(cuid())
+  tokenHash   String    @unique
+  userId      String
+  workspaceId String?
+  expiresAt   DateTime
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model WorkspaceInvite {
+  id          String    @id @default(cuid())
+  workspaceId String
+  email       String
+  role        Role      @default(Agent)
+  token       String    @unique
+  expiresAt   DateTime
+  acceptedAt  DateTime?
+  createdAt   DateTime  @default(now())
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, email])
+}
+
+model WhatsappNumber {
+  id                String   @id @default(cuid())
+  workspaceId       String
+  phoneNumber       String
+  displayName       String
+  category          String?
+  website           String?
+  description       String?
+  logoUrl           String?
+  metaPhoneNumberId String?
+  status            String   @default("Pending")
+  wabaId            String?
+  accessToken       String?
+  qualityRating     String?
+  messagingLimit    String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  workspace         Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  campaigns         Campaign[]
+  conversations     Conversation[]
+
+  @@unique([workspaceId, phoneNumber])
+}
+
+model ApiKey {
+  id          String    @id @default(cuid())
+  workspaceId String
+  name        String
+  keyHash     String    @unique
+  keyPrefix   String
+  environment String    @default("live")
+  lastUsedAt  DateTime?
+  revokedAt   DateTime?
+  createdAt   DateTime  @default(now())
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model WebhookConfig {
+  id               String    @id @default(cuid())
+  workspaceId      String    @unique
+  url              String
+  secret           String
+  subscribedEvents String[]
+  isActive         Boolean   @default(true)
+  lastPingAt       DateTime?
+  lastPingStatus   Int?
+  updatedAt        DateTime  @updatedAt
+
+  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model Template {
+  id               String           @id @default(cuid())
+  workspaceId      String
+  metaTemplateId   String?
+  name             String
+  category         TemplateCategory @default(MARKETING)
+  language         String           @default("en")
+  bodyText         String
+  headerText       String?
+  footerText       String?
+  buttons          Json?
+  status           TemplateStatus   @default(PENDING)
+  rejectionReason  String?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  workspace        Workspace        @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  campaigns        Campaign[]
+  messages         Message[]
+
+  @@unique([workspaceId, name, language])
+}
+
+model Contact {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  phoneNumber  String
+  name         String?
+  email        String?
+  tags         String[]
+  customFields Json?
+  optedOut     Boolean   @default(false)
+  optedOutAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  workspace    Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  campaigns    CampaignRecipient[]
+  conversations Conversation[]
+
+  @@unique([workspaceId, phoneNumber])
+}
+
+model Campaign {
+  id                String         @id @default(cuid())
+  workspaceId       String
+  name              String
+  templateId        String
+  whatsappNumberId  String
+  variableMapping   Json?
+  status            CampaignStatus @default(DRAFT)
+  scheduledAt       DateTime?
+  launchedAt        DateTime?
+  completedAt       DateTime?
+  totalContacts     Int            @default(0)
+  sent              Int            @default(0)
+  delivered         Int            @default(0)
+  read              Int            @default(0)
+  failed            Int            @default(0)
+  createdAt         DateTime       @default(now())
+  updatedAt         DateTime       @updatedAt
+
+  workspace         Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  template          Template           @relation(fields: [templateId], references: [id])
+  whatsappNumber    WhatsappNumber     @relation(fields: [whatsappNumberId], references: [id])
+  recipients        CampaignRecipient[]
+}
+
+model CampaignRecipient {
+  id            String    @id @default(cuid())
+  campaignId    String
+  contactId     String
+  metaMessageId String?
+  status        String    @default("pending")
+  failureReason String?
+  sentAt        DateTime?
+  deliveredAt   DateTime?
+  readAt        DateTime?
+
+  campaign      Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contact       Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, contactId])
+}
+
+model Conversation {
+  id               String     @id @default(cuid())
+  workspaceId      String
+  contactId        String
+  whatsappNumberId String
+  assignedAgentId  String?
+  status           ConvStatus @default(OPEN)
+  label            String?
+  botEnabled       Boolean    @default(true)
+  sessionExpiresAt DateTime?
+  lastMessageAt    DateTime?
+  unreadCount      Int        @default(0)
+  createdAt        DateTime   @default(now())
+  updatedAt        DateTime   @updatedAt
+
+  workspace        Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  contact          Contact        @relation(fields: [contactId], references: [id])
+  whatsappNumber   WhatsappNumber @relation(fields: [whatsappNumberId], references: [id])
+  assignedAgent    User?          @relation(fields: [assignedAgentId], references: [id])
+  messages         Message[]
+}
+
+model Message {
+  id             String           @id @default(cuid())
+  conversationId String
+  workspaceId    String
+  metaMessageId  String?          @unique
+  direction      MessageDirection
+  type           MessageType      @default(TEXT)
+  body           String?
+  mediaUrl       String?
+  mediaCaption   String?
+  templateId     String?
+  templateVars   Json?
+  status         String           @default("sent")
+  senderUserId   String?
+  sentAt         DateTime         @default(now())
+  deliveredAt    DateTime?
+  readAt         DateTime?
+
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  template       Template?    @relation(fields: [templateId], references: [id])
+  senderUser     User?        @relation(fields: [senderUserId], references: [id])
+}
+
+model KeywordTrigger {
+  id          String    @id @default(cuid())
+  workspaceId String
+  keyword     String
+  replyText   String
+  isActive    Boolean   @default(true)
+  matchExact  Boolean   @default(false)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, keyword])
+}
+
+model AutomationFlow {
+  id          String    @id @default(cuid())
+  workspaceId String    @unique
+  flowJson    Json      @default("{}")
+  updatedAt   DateTime  @updatedAt
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model WorkspaceSettings {
+  id                   String    @id @default(cuid())
+  workspaceId          String    @unique
+  timezone             String    @default("UTC")
+  businessHoursJson    Json?
+  notifyOnNewConv      Boolean   @default(true)
+  notifyOnOptOut       Boolean   @default(true)
+  notifyOnCampaignEnd  Boolean   @default(true)
+  notifyOnHighOptOut   Boolean   @default(false)
+  notifyOnRateLimit    Boolean   @default(true)
+  updatedAt            DateTime  @updatedAt
+
+  workspace            Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model Invoice {
+  id          String   @id @default(cuid())
+  workspaceId String
+  planName    String
+  amountCents Int
+  currency    String   @default("INR")
+  status      String   @default("Paid")
+  invoiceDate DateTime
+  pdfUrl      String?
+  createdAt   DateTime @default(now())
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model NumberPool {
+  id            String       @id @default(cuid())
+  phoneNumber   String       @unique
+  phoneNumberId String       @unique
+  wabaId        String
+  accessToken   String
+  displayName   String?
+  status        NumberStatus @default(AVAILABLE)
+  assignedTo    String?      @unique
+  registeredAt  DateTime     @default(now())
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  workspace     Workspace?   @relation(fields: [assignedTo], references: [id])
+}
