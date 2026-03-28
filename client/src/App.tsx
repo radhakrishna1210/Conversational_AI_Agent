@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, useLocation, Outlet } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, useLocation, Outlet, Navigate } from 'react-router-dom';
 import { useEffect } from 'react';
 
 // Layout Components
@@ -60,6 +60,12 @@ function DefaultLayout({ children }: { children: React.ReactNode }) {
   );
 }
 
+function ProtectedRoute() {
+  const token = localStorage.getItem('token');
+  if (!token) return <Navigate to="/login" replace />;
+  return <Outlet />;
+}
+
 function DashboardLayoutWrapper() {
   return (
     <DashboardLayout>
@@ -81,7 +87,8 @@ function App() {
         <Route path="/signup" element={<SignUp />} />
         <Route path="/login" element={<Login />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
-        {/* Dashboard layouts without Navbar/Footer */}
+        {/* Protected dashboard routes */}
+        <Route element={<ProtectedRoute />}>
         <Route element={<DashboardLayoutWrapper />}>
           <Route path="/dashboard" element={<Dashboard />} />
           <Route path="/bulk_call" element={<BulkCall />} />
@@ -106,6 +113,7 @@ function App() {
             <Route path="analytics" element={<WHAnalytics />} />
             <Route path="settings" element={<WHSettings />} />
           </Route>
+        </Route>
         </Route>
       </Routes>
     </Router>
