@@ -27,6 +27,7 @@ import Settings from './pages/Settings';
 import WH from './pages/WH';
 import SignUp from './pages/SignUp';
 import Login from './pages/Login';
+import AuthCallback from './pages/AuthCallback';
 
 // WH Sub-pages
 import WHHome from './pages/wh/WHHome';
@@ -79,6 +80,7 @@ function App() {
         <Route path="/contact" element={<DefaultLayout><Contact /></DefaultLayout>} />
         <Route path="/signup" element={<SignUp />} />
         <Route path="/login" element={<Login />} />
+        <Route path="/auth/callback" element={<AuthCallback />} />
         {/* Dashboard layouts without Navbar/Footer */}
         <Route element={<DashboardLayoutWrapper />}>
           <Route path="/dashboard" element={<Dashboard />} />

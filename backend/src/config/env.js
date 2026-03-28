@@ -29,6 +29,9 @@ export const env = {
 
   CLIENT_URL: optional('CLIENT_URL', 'http://localhost:5173'),
 
+  GOOGLE_CLIENT_ID: optional('GOOGLE_CLIENT_ID'),
+  GOOGLE_CLIENT_SECRET: optional('GOOGLE_CLIENT_SECRET'),
+
   UPLOAD_DIR: optional('UPLOAD_DIR', 'uploads'),
   MAX_FILE_SIZE_MB: parseInt(optional('MAX_FILE_SIZE_MB', '10'), 10),
   JSON_BODY_LIMIT: optional('JSON_BODY_LIMIT', '2mb'),

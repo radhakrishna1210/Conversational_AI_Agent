@@ -12,5 +12,7 @@ router.post('/refresh', validate(refreshSchema), ctrl.refresh);
 router.post('/logout', ctrl.logout);
 router.post('/invite/accept', validate(acceptInviteSchema), ctrl.acceptInvite);
 router.get('/me', authenticate, ctrl.me);
+router.get('/google', ctrl.googleRedirect);
+router.get('/google/callback', ctrl.googleCallback);
 
 export default router;

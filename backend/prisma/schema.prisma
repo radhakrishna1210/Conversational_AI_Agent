@@ -68,7 +68,8 @@ enum NumberStatus {
 model User {
   id           String   @id @default(cuid())
   email        String   @unique
-  passwordHash String
+  passwordHash String?
+  googleId     String?  @unique
   name         String
   avatarUrl    String?
   createdAt    DateTime @default(now())

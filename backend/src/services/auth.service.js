@@ -104,6 +104,56 @@ export const logout = async (rawToken) => {
   });
 };
 
+export const loginOrRegisterWithGoogle = async ({ googleId, email, name, avatarUrl }) => {
+  let user = await prisma.user.findUnique({ where: { googleId } });
+
+  if (!user) {
+    // Try to link to existing account with same email
+    user = await prisma.user.findUnique({ where: { email } });
+    if (user) {
+      user = await prisma.user.update({ where: { id: user.id }, data: { googleId, avatarUrl: avatarUrl ?? user.avatarUrl } });
+    } else {
+      user = await prisma.user.create({ data: { googleId, email, name, avatarUrl } });
+      // Auto-create a workspace for new Google users
+      await prisma.workspace.create({
+        data: {
+          name: `${name}'s Workspace`,
+          slug: makeSlug(name),
+          members: { create: { userId: user.id, role: 'Admin' } },
+          settings: { create: {} },
+        },
+      });
+    }
+  }
+
+  const membership = await prisma.workspaceMember.findFirst({
+    where: { userId: user.id },
+    include: { workspace: true },
+  });
+
+  const payload = {
+    userId: user.id,
+    email: user.email,
+    workspaceId: membership?.workspaceId ?? null,
+    role: membership?.role ?? null,
+  };
+
+  const accessToken = signAccessToken(payload);
+  const rawRefresh = generateSecureToken();
+  const tokenHash = hashToken(rawRefresh);
+
+  await prisma.refreshToken.create({
+    data: {
+      tokenHash,
+      userId: user.id,
+      workspaceId: membership?.workspaceId ?? null,
+      expiresAt: new Date(Date.now() + REFRESH_TOKEN_EXPIRY_MS),
+    },
+  });
+
+  return { accessToken, refreshToken: rawRefresh, user, workspace: membership?.workspace ?? null };
+};
+
 export const acceptInvite = async ({ token, name, password }) => {
   const invite = await prisma.workspaceInvite.findUnique({ where: { token } });
   if (!invite || invite.acceptedAt || invite.expiresAt < new Date()) {
