@@ -116,8 +116,27 @@ export default function WHSidebar() {
         ))}
       </div>
 
+      {/* Logout */}
+      <div style={{ padding: '8px 12px' }}>
+        <button
+          onClick={() => {
+            sessionStorage.setItem('loggedOut', '1');
+            localStorage.removeItem('token');
+            localStorage.removeItem('refreshToken');
+            localStorage.removeItem('workspaceId');
+            window.location.replace('/login');
+          }}
+          style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', background: 'none', border: '1px solid #e2e8f0', borderRadius: '6px', color: '#64748b', fontSize: '14px', fontWeight: 500, cursor: 'pointer' }}
+          onMouseOver={e => { e.currentTarget.style.background = '#fef2f2'; e.currentTarget.style.color = '#ef4444'; e.currentTarget.style.borderColor = '#fecaca'; }}
+          onMouseOut={e => { e.currentTarget.style.background = 'none'; e.currentTarget.style.color = '#64748b'; e.currentTarget.style.borderColor = '#e2e8f0'; }}
+        >
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          <span className="wh-sidebar-text">Logout</span>
+        </button>
+      </div>
+
       {/* Footer tour card */}
-      <div style={{ padding: '12px 16px', marginTop: 'auto' }}>
+      <div style={{ padding: '12px 16px' }}>
         <div className="wh-sidebar-tour" style={{ backgroundColor: '#062828', borderRadius: '8px', padding: '14px', color: '#fff' }}>
           <div style={{ fontSize: '12px', fontWeight: 600, display: 'flex', gap: '6px', marginBottom: '12px' }}>
             <span style={{ fontSize: '16px' }}>🎓</span> Need a Quick Tour?

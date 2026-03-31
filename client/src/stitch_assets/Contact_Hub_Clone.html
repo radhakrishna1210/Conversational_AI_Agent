@@ -1,0 +1,397 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "on-tertiary-fixed": "#220f44",
+              "tertiary-fixed": "#ebddff",
+              "surface": "#f9f9f8",
+              "on-primary-fixed-variant": "#2a4e3e",
+              "error": "#ba1a1a",
+              "on-primary": "#ffffff",
+              "on-primary-fixed": "#002115",
+              "on-primary-container": "#9bc2ae",
+              "on-secondary-fixed": "#002115",
+              "on-error": "#ffffff",
+              "on-secondary-container": "#486c5b",
+              "surface-variant": "#e1e3e2",
+              "primary-fixed-dim": "#a8cfbb",
+              "tertiary-container": "#524076",
+              "surface-tint": "#416655",
+              "on-error-container": "#93000a",
+              "error-container": "#ffdad6",
+              "primary": "#153a2b",
+              "on-surface-variant": "#414844",
+              "inverse-on-surface": "#f0f1f0",
+              "surface-container-high": "#e7e8e7",
+              "secondary": "#426655",
+              "surface-container-lowest": "#ffffff",
+              "on-tertiary": "#ffffff",
+              "on-secondary": "#ffffff",
+              "inverse-surface": "#2e3131",
+              "surface-container": "#edeeed",
+              "on-tertiary-container": "#c5afed",
+              "tertiary-fixed-dim": "#d2bcfb",
+              "primary-fixed": "#c3ecd6",
+              "inverse-primary": "#a8cfbb",
+              "on-surface": "#191c1c",
+              "surface-container-low": "#f3f4f3",
+              "secondary-fixed-dim": "#a8cfbb",
+              "on-background": "#191c1c",
+              "on-secondary-fixed-variant": "#2a4e3e",
+              "outline": "#717974",
+              "secondary-container": "#c4ecd6",
+              "surface-container-highest": "#e1e3e2",
+              "background": "#f9f9f8",
+              "primary-container": "#2d5141",
+              "tertiary": "#3b295e",
+              "surface-dim": "#d9dad9",
+              "outline-variant": "#c1c8c2",
+              "surface-bright": "#f9f9f8",
+              "secondary-fixed": "#c4ecd6",
+              "on-tertiary-fixed-variant": "#4f3d73"
+            },
+            fontFamily: {
+              "headline": ["Manrope"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            display: inline-block;
+            line-height: 1;
+            text-transform: none;
+            letter-spacing: normal;
+            word-wrap: normal;
+            white-space: nowrap;
+            direction: ltr;
+        }
+        body { font-family: 'Inter', sans-serif; }
+        h1, h2, h3 { font-family: 'Manrope', sans-serif; }
+    </style>
+</head>
+<body class="bg-background text-on-surface flex min-h-screen">
+<!-- SideNavBar -->
+<aside class="h-screen w-64 fixed left-0 top-0 bg-[#f3f4f3] dark:bg-stone-900 flex flex-col py-4 px-3 space-y-2 z-50">
+<div class="px-3 mb-8">
+<h2 class="text-lg font-bold text-[#153a2b] dark:text-[#c4ecd6]">Interakt</h2>
+<p class="text-xs text-on-surface-variant opacity-70">Automations</p>
+</div>
+<nav class="flex-1 space-y-1">
+<a class="flex items-center gap-3 px-3 py-2 text-[#414844] dark:text-stone-400 hover:text-[#153a2b] dark:hover:text-[#c4ecd6] hover:bg-[#e1e3e2] dark:hover:bg-stone-800 transition-all duration-200 ease-in-out font-manrope text-sm rounded-md" href="#">
+<span class="material-symbols-outlined" data-icon="home">home</span>
+<span>Home</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-[#414844] dark:text-stone-400 hover:text-[#153a2b] dark:hover:text-[#c4ecd6] hover:bg-[#e1e3e2] dark:hover:bg-stone-800 transition-all duration-200 ease-in-out font-manrope text-sm rounded-md" href="#">
+<span class="material-symbols-outlined" data-icon="inbox">inbox</span>
+<span>Inbox</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-[#414844] dark:text-stone-400 hover:text-[#153a2b] dark:hover:text-[#c4ecd6] hover:bg-[#e1e3e2] dark:hover:bg-stone-800 transition-all duration-200 ease-in-out font-manrope text-sm rounded-md" href="#">
+<span class="material-symbols-outlined" data-icon="campaign">campaign</span>
+<span>Campaigns</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 bg-[#153a2b] text-white rounded-md dark:bg-[#c4ecd6] dark:text-[#153a2b] transition-all duration-200 ease-in-out font-manrope text-sm" href="#">
+<span class="material-symbols-outlined" data-icon="contacts" style="font-variation-settings: 'FILL' 1;">contacts</span>
+<span class="font-bold">Contacts</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-[#414844] dark:text-stone-400 hover:text-[#153a2b] dark:hover:text-[#c4ecd6] hover:bg-[#e1e3e2] dark:hover:bg-stone-800 transition-all duration-200 ease-in-out font-manrope text-sm rounded-md" href="#">
+<span class="material-symbols-outlined" data-icon="storefront">storefront</span>
+<span>Market</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-[#414844] dark:text-stone-400 hover:text-[#153a2b] dark:hover:text-[#c4ecd6] hover:bg-[#e1e3e2] dark:hover:bg-stone-800 transition-all duration-200 ease-in-out font-manrope text-sm rounded-md" href="#">
+<span class="material-symbols-outlined" data-icon="support">support</span>
+<span>Support</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-[#414844] dark:text-stone-400 hover:text-[#153a2b] dark:hover:text-[#c4ecd6] hover:bg-[#e1e3e2] dark:hover:bg-stone-800 transition-all duration-200 ease-in-out font-manrope text-sm rounded-md" href="#">
+<span class="material-symbols-outlined" data-icon="smart_toy">smart_toy</span>
+<span>Automation</span>
+</a>
+<a class="flex items-center gap-3 px-3 py-2 text-[#414844] dark:text-stone-400 hover:text-[#153a2b] dark:hover:text-[#c4ecd6] hover:bg-[#e1e3e2] dark:hover:bg-stone-800 transition-all duration-200 ease-in-out font-manrope text-sm rounded-md" href="#">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+<span>Settings</span>
+</a>
+</nav>
+<div class="pt-4 border-t border-outline-variant/20">
+<div class="flex items-center gap-3 px-3">
+<div class="w-8 h-8 rounded-full bg-primary-container flex items-center justify-center text-on-primary-container text-xs font-bold">JD</div>
+<div class="flex-1 overflow-hidden">
+<p class="text-sm font-medium text-on-surface truncate">John Doe</p>
+<p class="text-[10px] text-on-surface-variant truncate">Premium Account</p>
+</div>
+</div>
+</div>
+</aside>
+<!-- Main Content Area -->
+<main class="flex-1 ml-64 min-h-screen">
+<!-- TopNavBar -->
+<header class="bg-[#f9f9f8] dark:bg-stone-950 h-16 sticky top-0 z-40 flex justify-between items-center px-8 w-full border-b border-surface-container">
+<div class="flex items-center gap-6">
+<h1 class="text-xl font-bold text-[#153a2b] dark:text-[#c4ecd6] tracking-tight">Contact Hub</h1>
+<div class="relative w-80">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-lg" data-icon="search">search</span>
+<input class="w-full bg-surface-container-low border-none rounded-full pl-10 pr-4 py-2 text-sm focus:ring-1 focus:ring-primary/20 placeholder:text-on-surface-variant/60" placeholder="Search contacts..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<div class="flex items-center gap-1">
+<button class="p-2 text-[#414844] hover:bg-[#f3f4f3] rounded-full transition-colors">
+<span class="material-symbols-outlined" data-icon="notifications">notifications</span>
+</button>
+<button class="p-2 text-[#414844] hover:bg-[#f3f4f3] rounded-full transition-colors">
+<span class="material-symbols-outlined" data-icon="help">help</span>
+</button>
+<button class="p-2 text-[#414844] hover:bg-[#f3f4f3] rounded-full transition-colors">
+<span class="material-symbols-outlined" data-icon="settings">settings</span>
+</button>
+</div>
+<div class="h-8 w-[1px] bg-outline-variant/30 mx-2"></div>
+<div class="flex items-center gap-3">
+<button class="bg-primary text-white px-5 py-2 rounded-md text-sm font-medium flex items-center gap-2 hover:opacity-90 transition-opacity">
+<span class="material-symbols-outlined text-sm" data-icon="add">add</span>
+                        Create Contacts
+                    </button>
+</div>
+</div>
+</header>
+<div class="p-8 space-y-8">
+<!-- Header Actions -->
+<div class="flex justify-between items-end">
+<div>
+<h2 class="text-3xl font-extrabold text-primary tracking-tight">Your Network</h2>
+<p class="text-on-surface-variant mt-1">Manage and segment your customer base with editorial precision.</p>
+</div>
+<div class="flex gap-3">
+<button class="flex items-center gap-2 px-4 py-2 bg-surface-container-highest text-primary font-semibold rounded-md border border-outline-variant/20 hover:bg-surface-container-high transition-colors text-sm">
+<span class="material-symbols-outlined text-lg" data-icon="upload_file">upload_file</span>
+                        Import
+                    </button>
+<button class="flex items-center gap-2 px-4 py-2 bg-secondary-container text-on-secondary-container font-semibold rounded-md hover:opacity-90 transition-opacity text-sm">
+<span class="material-symbols-outlined text-lg" data-icon="send">send</span>
+                        Send Notifications
+                    </button>
+</div>
+</div>
+<!-- Bento Stats / Quick Segments -->
+<section class="grid grid-cols-1 md:grid-cols-4 gap-6">
+<div class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/10 shadow-sm flex flex-col justify-between min-h-[160px]">
+<div>
+<div class="flex justify-between items-start">
+<span class="text-xs font-bold uppercase tracking-wider text-on-surface-variant opacity-60">Total Reach</span>
+<span class="material-symbols-outlined text-primary/40" data-icon="groups">groups</span>
+</div>
+<h3 class="text-4xl font-extrabold text-primary mt-2">12,482</h3>
+</div>
+<div class="mt-4 flex items-center text-xs text-secondary font-medium">
+<span class="material-symbols-outlined text-sm mr-1" data-icon="trending_up">trending_up</span>
+                        8.4% increase from last month
+                    </div>
+</div>
+<div class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/10 shadow-sm flex flex-col justify-between min-h-[160px]">
+<div>
+<div class="flex justify-between items-start">
+<span class="text-xs font-bold uppercase tracking-wider text-on-surface-variant opacity-60">WhatsApp Opt-in</span>
+<span class="material-symbols-outlined text-primary/40" data-icon="chat">chat</span>
+</div>
+<h3 class="text-4xl font-extrabold text-primary mt-2">9,120</h3>
+</div>
+<div class="mt-4 text-xs font-medium px-2 py-1 bg-secondary-container text-on-secondary-container rounded inline-block self-start">
+                        73% Opt-in rate
+                    </div>
+</div>
+<div class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/10 shadow-sm flex flex-col justify-between min-h-[160px]">
+<div>
+<div class="flex justify-between items-start">
+<span class="text-xs font-bold uppercase tracking-wider text-on-surface-variant opacity-60">New This Week</span>
+<span class="material-symbols-outlined text-primary/40" data-icon="person_add">person_add</span>
+</div>
+<h3 class="text-4xl font-extrabold text-primary mt-2">458</h3>
+</div>
+<div class="mt-4 flex items-center gap-1">
+<div class="flex -space-x-2">
+<div class="w-6 h-6 rounded-full border-2 border-surface-container-lowest bg-surface-container-high overflow-hidden">
+<img alt="Avatar" class="w-full h-full object-cover" data-alt="close up headshot of a young professional woman smiling with natural lighting and soft background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCZN3tHEVYe68ZjCl6BhJ3zY1XOa-LdNhAXBPVChhPpTwkSi2LEdji1P3ywL1zxvqESKnXuAtoulU-HxyD9H0vGFQcUtr_XinGDh66VxnaMBfXN6gZA-5nZkBqlFkexVgQoRV5RVogz15kdDYUrcI04F2XX5r3HENGkZVPpO4DFy6kLgGbQwRlHSeo1-WNeFjVkoyYoMfJBuzb08w4OMUzCm_Q2wZf631S-S2cL9R22vqebuVIIC7oyKBjlGUVIilwP8IQoEy1w-oE"/>
+</div>
+<div class="w-6 h-6 rounded-full border-2 border-surface-container-lowest bg-surface-container-high overflow-hidden">
+<img alt="Avatar" class="w-full h-full object-cover" data-alt="portrait of a confident man with stylish glasses and clean-cut hair in a brightly lit studio setting" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAk7cQm4CX1spN8jJ5RR3Egb3FOaxl2mEX5yRIwx0jsrDgUyqRtoRo8GG6H5sx9YVo-w3jY_7hZA3ljF4nv2jNrAVUVujtJ9nFlVt7Lpp5wQB1s8Euxu3YZlWeHJC9E_SmyftVt7cnCRDTWfnEGcSBLgfb2sWl_ieOSFkbvQ3L0etwBUYjpoSbgUpjSVAI35Jn3JWe603SxW9ceax5vUmwao1A0YZ8T6333Q0ghBXPwjRZ-z8CgE44X-6kDa_VC4whfxSG1shT94_k"/>
+</div>
+</div>
+<span class="text-[10px] text-on-surface-variant font-medium ml-1">+456 more</span>
+</div>
+</div>
+<div class="bg-primary p-6 rounded-xl shadow-lg flex flex-col justify-center items-center text-center group cursor-pointer hover:bg-primary-container transition-all">
+<span class="material-symbols-outlined text-primary-fixed text-3xl mb-2 group-hover:scale-110 transition-transform" data-icon="filter_list">filter_list</span>
+<h3 class="text-white font-bold text-lg">Custom Filter</h3>
+<p class="text-primary-fixed/70 text-xs mt-1">Create advanced segments</p>
+</div>
+</section>
+<!-- Table Section -->
+<section class="bg-surface-container-lowest rounded-2xl overflow-hidden border border-outline-variant/10 shadow-sm">
+<div class="p-6 border-b border-surface-container flex justify-between items-center">
+<div class="flex items-center gap-4">
+<h3 class="text-lg font-bold text-primary">All Contacts</h3>
+<span class="px-2 py-0.5 bg-surface-container text-on-surface-variant text-[10px] font-bold rounded-full uppercase tracking-tighter">Verified</span>
+</div>
+<div class="flex items-center gap-2">
+<button class="p-2 hover:bg-surface-container rounded-md transition-colors text-on-surface-variant">
+<span class="material-symbols-outlined text-xl" data-icon="filter_alt">filter_alt</span>
+</button>
+<button class="p-2 hover:bg-surface-container rounded-md transition-colors text-on-surface-variant">
+<span class="material-symbols-outlined text-xl" data-icon="sort">sort</span>
+</button>
+<button class="p-2 hover:bg-surface-container rounded-md transition-colors text-on-surface-variant">
+<span class="material-symbols-outlined text-xl" data-icon="more_vert">more_vert</span>
+</button>
+</div>
+</div>
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-low">
+<th class="px-6 py-4 text-[10px] font-extrabold text-on-surface-variant uppercase tracking-[0.1em]">Contact Name</th>
+<th class="px-6 py-4 text-[10px] font-extrabold text-on-surface-variant uppercase tracking-[0.1em]">Phone Number</th>
+<th class="px-6 py-4 text-[10px] font-extrabold text-on-surface-variant uppercase tracking-[0.1em]">Email ID</th>
+<th class="px-6 py-4 text-[10px] font-extrabold text-on-surface-variant uppercase tracking-[0.1em]">Created On</th>
+<th class="px-6 py-4 text-[10px] font-extrabold text-on-surface-variant uppercase tracking-[0.1em]">Source</th>
+<th class="px-6 py-4 text-[10px] font-extrabold text-on-surface-variant uppercase tracking-[0.1em]">Tags</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-surface-container">
+<tr class="group hover:bg-surface-container-low transition-colors cursor-pointer">
+<td class="px-6 py-4">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-secondary-container flex items-center justify-center text-on-secondary-container font-bold text-xs">A</div>
+<span class="text-sm font-semibold text-primary">Arjun Mehta</span>
+</div>
+</td>
+<td class="px-6 py-4 text-sm text-on-surface-variant font-medium">+91 98765 43210</td>
+<td class="px-6 py-4 text-sm text-on-surface-variant">arjun.mehta@example.com</td>
+<td class="px-6 py-4 text-sm text-on-surface-variant">Oct 12, 2023</td>
+<td class="px-6 py-4">
+<span class="px-2 py-1 bg-surface-container rounded text-[11px] font-medium text-on-surface">Web Store</span>
+</td>
+<td class="px-6 py-4">
+<div class="flex gap-1">
+<span class="px-2 py-0.5 border border-outline-variant/30 rounded text-[10px] font-medium text-primary">VIP</span>
+<span class="px-2 py-0.5 border border-outline-variant/30 rounded text-[10px] font-medium text-primary">Repeat</span>
+</div>
+</td>
+</tr>
+<tr class="group hover:bg-surface-container-low transition-colors cursor-pointer">
+<td class="px-6 py-4">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-tertiary-fixed flex items-center justify-center text-on-tertiary-fixed font-bold text-xs">P</div>
+<span class="text-sm font-semibold text-primary">Priya Sharma</span>
+</div>
+</td>
+<td class="px-6 py-4 text-sm text-on-surface-variant font-medium">+91 91234 56789</td>
+<td class="px-6 py-4 text-sm text-on-surface-variant">priya.s@cloud.com</td>
+<td class="px-6 py-4 text-sm text-on-surface-variant">Oct 14, 2023</td>
+<td class="px-6 py-4">
+<span class="px-2 py-1 bg-surface-container rounded text-[11px] font-medium text-on-surface">Instagram</span>
+</td>
+<td class="px-6 py-4">
+<div class="flex gap-1">
+<span class="px-2 py-0.5 border border-outline-variant/30 rounded text-[10px] font-medium text-primary">New</span>
+</div>
+</td>
+</tr>
+<tr class="group hover:bg-surface-container-low transition-colors cursor-pointer">
+<td class="px-6 py-4">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-primary-fixed flex items-center justify-center text-on-primary-fixed font-bold text-xs">R</div>
+<span class="text-sm font-semibold text-primary">Rahul Kapoor</span>
+</div>
+</td>
+<td class="px-6 py-4 text-sm text-on-surface-variant font-medium">+91 99887 76655</td>
+<td class="px-6 py-4 text-sm text-on-surface-variant">rahul.kapoor@mail.in</td>
+<td class="px-6 py-4 text-sm text-on-surface-variant">Oct 15, 2023</td>
+<td class="px-6 py-4">
+<span class="px-2 py-1 bg-surface-container rounded text-[11px] font-medium text-on-surface">Manual</span>
+</td>
+<td class="px-6 py-4">
+<div class="flex gap-1">
+<span class="px-2 py-0.5 border border-outline-variant/30 rounded text-[10px] font-medium text-primary">Lead</span>
+<span class="px-2 py-0.5 border border-outline-variant/30 rounded text-[10px] font-medium text-primary">In-Person</span>
+</div>
+</td>
+</tr>
+<tr class="group hover:bg-surface-container-low transition-colors cursor-pointer">
+<td class="px-6 py-4">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-secondary-container flex items-center justify-center text-on-secondary-container font-bold text-xs">S</div>
+<span class="text-sm font-semibold text-primary">Sneha Reddy</span>
+</div>
+</td>
+<td class="px-6 py-4 text-sm text-on-surface-variant font-medium">+91 90000 11111</td>
+<td class="px-6 py-4 text-sm text-on-surface-variant">sneha.reddy@tech.org</td>
+<td class="px-6 py-4 text-sm text-on-surface-variant">Oct 15, 2023</td>
+<td class="px-6 py-4">
+<span class="px-2 py-1 bg-surface-container rounded text-[11px] font-medium text-on-surface">Referral</span>
+</td>
+<td class="px-6 py-4">
+<div class="flex gap-1">
+<span class="px-2 py-0.5 border border-outline-variant/30 rounded text-[10px] font-medium text-primary">Partner</span>
+</div>
+</td>
+</tr>
+<tr class="group hover:bg-surface-container-low transition-colors cursor-pointer">
+<td class="px-6 py-4">
+<div class="flex items-center gap-3">
+<div class="w-8 h-8 rounded-full bg-surface-container flex items-center justify-center text-on-surface-variant font-bold text-xs">V</div>
+<span class="text-sm font-semibold text-primary">Vikram Singh</span>
+</div>
+</td>
+<td class="px-6 py-4 text-sm text-on-surface-variant font-medium">+91 88776 65544</td>
+<td class="px-6 py-4 text-sm text-on-surface-variant">vikram.singh@biz.co</td>
+<td class="px-6 py-4 text-sm text-on-surface-variant">Oct 16, 2023</td>
+<td class="px-6 py-4">
+<span class="px-2 py-1 bg-surface-container rounded text-[11px] font-medium text-on-surface">Web Store</span>
+</td>
+<td class="px-6 py-4">
+<div class="flex gap-1">
+<span class="px-2 py-0.5 border border-outline-variant/30 rounded text-[10px] font-medium text-primary">Inactive</span>
+</div>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<div class="p-6 bg-surface-container-low flex justify-between items-center">
+<p class="text-xs text-on-surface-variant font-medium">Showing 1 to 5 of 12,482 entries</p>
+<div class="flex gap-2">
+<button class="w-8 h-8 flex items-center justify-center rounded border border-outline-variant/30 text-on-surface-variant hover:bg-surface hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-lg" data-icon="chevron_left">chevron_left</span>
+</button>
+<button class="w-8 h-8 flex items-center justify-center rounded bg-primary text-white text-xs font-bold shadow-sm">1</button>
+<button class="w-8 h-8 flex items-center justify-center rounded border border-outline-variant/30 text-xs font-bold text-on-surface-variant hover:bg-surface hover:text-primary transition-colors">2</button>
+<button class="w-8 h-8 flex items-center justify-center rounded border border-outline-variant/30 text-xs font-bold text-on-surface-variant hover:bg-surface hover:text-primary transition-colors">3</button>
+<button class="w-8 h-8 flex items-center justify-center rounded border border-outline-variant/30 text-on-surface-variant hover:bg-surface hover:text-primary transition-colors">
+<span class="material-symbols-outlined text-lg" data-icon="chevron_right">chevron_right</span>
+</button>
+</div>
+</div>
+</section>
+</div>
+</main>
+<!-- Floating Help / Glassmorphism -->
+<button class="fixed bottom-6 right-6 w-14 h-14 bg-primary/90 backdrop-blur-md rounded-full text-white shadow-2xl flex items-center justify-center group hover:scale-105 transition-all z-50">
+<span class="material-symbols-outlined text-2xl group-hover:rotate-12 transition-transform" data-icon="auto_awesome">auto_awesome</span>
+<span class="absolute right-16 bg-white text-primary text-xs font-bold py-2 px-4 rounded-lg shadow-lg opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap border border-outline-variant/10">Ask Interakt AI</span>
+</button>
+</body></html>

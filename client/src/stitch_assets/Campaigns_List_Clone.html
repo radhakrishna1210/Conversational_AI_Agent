@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Campaigns | Architectural Curator</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&amp;family=Inter:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+        tailwind.config = {
+            darkMode: "class",
+            theme: {
+                extend: {
+                    colors: {
+                        "outline": "#717974",
+                        "inverse-primary": "#a8cfbb",
+                        "surface-tint": "#416655",
+                        "secondary-fixed": "#c4ecd6",
+                        "on-error-container": "#93000a",
+                        "error-container": "#ffdad6",
+                        "surface": "#f9f9f8",
+                        "surface-variant": "#e1e3e2",
+                        "secondary-fixed-dim": "#a8cfbb",
+                        "on-surface-variant": "#414844",
+                        "on-primary-container": "#9bc2ae",
+                        "on-secondary-fixed": "#002115",
+                        "on-error": "#ffffff",
+                        "tertiary-container": "#524076",
+                        "background": "#f9f9f8",
+                        "inverse-on-surface": "#f0f1f0",
+                        "inverse-surface": "#2e3131",
+                        "tertiary": "#3b295e",
+                        "on-surface": "#191c1c",
+                        "surface-container-high": "#e7e8e7",
+                        "secondary": "#426655",
+                        "error": "#ba1a1a",
+                        "surface-container-low": "#f3f4f3",
+                        "surface-bright": "#f9f9f8",
+                        "primary": "#153a2b",
+                        "on-primary-fixed-variant": "#2a4e3e",
+                        "primary-fixed-dim": "#a8cfbb",
+                        "tertiary-fixed": "#ebddff",
+                        "surface-container": "#edeeed",
+                        "on-secondary-fixed-variant": "#2a4e3e",
+                        "on-tertiary-fixed-variant": "#4f3d73",
+                        "surface-container-highest": "#e1e3e2",
+                        "outline-variant": "#c1c8c2",
+                        "secondary-container": "#c4ecd6",
+                        "surface-container-lowest": "#ffffff",
+                        "on-tertiary-container": "#c5afed",
+                        "primary-fixed": "#c3ecd6",
+                        "on-tertiary": "#ffffff",
+                        "on-secondary": "#ffffff",
+                        "tertiary-fixed-dim": "#d2bcfb",
+                        "on-tertiary-fixed": "#220f44",
+                        "on-primary-fixed": "#002115",
+                        "on-background": "#191c1c",
+                        "primary-container": "#2d5141",
+                        "on-primary": "#ffffff",
+                        "surface-dim": "#d9dad9",
+                        "on-secondary-container": "#486c5b"
+                    },
+                    fontFamily: {
+                        "headline": ["Manrope"],
+                        "body": ["Inter"],
+                        "label": ["Inter"]
+                    },
+                    borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+                },
+            },
+        }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+            vertical-align: middle;
+        }
+        body { font-family: 'Inter', sans-serif; }
+        h1, h2, h3, .font-headline { font-family: 'Manrope', sans-serif; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+    </style>
+</head>
+<body class="bg-background text-on-background antialiased selection:bg-secondary-container selection:text-on-secondary-container">
+<!-- SideNavBar (Execution from JSON) -->
+<aside class="fixed left-0 top-0 h-full flex flex-col p-4 gap-2 bg-slate-50 dark:bg-zinc-950 h-screen w-64 border-r-0 z-50">
+<div class="flex items-center gap-3 px-2 mb-8">
+<div class="w-10 h-10 rounded-xl bg-primary flex items-center justify-center text-white">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">architecture</span>
+</div>
+<div>
+<h2 class="text-xl font-bold text-emerald-900 dark:text-emerald-500 tracking-tight leading-tight">Interakt Clone</h2>
+<p class="text-[10px] text-on-surface-variant uppercase tracking-widest font-bold">Architectural Curator</p>
+</div>
+</div>
+<nav class="flex-1 flex flex-col gap-1 overflow-y-auto no-scrollbar">
+<!-- Home -->
+<a class="flex items-center gap-3 px-4 py-3 text-slate-500 dark:text-zinc-500 hover:text-emerald-800 dark:hover:text-emerald-400 transition-colors hover:bg-slate-200/50 dark:hover:bg-zinc-800/50 font-manrope text-sm font-medium tracking-tight rounded-lg" href="#">
+<span class="material-symbols-outlined">home</span>
+<span>Home</span>
+</a>
+<!-- Inbox -->
+<a class="flex items-center gap-3 px-4 py-3 text-slate-500 dark:text-zinc-500 hover:text-emerald-800 dark:hover:text-emerald-400 transition-colors hover:bg-slate-200/50 dark:hover:bg-zinc-800/50 font-manrope text-sm font-medium tracking-tight rounded-lg" href="#">
+<span class="material-symbols-outlined">inbox</span>
+<span>Inbox</span>
+</a>
+<!-- Campaigns (Active) -->
+<a class="flex items-center gap-3 px-4 py-3 text-emerald-900 dark:text-emerald-300 font-bold bg-white dark:bg-zinc-800 rounded-lg shadow-sm font-manrope text-sm tracking-tight active:scale-95 transition-all duration-200 ease-in-out" href="#">
+<span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1;">campaign</span>
+<span>Campaigns</span>
+</a>
+<!-- Contacts -->
+<a class="flex items-center gap-3 px-4 py-3 text-slate-500 dark:text-zinc-500 hover:text-emerald-800 dark:hover:text-emerald-400 transition-colors hover:bg-slate-200/50 dark:hover:bg-zinc-800/50 font-manrope text-sm font-medium tracking-tight rounded-lg" href="#">
+<span class="material-symbols-outlined">contacts_product</span>
+<span>Contacts</span>
+</a>
+<!-- Market -->
+<a class="flex items-center gap-3 px-4 py-3 text-slate-500 dark:text-zinc-500 hover:text-emerald-800 dark:hover:text-emerald-400 transition-colors hover:bg-slate-200/50 dark:hover:bg-zinc-800/50 font-manrope text-sm font-medium tracking-tight rounded-lg" href="#">
+<span class="material-symbols-outlined">storefront</span>
+<span>Market</span>
+</a>
+<!-- Support -->
+<a class="flex items-center gap-3 px-4 py-3 text-slate-500 dark:text-zinc-500 hover:text-emerald-800 dark:hover:text-emerald-400 transition-colors hover:bg-slate-200/50 dark:hover:bg-zinc-800/50 font-manrope text-sm font-medium tracking-tight rounded-lg" href="#">
+<span class="material-symbols-outlined">support_agent</span>
+<span>Support</span>
+</a>
+<!-- Automation -->
+<a class="flex items-center gap-3 px-4 py-3 text-slate-500 dark:text-zinc-500 hover:text-emerald-800 dark:hover:text-emerald-400 transition-colors hover:bg-slate-200/50 dark:hover:bg-zinc-800/50 font-manrope text-sm font-medium tracking-tight rounded-lg" href="#">
+<span class="material-symbols-outlined">smart_toy</span>
+<span>Automation</span>
+</a>
+<!-- Sales CRM -->
+<a class="flex items-center gap-3 px-4 py-3 text-slate-500 dark:text-zinc-500 hover:text-emerald-800 dark:hover:text-emerald-400 transition-colors hover:bg-slate-200/50 dark:hover:bg-zinc-800/50 font-manrope text-sm font-medium tracking-tight rounded-lg" href="#">
+<span class="material-symbols-outlined">query_stats</span>
+<span>Sales CRM</span>
+</a>
+<!-- Integrations -->
+<a class="flex items-center gap-3 px-4 py-3 text-slate-500 dark:text-zinc-500 hover:text-emerald-800 dark:hover:text-emerald-400 transition-colors hover:bg-slate-200/50 dark:hover:bg-zinc-800/50 font-manrope text-sm font-medium tracking-tight rounded-lg" href="#">
+<span class="material-symbols-outlined">integration_instructions</span>
+<span>Integrations</span>
+</a>
+<!-- Settings -->
+<a class="flex items-center gap-3 px-4 py-3 text-slate-500 dark:text-zinc-500 hover:text-emerald-800 dark:hover:text-emerald-400 transition-colors hover:bg-slate-200/50 dark:hover:bg-zinc-800/50 font-manrope text-sm font-medium tracking-tight rounded-lg" href="#">
+<span class="material-symbols-outlined">settings</span>
+<span>Settings</span>
+</a>
+</nav>
+<div class="pt-4 border-t border-slate-200 dark:border-zinc-800 mt-4">
+<div class="flex items-center gap-3 px-2">
+<img alt="User Workspace Avatar" class="w-8 h-8 rounded-full bg-surface-variant" data-alt="professional corporate headshot of a creative director in a minimalist studio setting with soft natural light" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBT0RZEi2HzwWggonFIAi4TLN590cm_HeCpMCx1RTR4P_IEHio6b9IMKVfIhwiYqY217mcMrXGHCVD8LNHLv1fRZJPSvlf_rzMt3hbPJBPGUB_ubcmywBU7KGN9k3lKmjS_tRRYnEU-TjA_k_gAA8D3eez1EEfCtnDrngZuqSumJI4WjRHUuVV5opt4SqZve4WIb6mna6Feg7zqmo4YMH-PPyt5xFAe0VYkQXGq8DivvtmEdB6et6fkvTfynBHBvt1bvFj1fGh977g"/>
+<div class="overflow-hidden">
+<p class="text-xs font-bold truncate">Alex Curator</p>
+<p class="text-[10px] text-on-surface-variant truncate">Premium Plan</p>
+</div>
+</div>
+</div>
+</aside>
+<!-- TopNavBar (Execution from JSON) -->
+<header class="flex justify-between items-center px-8 w-full ml-64 max-w-[calc(100%-16rem)] w-full h-16 sticky top-0 z-40 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-md border-b border-slate-100 dark:border-zinc-800">
+<div class="flex items-center gap-4 flex-1">
+<div class="relative w-full max-w-md">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-lg">search</span>
+<input class="w-full bg-surface-container-low border-none rounded-full py-2 pl-10 pr-4 text-sm focus:ring-2 focus:ring-primary/20 transition-all font-body" placeholder="Search campaigns, contacts..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<div class="hidden lg:flex items-center gap-2 px-3 py-1.5 bg-secondary-container/30 rounded-full border border-secondary-container/50">
+<span class="material-symbols-outlined text-secondary text-sm">account_balance_wallet</span>
+<span class="text-emerald-900 dark:text-emerald-400 font-semibold font-manrope text-sm">Wallet: $1,250.00</span>
+</div>
+<div class="flex items-center gap-4">
+<button class="text-slate-600 dark:text-zinc-400 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors cursor-pointer active:opacity-70">
+<span class="material-symbols-outlined">notifications</span>
+</button>
+<button class="text-slate-600 dark:text-zinc-400 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors cursor-pointer active:opacity-70">
+<span class="material-symbols-outlined">help_outline</span>
+</button>
+</div>
+<button class="bg-primary text-on-primary px-4 py-2 rounded-md font-manrope text-sm font-semibold hover:opacity-90 transition-all active:scale-95 shadow-sm">
+                Create Campaign
+            </button>
+</div>
+</header>
+<!-- Main Content Canvas -->
+<main class="ml-64 p-8 min-h-screen">
+<!-- Dashboard Header Section -->
+<div class="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10">
+<div>
+<div class="flex items-center gap-3 mb-1">
+<h1 class="text-3xl font-extrabold tracking-tight text-on-surface font-headline">Campaigns</h1>
+<div class="flex items-center gap-1.5 px-2.5 py-1 bg-secondary-container text-on-secondary-container rounded-full text-[11px] font-bold uppercase tracking-wider">
+<span class="w-1.5 h-1.5 rounded-full bg-emerald-600"></span>
+                        Healthy
+                    </div>
+</div>
+<p class="text-on-surface-variant font-body">Manage and monitor your omnichannel communication strategies.</p>
+</div>
+<div class="flex flex-wrap gap-3">
+<button class="flex items-center gap-2 px-5 py-2.5 bg-surface-container-lowest border border-outline-variant/20 rounded-md text-sm font-semibold text-primary hover:bg-surface-container-low transition-colors shadow-sm font-headline">
+<span class="material-symbols-outlined text-lg">chat_bubble</span>
+                    Create RCS Campaign
+                </button>
+<button class="flex items-center gap-2 px-5 py-2.5 bg-primary text-on-primary rounded-md text-sm font-semibold hover:opacity-95 transition-all shadow-md font-headline">
+<span class="material-symbols-outlined text-lg">add</span>
+                    Create WhatsApp Campaign
+                </button>
+</div>
+</div>
+<!-- Tab Bar -->
+<div class="flex border-b border-surface-variant mb-8 overflow-x-auto no-scrollbar">
+<button class="px-6 py-4 text-sm font-bold text-primary border-b-2 border-primary whitespace-nowrap font-headline">One Time Campaigns</button>
+<button class="px-6 py-4 text-sm font-medium text-on-surface-variant hover:text-primary transition-colors whitespace-nowrap font-headline">Ongoing Campaigns</button>
+<button class="px-6 py-4 text-sm font-medium text-on-surface-variant hover:text-primary transition-colors whitespace-nowrap font-headline">API campaigns</button>
+</div>
+<!-- Filter Bar (Bento-lite style) -->
+<div class="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-3 mb-8">
+<div class="col-span-1 md:col-span-2 relative">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-on-surface-variant text-lg">search</span>
+<input class="w-full bg-surface-container-low border-none rounded-xl py-3 pl-10 text-sm focus:ring-1 focus:ring-primary/20 transition-all font-body" placeholder="Search by name..." type="text"/>
+</div>
+<select class="bg-surface-container-low border-none rounded-xl py-3 px-4 text-sm focus:ring-1 focus:ring-primary/20 font-body text-on-surface-variant">
+<option>WhatsApp Channel</option>
+</select>
+<select class="bg-surface-container-low border-none rounded-xl py-3 px-4 text-sm focus:ring-1 focus:ring-primary/20 font-body text-on-surface-variant">
+<option>Status</option>
+</select>
+<select class="bg-surface-container-low border-none rounded-xl py-3 px-4 text-sm focus:ring-1 focus:ring-primary/20 font-body text-on-surface-variant">
+<option>Category</option>
+</select>
+<button class="bg-surface-container-low flex items-center justify-between px-4 py-3 rounded-xl text-sm font-medium text-on-surface-variant hover:bg-surface-container-high transition-colors">
+<span>Date Range</span>
+<span class="material-symbols-outlined text-lg">calendar_today</span>
+</button>
+</div>
+<!-- Data Table Section -->
+<div class="bg-surface-container-lowest rounded-xl overflow-hidden border border-outline-variant/10 shadow-[0_4px_20px_-4px_rgba(0,0,0,0.03)]">
+<div class="overflow-x-auto">
+<table class="w-full text-left border-collapse">
+<thead>
+<tr class="bg-surface-container-low">
+<th class="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-on-surface-variant/80 font-label">Campaign Name</th>
+<th class="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-on-surface-variant/80 font-label">Channel</th>
+<th class="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-on-surface-variant/80 font-label">Created By</th>
+<th class="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-on-surface-variant/80 font-label">Status</th>
+<th class="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-on-surface-variant/80 font-label">Attempted</th>
+<th class="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-on-surface-variant/80 font-label">Sent</th>
+<th class="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-on-surface-variant/80 font-label">Read</th>
+<th class="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-on-surface-variant/80 font-label">Set Live</th>
+<th class="px-6 py-4 text-[11px] font-bold uppercase tracking-widest text-on-surface-variant/80 font-label">Actions</th>
+</tr>
+</thead>
+<tbody class="divide-y divide-surface-variant/30">
+<!-- Row 1 -->
+<tr class="hover:bg-surface-container-low/50 transition-colors group">
+<td class="px-6 py-5">
+<div class="font-semibold text-primary font-headline">Summer Flash Sale - VIP</div>
+<div class="text-[11px] text-on-surface-variant font-label">Promo • ID: CAM-90122</div>
+</td>
+<td class="px-6 py-5">
+<div class="flex items-center gap-2">
+<div class="w-6 h-6 rounded bg-[#25D366]/10 flex items-center justify-center text-[#25D366]">
+<span class="material-symbols-outlined text-sm">chat</span>
+</div>
+<span class="text-sm font-medium">WhatsApp</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<div class="flex items-center gap-2">
+<img alt="Creator Avatar" class="w-6 h-6 rounded-full" data-alt="close up profile photo of a professional woman with a warm smile and blurred urban background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCQUCl-FRkpsayNBdIh5x4__1n3B2mhm-CdbnDe5zxouAzmV5Udl_ofm_e0GgYyGQDf-gZvEXk9motSkU_Eb4Z8BVHIZxC-tKeLaZ0Ih8-RsbwMtI5Nr8xAKOZlLhCOI_utOX1GAZemGxXoV5ncYqnP-sXVBKNHG1crOte1tsi9Lh_LGEFx2kQAaq6zgqyTc7R9_i162eZhvSmsQNBLqz4kbvhDYMt6v8SO0-RZ5g8ndOPvT45TTl2vVcIUZ0_Nbh3F1dBFb_A53p4"/>
+<span class="text-sm">Alex M.</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<span class="px-2.5 py-1 bg-secondary-container text-on-secondary-container text-[11px] font-bold rounded-full uppercase tracking-tighter">Completed</span>
+</td>
+<td class="px-6 py-5 font-body text-sm font-medium">45,200</td>
+<td class="px-6 py-5 font-body text-sm font-medium">44,890</td>
+<td class="px-6 py-5">
+<div class="text-sm font-medium">32,100</div>
+<div class="text-[10px] text-emerald-600 font-bold">71.5%</div>
+</td>
+<td class="px-6 py-5 text-sm text-on-surface-variant">Jun 12, 10:30 AM</td>
+<td class="px-6 py-5">
+<button class="p-1.5 hover:bg-surface-variant rounded-md transition-colors opacity-0 group-hover:opacity-100">
+<span class="material-symbols-outlined text-on-surface-variant">more_vert</span>
+</button>
+</td>
+</tr>
+<!-- Row 2 -->
+<tr class="hover:bg-surface-container-low/50 transition-colors group">
+<td class="px-6 py-5">
+<div class="font-semibold text-primary font-headline">Re-engagement Wave 2</div>
+<div class="text-[11px] text-on-surface-variant font-label">Retention • ID: CAM-90125</div>
+</td>
+<td class="px-6 py-5">
+<div class="flex items-center gap-2">
+<div class="w-6 h-6 rounded bg-primary/10 flex items-center justify-center text-primary">
+<span class="material-symbols-outlined text-sm">sms</span>
+</div>
+<span class="text-sm font-medium">RCS</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<div class="flex items-center gap-2">
+<img alt="Creator Avatar" class="w-6 h-6 rounded-full" data-alt="modern minimalist studio portrait of a man with clean spectacles and a thoughtful expression" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAMV9RIme8_-Q74xZBDKUhyaTJsXrv_veAw7FBQG0Q78FSREAywGCwmhgIn68P3ugOG6HsBcjanUjZXWwgEHF0DcdVSMyjCtHv282BSKldkPRVZDyYnyE7mjDmL75fBv9Sh8oALt52i4ANWZLAFWr597g4yiej6lhiqUYxiBAxi2Q2-4jpKW0G3RK7e0F4S4MuraVGV6NxAq5RAV_MBEoHT2758r6Fl4bNQdYpHrlcdXTnqH5d-xUY9pP1pUq5ESMa8AEMHY1wF974"/>
+<span class="text-sm">John D.</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<span class="px-2.5 py-1 bg-tertiary-container/20 text-tertiary text-[11px] font-bold rounded-full uppercase tracking-tighter">Scheduled</span>
+</td>
+<td class="px-6 py-5 font-body text-sm font-medium">—</td>
+<td class="px-6 py-5 font-body text-sm font-medium">—</td>
+<td class="px-6 py-5">—</td>
+<td class="px-6 py-5 text-sm text-on-surface-variant">Jun 25, 09:00 AM</td>
+<td class="px-6 py-5">
+<button class="p-1.5 hover:bg-surface-variant rounded-md transition-colors opacity-0 group-hover:opacity-100">
+<span class="material-symbols-outlined text-on-surface-variant">more_vert</span>
+</button>
+</td>
+</tr>
+<!-- Row 3 -->
+<tr class="hover:bg-surface-container-low/50 transition-colors group">
+<td class="px-6 py-5">
+<div class="font-semibold text-primary font-headline">New Product Drop</div>
+<div class="text-[11px] text-on-surface-variant font-label">Utility • ID: CAM-90119</div>
+</td>
+<td class="px-6 py-5">
+<div class="flex items-center gap-2">
+<div class="w-6 h-6 rounded bg-[#25D366]/10 flex items-center justify-center text-[#25D366]">
+<span class="material-symbols-outlined text-sm">chat</span>
+</div>
+<span class="text-sm font-medium">WhatsApp</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<div class="flex items-center gap-2">
+<img alt="Creator Avatar" class="w-6 h-6 rounded-full" data-alt="professional portrait of a young male architect in a bright modern office with blueprints in background" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBnq7EQG99JRkjg4ADnoHfQzhh4fXWuL_6EgQF4z6FTeDzyo-Hvszv_kxOU1np1YKvCGPeId6uUnljFZ0PWA5vF_P-vddvo8bueNtk3LZitwEolvhjVQnMuyWdxWIQeNNyUL1G0653TnjqmqSa6CqrTx9OaKrLVjBOHt0tyYufDj8lF4RbAvhpNg45lKruRXCKqzpgGsxx8WwKrb1XYtijAixz2mzC0ataWFaip8iBWbmDEXuCqCDzF_99WC5GkgOYdlpl1YWTDWyo"/>
+<span class="text-sm">Sarah C.</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<span class="px-2.5 py-1 bg-secondary-container text-on-secondary-container text-[11px] font-bold rounded-full uppercase tracking-tighter">Completed</span>
+</td>
+<td class="px-6 py-5 font-body text-sm font-medium">128,400</td>
+<td class="px-6 py-5 font-body text-sm font-medium">127,900</td>
+<td class="px-6 py-5">
+<div class="text-sm font-medium">98,200</div>
+<div class="text-[10px] text-emerald-600 font-bold">76.8%</div>
+</td>
+<td class="px-6 py-5 text-sm text-on-surface-variant">Jun 10, 04:15 PM</td>
+<td class="px-6 py-5">
+<button class="p-1.5 hover:bg-surface-variant rounded-md transition-colors opacity-0 group-hover:opacity-100">
+<span class="material-symbols-outlined text-on-surface-variant">more_vert</span>
+</button>
+</td>
+</tr>
+<!-- Row 4 -->
+<tr class="hover:bg-surface-container-low/50 transition-colors group">
+<td class="px-6 py-5">
+<div class="font-semibold text-primary font-headline">Holiday Greetings</div>
+<div class="text-[11px] text-on-surface-variant font-label">Social • ID: CAM-90110</div>
+</td>
+<td class="px-6 py-5">
+<div class="flex items-center gap-2">
+<div class="w-6 h-6 rounded bg-[#25D366]/10 flex items-center justify-center text-[#25D366]">
+<span class="material-symbols-outlined text-sm">chat</span>
+</div>
+<span class="text-sm font-medium">WhatsApp</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<div class="flex items-center gap-2">
+<img alt="Creator Avatar" class="w-6 h-6 rounded-full" data-alt="artistic portrait of a woman designer with colorful lighting and high contrast editorial feel" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAdW2sNsqJT2wvjMmARiyueGszusqsg8914XMcif_hN8lwJK5bx0YRClOuRn4LFkN1MsO2MqQUFP3R4QWygbYHdk9ij_T9tytZHJO6KjwTO01aW9GbugRg0p62Qx-tAFn28V4-Fr5gbbldR2_YtefKFQsMQZuffT_ZsLo2RCk3Rexbku4AZqJdvGKl66I495FIwCNKUJf9MLIzcBTHFLptXgX5niwv2V6eqfjIAzoCMM_I2nvWfm47OzXDvA5ep4cU811UrOgDtbGI"/>
+<span class="text-sm">Alex M.</span>
+</div>
+</td>
+<td class="px-6 py-5">
+<span class="px-2.5 py-1 bg-secondary-container text-on-secondary-container text-[11px] font-bold rounded-full uppercase tracking-tighter">Completed</span>
+</td>
+<td class="px-6 py-5 font-body text-sm font-medium">12,000</td>
+<td class="px-6 py-5 font-body text-sm font-medium">11,850</td>
+<td class="px-6 py-5">
+<div class="text-sm font-medium">10,500</div>
+<div class="text-[10px] text-emerald-600 font-bold">88.6%</div>
+</td>
+<td class="px-6 py-5 text-sm text-on-surface-variant">Jun 01, 12:00 PM</td>
+<td class="px-6 py-5">
+<button class="p-1.5 hover:bg-surface-variant rounded-md transition-colors opacity-0 group-hover:opacity-100">
+<span class="material-symbols-outlined text-on-surface-variant">more_vert</span>
+</button>
+</td>
+</tr>
+</tbody>
+</table>
+</div>
+<!-- Pagination -->
+<div class="px-6 py-5 flex items-center justify-between bg-surface-container-low/30">
+<div class="text-xs text-on-surface-variant font-label">
+                    Showing <span class="font-bold text-on-surface">1 - 10</span> of <span class="font-bold text-on-surface">458</span> campaigns
+                </div>
+<div class="flex items-center gap-1">
+<button class="p-2 hover:bg-surface-container rounded-md transition-all text-on-surface-variant disabled:opacity-30" disabled="">
+<span class="material-symbols-outlined text-lg">chevron_left</span>
+</button>
+<button class="w-8 h-8 rounded-md bg-primary text-on-primary text-xs font-bold shadow-sm">1</button>
+<button class="w-8 h-8 rounded-md hover:bg-surface-container text-xs font-medium transition-all">2</button>
+<button class="w-8 h-8 rounded-md hover:bg-surface-container text-xs font-medium transition-all">3</button>
+<span class="px-2 text-on-surface-variant">...</span>
+<button class="w-8 h-8 rounded-md hover:bg-surface-container text-xs font-medium transition-all">46</button>
+<button class="p-2 hover:bg-surface-container rounded-md transition-all text-on-surface-variant">
+<span class="material-symbols-outlined text-lg">chevron_right</span>
+</button>
+</div>
+<div class="flex items-center gap-3">
+<span class="text-xs text-on-surface-variant font-label">Rows per page:</span>
+<select class="bg-transparent border-none text-xs font-bold focus:ring-0 cursor-pointer">
+<option>10</option>
+<option>25</option>
+<option>50</option>
+</select>
+</div>
+</div>
+</div>
+<!-- Automation Insight Section (Bento Pattern) -->
+<div class="mt-12 grid grid-cols-1 lg:grid-cols-3 gap-6">
+<div class="lg:col-span-2 bg-gradient-to-br from-primary to-primary-container p-8 rounded-2xl text-on-primary relative overflow-hidden shadow-lg">
+<div class="relative z-10 flex flex-col h-full">
+<h3 class="text-2xl font-extrabold font-headline mb-2">Omnichannel Mastery</h3>
+<p class="text-on-primary-container leading-relaxed mb-6 max-w-md">Your campaign performance is in the top 5% this month. RCS adoption has increased engagement by 24% compared to standard SMS.</p>
+<div class="mt-auto flex gap-4">
+<button class="px-4 py-2 bg-white text-primary rounded-md text-sm font-bold shadow-sm">View Insights</button>
+<button class="px-4 py-2 bg-white/10 backdrop-blur-md text-white border border-white/20 rounded-md text-sm font-bold">Optimization Guide</button>
+</div>
+</div>
+<!-- Abstract decorative element -->
+<div class="absolute -right-12 -bottom-12 w-64 h-64 bg-secondary/20 rounded-full blur-3xl"></div>
+<div class="absolute right-12 top-12 opacity-10">
+<span class="material-symbols-outlined text-9xl">insights</span>
+</div>
+</div>
+<div class="bg-secondary-container p-6 rounded-2xl flex flex-col justify-between border border-secondary-container/50">
+<div>
+<div class="flex items-center justify-between mb-4">
+<span class="material-symbols-outlined text-on-secondary-container text-3xl">rocket_launch</span>
+<span class="text-[10px] font-extrabold uppercase tracking-widest text-on-secondary-container/60">System Ready</span>
+</div>
+<h4 class="text-lg font-bold text-on-secondary-container font-headline mb-1">Quick Campaign Launch</h4>
+<p class="text-sm text-on-secondary-container/80 font-body">Use your most successful template from last week to reach 4.2k active subscribers instantly.</p>
+</div>
+<button class="mt-6 w-full py-3 bg-white/40 hover:bg-white/60 transition-colors rounded-xl text-primary font-bold text-sm">Draft Now</button>
+</div>
+</div>
+</main>
+<!-- Floating Action Button (Shell visibility) -->
+<div class="fixed bottom-8 right-8 z-50">
+<button class="group flex items-center gap-3 bg-primary text-on-primary px-6 py-4 rounded-full shadow-2xl hover:scale-105 active:scale-95 transition-all">
+<span class="material-symbols-outlined text-2xl" style="font-variation-settings: 'FILL' 1;">bolt</span>
+<span class="max-w-0 overflow-hidden group-hover:max-w-xs transition-all duration-300 ease-in-out font-bold whitespace-nowrap">Quick Blast</span>
+</button>
+</div>
+</body></html>

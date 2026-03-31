@@ -39,6 +39,7 @@ import WHInbox from './pages/wh/WHInbox';
 import WHAutomation from './pages/wh/WHAutomation';
 import WHAnalytics from './pages/wh/WHAnalytics';
 import WHSettings from './pages/wh/WHSettings';
+import WHCreateCampaign from './pages/wh/WHCreateCampaign';
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -61,8 +62,30 @@ function DefaultLayout({ children }: { children: React.ReactNode }) {
 }
 
 function ProtectedRoute() {
+  // Check if user just logged out
+  if (sessionStorage.getItem('loggedOut')) {
+    sessionStorage.removeItem('loggedOut');
+    localStorage.removeItem('token');
+    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('workspaceId');
+  }
+
   const token = localStorage.getItem('token');
   if (!token) return <Navigate to="/login" replace />;
+
+  // Also check JWT expiry
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    if (payload.exp * 1000 < Date.now()) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('refreshToken');
+      localStorage.removeItem('workspaceId');
+      return <Navigate to="/login" replace />;
+    }
+  } catch {
+    return <Navigate to="/login" replace />;
+  }
+
   return <Outlet />;
 }
 
@@ -108,6 +131,7 @@ function App() {
             <Route path="api" element={<WHApiManagement />} />
             <Route path="templates" element={<WHTemplates />} />
             <Route path="campaigns" element={<WHCampaigns />} />
+            <Route path="create-campaign" element={<WHCreateCampaign />} />
             <Route path="inbox" element={<WHInbox />} />
             <Route path="automation" element={<WHAutomation />} />
             <Route path="analytics" element={<WHAnalytics />} />
