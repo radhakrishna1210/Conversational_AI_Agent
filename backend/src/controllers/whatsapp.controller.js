@@ -38,25 +38,49 @@ export const deleteNumber = async (req, res) => {
   res.json({ message: 'Number removed' });
 };
 
+export const connectTwilio = async (req, res) => {
+  const { accountSid, authToken } = req.body;
+  const numbers = await whatsappService.connectTwilioNumbers(req.params.workspaceId, accountSid, authToken);
+  logger.info({ workspaceId: req.params.workspaceId, count: numbers.length }, 'Twilio numbers connected');
+  res.json({ message: `${numbers.length} number(s) imported from Twilio`, numbers });
+};
+
+export const connectOwnNumber = async (req, res) => {
+  const { phoneNumber, metaPhoneNumberId, wabaId, accessToken, displayName } = req.body;
+  const number = await whatsappService.connectOwnNumber(req.params.workspaceId, {
+    phoneNumber, metaPhoneNumberId, wabaId, accessToken, displayName,
+  });
+  logger.info({ workspaceId: req.params.workspaceId, phoneNumber }, 'Own number connected');
+  res.status(201).json({ message: 'Number connected', number });
+};
+
 // ─── onboardWorkspace ─────────────────────────────────────────────────────────
+
+export const getAvailablePool = async (req, res) => {
+  const entries = await prisma.numberPool.findMany({
+    where: { status: 'AVAILABLE' },
+    select: { id: true, phoneNumber: true, displayName: true },
+    orderBy: { createdAt: 'asc' },
+  });
+  res.json(entries);
+};
 
 export const onboardWorkspace = async (req, res) => {
   const { workspaceId } = req.params;
-
-  if (req.workspace.numberAssigned) {
-    return res.status(409).json({ error: 'This workspace already has a WhatsApp number assigned' });
-  }
+  const { poolEntryId } = req.body;
 
   // Numbers are pre-loaded under the platform WABA — use the pool entry's
   // existing wabaId directly (no sub-WABA creation needed).
-  const poolEntry = await prisma.numberPool.findFirst({ where: { status: 'AVAILABLE' } });
+  const poolEntry = await prisma.numberPool.findFirst({
+    where: { status: 'AVAILABLE', ...(poolEntryId ? { id: poolEntryId } : {}) },
+  });
   if (!poolEntry) {
     return res.status(503).json({ error: 'No numbers available. Please contact support.' });
   }
 
   let assigned;
   try {
-    assigned = await assignNumberFromPool(workspaceId, poolEntry.wabaId);
+    assigned = await assignNumberFromPool(workspaceId, poolEntry.wabaId, poolEntry.id);
   } catch (err) {
     if (err.statusCode === 503) {
       return res.status(503).json({ error: err.message });

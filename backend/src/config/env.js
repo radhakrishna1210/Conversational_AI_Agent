@@ -28,6 +28,7 @@ export const env = {
   ENCRYPTION_KEY: optional('ENCRYPTION_KEY'),
 
   CLIENT_URL: optional('CLIENT_URL', 'http://localhost:5173'),
+  CHATFLOW_PRO_URL: optional('CHATFLOW_PRO_URL', 'http://localhost:8080'),
 
   GOOGLE_CLIENT_ID: optional('GOOGLE_CLIENT_ID'),
   GOOGLE_CLIENT_SECRET: optional('GOOGLE_CLIENT_SECRET'),

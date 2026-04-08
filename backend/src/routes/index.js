@@ -19,6 +19,11 @@ import settingsRoutes from './settings.routes.js';
 
 const router = Router();
 
+// Public config — safe to expose (no secrets)
+router.get('/config', (_req, res) => {
+  res.json({ metaAppId: process.env.META_APP_ID ?? null });
+});
+
 // Public
 router.use('/auth', authRoutes);
 

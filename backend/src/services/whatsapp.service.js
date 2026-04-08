@@ -1,6 +1,6 @@
 import prisma from '../config/prisma.js';
 import { metaPost } from '../lib/metaApi.js';
-import { decryptToken } from '../lib/encryption.js';
+import { decryptToken, encryptToken } from '../lib/encryption.js';
 
 export const listNumbers = (workspaceId) =>
   prisma.whatsappNumber.findMany({
@@ -65,6 +65,74 @@ export const updateBusinessProfile = (workspaceId, numberId, data) =>
 
 export const deleteNumber = (workspaceId, numberId) =>
   prisma.whatsappNumber.delete({ where: { id: numberId, workspaceId } });
+
+export const connectTwilioNumbers = async (workspaceId, accountSid, authToken) => {
+  const credentials = Buffer.from(`${accountSid}:${authToken}`).toString('base64');
+  const res = await fetch(
+    `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/IncomingPhoneNumbers.json?PageSize=100`,
+    { headers: { Authorization: `Basic ${credentials}` } }
+  );
+
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw Object.assign(
+      new Error(err.message ?? `Twilio error: ${res.status}`),
+      { statusCode: res.status === 401 ? 401 : 502 }
+    );
+  }
+
+  const data = await res.json();
+  const numbers = data.incoming_phone_numbers ?? [];
+
+  const saved = [];
+  for (const num of numbers) {
+    const record = await prisma.whatsappNumber.upsert({
+      where: { workspaceId_phoneNumber: { workspaceId, phoneNumber: num.phone_number } },
+      create: {
+        workspaceId,
+        phoneNumber:       num.phone_number,
+        displayName:       num.friendly_name ?? num.phone_number,
+        metaPhoneNumberId: num.sid,
+        wabaId:            accountSid,
+        accessToken:       encryptToken(authToken),
+        category:          'twilio',
+        status:            'ACTIVE',
+      },
+      update: {
+        displayName:       num.friendly_name ?? num.phone_number,
+        metaPhoneNumberId: num.sid,
+        wabaId:            accountSid,
+        accessToken:       encryptToken(authToken),
+        category:          'twilio',
+        status:            'ACTIVE',
+      },
+    });
+    saved.push(record);
+  }
+
+  return saved;
+};
+
+export const connectOwnNumber = (workspaceId, { phoneNumber, metaPhoneNumberId, wabaId, accessToken, displayName }) =>
+  prisma.whatsappNumber.upsert({
+    where: { workspaceId_phoneNumber: { workspaceId, phoneNumber } },
+    create: {
+      workspaceId,
+      phoneNumber,
+      displayName: displayName || phoneNumber,
+      metaPhoneNumberId,
+      wabaId,
+      accessToken: encryptToken(accessToken),
+      status: 'Approved',
+    },
+    update: {
+      displayName: displayName || phoneNumber,
+      metaPhoneNumberId,
+      wabaId,
+      accessToken: encryptToken(accessToken),
+      status: 'Approved',
+    },
+  });
 
 export const sendMessage = async (workspace, to, message) => {
   const number = await prisma.whatsappNumber.findFirst({

@@ -1,14 +1,11 @@
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import WHSidebar from './WHSidebar';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [showBanner, setShowBanner] = useState(true);
   const location = useLocation();
   const navigate = useNavigate();
   const path = location.pathname;
-  
-  const isWHPage = path === '/wh' || path.startsWith('/wh/');
 
   return (
     <div className="dashboard-layout">
@@ -31,17 +28,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </div>
 
-      {/* Expandable Sidebar */}
-      <aside className={`sidebar ${isWHPage ? 'sidebar-locked' : ''}`} style={isWHPage ? { pointerEvents: 'none' } : {}}>
-        <Link to="/" style={{textDecoration: 'none', pointerEvents: isWHPage ? 'auto' : 'auto'}}>
+      {/* Sidebar */}
+      <aside className="sidebar">
+        <Link to="/" style={{textDecoration: 'none'}}>
           <div className="sidebar-header">
             <div className="sidebar-logo-icon">O</div>
             <div className="sidebar-logo-text">OMNI<span style={{color: 'white', fontWeight: 300}}>DIMENSION</span></div>
           </div>
         </Link>
 
-        {/* Re-enable pointer events for inner content to allow clicking active icons even if locked */}
-        <div className="sidebar-content-scroll" style={isWHPage ? { pointerEvents: 'auto' } : {}}>
+        <div className="sidebar-content-scroll">
           <div className="sidebar-section">
             <div className="sidebar-category">VOICE AI SETUP</div>
             <Link to="/dashboard" style={{textDecoration: 'none'}}>
@@ -107,12 +103,27 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <span className="sidebar-text">WhatsApp</span>
               </div>
             </Link>
-            <Link to="/wh" style={{textDecoration: 'none'}}>
-              <div className={`sidebar-item ${path === '/wh' ? 'active' : ''}`}>
-                <span className="sidebar-icon" style={{fontSize: '15px'}}>📝</span>
-                <span className="sidebar-text">WH</span>
+            <a
+              href="#"
+              style={{textDecoration: 'none'}}
+              onClick={e => {
+                e.preventDefault();
+                const base = import.meta.env.VITE_WHABRIDGE_URL ?? '/WhaBridge';
+                const token = localStorage.getItem('token') ?? '';
+                const workspaceId = localStorage.getItem('workspaceId') ?? '';
+                const refreshToken = localStorage.getItem('refreshToken') ?? '';
+                const url = new URL(base, window.location.origin);
+                url.searchParams.set('token', token);
+                url.searchParams.set('workspaceId', workspaceId);
+                if (refreshToken) url.searchParams.set('refreshToken', refreshToken);
+                window.location.href = url.toString();
+              }}
+            >
+              <div className="sidebar-item">
+                <span className="sidebar-icon" style={{fontSize: '15px'}}>🟢</span>
+                <span className="sidebar-text">WhaBridge</span>
               </div>
-            </Link>
+            </a>
           </div>
 
           <div className="sidebar-section">
@@ -131,10 +142,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             </Link>
           </div>
         </div>
-        
+
         <div className="sidebar-spacer"></div>
 
-        <div className="sidebar-bottom" style={isWHPage ? { pointerEvents: 'auto' } : {}}>
+        <div className="sidebar-bottom">
           <Link to="/settings" style={{textDecoration: 'none'}}>
             <div className={`sidebar-item ${path === '/settings' ? 'active' : ''}`}>
               <span className="sidebar-icon">⚙️</span>
@@ -152,10 +163,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </aside>
 
-      {isWHPage && <WHSidebar />}
-
       {/* Main Content Area */}
-      <main className="dashboard-main" style={{ marginTop: '56px', marginLeft: isWHPage ? '136px' : '64px', transition: 'margin-left 0.3s' }}>
+      <main className="dashboard-main" style={{ marginTop: '56px', marginLeft: '64px' }}>
         {showBanner && (
           <div className="announcement-dash">
             <span>✨ Get your own phone number and attach your assistant now!</span>

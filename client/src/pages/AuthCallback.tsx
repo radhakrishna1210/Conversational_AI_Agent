@@ -21,7 +21,7 @@ export default function AuthCallback() {
     if (refreshToken) localStorage.setItem('refreshToken', refreshToken);
     if (workspaceId) localStorage.setItem('workspaceId', workspaceId);
 
-    navigate('/wh');
+    navigate('/dashboard');
   }, []);
 
   return (

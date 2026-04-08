@@ -7,6 +7,9 @@ import * as ctrl from '../controllers/admin.controller.js';
 
 const router = Router();
 
+// One-time admin operation: import all Twilio numbers into the pool
+router.post('/twilio/sync', authenticate, isAdmin, ctrl.syncTwilioNumbers);
+
 router.post(
   '/numbers/add',
   authenticate,

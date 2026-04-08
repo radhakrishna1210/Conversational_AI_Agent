@@ -45,7 +45,7 @@ export default function Login() {
       }
 
       setStatus('success');
-      setTimeout(() => navigate('/wh'), 600);
+      setTimeout(() => navigate('/dashboard'), 600);
     } catch {
       setErrorMsg('Network error. Please check your connection.');
       setStatus('error');

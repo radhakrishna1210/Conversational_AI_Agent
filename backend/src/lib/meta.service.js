@@ -61,13 +61,15 @@ export const createSubWABA = async (workspaceId, businessName) => {
  * @param {string} wabaId
  * @returns {Promise<AssignedNumberResult>}
  */
-export const assignNumberFromPool = async (workspaceId, wabaId) => {
+export const assignNumberFromPool = async (workspaceId, wabaId, specificPoolEntryId = null) => {
   // Interactive transaction so findFirst + updateMany form one atomic unit,
   // preventing two concurrent requests from claiming the same pool entry.
   let poolEntry;
 
   await prisma.$transaction(async (tx) => {
-    poolEntry = await tx.numberPool.findFirst({ where: { status: 'AVAILABLE' } });
+    poolEntry = await tx.numberPool.findFirst({
+      where: { status: 'AVAILABLE', ...(specificPoolEntryId ? { id: specificPoolEntryId } : {}) },
+    });
 
     if (!poolEntry) {
       throw Object.assign(

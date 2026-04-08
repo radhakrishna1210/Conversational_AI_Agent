@@ -20,6 +20,9 @@ export async function* parseCsvFile(filePath) {
 /**
  * Normalise a phone number to E.164 format (basic).
  * Strips spaces, dashes, parentheses.
+ * Returns null if input is falsy.
  */
-export const normalisePhone = (raw) =>
-  raw.replace(/[\s\-\(\)]/g, '').replace(/^00/, '+');
+export const normalisePhone = (raw) => {
+  if (!raw) return null;
+  return String(raw).replace(/[\s\-\(\)]/g, '').replace(/^00/, '+');
+};

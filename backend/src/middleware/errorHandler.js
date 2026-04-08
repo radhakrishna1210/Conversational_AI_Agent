@@ -1,10 +1,17 @@
 import { ZodError } from 'zod';
 import { Prisma } from '@prisma/client';
+import multer from 'multer';
 import { MetaApiError } from '../lib/metaApi.js';
 import logger from '../lib/logger.js';
 
 export const errorHandler = (err, req, res, next) => {
   logger.error({ err, url: req.url, method: req.method }, 'Request error');
+
+  // Bug fix #8: Multer file size / type errors
+  if (err instanceof multer.MulterError) {
+    const status = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+    return res.status(status).json({ error: err.message });
+  }
 
   // Zod validation error
   if (err instanceof ZodError) {

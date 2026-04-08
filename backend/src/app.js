@@ -12,8 +12,12 @@ const app = express();
 
 app.use(helmet());
 
+const allowedOrigins = [env.CLIENT_URL, env.CHATFLOW_PRO_URL].filter(Boolean);
 app.use(cors({
-  origin: env.CLIENT_URL,
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
+    callback(new Error(`CORS: origin ${origin} not allowed`));
+  },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
