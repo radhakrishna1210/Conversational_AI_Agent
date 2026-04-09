@@ -10,8 +10,6 @@ import logger from './lib/logger.js';
 
 const app = express();
 
-app.use(helmet());
-
 const allowedOrigins = [env.CLIENT_URL, env.CHATFLOW_PRO_URL].filter(Boolean);
 app.use(cors({
   origin: (origin, callback) => {
@@ -22,6 +20,8 @@ app.use(cors({
   methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
+
+app.use(helmet());
 
 // Raw body for Meta webhook HMAC verification
 app.use('/api/v1/webhook/meta', express.raw({ type: 'application/json' }));

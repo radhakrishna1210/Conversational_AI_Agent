@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run:*)",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:5174/)",
+      "Read(//d/HB_Data/WS_2/Conversational_AI_Agent/backend/src/services//**)",
+      "Read(//d/HB_Data/WS_2/Conversational_AI_Agent/backend/src/routes//**)",
+      "Bash(node --env-file=.env scripts/sync-twilio.js)"
+    ]
+  }
+}
