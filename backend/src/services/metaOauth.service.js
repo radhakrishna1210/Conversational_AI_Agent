@@ -8,6 +8,12 @@ export const handleOAuthCallback = async (workspaceId, code) => {
   const tokenData = await exchangeCodeForToken(code, redirectUri);
   const accessToken = tokenData.access_token;
 
+  // Fetch businesses (satisfies business_management permission requirement)
+  const businessesResp = await metaGet('/me/businesses', accessToken, {
+    fields: 'id,name',
+  });
+  const primaryBusiness = businessesResp.data?.[0] ?? null;
+
   // Fetch all WABAs the user has access to
   const wabaResp = await metaGet('/me/whatsapp_business_accounts', accessToken, {
     fields: 'id,name',
@@ -15,12 +21,13 @@ export const handleOAuthCallback = async (workspaceId, code) => {
   const wabaList = wabaResp.data ?? [];
   const primaryWaba = wabaList[0];
 
-  // Save token + primary WABA to workspace
+  // Save token + primary WABA + business ID to workspace
   await prisma.workspace.update({
     where: { id: workspaceId },
     data: {
       metaAccessToken: accessToken,
       metaWabaId: primaryWaba?.id ?? null,
+      metaBusinessId: primaryBusiness?.id ?? null,
     },
   });
 
