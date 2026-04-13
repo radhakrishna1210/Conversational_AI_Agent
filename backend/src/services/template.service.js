@@ -1,6 +1,7 @@
 import prisma from '../config/prisma.js';
 import { metaPost } from '../lib/metaApi.js';
 import { decryptToken } from '../lib/encryption.js';
+import { env } from '../config/env.js';
 import logger from '../lib/logger.js';
 
 export const listTemplates = (workspaceId, filters = {}) => {
@@ -56,7 +57,16 @@ export const createTemplate = async (workspaceId, data) => {
     });
 
     if (number?.wabaId && number?.accessToken) {
-      const accessToken = decryptToken(number.accessToken);
+      // Use platform system user token for sub-WABAs created by the platform,
+      // otherwise use the number's own stored access token
+      const workspace = await prisma.workspace.findUnique({
+        where: { id: workspaceId },
+        select: { metaWabaId: true },
+      });
+      const isPlatformWaba = workspace?.metaWabaId === number.wabaId && env.META_SYSTEM_USER_TOKEN;
+      const accessToken = isPlatformWaba
+        ? env.META_SYSTEM_USER_TOKEN
+        : decryptToken(number.accessToken);
 
       const payload = {
         name: data.name,

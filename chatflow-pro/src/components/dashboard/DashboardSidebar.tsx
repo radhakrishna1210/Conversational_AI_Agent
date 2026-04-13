@@ -1,6 +1,6 @@
 import {
   Home, FileText, Send, Users, MessageSquare, Zap,
-  BarChart3, Smartphone, Key, Settings, MessageCircle,
+  BarChart3, Smartphone, Key, Settings, MessageCircle, Database,
 } from "lucide-react";
 import { NavLink } from "@/components/NavLink";
 import { useLocation } from "react-router-dom";
@@ -20,6 +20,7 @@ const items = [
   { title: "Number Setup", url: "/dashboard/number-setup", icon: Smartphone },
   { title: "API Management", url: "/dashboard/api", icon: Key },
   { title: "Settings", url: "/dashboard/settings", icon: Settings },
+  { title: "Number Pool", url: "/dashboard/admin/pool", icon: Database },
 ];
 
 export function DashboardSidebar() {

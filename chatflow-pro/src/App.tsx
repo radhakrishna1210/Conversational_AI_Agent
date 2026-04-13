@@ -22,6 +22,7 @@ import WHAnalytics from "./pages/dashboard/WHAnalytics.tsx";
 import WHNumberSetup from "./pages/dashboard/WHNumberSetup.tsx";
 import WHApiManagement from "./pages/dashboard/WHApiManagement.tsx";
 import WHSettings from "./pages/dashboard/WHSettings.tsx";
+import WHAdminPool from "./pages/dashboard/WHAdminPool.tsx";
 
 const queryClient = new QueryClient();
 
@@ -57,6 +58,7 @@ const App = () => (
             <Route path="number-setup" element={<WHNumberSetup />} />
             <Route path="api" element={<WHApiManagement />} />
             <Route path="settings" element={<WHSettings />} />
+            <Route path="admin/pool" element={<WHAdminPool />} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>

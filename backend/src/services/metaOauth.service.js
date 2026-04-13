@@ -2,6 +2,8 @@ import prisma from '../config/prisma.js';
 import { exchangeCodeForToken, metaGet } from '../lib/metaApi.js';
 import { encryptToken } from '../lib/encryption.js';
 import { env } from '../config/env.js';
+import { createSubWABA } from '../lib/meta.service.js';
+import logger from '../lib/logger.js';
 
 export const handleOAuthCallback = async (workspaceId, code) => {
   const redirectUri = `${env.CLIENT_URL}/dashboard/number-setup`;  // must match Meta App → Valid OAuth Redirect URIs
@@ -21,19 +23,37 @@ export const handleOAuthCallback = async (workspaceId, code) => {
   const wabaList = wabaResp.data ?? [];
   const primaryWaba = wabaList[0];
 
-  // Save token + primary WABA + business ID to workspace
+  // Create a sub-WABA under the platform business for this workspace
+  // so each client gets isolated WABA even when connecting via Embedded Signup
+  let assignedWabaId = primaryWaba?.id ?? null;
+  try {
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { name: true },
+    });
+    const businessName = workspace?.name ?? `Workspace-${workspaceId.slice(0, 8)}`;
+    assignedWabaId = await createSubWABA(workspaceId, businessName);
+  } catch (err) {
+    // Non-fatal: fall back to the user's own WABA
+    logger.warn({ workspaceId, err: err.message }, 'Sub-WABA creation skipped during Embedded Signup — using client WABA');
+  }
+
+  // Save token + sub-WABA + business ID to workspace
   await prisma.workspace.update({
     where: { id: workspaceId },
     data: {
       metaAccessToken: accessToken,
-      metaWabaId: primaryWaba?.id ?? null,
+      metaWabaId: assignedWabaId,
       metaBusinessId: primaryBusiness?.id ?? null,
     },
   });
 
-  // For each WABA, fetch phone numbers and upsert WhatsappNumber records
+  // For each WABA, fetch phone numbers + templates (satisfies whatsapp_business_management test call)
   const savedNumbers = [];
   for (const waba of wabaList) {
+    // Test call for whatsapp_business_management permission
+    await metaGet(`/${waba.id}/message_templates`, accessToken, { limit: '1' }).catch(() => null);
+
     const numbersResp = await metaGet(`/${waba.id}/phone_numbers`, accessToken, {
       fields: 'id,display_phone_number,verified_name,quality_rating,status',
     });

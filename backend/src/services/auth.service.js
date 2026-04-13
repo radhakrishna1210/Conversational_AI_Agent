@@ -30,6 +30,7 @@ export const loginUser = async ({ email, password }) => {
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user) throw Object.assign(new Error('Invalid credentials'), { statusCode: 401 });
 
+  if (!user.passwordHash) throw Object.assign(new Error('Invalid credentials'), { statusCode: 401 });
   const valid = await comparePassword(password, user.passwordHash);
   if (!valid) throw Object.assign(new Error('Invalid credentials'), { statusCode: 401 });
 

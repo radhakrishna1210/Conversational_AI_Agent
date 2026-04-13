@@ -69,8 +69,6 @@ export const onboardWorkspace = async (req, res) => {
   const { workspaceId } = req.params;
   const { poolEntryId } = req.body;
 
-  // Numbers are pre-loaded under the platform WABA — use the pool entry's
-  // existing wabaId directly (no sub-WABA creation needed).
   const poolEntry = await prisma.numberPool.findFirst({
     where: { status: 'AVAILABLE', ...(poolEntryId ? { id: poolEntryId } : {}) },
   });
@@ -78,9 +76,27 @@ export const onboardWorkspace = async (req, res) => {
     return res.status(503).json({ error: 'No numbers available. Please contact support.' });
   }
 
+  // Create a sub-WABA under the platform master business account for this workspace,
+  // so each end user gets their own isolated WABA. Falls back to the pool entry's
+  // shared wabaId in dev/environments where META_BUSINESS_ID is not configured.
+  let wabaId = poolEntry.wabaId;
+  const { createSubWABA } = await import('../lib/meta.service.js');
+  try {
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { name: true },
+    });
+    const businessName = workspace?.name ?? `Workspace-${workspaceId.slice(0, 8)}`;
+    wabaId = await createSubWABA(workspaceId, businessName);
+    logger.info({ workspaceId, wabaId }, 'Sub-WABA created for workspace');
+  } catch (err) {
+    logger.warn({ workspaceId, err: err.message }, 'Sub-WABA creation failed — falling back to pool WABA');
+    // Non-fatal: use the pool entry's shared wabaId so onboarding still succeeds
+  }
+
   let assigned;
   try {
-    assigned = await assignNumberFromPool(workspaceId, poolEntry.wabaId, poolEntry.id);
+    assigned = await assignNumberFromPool(workspaceId, wabaId, poolEntry.id);
   } catch (err) {
     if (err.statusCode === 503) {
       return res.status(503).json({ error: err.message });
@@ -89,12 +105,13 @@ export const onboardWorkspace = async (req, res) => {
     return res.status(502).json({ error: 'Could not assign a WhatsApp number. Please try again.' });
   }
 
-  logger.info({ workspaceId, phoneNumber: assigned.phoneNumber }, 'Workspace onboarded');
+  logger.info({ workspaceId, phoneNumber: assigned.phoneNumber, wabaId }, 'Workspace onboarded with sub-WABA');
 
   return res.status(201).json({
     success: true,
     phoneNumber: assigned.phoneNumber,
     displayName: assigned.displayName ?? assigned.phoneNumber,
+    wabaId,
   });
 };
 

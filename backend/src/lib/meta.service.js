@@ -34,22 +34,50 @@ import { decryptToken } from './encryption.js';
  * @returns {Promise<string>} waba_id
  */
 export const createSubWABA = async (workspaceId, businessName) => {
-  logger.info({ workspaceId, businessName }, 'Creating sub-WABA');
+  if (!env.META_BUSINESS_ID || !env.META_SYSTEM_USER_TOKEN) {
+    throw new Error('META_BUSINESS_ID or META_SYSTEM_USER_TOKEN not configured');
+  }
 
+  logger.info({ workspaceId, businessName, parentBusinessId: env.META_BUSINESS_ID }, 'Creating sub-WABA');
+
+  // 1. Create the sub-WABA under the platform business account
   const data = await metaPost(
     `/${env.META_BUSINESS_ID}/owned_whatsapp_business_accounts`,
-    { name: businessName, timezone_id: 'Asia/Kolkata', currency: 'INR' },
+    {
+      name: businessName,
+      timezone_id: '1',   // UTC — Meta requires numeric timezone_id
+      currency: 'INR',
+    },
     env.META_SYSTEM_USER_TOKEN
   );
 
   const wabaId = data.id;
 
+  // 2. Share the platform WABA's phone number to the new sub-WABA
+  //    so that messages sent under the sub-WABA use the assigned number
+  if (env.META_WABA_ID) {
+    try {
+      await metaPost(
+        `/${wabaId}/assigned_users`,
+        {
+          user: env.META_SYSTEM_USER_ID ?? env.META_BUSINESS_ID,
+          tasks: ['MANAGE', 'DEVELOP', 'ANALYZE'],
+        },
+        env.META_SYSTEM_USER_TOKEN
+      );
+      logger.info({ workspaceId, wabaId }, 'System user assigned to sub-WABA');
+    } catch (err) {
+      logger.warn({ workspaceId, wabaId, err: err.message }, 'Could not assign system user to sub-WABA — continuing');
+    }
+  }
+
+  // 3. Persist sub-WABA ID to workspace
   await prisma.workspace.update({
     where: { id: workspaceId },
-    data: { wabaId },
+    data: { metaWabaId: wabaId },
   });
 
-  logger.info({ workspaceId, businessName, wabaId }, 'Sub-WABA created');
+  logger.info({ workspaceId, businessName, wabaId }, 'Sub-WABA created under business ' + env.META_BUSINESS_ID);
   return wabaId;
 };
 
