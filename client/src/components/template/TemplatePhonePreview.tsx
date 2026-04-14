@@ -12,17 +12,15 @@ interface Props {
   bodyText: string;
   footerText: string;
   templateType: TemplateType;
-  couponEnabled: boolean;
   urlEnabled: boolean;
   urlButtons: UrlButton[];
   phoneEnabled: boolean;
-  quickReplies: string[];
 }
 
 const TemplatePhonePreview = ({
   osPreview, onOsChange,
   headerType, headerText, bodyText, footerText,
-  templateType, couponEnabled, urlEnabled, urlButtons, phoneEnabled, quickReplies,
+  templateType, urlEnabled, urlButtons, phoneEnabled,
 }: Props) => {
   return (
     <div className="bg-card border border-border/50 rounded-xl p-4">

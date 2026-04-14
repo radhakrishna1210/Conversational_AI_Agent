@@ -8,7 +8,6 @@ export default function Home() {
     'Create a custom AI assistant that handles your membership applications...'
   );
   const [activeFaq, setActiveFaq] = useState<number | null>(null);
-  const [activeStep, setActiveStep] = useState(0);
 
   const useCases = {
     'Lead Generation': 'Create a voice AI assistant that qualifies leads, collects contact information, and schedules follow-up calls automatically.',
