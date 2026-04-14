@@ -1,15 +1,12 @@
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
-import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Checkbox } from "@/components/ui/checkbox";
 import { ChevronDown, X, Plus, Minus, Upload, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { TemplateType, HeaderType, UrlButton } from "@/pages/wh/WHCreateTemplate";
 
 const langMap: Record<string, string> = { en: "English", hi: "Hindi", ta: "Tamil", te: "Telugu", mr: "Marathi" };
-const allLangs = Object.keys(langMap);
 const headerOptions: HeaderType[] = ["None", "Text", "Image", "Video", "Document"];
 
 interface Props {

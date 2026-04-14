@@ -1,4 +1,3 @@
-import { Button } from "@/components/ui/button";
 import { ChevronDown, Tag, Bell, Shield, LayoutTemplate, Type, ShoppingCart, GalleryHorizontal, BookOpen, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Category, TemplateType } from "@/pages/wh/WHCreateTemplate";
