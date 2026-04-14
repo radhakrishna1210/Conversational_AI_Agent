@@ -4,6 +4,18 @@ export default function Dashboard() {
   const [prompt, setPrompt] = useState('');
   const [creating, setCreating] = useState(false);
   const [success, setSuccess] = useState(false);
+
+  const hardcodedAssistant = {
+    name: 'Outbound Lead Qualification Agent',
+    language: 'English (India)',
+    llm: 'gpt-4.1-mini',
+    voice: 'google',
+    kbFiles: 0,
+    search: 'Off',
+    postCall: 'None',
+    integrations: 'None',
+    id: '#131000',
+  };
   
   const handleCreate = () => {
     if (!prompt.trim()) return;
@@ -63,13 +75,30 @@ export default function Dashboard() {
           </div>
         </div>
 
-        <div className="empty-state">
-          <div className="empty-icon">🤖</div>
-          <h3>No assistants yet</h3>
-          <p>Create your first Voice AI Assistant to get started.</p>
-          <button className="btn btn-primary" onClick={() => document.querySelector<HTMLTextAreaElement>('.create-textarea')?.focus()}>
-            + Create Assistant
-          </button>
+        <div className="assistants-grid">
+          <article className="assistant-card">
+            <div className="assistant-card-head">
+              <div>
+                <h3>{hardcodedAssistant.name}</h3>
+                <p>{hardcodedAssistant.language}</p>
+              </div>
+              <button className="assistant-menu" aria-label="Assistant actions">⋮</button>
+            </div>
+
+            <div className="assistant-metadata">
+              <div><span>LLM:</span> <strong>{hardcodedAssistant.llm}</strong></div>
+              <div><span>Voice:</span> <strong>{hardcodedAssistant.voice}</strong></div>
+              <div><span>KB Files:</span> <strong>{hardcodedAssistant.kbFiles}</strong></div>
+              <div><span>Search:</span> <strong>{hardcodedAssistant.search}</strong></div>
+              <div><span>Post-call (1):</span> <strong>{hardcodedAssistant.postCall}</strong></div>
+              <div><span>Integrations (0):</span> <strong>{hardcodedAssistant.integrations}</strong></div>
+            </div>
+
+            <div className="assistant-card-footer">
+              <span className="assistant-id">ID: {hardcodedAssistant.id}</span>
+              <button className="btn btn-primary">Edit Agent</button>
+            </div>
+          </article>
         </div>
       </div>
     </>
