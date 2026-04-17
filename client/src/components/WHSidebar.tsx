@@ -127,8 +127,6 @@ export default function WHSidebar() {
             localStorage.removeItem('token');
             localStorage.removeItem('refreshToken');
             localStorage.removeItem('workspaceId');
-            localStorage.removeItem('userName');
-            localStorage.removeItem('userEmail');
             window.location.replace('/login');
           }}
           style={{ width: '100%', display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 12px', background: 'none', border: '1px solid #e2e8f0', borderRadius: '6px', color: '#64748b', fontSize: '14px', fontWeight: 500, cursor: 'pointer' }}
