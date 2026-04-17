@@ -40,6 +40,8 @@ export default function Login() {
 
       localStorage.setItem('token', data.accessToken);
       localStorage.setItem('refreshToken', data.refreshToken);
+      localStorage.setItem('userName', data.user.name);
+      localStorage.setItem('userEmail', data.user.email);
       if (data.workspace?.id) {
         localStorage.setItem('workspaceId', data.workspace.id);
       }
