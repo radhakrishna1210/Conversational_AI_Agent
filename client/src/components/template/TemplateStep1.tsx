@@ -1,6 +1,6 @@
 import { ChevronDown, Tag, Bell, Shield, LayoutTemplate, Type, ShoppingCart, GalleryHorizontal, BookOpen, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Category, TemplateType } from "@/pages/wh/WHCreateTemplate";
+import type { Category, TemplateType } from "@/lib/types";
 
 const categories: { key: Category; icon: typeof Tag; label: string }[] = [
   { key: "Marketing", icon: Tag, label: "Marketing" },

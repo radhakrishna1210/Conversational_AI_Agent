@@ -15,15 +15,32 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="topbar-search">
             <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
             <input type="text" placeholder="Search or jump to..." />
-            <span style={{fontSize:'11px', border:'1px solid var(--border)', borderRadius:'4px', padding:'1px 6px', color:'var(--text-muted)'}}>⌘ K</span>
+            <span>⌘ K</span>
           </div>
           <div className="topbar-actions">
-            <button style={{background:'none', border:'none', color:'var(--text-secondary)', fontSize:'20px', cursor:'pointer', position:'relative'}}>
-              🔔
-              <span style={{position:'absolute', top:'-2px', right:'-2px', width:'8px', height:'8px', background:'var(--orange)', borderRadius:'50%', display:'block'}}></span>
+            {/* Bell with red badge */}
+            <button style={{background:'none', border:'none', color:'var(--text-secondary)', cursor:'pointer', position:'relative', display:'flex', alignItems:'center', justifyContent:'center', padding:'4px'}}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+              </svg>
+              <span style={{position:'absolute', top:'2px', right:'2px', width:'8px', height:'8px', background:'#ef4444', borderRadius:'50%', display:'block', border:'1.5px solid var(--bg-secondary)'}}></span>
             </button>
-            <div className="topbar-avatar">O</div>
-            <button style={{background:'none', border:'none', color:'var(--text-secondary)', fontSize:'18px', cursor:'pointer'}}>🌙</button>
+            {/* GD Avatar */}
+            <div style={{
+              width: '32px', height: '32px', borderRadius: '50%',
+              background: 'linear-gradient(135deg, #0a5446 0%, #0eb39e 100%)',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              fontSize: '12px', fontWeight: '700', color: 'white',
+              cursor: 'pointer', letterSpacing: '0.5px',
+              border: '1.5px solid rgba(14,179,158,0.4)'
+            }}>GD</div>
+            {/* Moon / dark mode */}
+            <button style={{background:'none', border:'none', color:'var(--text-secondary)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', padding:'4px'}}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+              </svg>
+            </button>
           </div>
         </div>
       </div>

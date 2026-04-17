@@ -12,8 +12,9 @@ export default function Navbar() {
   return (
     <nav className="navbar">
       <Link to="/" className="navbar-logo">
-        <div className="logo-icon">O</div>
-        <span>OMNI<span style={{color:'var(--teal)', fontStyle:'italic', fontWeight:900}}>D</span>IMENSION</span>
+        <span style={{fontWeight: 800, fontSize: '18px', letterSpacing: '-1px'}}>
+          OMNI<span style={{color:'var(--teal)'}}>D</span>IMENSION
+        </span>
       </Link>
       <ul className="navbar-nav">
         <li 
@@ -60,8 +61,8 @@ export default function Navbar() {
         <li><Link to="/book-appointment" className={`nav-link ${isActive('/book-appointment')}`}>Book an Appointment</Link></li>
       </ul>
       <div className="navbar-actions">
-        <Link to="/login" style={{ color: 'var(--text-secondary)', fontSize: '14px', fontWeight: 500, textDecoration: 'none' }}>Log In</Link>
-        <Link to="/signup" className="btn btn-primary" style={{ padding: '8px 18px', fontSize: '14px' }}>Get Started Free</Link>
+        <Link to="/dashboard" style={{ color: 'var(--text-secondary)', fontSize: '14px', fontWeight: 500, textDecoration: 'none' }}>Dashboard</Link>
+        <button className="btn-sign-out">Sign Out</button>
       </div>
     </nav>
   );

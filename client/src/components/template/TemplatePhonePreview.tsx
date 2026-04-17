@@ -2,7 +2,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Smartphone, Circle, ArrowLeft, Phone, MoreVertical, ExternalLink, FileText } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { TemplateType, HeaderType, UrlButton } from "@/pages/wh/WHCreateTemplate";
+import type { TemplateType, HeaderType, UrlButton } from "@/lib/types";
 
 interface Props {
   osPreview: "android" | "ios";
