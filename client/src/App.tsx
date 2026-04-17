@@ -57,8 +57,6 @@ function ProtectedRoute() {
     localStorage.removeItem('token');
     localStorage.removeItem('refreshToken');
     localStorage.removeItem('workspaceId');
-    localStorage.removeItem('userName');
-    localStorage.removeItem('userEmail');
   }
 
   const token = localStorage.getItem('token');
@@ -71,8 +69,6 @@ function ProtectedRoute() {
       localStorage.removeItem('token');
       localStorage.removeItem('refreshToken');
       localStorage.removeItem('workspaceId');
-      localStorage.removeItem('userName');
-      localStorage.removeItem('userEmail');
       return <Navigate to="/login" replace />;
     }
   } catch {
@@ -90,13 +86,10 @@ function DashboardLayoutWrapper() {
   );
 }
 
-import { Toaster } from './components/ui/sonner';
-
 function App() {
   return (
     <Router>
       <ScrollToTop />
-      <Toaster position="top-right" richColors />
       <Routes>
         <Route path="/" element={<DefaultLayout><Home /></DefaultLayout>} />
         <Route path="/pricing" element={<DefaultLayout><Pricing /></DefaultLayout>} />
@@ -123,7 +116,6 @@ function App() {
             <Route path="/billing" element={<Billing />} />
             <Route path="/api_keys" element={<ApiKeys />} />
             <Route path="/settings" element={<Settings />} />
-            <Route path="/profile" element={<Settings />} />
           </Route>
         </Route>
       </Routes>

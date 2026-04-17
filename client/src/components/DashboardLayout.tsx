@@ -1,4 +1,3 @@
-import { useState, useEffect } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Bot,
@@ -20,50 +19,9 @@ import {
 } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
-  const [user, setUser] = useState({ name: 'User', email: '', initials: 'U' });
   const location = useLocation();
   const navigate = useNavigate();
   const path = location.pathname;
-
-  const handleLogout = () => {
-    sessionStorage.setItem('loggedOut', '1');
-    localStorage.removeItem('token');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('workspaceId');
-    localStorage.removeItem('userName');
-    localStorage.removeItem('userEmail');
-    navigate('/login');
-  };
-
-  useEffect(() => {
-    const name = localStorage.getItem('userName');
-    const email = localStorage.getItem('userEmail');
-    
-    let displayName = name || 'User';
-    let displayEmail = email || '';
-    
-    // If not in localStorage, try decoding the token
-    if (!name || !email) {
-      const token = localStorage.getItem('token');
-      if (token) {
-        try {
-          const payload = JSON.parse(atob(token.split('.')[1]));
-          displayName = payload.name || payload.email?.split('@')[0] || 'User';
-          displayEmail = payload.email || '';
-        } catch (e) {}
-      }
-    }
-
-    const initials = displayName
-      .split(' ')
-      .map(n => n[0])
-      .join('')
-      .toUpperCase()
-      .substring(0, 2) || 'U';
-
-    setUser({ name: displayName, email: displayEmail, initials });
-  }, []);
 
   return (
     <div className="dashboard-layout">
@@ -80,62 +38,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               🔔
               <span style={{position:'absolute', top:'-2px', right:'-2px', width:'8px', height:'8px', background:'var(--orange)', borderRadius:'50%', display:'block'}}></span>
             </button>
-            <div style={{ position: 'relative' }}>
-              <div 
-                className="topbar-avatar" 
-                onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
-                style={{ cursor: 'pointer', background: '#00b4d8', color: '#001a2c', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
-              >
-                {user.initials}
-              </div>
-              
-              {profileDropdownOpen && (
-                <div style={{
-                  position: 'absolute',
-                  top: '100%',
-                  right: 0,
-                  marginTop: '10px',
-                  width: '240px',
-                  background: '#0a0a0a',
-                  border: '1px solid #2a2a2a',
-                  borderRadius: '8px',
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
-                  zIndex: 50,
-                  overflow: 'hidden'
-                }}>
-                  <div style={{ padding: '16px', borderBottom: '1px solid #2a2a2a' }}>
-                    <div style={{ fontWeight: 'bold', fontSize: '14px', color: '#fff', marginBottom: '4px', textTransform: 'uppercase' }}>{user.name}</div>
-                    <div style={{ fontSize: '12px', color: '#888' }}>{user.email}</div>
-                  </div>
-                  
-                  <div style={{ padding: '8px 0', borderBottom: '1px solid #2a2a2a' }}>
-                    <Link to="/profile" style={{ display: 'flex', alignItems: 'center', padding: '10px 16px', textDecoration: 'none', color: '#eaeaea', fontSize: '14px', transition: 'background 0.2s' }} onMouseOver={(e) => e.currentTarget.style.background = '#1f1f1f'} onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}>
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '12px' }}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-                      Profile
-                    </Link>
-                    <Link to="/settings" style={{ display: 'flex', alignItems: 'center', padding: '10px 16px', textDecoration: 'none', color: '#eaeaea', fontSize: '14px', transition: 'background 0.2s' }} onMouseOver={(e) => e.currentTarget.style.background = '#1f1f1f'} onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}>
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '12px' }}><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-                      Settings
-                    </Link>
-                    <Link to="/billing" style={{ display: 'flex', alignItems: 'center', padding: '10px 16px', textDecoration: 'none', color: '#eaeaea', fontSize: '14px', transition: 'background 0.2s' }} onMouseOver={(e) => e.currentTarget.style.background = '#1f1f1f'} onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}>
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '12px' }}><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg>
-                      Billing
-                    </Link>
-                  </div>
-                  
-                  <div style={{ padding: '8px 0' }}>
-                    <div 
-                      onClick={handleLogout}
-                      style={{ display: 'flex', alignItems: 'center', padding: '10px 16px', cursor: 'pointer', color: '#eaeaea', fontSize: '14px', transition: 'background 0.2s' }}
-                      onMouseOver={(e) => e.currentTarget.style.background = '#1f1f1f'} onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
-                    >
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '12px' }}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
-                      Log out
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
+            <div className="topbar-avatar">O</div>
             <button style={{background:'none', border:'none', color:'var(--text-secondary)', fontSize:'18px', cursor:'pointer'}}>🌙</button>
           </div>
         </div>
@@ -287,7 +190,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </Link>
           <div
             className="sidebar-item"
-            onClick={handleLogout}
+            onClick={() => navigate('/')}
             style={{ cursor: 'pointer' }}
           >
             <span className="sidebar-icon"><LogOut size={16} /></span>
