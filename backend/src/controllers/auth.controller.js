@@ -1,34 +1,78 @@
 import * as authService from '../services/auth.service.js';
+import * as mockAuthService from '../services/mockAuth.service.js';
 import { env } from '../config/env.js';
 
+// Fallback to mock service if database is unavailable
+const getAuthService = () => {
+  const useMock = env.USE_MOCK_AUTH === 'true' || env.DATABASE_URL?.includes('supabase') && process.env.DB_STATUS === 'unavailable';
+  return useMock ? mockAuthService : authService;
+};
+
 export const register = async (req, res) => {
-  const { user, workspace } = await authService.registerUser(req.body);
-  res.status(201).json({ message: 'Account created', userId: user.id, workspaceId: workspace?.id });
+  const service = getAuthService();
+  try {
+    const { user, workspace } = await service.registerUser(req.body);
+    res.status(201).json({ message: 'Account created', userId: user.id, workspaceId: workspace?.id });
+  } catch (err) {
+    // Try fallback to mock if auth service fails
+    if (service === authService && process.env.DB_STATUS === 'unavailable') {
+      const { user, workspace } = await mockAuthService.registerUser(req.body);
+      return res.status(201).json({ message: 'Account created (dev mode)', userId: user.id, workspaceId: workspace?.id });
+    }
+    throw err;
+  }
 };
 
 export const login = async (req, res) => {
-  const { accessToken, refreshToken, user, workspace } = await authService.loginUser(req.body);
-  res.json({
-    accessToken,
-    refreshToken,
-    user: { id: user.id, name: user.name, email: user.email },
-    workspace: workspace ? { id: workspace.id, name: workspace.name, slug: workspace.slug } : null,
-  });
+  const service = getAuthService();
+  try {
+    const { accessToken, refreshToken, user, workspace } = await service.loginUser(req.body);
+    res.json({
+      accessToken,
+      refreshToken,
+      user: { id: user.id, name: user.name, email: user.email },
+      workspace: workspace ? { id: workspace.id, name: workspace.name, slug: workspace.slug } : null,
+    });
+  } catch (err) {
+    // Try fallback to mock if auth service fails
+    if (service === authService && process.env.DB_STATUS === 'unavailable') {
+      const { accessToken, refreshToken, user, workspace } = await mockAuthService.loginUser(req.body);
+      return res.json({
+        accessToken,
+        refreshToken,
+        user: { id: user.id, name: user.name, email: user.email },
+        workspace: workspace ? { id: workspace.id, name: workspace.name, slug: workspace.slug } : null,
+      });
+    }
+    throw err;
+  }
 };
 
 export const refresh = async (req, res) => {
+  const service = getAuthService();
   const { refreshToken } = req.body;
-  const tokens = await authService.refreshTokens(refreshToken);
-  res.json(tokens);
+  try {
+    const tokens = await service.refreshTokens(refreshToken);
+    res.json(tokens);
+  } catch (err) {
+    // Fallback
+    if (service === authService && process.env.DB_STATUS === 'unavailable') {
+      const tokens = await mockAuthService.refreshTokens_fn(refreshToken);
+      return res.json(tokens);
+    }
+    throw err;
+  }
 };
 
 export const logout = async (req, res) => {
-  await authService.logout(req.body.refreshToken);
+  const service = getAuthService();
+  await service.logout(req.body.refreshToken);
   res.json({ message: 'Logged out' });
 };
 
 export const acceptInvite = async (req, res) => {
-  const user = await authService.acceptInvite(req.body);
+  const service = getAuthService();
+  const user = await service.acceptInvite(req.body);
   res.json({ message: 'Invite accepted', userId: user.id });
 };
 
