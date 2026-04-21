@@ -188,8 +188,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <span className="sidebar-text">Settings</span>
             </div>
           </Link>
-
-          <div className="sidebar-item" onClick={() => navigate('/')}>
+          <div
+            className="sidebar-item"
+            onClick={() => navigate('/')}
+            style={{ cursor: 'pointer' }}
+          >
             <span className="sidebar-icon"><LogOut size={16} /></span>
             <span className="sidebar-text">Logout</span>
           </div>
