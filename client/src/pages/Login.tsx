@@ -1,8 +1,7 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from "react-router-dom";
 
 export default function Login() {
-  const navigate = useNavigate();
   const [form, setForm] = useState({ email: '', password: '' });
   const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
   const [showPass, setShowPass] = useState(false);
@@ -45,7 +44,7 @@ export default function Login() {
       }
 
       setStatus('success');
-      setTimeout(() => navigate('/dashboard'), 600);
+      setTimeout(() => window.location.href = "/", 1500);
     } catch {
       setErrorMsg('Network error. Please check your connection.');
       setStatus('error');

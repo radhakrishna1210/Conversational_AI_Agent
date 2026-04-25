@@ -8,86 +8,81 @@ export default function Contact() {
     setStatus('submitting');
     setTimeout(() => {
       setStatus('success');
-      setTimeout(() => setStatus('idle'), 3000);
-    }, 1500);
+      setTimeout(() => setStatus('idle'), 2500);
+    }, 1000);
   };
 
   return (
-    <>
-      <div className="page-hero">
-        <div className="container">
-          <h1>Contact Us</h1>
-          <p>Thank you for taking the time to contact us. We look forward to connecting with you soon.</p>
+    <div className="min-h-screen bg-slate-50 py-12 px-4 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-3xl rounded-3xl bg-white p-8 shadow-lg ring-1 ring-slate-200">
+        <div className="mb-8">
+          <p className="text-sm font-semibold uppercase tracking-[0.24em] text-sky-600">Get in touch</p>
+          <h1 className="mt-3 text-3xl font-semibold tracking-tight text-slate-900">Contact Us</h1>
+          <p className="mt-4 text-slate-600">Fill out the form below and we’ll get back to you shortly.</p>
         </div>
+
+        <form className="space-y-6" onSubmit={handleSubmit}>
+          <div>
+            <label htmlFor="name" className="block text-sm font-medium text-slate-700">Name</label>
+            <div className="mt-2">
+              <input
+                id="name"
+                name="name"
+                type="text"
+                required
+                className="block w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200"
+                placeholder="John Doe"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label htmlFor="email" className="block text-sm font-medium text-slate-700">Email</label>
+            <div className="mt-2">
+              <input
+                id="email"
+                name="email"
+                type="email"
+                required
+                className="block w-full rounded-2xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200"
+                placeholder="john@example.com"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label htmlFor="message" className="block text-sm font-medium text-slate-700">Message</label>
+            <div className="mt-2">
+              <textarea
+                id="message"
+                name="message"
+                rows={6}
+                required
+                className="block w-full rounded-3xl border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-900 shadow-sm focus:border-sky-500 focus:ring-2 focus:ring-sky-200"
+                placeholder="Let us know how we can help."
+              />
+            </div>
+          </div>
+
+          <div className="pt-4">
+            <button
+              type="submit"
+              disabled={status !== 'idle'}
+              className="inline-flex items-center justify-center rounded-3xl bg-sky-600 px-6 py-3 text-sm font-semibold text-white transition hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {status === 'idle' && 'Send Message'}
+              {status === 'submitting' && 'Sending...'}
+              {status === 'success' && 'Message Sent'}
+            </button>
+          </div>
+
+          {status === 'success' && (
+            <p className="rounded-2xl bg-emerald-50 px-4 py-3 text-sm text-emerald-700 ring-1 ring-emerald-200">
+              Thanks! Your message has been sent.
+            </p>
+          )}
+        </form>
       </div>
-
-      <div className="container" style={{paddingBottom:'80px'}}>
-        <div className="form-card">
-          <form className="contact-form" onSubmit={handleSubmit}>
-
-            <div className="form-section-title">Personal Information</div>
-            <div className="form-grid-2">
-              <div className="form-group">
-                <label className="form-label">Name <span className="required">*</span></label>
-                <input type="text" className="form-input" placeholder="John Smith" required />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Email <span className="required">*</span> <span style={{fontSize:'11px', color:'var(--text-muted)'}}>(Business/Work Email)</span></label>
-                <input type="email" className="form-input" placeholder="john@company.com" required />
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Phone Number <span className="required">*</span></label>
-              <input type="tel" className="form-input" placeholder="+917887654321" required />
-            </div>
-
-            <div className="form-grid-2">
-              <div className="form-group">
-                <label className="form-label">Project Type <span className="required">*</span></label>
-                <select className="form-select" required defaultValue="">
-                  <option value="" disabled>Select project type</option>
-                  <option>Lead Generation</option>
-                  <option>Customer Support</option>
-                  <option>Appointment Booking</option>
-                  <option>Collections</option>
-                </select>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Your Role <span className="required">*</span></label>
-                <select className="form-select" required defaultValue="">
-                  <option value="" disabled>Select your role</option>
-                  <option>Founder / CEO</option>
-                  <option>CTO / Technical Lead</option>
-                  <option>Product Manager</option>
-                  <option>Developer</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="form-section-title">Your Message</div>
-            <div className="form-group">
-              <label className="form-label">How can we help you? <span className="required">*</span></label>
-              <textarea className="form-textarea" placeholder="Describe your request..." required></textarea>
-            </div>
-
-            <p className="form-note">This site is protected by reCAPTCHA and the Google <a href="#">Privacy Policy</a> and <a href="#">Terms of Service</a> apply.</p>
-
-            <div style={{marginTop:'28px'}}>
-              <button 
-                type="submit" 
-                className="btn btn-primary"
-                disabled={status !== 'idle'}
-                style={{ background: status === 'success' ? '#22c55e' : '' }}
-              >
-                {status === 'idle' && 'Submit Request'}
-                {status === 'submitting' && 'Submitting...'}
-                {status === 'success' && '✓ Submitted!'}
-              </button>
-            </div>
-          </form>
-        </div>
-      </div>
-    </>
+    </div>
   );
 }

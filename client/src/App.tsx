@@ -13,6 +13,8 @@ import Pricing from './pages/Pricing';
 import Documentation from './pages/Documentation';
 import BookAppointment from './pages/BookAppointment';
 import Contact from './pages/Contact';
+import Docs from './pages/Docs';
+import ReportIssue from './pages/ReportIssue';
 import Dashboard from './pages/Dashboard';
 import BulkCall from './pages/BulkCall';
 import CloneVoice from './pages/CloneVoice';
@@ -96,6 +98,8 @@ function App() {
         <Route path="/documentation" element={<DefaultLayout><Documentation /></DefaultLayout>} />
         <Route path="/book-appointment" element={<DefaultLayout><BookAppointment /></DefaultLayout>} />
         <Route path="/contact" element={<DefaultLayout><Contact /></DefaultLayout>} />
+        <Route path="/docs" element={<DefaultLayout><Docs /></DefaultLayout>} />
+        <Route path="/report-issue" element={<DefaultLayout><ReportIssue /></DefaultLayout>} />
         <Route path="/signup" element={<SignUp />} />
         <Route path="/login" element={<Login />} />
         <Route path="/auth/callback" element={<AuthCallback />} />

@@ -1,8 +1,24 @@
-import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
+import {
+  Bot,
+  Mic,
+  Folder,
+  Plug,
+  Phone,
+  PhoneCall,
+  FileText,
+  BarChart3,
+  MessageCircle,
+  BookOpen,
+  Mail,
+  Bug,
+  CreditCard,
+  Key,
+  Settings,
+  LogOut
+} from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const [showBanner, setShowBanner] = useState(true);
   const location = useLocation();
   const navigate = useNavigate();
   const path = location.pathname;
@@ -57,28 +73,32 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div className="sidebar-content-scroll">
           <div className="sidebar-section">
             <div className="sidebar-category">VOICE AI SETUP</div>
-            <Link to="/dashboard" style={{textDecoration: 'none'}}>
+
+            <Link to="/dashboard">
               <div className={`sidebar-item ${path === '/dashboard' ? 'active' : ''}`}>
-                <span className="sidebar-icon">🤖</span>
+                <span className="sidebar-icon"><Bot size={16} /></span>
                 <span className="sidebar-text">Voice AI Assistants</span>
               </div>
             </Link>
-            <Link to="/clone_voice" style={{textDecoration: 'none'}}>
+
+            <Link to="/clone_voice">
               <div className={`sidebar-item ${path === '/clone_voice' ? 'active' : ''}`}>
-                <span className="sidebar-icon" style={{fontSize: '15px'}}>🎙️</span>
+                <span className="sidebar-icon"><Mic size={16} /></span>
                 <span className="sidebar-text">Clone Voice</span>
                 <span className="badge-new">New</span>
               </div>
             </Link>
-            <Link to="/files" style={{textDecoration: 'none'}}>
+
+            <Link to="/files">
               <div className={`sidebar-item ${path === '/files' ? 'active' : ''}`}>
-                <span className="sidebar-icon" style={{fontSize: '15px'}}>🗂️</span>
+                <span className="sidebar-icon"><Folder size={16} /></span>
                 <span className="sidebar-text">Files</span>
               </div>
             </Link>
-            <Link to="/integrations" style={{textDecoration: 'none'}}>
+
+            <Link to="/integrations">
               <div className={`sidebar-item ${path === '/integrations' ? 'active' : ''}`}>
-                <span className="sidebar-icon" style={{fontSize: '15px'}}>🔌</span>
+                <span className="sidebar-icon"><Plug size={16} /></span>
                 <span className="sidebar-text">Integrations</span>
               </div>
             </Link>
@@ -86,27 +106,31 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
           <div className="sidebar-section">
             <div className="sidebar-category">OPERATIONS & MONITORING</div>
-            <Link to="/phone_numbers" style={{textDecoration: 'none'}}>
+
+            <Link to="/phone_numbers">
               <div className={`sidebar-item ${path === '/phone_numbers' ? 'active' : ''}`}>
-                <span className="sidebar-icon" style={{fontSize: '15px'}}>☎️</span>
+                <span className="sidebar-icon"><Phone size={16} /></span>
                 <span className="sidebar-text">Phone Numbers</span>
               </div>
             </Link>
-            <Link to="/bulk_call" style={{textDecoration: 'none'}}>
+
+            <Link to="/bulk_call">
               <div className={`sidebar-item ${path === '/bulk_call' ? 'active' : ''}`}>
-                <span className="sidebar-icon" style={{fontSize: '15px'}}>📞</span>
+                <span className="sidebar-icon"><PhoneCall size={16} /></span>
                 <span className="sidebar-text">Bulk Call</span>
               </div>
             </Link>
-            <Link to="/call_logs" style={{textDecoration: 'none'}}>
+
+            <Link to="/call_logs">
               <div className={`sidebar-item ${path === '/call_logs' ? 'active' : ''}`}>
-                <span className="sidebar-icon" style={{fontSize: '15px'}}>📋</span>
+                <span className="sidebar-icon"><FileText size={16} /></span>
                 <span className="sidebar-text">Call Logs</span>
               </div>
             </Link>
-            <Link to="/analytics" style={{textDecoration: 'none'}}>
+
+            <Link to="/analytics">
               <div className={`sidebar-item ${path === '/analytics' ? 'active' : ''}`}>
-                <span className="sidebar-icon" style={{fontSize: '15px'}}>📊</span>
+                <span className="sidebar-icon"><BarChart3 size={16} /></span>
                 <span className="sidebar-text">Analytics</span>
               </div>
             </Link>
@@ -114,46 +138,58 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
           <div className="sidebar-section">
             <div className="sidebar-category">CHAT</div>
-            <Link to="/whatsapp" style={{textDecoration: 'none'}}>
+
+            <Link to="/whatsapp">
               <div className={`sidebar-item ${path === '/whatsapp' ? 'active' : ''}`}>
-                <span className="sidebar-icon" style={{fontSize: '15px'}}>💬</span>
+                <span className="sidebar-icon"><MessageCircle size={16} /></span>
                 <span className="sidebar-text">WhatsApp</span>
               </div>
             </Link>
-            <a
-              href="#"
-              style={{textDecoration: 'none'}}
-              onClick={e => {
-                e.preventDefault();
-                const base = import.meta.env.VITE_WHABRIDGE_URL ?? '/WhaBridge';
-                const token = localStorage.getItem('token') ?? '';
-                const workspaceId = localStorage.getItem('workspaceId') ?? '';
-                const refreshToken = localStorage.getItem('refreshToken') ?? '';
-                const url = new URL(base, window.location.origin);
-                url.searchParams.set('token', token);
-                url.searchParams.set('workspaceId', workspaceId);
-                if (refreshToken) url.searchParams.set('refreshToken', refreshToken);
-                window.location.href = url.toString();
-              }}
-            >
+
+            <div className="sidebar-item">
+              <span className="sidebar-icon"><MessageCircle size={16} /></span>
+              <span className="sidebar-text">WhaBridge</span>
+            </div>
+          </div>
+
+          <div className="sidebar-section">
+            <div className="sidebar-category">RESOURCES</div>
+
+            <a href="/docs" target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', color: 'inherit' }}>
               <div className="sidebar-item">
-                <span className="sidebar-icon" style={{fontSize: '15px'}}>🟢</span>
-                <span className="sidebar-text">WhaBridge</span>
+                <span className="sidebar-icon"><BookOpen size={16} /></span>
+                <span className="sidebar-text">Docs</span>
+              </div>
+            </a>
+
+            <Link to="/contact">
+              <div className={`sidebar-item ${path === '/contact' ? 'active' : ''}`}>
+                <span className="sidebar-icon"><Mail size={16} /></span>
+                <span className="sidebar-text">Contact Us</span>
+              </div>
+            </Link>
+
+            <a href="/report-issue" target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', color: 'inherit' }}>
+              <div className="sidebar-item">
+                <span className="sidebar-icon"><Bug size={16} /></span>
+                <span className="sidebar-text">Report Issue</span>
               </div>
             </a>
           </div>
 
           <div className="sidebar-section">
             <div className="sidebar-category">ACCOUNT & BILLING</div>
-            <Link to="/billing" style={{textDecoration: 'none'}}>
+
+            <Link to="/billing">
               <div className={`sidebar-item ${path === '/billing' ? 'active' : ''}`}>
-                <span className="sidebar-icon" style={{fontSize: '15px'}}>💳</span>
+                <span className="sidebar-icon"><CreditCard size={16} /></span>
                 <span className="sidebar-text">Billing</span>
               </div>
             </Link>
-            <Link to="/api_keys" style={{textDecoration: 'none'}}>
+
+            <Link to="/api_keys">
               <div className={`sidebar-item ${path === '/api_keys' ? 'active' : ''}`}>
-                <span className="sidebar-icon" style={{fontSize: '15px'}}>🔑</span>
+                <span className="sidebar-icon"><Key size={16} /></span>
                 <span className="sidebar-text">API</span>
               </div>
             </Link>
@@ -163,9 +199,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         <div className="sidebar-spacer"></div>
 
         <div className="sidebar-bottom">
-          <Link to="/settings" style={{textDecoration: 'none'}}>
+          <Link to="/settings">
             <div className={`sidebar-item ${path === '/settings' ? 'active' : ''}`}>
-              <span className="sidebar-icon">⚙️</span>
+              <span className="sidebar-icon"><Settings size={16} /></span>
               <span className="sidebar-text">Settings</span>
             </div>
           </Link>
@@ -174,24 +210,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             onClick={() => navigate('/')}
             style={{ cursor: 'pointer' }}
           >
-            <span className="sidebar-icon">↩️</span>
+            <span className="sidebar-icon"><LogOut size={16} /></span>
             <span className="sidebar-text">Logout</span>
           </div>
         </div>
       </aside>
 
-      {/* Main Content Area */}
       <main className="dashboard-main" style={{ marginTop: '56px', marginLeft: '64px' }}>
-        {showBanner && (
-          <div className="announcement-dash">
-            <span>✨ Get your own phone number and attach your assistant now!</span>
-            <button className="btn btn-orange btn-sm">Buy Phone Number →</button>
-            <button style={{background:'none', border:'none', color:'rgba(255,255,255,0.7)', fontSize:'18px', cursor:'pointer', marginLeft:'8px'}} onClick={() => setShowBanner(false)}>✕</button>
-          </div>
-        )}
-        <div className="dashboard-content">
-          {children}
-        </div>
+        {children}
       </main>
     </div>
   );
