@@ -1,4 +1,3 @@
-```js
 import { hashPassword, comparePassword, hashToken, generateSecureToken } from '../lib/hash.js';
 import { signAccessToken } from '../lib/jwt.js';
 import logger from '../lib/logger.js';
@@ -176,4 +175,3 @@ export const acceptInvite = async () => {
     { statusCode: 501 }
   );
 };
-```
