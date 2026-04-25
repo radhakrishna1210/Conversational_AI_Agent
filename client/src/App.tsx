@@ -5,6 +5,7 @@ import { useEffect } from 'react';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
 import DashboardLayout from './components/DashboardLayout';
+import AnnouncementBar from './components/AnnouncementBar';
 
 // Pages
 import Home from './pages/Home';
@@ -41,6 +42,7 @@ function ScrollToTop() {
 function DefaultLayout({ children }: { children: React.ReactNode }) {
   return (
     <>
+      <AnnouncementBar />
       <Navbar />
       <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
         <div style={{ flex: 1 }}>{children}</div>
