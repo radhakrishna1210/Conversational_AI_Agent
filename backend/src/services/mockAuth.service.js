@@ -147,4 +147,8 @@ export const acceptInvite = async ({ token, name, password }) => {
   const id = `user-${Date.now()}`;
   const passwordHash = await hashPassword(password);
   throw Object.assign(new Error('Invite system requires database'), { statusCode: 501 });
+
 };
+
+};
+
