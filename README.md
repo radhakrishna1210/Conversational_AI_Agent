@@ -1,4 +1,4 @@
-# 🎯 Conversational AI Agent - Getting Started
+# 🎯 Conversational AI Agent - Getting Started.
 
 **Welcome!** This guide will help you and your friend get the application running in **5 minutes**.
 
