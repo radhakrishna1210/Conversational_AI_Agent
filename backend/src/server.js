@@ -9,6 +9,19 @@ import { createCampaignWorker } from './workers/campaign.worker.js';
 
 mkdirSync(env.UPLOAD_DIR, { recursive: true });
 
+// Test database connection on startup but don't fail
+(async () => {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    logger.info('Database connected');
+    process.env.DB_STATUS = 'available';
+  } catch (err) {
+    logger.warn('Database connection failed on startup:', err.message);
+    logger.warn('Server will continue using mock auth for development');
+    process.env.DB_STATUS = 'unavailable';
+  }
+})();
+
 const campaignWorker = createCampaignWorker();
 if (campaignWorker) {
   campaignWorker.on('completed', (job) => logger.info({ jobId: job.id }, 'Campaign job completed'));

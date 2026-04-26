@@ -4,7 +4,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { ChevronDown, X, Plus, Minus, Upload, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { TemplateType, HeaderType, UrlButton } from "@/pages/wh/WHCreateTemplate";
+import type { TemplateType, HeaderType, UrlButton } from "@/lib/types";
 
 const langMap: Record<string, string> = { en: "English", hi: "Hindi", ta: "Tamil", te: "Telugu", mr: "Marathi" };
 const headerOptions: HeaderType[] = ["None", "Text", "Image", "Video", "Document"];
