@@ -6,6 +6,7 @@ export default function Home() {
   const [activeUseCase, setActiveUseCase] = useState('');
   const [promptText, setPromptText] = useState('');
   const [activeFaq, setActiveFaq] = useState<number | null>(null);
+  const [activeStep, setActiveStep] = useState(0);
 
   const useCases = {
     'Lead Generation': 'Create a voice AI assistant that qualifies leads, collects contact information, and schedules follow-up calls automatically.',
