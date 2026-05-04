@@ -4,6 +4,9 @@ import * as mockAuthService from '../services/mockAuth.service.js';
 import * as authService from '../services/auth.service.js';
 
 
+import * as authService from '../services/auth.service.js';
+
+
 import { env } from '../config/env.js';
 
 // Fallback to mock service if database is unavailable
@@ -134,7 +137,7 @@ export const googleCallback = async (req, res) => {
   console.log('[Google OAuth] profile:', profile);
   if (!profile.sub) return res.redirect(`${env.CLIENT_URL}/login?error=no_profile`);
 
-  const { accessToken, refreshToken, workspace } = await authService.loginOrRegisterWithGoogle({
+  const { accessToken, refreshToken, workspace } = await getAuthService().loginOrRegisterWithGoogle({
     googleId: profile.sub,
     email: profile.email,
     name: profile.name,
