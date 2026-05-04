@@ -55,11 +55,15 @@ export const generateResponse = async (req, res) => {
     // TODO: Fetch agent configuration from database
     // For now, using request parameters
     const agentConfig = {
-      provider: provider || process.env.DEFAULT_LLM_PROVIDER || "openai",
-      model: model || process.env.DEFAULT_LLM_MODEL || "gpt-4o",
+      provider: provider || process.env.DEFAULT_LLM_PROVIDER || "gemini",
+
+      model: model || process.env.DEFAULT_LLM_MODEL || "gemini-2.5-flash",
+
       temperature:
-        temperature ?? parseFloat(process.env.DEFAULT_LLM_TEMPERATURE) ?? DEFAULT_TEMPERATURE,
+        temperature ?? 
+        (process.env.DEFAULT_LLM_TEMPERATURE ? parseFloat(process.env.DEFAULT_LLM_TEMPERATURE) : DEFAULT_TEMPERATURE),
     };
+
 
     // Validate provider and model configuration
     const { provider: configProvider, model: configModel, temperature: configTemp } = agentConfig;

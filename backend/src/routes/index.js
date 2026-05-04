@@ -20,6 +20,8 @@ import llmRoutes from './llm.routes.js';
 import geminiRoutes from './gemini.routes.js';
 import openaiRoutes from './openai.routes.js';
 import azureRoutes from './azure.routes.js';
+import agentRoutes from './agent.routes.js';
+
 import { getHealth as getGeminiHealth, getMetrics as getGeminiMetrics } from '../controllers/gemini.controller.js';
 import { getHealth as getOpenAIHealth, getMetrics as getOpenAIMetrics } from '../controllers/openai.controller.js';
 import { getHealth as getAzureHealth, getMetrics as getAzureMetrics } from '../controllers/azure.controller.js';
@@ -60,6 +62,8 @@ ws.use('/llm', llmRoutes);
 ws.use('/gemini', geminiRoutes);
 ws.use('/openai', openaiRoutes);
 ws.use('/azure', azureRoutes);
+ws.use('/agents', agentRoutes);
+
 
 router.use('/workspaces/:workspaceId', ws);
 

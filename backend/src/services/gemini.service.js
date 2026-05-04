@@ -67,6 +67,7 @@ class GeminiService {
       throw new Error(
         `Invalid Gemini model: "${model}". Supported models: gemini-2.5-flash, gemini-2.5-flash-lite`
       );
+
     }
 
     // Validate temperature
@@ -220,8 +221,9 @@ class GeminiService {
       // All retries exhausted
       logger.error(
         `❌ Gemini API call failed after ${GEMINI_CONFIG.maxRetries} retries`,
-        error
+        { message: error.message, stack: error.stack, details: error }
       );
+
 
       // Classify error
       if (error.message.includes("timeout")) {
