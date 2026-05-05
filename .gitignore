@@ -48,4 +48,6 @@ coverage/
 
 # Miscellaneous
 node-portable/
+
 .eslintcache
+

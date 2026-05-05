@@ -1,0 +1,62 @@
+{
+    "speaker_1.wav": {
+        "original_id": "p314",
+        "vctk_path": "backend\\voices\\cloning_references_cleaned\\p314\\ref_1.wav"
+    },
+    "speaker_2.wav": {
+        "original_id": "p251",
+        "vctk_path": "backend\\voices\\cloning_references_cleaned\\p251\\ref_1.wav"
+    },
+    "speaker_3.wav": {
+        "original_id": "p248",
+        "vctk_path": "backend\\voices\\cloning_references_cleaned\\p248\\ref_1.wav"
+    },
+    "speaker_4.wav": {
+        "original_id": "p374",
+        "vctk_path": "backend\\voices\\cloning_references_cleaned\\p374\\ref_1.wav"
+    },
+    "speaker_5.wav": {
+        "original_id": "p252",
+        "vctk_path": "backend\\voices\\cloning_references_cleaned\\p252\\ref_1.wav"
+    },
+    "speaker_6.wav": {
+        "original_id": "p297",
+        "vctk_path": "backend\\voices\\cloning_references_cleaned\\p297\\ref_1.wav"
+    },
+    "speaker_7.wav": {
+        "original_id": "p292",
+        "vctk_path": "backend\\voices\\cloning_references_cleaned\\p292\\ref_1.wav"
+    },
+    "speaker_8.wav": {
+        "original_id": "p303",
+        "vctk_path": "backend\\voices\\cloning_references_cleaned\\p303\\ref_1.wav"
+    },
+    "speaker_9.wav": {
+        "original_id": "p347",
+        "vctk_path": "backend\\voices\\cloning_references_cleaned\\p347\\ref_1.wav"
+    },
+    "speaker_10.wav": {
+        "original_id": "p363",
+        "vctk_path": "backend\\voices\\cloning_references_cleaned\\p363\\ref_1.wav"
+    },
+    "speaker_11.wav": {
+        "original_id": "p335",
+        "vctk_path": "backend\\voices\\cloning_references_cleaned\\p335\\ref_1.wav"
+    },
+    "speaker_12.wav": {
+        "original_id": "p315",
+        "vctk_path": "backend\\voices\\cloning_references_cleaned\\p315\\ref_1.wav"
+    },
+    "speaker_13.wav": {
+        "original_id": "p253",
+        "vctk_path": "backend\\voices\\cloning_references_cleaned\\p253\\ref_1.wav"
+    },
+    "speaker_14.wav": {
+        "original_id": "p228",
+        "vctk_path": "backend\\voices\\cloning_references_cleaned\\p228\\ref_1.wav"
+    },
+    "speaker_15.wav": {
+        "original_id": "p245",
+        "vctk_path": "backend\\voices\\cloning_references_cleaned\\p245\\ref_1.wav"
+    }
+}
