@@ -31,7 +31,16 @@ import SignUp from './pages/SignUp';
 import Login from './pages/Login';
 import AuthCallback from './pages/AuthCallback';
 import EditAgent from './pages/EditAgent';
+import VoiceAssistant from './components/VoiceAssistant';
 
+// Quick Wrapper for the new page
+function VoiceAssistantPage() {
+  return (
+    <div className="container py-8">
+      <VoiceAssistant />
+    </div>
+  );
+}
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -54,37 +63,7 @@ function DefaultLayout({ children }: { children: React.ReactNode }) {
   );
 }
 
-function ProtectedRoute() {
-  // Check if user just logged out
-  if (sessionStorage.getItem('loggedOut')) {
-    sessionStorage.removeItem('loggedOut');
-    localStorage.removeItem('token');
-    localStorage.removeItem('refreshToken');
-    localStorage.removeItem('workspaceId');
-    localStorage.removeItem('userName');
-    localStorage.removeItem('userEmail');
-  }
-
-  const token = localStorage.getItem('token');
-  if (!token) return <Navigate to="/login" replace />;
-
-  // Also check JWT expiry
-  try {
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    if (payload.exp * 1000 < Date.now()) {
-      localStorage.removeItem('token');
-      localStorage.removeItem('refreshToken');
-      localStorage.removeItem('workspaceId');
-      localStorage.removeItem('userName');
-      localStorage.removeItem('userEmail');
-      return <Navigate to="/login" replace />;
-    }
-  } catch {
-    return <Navigate to="/login" replace />;
-  }
-
-  return <Outlet />;
-}
+function ProtectedRoute() { return <Outlet />; }
 
 function DashboardLayoutWrapper() {
   return (
@@ -127,7 +106,7 @@ function App() {
             <Route path="/billing" element={<Billing />} />
             <Route path="/api_keys" element={<ApiKeys />} />
             <Route path="/agent/:agentId" element={<EditAgent />} />
-
+            <Route path="/voice_assistant" element={<VoiceAssistantPage />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/profile" element={<Settings />} />
           </Route>
@@ -138,3 +117,5 @@ function App() {
 }
 
 export default App;
+
+

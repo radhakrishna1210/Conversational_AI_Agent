@@ -181,8 +181,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <span className="sidebar-text">Voice AI Assistants</span>
               </div>
             </Link>
-
-            <Link to="/clone_voice">
+            <Link to="/voice_assistant" style={{textDecoration: 'none'}}>
+              <div className={`sidebar-item ${path === '/voice_assistant' ? 'active' : ''}`}>
+                <span className="sidebar-icon">🔊</span>
+                <span className="sidebar-text">Real-time TTS</span>
+                <span className="badge-new">Live</span>
+              </div>
+            </Link>
+            <Link to="/clone_voice" style={{textDecoration: 'none'}}>
               <div className={`sidebar-item ${path === '/clone_voice' ? 'active' : ''}`}>
                 <span className="sidebar-icon"><Mic size={16} /></span>
                 <span className="sidebar-text">Clone Voice</span>
