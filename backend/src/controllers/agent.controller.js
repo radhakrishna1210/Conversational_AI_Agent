@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import * as sarvamService from '../services/sarvam.service.js';
 import logger from '../lib/logger.js';
 
 const prisma = new PrismaClient();
@@ -81,5 +82,80 @@ export const deleteAgent = async (req, res) => {
   } catch (error) {
     logger.error('Failed to delete agent', error);
     res.status(500).json({ error: 'Failed to delete agent' });
+  }
+};
+
+/**
+ * Chat endpoint for multilingual AI responses
+ * POST /api/v1/agents/:agentId/chat
+ */
+export const chat = async (req, res) => {
+  const { agentId } = req.params;
+  const { message, selectedLanguages, welcomeMessage } = req.body;
+
+  // Validate input
+  if (!message || !message.trim()) {
+    return res.status(400).json({ error: 'Message is required' });
+  }
+
+  if (!Array.isArray(selectedLanguages) || selectedLanguages.length === 0) {
+    return res.status(400).json({ error: 'At least one language must be selected' });
+  }
+
+  try {
+    const agentContext = {
+      welcomeMessage: welcomeMessage || 'You are a helpful assistant.',
+    };
+
+    logger.debug(
+      { agentId, messageLength: message.length, languages: selectedLanguages },
+      'Chat request received'
+    );
+
+    // Generate response using Sarvam AI
+    const response = await sarvamService.generateResponse(
+      message,
+      selectedLanguages,
+      agentContext
+    );
+
+    logger.debug(
+      { agentId, replyLength: response.reply.length, detectedLanguage: response.detectedLanguage },
+      'Chat response generated'
+    );
+
+    res.json({
+      reply: response.reply,
+      detectedLanguage: response.detectedLanguage,
+      model: response.model,
+      tokensUsed: response.tokensUsed,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    logger.error({ agentId, error: err.message }, 'Chat error');
+    res.status(500).json({
+      error: 'Failed to generate response',
+      details: err.message,
+    });
+  }
+};
+
+/**
+ * Health check for Sarvam AI
+ * GET /api/v1/agents/health/sarvam
+ */
+export const checkSarvamHealth = async (req, res) => {
+  try {
+    const isHealthy = await sarvamService.checkSarvamHealth();
+    res.json({
+      status: isHealthy ? 'healthy' : 'unhealthy',
+      sarvamUrl: process.env.SARVAM_URL || 'https://api.sarvam.ai/api/v1',
+    });
+  } catch (err) {
+    logger.error({ error: err.message }, 'Sarvam AI health check failed');
+    res.status(500).json({
+      status: 'error',
+      error: err.message,
+    });
   }
 };
