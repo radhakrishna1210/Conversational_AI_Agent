@@ -45,5 +45,10 @@ export const env = {
   CAMPAIGN_BATCH_SIZE: parseInt(optional('CAMPAIGN_BATCH_SIZE', '50'), 10),
   CAMPAIGN_WORKER_CONCURRENCY: parseInt(optional('CAMPAIGN_WORKER_CONCURRENCY', '2'), 10),
 
+  // Sarvam AI LLM Configuration
+  SARVAM_API_KEY: optional('SARVAM_API_KEY', ''),
+  SARVAM_URL: optional('SARVAM_URL', 'https://api.sarvam.ai'),
+  SARVAM_MODEL: optional('SARVAM_MODEL', 'sarvam-30b'),
+
   isDev: () => process.env.NODE_ENV !== 'production',
 };

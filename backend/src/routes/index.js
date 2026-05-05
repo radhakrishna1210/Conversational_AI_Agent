@@ -35,6 +35,7 @@ router.get('/config', (_req, res) => {
 
 // Public
 router.use('/auth', authRoutes);
+router.use('/agents', agentRoutes);
 
 // Admin (authenticate + isAdmin enforced inside admin.routes.js)
 router.use('/admin', adminRoutes);

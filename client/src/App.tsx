@@ -91,6 +91,7 @@ function App() {
         <Route path="/signup" element={<SignUp />} />
         <Route path="/login" element={<Login />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
+        <Route path="/agent/:agentId" element={<EditAgent />} />
         {/* Protected dashboard routes */}
         <Route element={<ProtectedRoute />}>
           <Route element={<DashboardLayoutWrapper />}>
