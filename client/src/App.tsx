@@ -30,6 +30,8 @@ import Settings from './pages/Settings';
 import SignUp from './pages/SignUp';
 import Login from './pages/Login';
 import AuthCallback from './pages/AuthCallback';
+import EditAgent from './pages/EditAgent';
+
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -117,6 +119,8 @@ function App() {
             <Route path="/whatsapp" element={<WhatsApp />} />
             <Route path="/billing" element={<Billing />} />
             <Route path="/api_keys" element={<ApiKeys />} />
+            <Route path="/agent/:agentId" element={<EditAgent />} />
+
             <Route path="/settings" element={<Settings />} />
           </Route>
         </Route>

@@ -1,6 +1,8 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { AgentConfig, getAgent, saveAgent } from '../lib/agentStore';
+import { whapi } from '../lib/whapi';
+
 
 interface FlowItem {
   id: string;
@@ -67,86 +69,101 @@ export default function EditAgent() {
   const [voiceProvider, setVoiceProvider] = useState('google');
   const [agentName, setAgentName] = useState('Moon Information Agent');
   const [agentNotFound, setAgentNotFound] = useState(false);
+  
+  // Chat test state
+  const [showChatModal, setShowChatModal] = useState(false);
+  const [chatMessages, setChatMessages] = useState<{ role: string, content: string }[]>([]);
+  const [userMessage, setUserMessage] = useState('');
+  const [isTyping, setIsTyping] = useState(false);
+
 
   useEffect(() => {
     if (!agentId) return;
-    const agent = getAgent(agentId);
-    if (!agent) {
-      setAgentNotFound(true);
-      return;
-    }
-    setAgentName(agent.name);
-    setWelcomeMessage(agent.welcomeMessage);
-    setSelectedLanguages(agent.selectedLanguages || ['English (Indian)']);
-    setVoice(agent.voice || 'Google - Aoede (female)');
-    setAiModel(agent.aiModel || 'GPT-4.1-Mini');
-    setTranscription(agent.transcription || 'Azure');
-    setMaxDuration(agent.maxDuration ?? 30);
-    setSilenceTimeout(agent.silenceTimeout ?? 5);
-    setDynamicEnabled(agent.dynamicEnabled ?? true);
-    setInterruptibleEnabled(agent.interruptibleEnabled ?? true);
-    setFlowItems(agent.flowItems || [
-      { id: '1', title: 'Agent Identity & Purpose', enabled: true },
-      { id: '2', title: 'General Moon Facts Flow', enabled: true }
-    ]);
-    if (agent.voice?.toLowerCase().startsWith('google')) {
-      setVoiceProvider('google');
-    } else if (agent.voice?.toLowerCase().startsWith('eleven')) {
-      setVoiceProvider('elevenlabs');
-    } else if (agent.voice?.toLowerCase().startsWith('cartesia')) {
-      setVoiceProvider('cartesia');
-    }
+    
+    const fetchAgent = async () => {
+      try {
+        const agent = await whapi.get<AgentConfig>(`/agents/${agentId}`);
+        if (agent) {
+          setAgentName(agent.name);
+          setWelcomeMessage(agent.welcomeMessage);
+          setSelectedLanguages(agent.languages || agent.selectedLanguages || ['English (Indian)']);
+          setVoice(agent.voice || 'Google - Aoede (female)');
+          setAiModel(agent.aiModel || 'GPT-4.1-Mini');
+          setTranscription(agent.transcription || 'Azure');
+          setMaxDuration(agent.maxDuration ?? 30);
+          setSilenceTimeout(agent.silenceTimeout ?? 5);
+          setDynamicEnabled(agent.dynamicEnabled ?? true);
+          setInterruptibleEnabled(agent.interruptibleEnabled ?? true);
+          setFlowItems((agent.flowItems as any) || [
+            { id: '1', title: 'Agent Identity & Purpose', enabled: true },
+            { id: '2', title: 'General Moon Facts Flow', enabled: true }
+          ]);
+          if (agent.voice?.toLowerCase().startsWith('google')) {
+            setVoiceProvider('google');
+          } else if (agent.voice?.toLowerCase().startsWith('eleven')) {
+            setVoiceProvider('elevenlabs');
+          } else if (agent.voice?.toLowerCase().startsWith('cartesia')) {
+            setVoiceProvider('cartesia');
+          }
+          return;
+        }
+      } catch (err) {
+        console.error('Failed to fetch from backend, trying local storage', err);
+      }
+
+      // Fallback to local storage
+      const localAgent = getAgent(agentId);
+      if (!localAgent) {
+        setAgentNotFound(true);
+        return;
+      }
+      // ... (existing set state logic)
+      setAgentName(localAgent.name);
+      setWelcomeMessage(localAgent.welcomeMessage);
+      setSelectedLanguages(localAgent.selectedLanguages || ['English (Indian)']);
+      setVoice(localAgent.voice || 'Google - Aoede (female)');
+      setAiModel(localAgent.aiModel || 'GPT-4.1-Mini');
+      setTranscription(localAgent.transcription || 'Azure');
+    };
+
+    fetchAgent();
   }, [agentId]);
+
 
   // Save changes to backend and local storage
   const handleSave = async () => {
     setIsSaving(true);
-    const agentData: AgentConfig = {
-      id: agentId ?? String(Date.now()),
+    const agentData = {
       name: agentName,
-      language: 'English (India)',
-      llm: aiModel,
-      voice,
-      kbFiles: 0,
-      search: 'Off',
-      postCall: 'None',
-      integrations: 'None',
       welcomeMessage,
-      selectedLanguages,
+      aiModel,
+      voice,
+      transcription,
+      languages: selectedLanguages,
       flowItems,
       maxDuration,
       silenceTimeout,
       dynamicEnabled,
       interruptibleEnabled,
-      aiModel,
-      transcription,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
     };
 
     let savedRemotely = false;
     try {
-      const response = await fetch(`/api/v1/agents/${agentId}`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('token')}`
-        },
-        body: JSON.stringify(agentData)
-      });
-
-      if (response.ok) {
-        savedRemotely = true;
-      }
-    } catch {
+      await whapi.put(`/agents/${agentId}`, agentData);
+      savedRemotely = true;
+    } catch (err) {
+      console.error('Failed to save to backend', err);
       savedRemotely = false;
     }
 
-    saveAgent(agentData as any);
+    // Still save to local storage as backup/sync
+    saveAgent({ ...agentData, id: agentId!, selectedLanguages } as any);
+    
     setSaveMessage(savedRemotely ? '✅ Saved successfully!' : '✅ Saved locally');
     setTimeout(() => setSaveMessage(''), 3000);
     setIsSaving(false);
   };
+
 
   const toggleFlowItem = (id: string) => {
     setFlowItems(flowItems.map(item =>
@@ -178,6 +195,34 @@ export default function EditAgent() {
     setVoice(`${provider} - ${voiceName}`);
     setShowVoiceModal(false);
   };
+
+  const handleTestChat = async () => {
+    if (!userMessage.trim()) return;
+    
+    const newMessages = [...chatMessages, { role: 'user', content: userMessage }];
+    setChatMessages(newMessages);
+    setUserMessage('');
+    setIsTyping(true);
+
+    try {
+      const isGemini = aiModel.toLowerCase().includes('gemini');
+      const response = await whapi.post<{ message: string }>('/llm/generate', {
+        agentId,
+        message: userMessage,
+        systemPrompt: `${welcomeMessage}\n\nFlow:\n${flowItems.filter(f => f.enabled).map(f => f.title).join('\n')}`,
+        provider: isGemini ? 'gemini' : 'openai',
+        model: isGemini ? 'gemini-2.5-flash' : 'gpt-4o'
+      });
+
+      setChatMessages([...newMessages, { role: 'assistant', content: response.message }]);
+    } catch (err) {
+      console.error('Chat failed', err);
+      setChatMessages([...newMessages, { role: 'assistant', content: '⚠️ Error: Failed to get response from AI.' }]);
+    } finally {
+      setIsTyping(false);
+    }
+  };
+
 
   return (
     <div style={{ width: '100%', minHeight: '100vh', background: '#0f0f0f', color: '#fff', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
@@ -341,7 +386,8 @@ export default function EditAgent() {
         <div style={{ fontSize: '12px', color: '#999' }}>Cost/min: $0.115</div>
         <button onClick={() => alert('Ask AI functionality coming soon')} style={{ padding: '6px 14px', background: '#ff9800', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '600' }}>✨ Ask AI</button>
         <button onClick={() => alert('Test functionality coming soon')} style={{ padding: '6px 14px', background: 'transparent', border: '1px solid #333', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>Test with</button>
-        <button onClick={() => alert('Chat functionality coming soon')} style={{ padding: '6px 14px', background: 'transparent', border: '1px solid #333', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>💬 Chat</button>
+        <button onClick={() => { setChatMessages([]); setShowChatModal(true); }} style={{ padding: '6px 14px', background: 'transparent', border: '1px solid #333', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>💬 Chat</button>
+
         <button onClick={() => alert('Web Call functionality coming soon')} style={{ padding: '6px 14px', background: 'transparent', border: '1px solid #333', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>📞 Web Call</button>
         <button onClick={() => alert('Phone Call functionality coming soon')} style={{ padding: '6px 14px', background: 'transparent', border: '1px solid #333', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontSize: '12px' }}>☎️ Phone Call</button>
         <button onClick={handleSave} disabled={isSaving} style={{ padding: '6px 14px', background: '#00bcd4', color: '#000', border: 'none', borderRadius: '6px', cursor: isSaving ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: '700', opacity: isSaving ? 0.6 : 1 }}>Deploy ↓</button>
@@ -570,6 +616,58 @@ export default function EditAgent() {
         )}
       </div>
 
+      {/* Chat Modal */}
+      {showChatModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#1a1a1a', borderRadius: '12px', padding: 0, maxWidth: '500px', width: '90%', height: '600px', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ padding: '16px 20px', background: '#222', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#00bcd4', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#000', fontWeight: 'bold' }}>{agentName.charAt(0)}</div>
+                <span style={{ fontWeight: '600', fontSize: '14px' }}>Test Chat: {agentName}</span>
+              </div>
+              <button onClick={() => setShowChatModal(false)} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '20px' }}>✕</button>
+            </div>
+            
+            <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+              <div style={{ alignSelf: 'flex-start', background: '#333', padding: '10px 14px', borderRadius: '12px 12px 12px 0', fontSize: '13px', maxWidth: '85%' }}>
+                {welcomeMessage}
+              </div>
+              {chatMessages.map((msg, i) => (
+                <div key={i} style={{ 
+                  alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start', 
+                  background: msg.role === 'user' ? '#00bcd4' : '#333', 
+                  color: msg.role === 'user' ? '#000' : '#fff',
+                  padding: '10px 14px', 
+                  borderRadius: msg.role === 'user' ? '12px 12px 0 12px' : '12px 12px 12px 0', 
+                  fontSize: '13px', 
+                  maxWidth: '85%' 
+                }}>
+                  {msg.content}
+                </div>
+              ))}
+              {isTyping && (
+                <div style={{ alignSelf: 'flex-start', background: '#333', padding: '10px 14px', borderRadius: '12px 12px 12px 0', fontSize: '13px' }}>
+                  Typing...
+                </div>
+              )}
+            </div>
+
+            <div style={{ padding: '20px', borderTop: '1px solid #333', background: '#1a1a1a' }}>
+              <form onSubmit={(e) => { e.preventDefault(); handleTestChat(); }} style={{ display: 'flex', gap: '10px' }}>
+                <input 
+                  type="text" 
+                  value={userMessage} 
+                  onChange={(e) => setUserMessage(e.target.value)} 
+                  placeholder="Type your message..." 
+                  style={{ flex: 1, background: '#0f0f0f', border: '1px solid #333', borderRadius: '8px', padding: '10px 14px', color: '#fff', fontSize: '13px' }}
+                />
+                <button type="submit" disabled={isTyping || !userMessage.trim()} style={{ background: '#00bcd4', color: '#000', border: 'none', borderRadius: '8px', padding: '0 16px', fontWeight: 'bold', cursor: 'pointer', opacity: (isTyping || !userMessage.trim()) ? 0.6 : 1 }}>Send</button>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
+

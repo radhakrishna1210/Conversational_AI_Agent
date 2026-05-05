@@ -26,7 +26,9 @@ const campaignWorker = createCampaignWorker();
 if (campaignWorker) {
   campaignWorker.on('completed', (job) => logger.info({ jobId: job.id }, 'Campaign job completed'));
   campaignWorker.on('failed', (job, err) => logger.error({ jobId: job?.id, err }, 'Campaign job failed'));
-  logger.info('Campaign worker started');
+  logger.info('✅ Campaign worker started');
+} else {
+  logger.warn('⚠️ Campaign worker skipped (Redis/Queue unavailable)');
 }
 
 const server = app.listen(env.PORT, () => {

@@ -110,6 +110,7 @@ model Workspace {
   invoices         Invoice[]
   messages         Message[]
   numberPool       NumberPool?
+  agents           Agent[]
 }
 
 model WorkspaceMember {
@@ -403,4 +404,24 @@ model NumberPool {
   updatedAt     DateTime     @updatedAt
 
   workspace     Workspace?   @relation(fields: [assignedTo], references: [id])
+}
+
+model Agent {
+  id               String   @id @default(cuid())
+  workspaceId      String
+  name             String
+  welcomeMessage   String
+  aiModel          String
+  voice            String
+  transcription    String   @default("Azure")
+  languages        String[]
+  flowItems        Json?
+  maxDuration      Int      @default(30)
+  silenceTimeout   Int      @default(5)
+  dynamicEnabled   Boolean  @default(true)
+  interruptibleEnabled Boolean @default(true)
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
