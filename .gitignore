@@ -3,3 +3,7 @@ dist/
 .env
 .DS_Store
 node-portable/
+venv/
+__pycache__/
+*.db
+*.wav
