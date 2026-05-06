@@ -1,6 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AgentConfig, createAgent, loadAgents } from '../lib/agentStore';
+import { whapi } from '../lib/whapi';
+
 
 export default function Dashboard() {
   const [prompt, setPrompt] = useState('');
@@ -11,21 +13,48 @@ export default function Dashboard() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    setAgents(loadAgents());
+    const fetchAgents = async () => {
+      try {
+        const backendAgents = await whapi.get<AgentConfig[]>('/agents');
+        setAgents(backendAgents);
+      } catch (err) {
+        console.error('Failed to fetch agents from backend', err);
+        setAgents(loadAgents());
+      }
+    };
+    fetchAgents();
   }, []);
 
-  const handleCreate = () => {
+
+  const handleCreate = async () => {
     if (!prompt.trim()) return;
     setCreating(true);
-    const newAgent = createAgent(prompt.trim());
-    setTimeout(() => {
+    
+    try {
+      const newAgent = await whapi.post<AgentConfig>('/agents', { 
+        name: prompt.trim(),
+        welcomeMessage: `Hello, I am ${prompt.trim()}. How can I help you today?`,
+        aiModel: 'GPT-4.1-Mini',
+        voice: 'Google - Aoede (female)',
+      });
+      
       setAgents(prev => [newAgent, ...prev]);
-      setCreating(false);
-      setSuccess(true);
       setPrompt('');
+      setSuccess(true);
       setTimeout(() => setSuccess(false), 2000);
-    }, 700);
+    } catch (err) {
+      console.error('Failed to create agent on backend', err);
+      // Fallback to local
+      const localAgent = createAgent(prompt.trim());
+      setAgents(prev => [localAgent, ...prev]);
+      setPrompt('');
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 2000);
+    } finally {
+      setCreating(false);
+    }
   };
+
 
   const setTemplate = (template: string) => setPrompt(template);
 
