@@ -1,3 +1,4 @@
+import React from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Bot,
@@ -15,24 +16,49 @@ import {
   CreditCard,
   Key,
   Settings,
-  LogOut
+  LogOut,
+  Search
 } from "lucide-react";
+import { CommandMenu } from './CommandMenu';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   const navigate = useNavigate();
   const path = location.pathname;
+  const [isCommandMenuOpen, setIsCommandMenuOpen] = React.useState(false);
+
+  React.useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setIsCommandMenuOpen((open) => !open);
+      }
+    };
+
+    document.addEventListener("keydown", down);
+    return () => document.removeEventListener("keydown", down);
+  }, []);
 
   return (
     <div className="dashboard-layout">
       {/* Topbar */}
       <div style={{background:'var(--bg-secondary)', borderBottom:'1px solid var(--border)', position: 'fixed', top: 0, left: '68px', right: 0, zIndex: 10, height: '56px'}}>
         <div className="dashboard-topbar">
-          <div className="topbar-search">
-            <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-            <input type="text" placeholder="Search or jump to..." />
+          <div 
+            className="topbar-search" 
+            onClick={() => setIsCommandMenuOpen(true)}
+            style={{ cursor: 'pointer' }}
+          >
+            <Search size={16} />
+            <input 
+              type="text" 
+              placeholder="Search or jump to..." 
+              readOnly 
+              style={{ cursor: 'pointer' }}
+            />
             <span>⌘ K</span>
           </div>
+          <CommandMenu open={isCommandMenuOpen} setOpen={setIsCommandMenuOpen} />
           <div className="topbar-actions">
             {/* Bell with red badge */}
             <button style={{background:'none', border:'none', color:'var(--text-secondary)', cursor:'pointer', position:'relative', display:'flex', alignItems:'center', justifyContent:'center', padding:'4px'}}>

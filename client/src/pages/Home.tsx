@@ -23,6 +23,7 @@ export default function Home() {
   const toggleFaq = (index: number) => {
     setActiveFaq(activeFaq === index ? null : index);
   };
+  const [activeStep, setActiveStep] = useState(0);
 
   useEffect(() => {
     const observer = new IntersectionObserver((entries) => {
