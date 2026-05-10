@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Bot,
@@ -16,8 +16,10 @@ import {
   CreditCard,
   Key,
   Settings,
-  LogOut
+  LogOut,
+  Search
 } from "lucide-react";
+import { CommandMenu } from './CommandMenu';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [showBanner, setShowBanner] = useState(true);
@@ -47,6 +49,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const location = useLocation();
   const navigate = useNavigate();
   const path = location.pathname;
+  const [isCommandMenuOpen, setIsCommandMenuOpen] = React.useState(false);
+
+  React.useEffect(() => {
+    const down = (e: KeyboardEvent) => {
+      if (e.key === "k" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        setIsCommandMenuOpen((open) => !open);
+      }
+    };
+
+    document.addEventListener("keydown", down);
+    return () => document.removeEventListener("keydown", down);
+  }, []);
 
   const handleLogout = () => {
     sessionStorage.setItem('loggedOut', '1');
@@ -122,11 +137,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       {/* Topbar */}
       <div style={{ borderBottom: '1px solid var(--topbar-border)', position: 'fixed', top: 0, left: '68px', right: 0, zIndex: 100, height: '56px', overflow: 'visible', boxShadow: 'var(--shadow-topbar)' }}>
         <div className="dashboard-topbar">
-          <div className="topbar-search">
-            <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" style={{ flexShrink: 0, opacity: 0.5 }}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-            <input type="text" placeholder="Search or jump to..." />
-            <span>⌘K</span>
+          <div 
+            className="topbar-search" 
+            onClick={() => setIsCommandMenuOpen(true)}
+            style={{ cursor: 'pointer' }}
+          >
+            <Search size={16} />
+            <input 
+              type="text" 
+              placeholder="Search or jump to..." 
+              readOnly 
+              style={{ cursor: 'pointer' }}
+            />
+            <span>⌘ K</span>
           </div>
+          <CommandMenu open={isCommandMenuOpen} setOpen={setIsCommandMenuOpen} />
           <div className="topbar-actions">
             {/* Bell */}
             <button className="topbar-icon-btn" style={{ position: 'relative' }}>
