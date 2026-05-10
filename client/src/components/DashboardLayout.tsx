@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Bot,
@@ -24,7 +24,27 @@ import { CommandMenu } from './CommandMenu';
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [showBanner, setShowBanner] = useState(true);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
-  const [user, setUser] = useState({ name: 'User', email: '', initials: 'U' });
+  // true = dark (default), false = light
+  const [darkMode, setDarkMode] = useState(true);
+  const [user, setUser] = useState({ name: 'User', email: '', initials: 'U', plan: '' });
+  const profileRef = useRef<HTMLDivElement>(null);
+
+  const toggleDarkMode = () => {
+    const next = !darkMode;
+    setDarkMode(next);
+    document.documentElement.classList.toggle('light', !next);
+    localStorage.setItem('darkMode', next ? '1' : '0');
+  };
+
+  useEffect(() => {
+    const saved = localStorage.getItem('darkMode');
+    if (saved === '0') {
+      setDarkMode(false);
+      document.documentElement.classList.add('light');
+    } else {
+      document.documentElement.classList.remove('light');
+    }
+  }, []);
   
   const location = useLocation();
   const navigate = useNavigate();
@@ -54,38 +74,68 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   };
 
   useEffect(() => {
-    const name = localStorage.getItem('userName');
-    const email = localStorage.getItem('userEmail');
-    
-    let displayName = name || 'User';
-    let displayEmail = email || '';
-    
-    // If not in localStorage, try decoding the token
-    if (!name || !email) {
+    const buildUser = (name: string, email: string, plan = '') => {
+      const initials = name
+        .split(' ')
+        .map(n => n[0])
+        .join('')
+        .toUpperCase()
+        .substring(0, 2) || 'U';
+      setUser({ name, email, initials, plan });
+      localStorage.setItem('userName', name);
+      localStorage.setItem('userEmail', email);
+    };
+
+    const fetchMe = async () => {
       const token = localStorage.getItem('token');
-      if (token) {
+      if (!token) return;
+      try {
+        const res = await fetch('/api/v1/auth/me', {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (res.ok) {
+          const data = await res.json();
+          const u = data.user;
+          const name = u.name || u.email?.split('@')[0] || 'User';
+          buildUser(name, u.email || '', u.plan || '');
+          return;
+        }
+      } catch (_) {}
+
+      // Fallback: decode JWT locally
+      const token2 = localStorage.getItem('token');
+      if (token2) {
         try {
-          const payload = JSON.parse(atob(token.split('.')[1]));
-          displayName = payload.name || payload.email?.split('@')[0] || 'User';
-          displayEmail = payload.email || '';
-        } catch (e) {}
+          const payload = JSON.parse(atob(token2.split('.')[1]));
+          const name = payload.name || payload.email?.split('@')[0] || 'User';
+          buildUser(name, payload.email || '', payload.plan || '');
+          return;
+        } catch (_) {}
       }
-    }
+      // Final fallback: localStorage cache
+      const cachedName = localStorage.getItem('userName') || 'User';
+      const cachedEmail = localStorage.getItem('userEmail') || '';
+      buildUser(cachedName, cachedEmail);
+    };
 
-    const initials = displayName
-      .split(' ')
-      .map(n => n[0])
-      .join('')
-      .toUpperCase()
-      .substring(0, 2) || 'U';
+    fetchMe();
+  }, []);
 
-    setUser({ name: displayName, email: displayEmail, initials });
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
+        setProfileDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
   }, []);
 
   return (
     <div className="dashboard-layout">
       {/* Topbar */}
-      <div style={{background:'var(--bg-secondary)', borderBottom:'1px solid var(--border)', position: 'fixed', top: 0, left: '68px', right: 0, zIndex: 10, height: '56px'}}>
+      <div style={{ borderBottom: '1px solid var(--topbar-border)', position: 'fixed', top: 0, left: '68px', right: 0, zIndex: 100, height: '56px', overflow: 'visible', boxShadow: 'var(--shadow-topbar)' }}>
         <div className="dashboard-topbar">
           <div 
             className="topbar-search" 
@@ -103,86 +153,102 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           </div>
           <CommandMenu open={isCommandMenuOpen} setOpen={setIsCommandMenuOpen} />
           <div className="topbar-actions">
-            {/* Bell with red badge */}
-            <button style={{background:'none', border:'none', color:'var(--text-secondary)', cursor:'pointer', position:'relative', display:'flex', alignItems:'center', justifyContent:'center', padding:'4px'}}>
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            {/* Bell */}
+            <button className="topbar-icon-btn" style={{ position: 'relative' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
                 <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
               </svg>
-              <span style={{position:'absolute', top:'2px', right:'2px', width:'8px', height:'8px', background:'#ef4444', borderRadius:'50%', display:'block', border:'1.5px solid var(--bg-secondary)'}}></span>
+              <span style={{ position: 'absolute', top: '6px', right: '6px', width: '7px', height: '7px', background: 'var(--error)', borderRadius: '50%', display: 'block', border: '1.5px solid var(--topbar-bg)' }}></span>
             </button>
-            {/* GD Avatar */}
-            <div style={{
-              width: '32px', height: '32px', borderRadius: '50%',
-              background: 'linear-gradient(135deg, #0a5446 0%, #0eb39e 100%)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              fontSize: '12px', fontWeight: '700', color: 'white',
-              cursor: 'pointer', letterSpacing: '0.5px',
-              border: '1.5px solid rgba(14,179,158,0.4)'
-            }}>GD</div>
-            {/* Moon / dark mode */}
-            <button style={{background:'none', border:'none', color:'var(--text-secondary)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', padding:'4px'}}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-              </svg>
+
+            {/* Dark / Light mode toggle */}
+            <button className="topbar-icon-btn" onClick={toggleDarkMode} title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}>
+              {darkMode ? (
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                </svg>
+              ) : (
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="5"/>
+                  <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                  <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                </svg>
+              )}
             </button>
-            <div style={{ position: 'relative' }}>
-              <div 
-                className="topbar-avatar" 
-                onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
-                style={{ cursor: 'pointer', background: '#00b4d8', color: '#001a2c', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+
+            {/* Profile avatar + dropdown */}
+            <div ref={profileRef} style={{ position: 'relative', marginLeft: '2px' }}>
+              <div
+                className="topbar-avatar"
+                onClick={() => setProfileDropdownOpen(prev => !prev)}
+                style={{ cursor: 'pointer', userSelect: 'none' }}
               >
                 {user.initials}
               </div>
-              
+
               {profileDropdownOpen && (
                 <div style={{
                   position: 'absolute',
-                  top: '100%',
+                  top: 'calc(100% + 12px)',
                   right: 0,
-                  marginTop: '10px',
-                  width: '240px',
-                  background: '#0a0a0a',
-                  border: '1px solid #2a2a2a',
-                  borderRadius: '8px',
-                  boxShadow: '0 4px 12px rgba(0,0,0,0.5)',
-                  zIndex: 50,
-                  overflow: 'hidden'
+                  width: '264px',
+                  background: 'var(--dropdown-bg)',
+                  border: '1px solid var(--dropdown-border)',
+                  borderRadius: '14px',
+                  boxShadow: darkMode
+                    ? '0 16px 48px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04)'
+                    : '0 8px 32px rgba(15,23,42,0.14), 0 0 0 1px rgba(0,0,0,0.04)',
+                  zIndex: 9999,
+                  overflow: 'hidden',
                 }}>
-                  <div style={{ padding: '16px', borderBottom: '1px solid #2a2a2a' }}>
-                    <div style={{ fontWeight: 'bold', fontSize: '14px', color: '#fff', marginBottom: '4px', textTransform: 'uppercase' }}>{user.name}</div>
-                    <div style={{ fontSize: '12px', color: '#888' }}>{user.email}</div>
+                  {/* User info header */}
+                  <div style={{ padding: '16px', borderBottom: '1px solid var(--dropdown-border)', display: 'flex', alignItems: 'center', gap: '12px', background: darkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)' }}>
+                    <div style={{ width: '38px', height: '38px', borderRadius: '50%', background: 'linear-gradient(135deg, var(--teal), #0cd4bc)', color: '#060c17', fontWeight: '800', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', flexShrink: 0, boxShadow: '0 0 0 2px var(--teal-light)' }}>
+                      {user.initials}
+                    </div>
+                    <div style={{ overflow: 'hidden', flex: 1 }}>
+                      <div style={{ fontWeight: '700', fontSize: '13.5px', color: 'var(--dropdown-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user.name}</div>
+                      <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '1px' }}>{user.email}</div>
+                      {user.plan && (
+                        <span style={{ marginTop: '5px', display: 'inline-block', fontSize: '9px', fontWeight: '800', padding: '2px 8px', background: 'var(--teal-light)', color: 'var(--teal)', borderRadius: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{user.plan}</span>
+                      )}
+                    </div>
                   </div>
-                  
-                  <div style={{ padding: '8px 0', borderBottom: '1px solid #2a2a2a' }}>
-                    <Link to="/profile" style={{ display: 'flex', alignItems: 'center', padding: '10px 16px', textDecoration: 'none', color: '#eaeaea', fontSize: '14px', transition: 'background 0.2s' }} onMouseOver={(e) => e.currentTarget.style.background = '#1f1f1f'} onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}>
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '12px' }}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
-                      Profile
-                    </Link>
-                    <Link to="/settings" style={{ display: 'flex', alignItems: 'center', padding: '10px 16px', textDecoration: 'none', color: '#eaeaea', fontSize: '14px', transition: 'background 0.2s' }} onMouseOver={(e) => e.currentTarget.style.background = '#1f1f1f'} onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}>
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '12px' }}><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>
-                      Settings
-                    </Link>
-                    <Link to="/billing" style={{ display: 'flex', alignItems: 'center', padding: '10px 16px', textDecoration: 'none', color: '#eaeaea', fontSize: '14px', transition: 'background 0.2s' }} onMouseOver={(e) => e.currentTarget.style.background = '#1f1f1f'} onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}>
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '12px' }}><rect x="1" y="4" width="22" height="16" rx="2" ry="2"></rect><line x1="1" y1="10" x2="23" y2="10"></line></svg>
-                      Billing
-                    </Link>
+
+                  <div style={{ padding: '6px 0', borderBottom: '1px solid var(--dropdown-border)' }}>
+                    {[
+                      { to: '/profile', label: 'Profile', icon: <><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></> },
+                      { to: '/settings', label: 'Settings', icon: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></> },
+                      { to: '/billing', label: 'Billing', icon: <><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></> },
+                    ].map(item => (
+                      <Link key={item.to} to={item.to} onClick={() => setProfileDropdownOpen(false)}
+                        style={{ display: 'flex', alignItems: 'center', padding: '9px 16px', textDecoration: 'none', color: 'var(--dropdown-text)', fontSize: '13.5px', fontWeight: '500', transition: 'background 0.15s' }}
+                        onMouseOver={e => (e.currentTarget.style.background = 'var(--dropdown-hover)')}
+                        onMouseOut={e => (e.currentTarget.style.background = 'transparent')}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '12px', opacity: 0.6 }}>{item.icon}</svg>
+                        {item.label}
+                      </Link>
+                    ))}
                   </div>
-                  
-                  <div style={{ padding: '8px 0' }}>
-                    <div 
-                      onClick={handleLogout}
-                      style={{ display: 'flex', alignItems: 'center', padding: '10px 16px', cursor: 'pointer', color: '#eaeaea', fontSize: '14px', transition: 'background 0.2s' }}
-                      onMouseOver={(e) => e.currentTarget.style.background = '#1f1f1f'} onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
+
+                  <div style={{ padding: '6px 0' }}>
+                    <div
+                      onClick={() => { setProfileDropdownOpen(false); handleLogout(); }}
+                      style={{ display: 'flex', alignItems: 'center', padding: '9px 16px', cursor: 'pointer', color: 'var(--error)', fontSize: '13.5px', fontWeight: '500', transition: 'background 0.15s' }}
+                      onMouseOver={e => (e.currentTarget.style.background = 'var(--dropdown-hover)')}
+                      onMouseOut={e => (e.currentTarget.style.background = 'transparent')}
                     >
-                      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '12px' }}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '12px', opacity: 0.8 }}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
                       Log out
                     </div>
                   </div>
                 </div>
               )}
             </div>
-            <button style={{background:'none', border:'none', color:'var(--text-secondary)', fontSize:'18px', cursor:'pointer'}}>🌙</button>
           </div>
         </div>
       </div>

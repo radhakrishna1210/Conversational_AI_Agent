@@ -661,7 +661,6 @@ export default function EditAgent() {
             { id: 'kb', label: '📚 Knowledge Base' },
             { id: 'integrations', label: '🔗 Integrations' },
             { id: 'postcall', label: '📤 Post-Call' },
-            { id: 'chat', label: '💬 Chat Test' },
             { id: 'calls', label: '📞 Recent Calls' }
           ].map(tab => (
             <button

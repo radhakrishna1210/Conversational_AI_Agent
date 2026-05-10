@@ -46,11 +46,22 @@ export const launchCampaign = async (workspaceId, campaignId, scheduledAt) => {
     data: { status, scheduledAt: scheduledAt ? new Date(scheduledAt) : null, launchedAt: new Date() },
   });
 
-  if (!scheduledAt) {
-    await enqueueCampaign(campaignId, workspaceId);
-  } else {
-    const delay = new Date(scheduledAt).getTime() - Date.now();
-    await enqueueCampaign(campaignId, workspaceId, Math.max(delay, 0));
+  try {
+    if (!scheduledAt) {
+      await enqueueCampaign(campaignId, workspaceId);
+    } else {
+      const delay = new Date(scheduledAt).getTime() - Date.now();
+      await enqueueCampaign(campaignId, workspaceId, Math.max(delay, 0));
+    }
+  } catch (err) {
+    await prisma.campaign.update({
+      where: { id: campaignId },
+      data: { status: campaign.status },
+    });
+    const error = new Error('Failed to enqueue campaign job. Please try again later.');
+    error.statusCode = 503;
+    error.cause = err;
+    throw error;
   }
 
   return updated;

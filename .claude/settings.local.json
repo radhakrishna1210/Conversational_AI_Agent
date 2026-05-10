@@ -3,7 +3,11 @@
     "allow": [
       "Bash(npx prisma:*)",
       "Bash(npm run:*)",
-      "Bash(npx tsc:*)"
+      "Bash(npx tsc:*)",
+      "Bash(git checkout *)",
+      "Bash(git pull *)",
+      "Bash(git merge *)",
+      "Bash(node -e ' *)"
     ]
   }
 }
