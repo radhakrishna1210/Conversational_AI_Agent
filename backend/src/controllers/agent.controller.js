@@ -1,21 +1,45 @@
-import { PrismaClient } from '@prisma/client';
+import prisma from '../config/prisma.js';
 import * as sarvamService from '../services/sarvam.service.js';
 import logger from '../lib/logger.js';
 
-const prisma = new PrismaClient();
+const safeJson = (value, fallback = []) => {
+  if (value == null) return fallback;
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return fallback;
+    }
+  }
+  return fallback;
+};
+
+const serializeAgent = (agent) => ({
+  ...agent,
+  languages: safeJson(agent.languages, []),
+  selectedLanguages: safeJson(agent.languages, []),
+  flowItems: safeJson(agent.flowItems, null),
+});
 
 export const createAgent = async (req, res) => {
   const { workspaceId } = req.params;
   const data = req.body;
 
   try {
+    const normalizedData = {
+      ...data,
+      languages: JSON.stringify(data.languages ?? data.selectedLanguages ?? []),
+      flowItems: data.flowItems == null ? null : JSON.stringify(data.flowItems),
+    };
+
     const agent = await prisma.agent.create({
       data: {
-        ...data,
+        ...normalizedData,
         workspaceId,
       },
     });
-    res.status(201).json(agent);
+    res.status(201).json(serializeAgent(agent));
   } catch (error) {
     logger.error('Failed to create agent', error);
     res.status(500).json({ error: 'Failed to create agent' });
@@ -30,7 +54,7 @@ export const getAgents = async (req, res) => {
       where: { workspaceId },
       orderBy: { updatedAt: 'desc' },
     });
-    res.json(agents);
+    res.json(agents.map(serializeAgent));
   } catch (error) {
     logger.error('Failed to get agents', error);
     res.status(500).json({ error: 'Failed to get agents' });
@@ -45,7 +69,7 @@ export const getAgent = async (req, res) => {
       where: { id: agentId },
     });
     if (!agent) return res.status(404).json({ error: 'Agent not found' });
-    res.json(agent);
+    res.json(serializeAgent(agent));
   } catch (error) {
     logger.error('Failed to get agent', error);
     res.status(500).json({ error: 'Failed to get agent' });
@@ -60,11 +84,21 @@ export const updateAgent = async (req, res) => {
     // Remove ID and timestamps from body to avoid prisma errors
     const { id, createdAt, updatedAt, workspaceId, ...updateData } = data;
 
+    const normalizedData = {
+      ...updateData,
+      languages: updateData.languages || updateData.selectedLanguages
+        ? JSON.stringify(updateData.languages ?? updateData.selectedLanguages ?? [])
+        : undefined,
+      flowItems: updateData.flowItems == null
+        ? undefined
+        : JSON.stringify(updateData.flowItems),
+    };
+
     const agent = await prisma.agent.update({
       where: { id: agentId },
-      data: updateData,
+      data: normalizedData,
     });
-    res.json(agent);
+    res.json(serializeAgent(agent));
   } catch (error) {
     logger.error('Failed to update agent', error, { agentId });
     res.status(500).json({ error: 'Failed to update agent' });

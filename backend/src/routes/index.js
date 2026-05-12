@@ -21,6 +21,8 @@ import geminiRoutes from './gemini.routes.js';
 import openaiRoutes from './openai.routes.js';
 import azureRoutes from './azure.routes.js';
 import agentRoutes from './agent.routes.js';
+import integrationsRoutes from './integrations.routes.js';
+import integrationsPublicRoutes from './integrationsPublic.routes.js';
 
 import { getHealth as getGeminiHealth, getMetrics as getGeminiMetrics } from '../controllers/gemini.controller.js';
 import { getHealth as getOpenAIHealth, getMetrics as getOpenAIMetrics } from '../controllers/openai.controller.js';
@@ -36,6 +38,7 @@ router.get('/config', (_req, res) => {
 // Public
 router.use('/auth', authRoutes);
 router.use('/agents', agentRoutes);
+router.use('/integrations', integrationsPublicRoutes);
 
 // Admin (authenticate + isAdmin enforced inside admin.routes.js)
 router.use('/admin', adminRoutes);
@@ -64,6 +67,7 @@ ws.use('/gemini', geminiRoutes);
 ws.use('/openai', openaiRoutes);
 ws.use('/azure', azureRoutes);
 ws.use('/agents', agentRoutes);
+ws.use('/integrations', integrationsRoutes);
 
 
 router.use('/workspaces/:workspaceId', ws);

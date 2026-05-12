@@ -20,7 +20,6 @@ import {
 } from "lucide-react";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const [showBanner, setShowBanner] = useState(true);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const [user, setUser] = useState({ name: 'User', email: '', initials: 'U' });
   

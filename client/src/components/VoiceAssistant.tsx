@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ttsSocket } from '../services/ttsSocket';
 import { audioPlayer } from '../services/audioPlayer';
 
@@ -302,11 +302,6 @@ export default function VoiceAssistant() {
       voices: voices.filter(v => v.gender !== 'male' && v.gender !== 'female'),
     },
   ].filter(g => g.voices.length > 0);
-
-  const filteredVoices = voices.filter(v => 
-    v.name.toLowerCase().includes(searchQuery.toLowerCase()) || 
-    (v.style && v.style.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
 
   const selectedVoiceObj = voices.find(v => v.name === selectedVoice) ?? null;
 
