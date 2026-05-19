@@ -6,6 +6,7 @@ import prisma from './config/prisma.js';
 import logger from './lib/logger.js';
 import { SSE_KEEPALIVE_INTERVAL_MS, SHUTDOWN_GRACE_PERIOD_MS } from './constants/limits.js';
 import { createCampaignWorker } from './workers/campaign.worker.js';
+import { startIntegrationScheduler } from './services/integrationScheduler.service.js';
 
 mkdirSync(env.UPLOAD_DIR, { recursive: true });
 
@@ -31,6 +32,8 @@ if (campaignWorker) {
   logger.warn('⚠️ Campaign worker skipped (Redis/Queue unavailable)');
 }
 
+const integrationScheduler = startIntegrationScheduler();
+
 const server = app.listen(env.PORT, () => {
   logger.info(`Server running on http://localhost:${env.PORT} [${env.NODE_ENV}]`);
 });
@@ -41,6 +44,7 @@ setInterval(() => {}, SSE_KEEPALIVE_INTERVAL_MS);
 const shutdown = async (signal) => {
   logger.info(`${signal} received — shutting down`);
   server.close(async () => {
+    if (integrationScheduler?.stop) integrationScheduler.stop();
     await prisma.$disconnect();
     logger.info('Shutdown complete');
     process.exit(0);

@@ -22,7 +22,6 @@ import {
 import { CommandMenu } from './CommandMenu';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const [showBanner, setShowBanner] = useState(true);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   // true = dark (default), false = light
   const [darkMode, setDarkMode] = useState(true);
