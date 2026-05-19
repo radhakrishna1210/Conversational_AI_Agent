@@ -55,6 +55,14 @@ model Workspace {
   messages         Message[]
   numberPool       NumberPool?
   agents           Agent[]
+  integrations     Integration[]
+  integrationTokens IntegrationToken[]
+  integrationLogs  IntegrationLog[]
+  oauthSessions    OAuthSession[]
+  webhookEvents    WebhookEvent[]
+  syncJobs         SyncJob[]
+  integrationSettings IntegrationSetting[]
+  customApiConfigs CustomApiConfig[]
 }
 
 model WorkspaceMember {
@@ -358,8 +366,8 @@ model Agent {
   aiModel          String
   voice            String
   transcription    String   @default("Azure")
-  languages        String[]
-  flowItems        Json?
+  languages        String   @default("[]")
+  flowItems        String?  @default("{}")
   maxDuration      Int      @default(30)
   silenceTimeout   Int      @default(5)
   dynamicEnabled   Boolean  @default(true)
@@ -368,4 +376,178 @@ model Agent {
   updatedAt        DateTime @updatedAt
 
   workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model Integration {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  provider        String
+  name            String
+  status          String   @default("disconnected")
+  connected       Boolean  @default(false)
+  accountId       String?
+  accountLabel    String?
+  lastSyncAt      DateTime?
+  lastError       String?
+  tokenExpiresAt  DateTime?
+  webhookStatus   String   @default("not_configured")
+  webhookEnabled  Boolean  @default(false)
+  lastSyncedCount Int      @default(0)
+  metadata        String?  @default("{}")
+  settingsJson    String   @default("{}")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workspace       Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  token           IntegrationToken?
+  logs            IntegrationLog[]
+  oauthSessions   OAuthSession[]
+  webhookEvents   WebhookEvent[]
+  syncJobs        SyncJob[]
+  settings        IntegrationSetting?
+
+  @@unique([workspaceId, provider])
+  @@index([workspaceId, status])
+}
+
+model IntegrationToken {
+  id                 String   @id @default(cuid())
+  integrationId      String   @unique
+  workspaceId        String
+  provider           String
+  accessTokenCipher  String
+  refreshTokenCipher String?
+  tokenType          String?
+  scopes             String   @default("")
+  expiresAt          DateTime?
+  revokedAt          DateTime?
+  createdAt          DateTime @default(now())
+  updatedAt          DateTime @updatedAt
+
+  integration        Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+  workspace          Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, provider])
+}
+
+model IntegrationLog {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  integrationId String?
+  provider      String
+  level         String   @default("info")
+  event         String
+  message       String
+  status        String?
+  metadata      String?  @default("{}")
+  createdAt     DateTime @default(now())
+
+  workspace     Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  integration   Integration? @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, provider, createdAt])
+}
+
+model OAuthSession {
+  id           String   @id @default(cuid())
+  workspaceId  String
+  integrationId String?
+  provider     String
+  userId       String?
+  state        String   @unique
+  codeVerifier String?
+  redirectUri  String?
+  expiresAt    DateTime
+  consumedAt   DateTime?
+  metadata     String?  @default("{}")
+  createdAt    DateTime @default(now())
+
+  workspace    Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  integration  Integration? @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, provider])
+}
+
+model WebhookEvent {
+  id                String   @id @default(cuid())
+  workspaceId       String
+  integrationId     String?
+  provider          String
+  providerEventId   String?
+  eventType         String
+  payload           String
+  headers           String?  @default("{}")
+  signatureValid    Boolean  @default(true)
+  processingStatus  String   @default("received")
+  processedAt       DateTime?
+  error             String?
+  createdAt         DateTime @default(now())
+
+  workspace         Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  integration       Integration? @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, provider, createdAt])
+}
+
+model SyncJob {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  integrationId   String?
+  provider        String
+  jobType         String   @default("manual")
+  status          String   @default("queued")
+  attempts        Int      @default(0)
+  scheduledAt     DateTime?
+  startedAt       DateTime?
+  completedAt     DateTime?
+  error           String?
+  metadata        String?  @default("{}")
+  createdAt       DateTime @default(now())
+
+  workspace       Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  integration     Integration? @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, provider, status])
+}
+
+model IntegrationSetting {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  integrationId String   @unique
+  provider      String
+  settingsJson  String   @default("{}")
+  enabled       Boolean  @default(true)
+  webhookEnabled Boolean @default(false)
+  selectedChannels String? @default("[]")
+  lastValidatedAt DateTime?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  workspace     Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  integration   Integration @relation(fields: [integrationId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, provider])
+}
+
+model CustomApiConfig {
+  id              String   @id @default(cuid())
+  workspaceId     String
+  name            String
+  endpointUrl     String
+  method          String   @default("GET")
+  authType        String   @default("none")
+  authValueCipher String?
+  headersJson     String   @default("{}")
+  queryParamsJson String   @default("{}")
+  bodyTemplate    String?
+  enabled         Boolean  @default(true)
+  lastTestAt      DateTime?
+  lastTestStatus  Int?
+  lastTestError   String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, name])
 }

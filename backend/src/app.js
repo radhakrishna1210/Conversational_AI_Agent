@@ -26,6 +26,7 @@ app.use(helmet());
 
 // Raw body for Meta webhook HMAC verification
 app.use('/api/v1/webhook/meta', express.raw({ type: 'application/json' }));
+app.use('/api/v1/integrations/webhooks', express.raw({ type: 'application/json' }));
 app.use(express.json({ limit: env.JSON_BODY_LIMIT }));
 
 app.use((req, _res, next) => {
