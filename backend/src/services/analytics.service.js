@@ -55,7 +55,7 @@ export const getCampaignPerformance = (workspaceId) =>
 
 export const getAgentPerformance = async (workspaceId) => {
   const agents = await prisma.workspaceMember.findMany({
-    where: { workspaceId, role: { in: ['Admin', 'Agent'] } },
+    where: { workspaceId, role: { in: ['Admin'] } },
     include: { user: { select: { id: true, name: true } } },
   });
 

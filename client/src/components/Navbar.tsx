@@ -169,9 +169,6 @@ export default function Navbar() {
 
       <div className="navbar-actions">
 
-        <Link to="/dashboard" style={{ color: 'var(--text-secondary)', fontSize: '14px', fontWeight: 500, textDecoration: 'none' }}>Dashboard</Link>
-        <button className="btn-sign-out">Sign Out</button>
-
         {isLoggedIn ? (
           <>
             <Link to="/dashboard" style={{ color: 'var(--text-secondary)', fontSize: '14px', fontWeight: 500, textDecoration: 'none' }}>Dashboard</Link>

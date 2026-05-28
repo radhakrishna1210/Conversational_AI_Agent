@@ -7,11 +7,11 @@ import { createCampaignSchema, scheduleCampaignSchema } from '../validators/camp
 const router = Router({ mergeParams: true });
 
 router.get('/', ctrl.listCampaigns);
-router.post('/', authorize('Admin', 'Agent'), validate(createCampaignSchema), ctrl.createCampaign);
+router.post('/', authorize('Admin', 'Viewer'), validate(createCampaignSchema), ctrl.createCampaign);
 router.get('/:campaignId', ctrl.getCampaign);
 router.get('/:campaignId/stats', ctrl.getCampaignStats);
-router.post('/:campaignId/recipients', authorize('Admin', 'Agent'), ctrl.addRecipients);
-router.post('/:campaignId/launch', authorize('Admin', 'Agent'), validate(scheduleCampaignSchema), ctrl.launchCampaign);
-router.post('/:campaignId/cancel', authorize('Admin'), ctrl.cancelCampaign);
+router.post('/:campaignId/recipients', authorize('Admin', 'Viewer'), ctrl.addRecipients);
+router.post('/:campaignId/launch', authorize('Admin', 'Viewer'), validate(scheduleCampaignSchema), ctrl.launchCampaign);
+router.post('/:campaignId/cancel', authorize('Admin', 'Viewer'), ctrl.cancelCampaign);
 
 export default router;

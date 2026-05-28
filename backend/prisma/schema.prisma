@@ -3,8 +3,9 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 // ─── Models ───────────────────────────────────────────────────────────────────
@@ -69,7 +70,7 @@ model WorkspaceMember {
   id          String    @id @default(cuid())
   userId      String
   workspaceId String
-  role        String    @default("Agent")
+  role        String    @default("Viewer")
   joinedAt    DateTime  @default(now())
 
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -94,7 +95,7 @@ model WorkspaceInvite {
   id          String    @id @default(cuid())
   workspaceId String
   email       String
-  role        String    @default("Agent")
+  role        String    @default("Viewer")
   token       String    @unique
   expiresAt   DateTime
   acceptedAt  DateTime?
@@ -207,7 +208,7 @@ model Campaign {
   name              String
   templateId        String
   whatsappNumberId  String
-  variableMapping   String    @default("{}")
+  variableMapping   String?   @default("{}")
   status            String    @default("DRAFT")
   scheduledAt       DateTime?
   launchedAt        DateTime?
@@ -317,7 +318,7 @@ model WorkspaceSettings {
   id                   String    @id @default(cuid())
   workspaceId          String    @unique
   timezone             String    @default("UTC")
-  businessHoursJson    String    @default("{}")
+  businessHoursJson    String?   @default("{}")
   notifyOnNewConv      Boolean   @default(true)
   notifyOnOptOut       Boolean   @default(true)
   notifyOnCampaignEnd  Boolean   @default(true)

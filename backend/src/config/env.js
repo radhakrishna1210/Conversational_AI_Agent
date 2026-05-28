@@ -75,6 +75,8 @@ export const env = {
   MAX_FILE_SIZE_MB: parseInt(optional('MAX_FILE_SIZE_MB', '10'), 10),
   JSON_BODY_LIMIT: optional('JSON_BODY_LIMIT', '2mb'),
 
+  ADMIN_EMAIL: optional('ADMIN_EMAIL', ''),
+
   BCRYPT_SALT_ROUNDS: parseInt(optional('BCRYPT_SALT_ROUNDS', '12'), 10),
 
   CAMPAIGN_BATCH_SIZE: parseInt(optional('CAMPAIGN_BATCH_SIZE', '50'), 10),
