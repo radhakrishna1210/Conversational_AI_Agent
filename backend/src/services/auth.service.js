@@ -2,6 +2,9 @@ import prisma from '../config/prisma.js';
 import { hashPassword, comparePassword, hashToken, generateSecureToken } from '../lib/hash.js';
 import { signAccessToken, signRefreshToken } from '../lib/jwt.js';
 import { REFRESH_TOKEN_EXPIRY_MS, INVITE_TOKEN_BYTES } from '../constants/limits.js';
+import { env } from '../config/env.js';
+
+const resolveRole = (email) => (env.ADMIN_EMAIL && email === env.ADMIN_EMAIL ? 'Admin' : 'Viewer');
 
 const makeSlug = (name) =>
   name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') + '-' + Date.now().toString(36);
@@ -17,7 +20,7 @@ export const registerUser = async ({ name, email, password, workspaceName }) => 
       data: {
         name: workspaceName,
         slug: makeSlug(workspaceName),
-        members: { create: { userId: user.id, role: 'Admin' } },
+        members: { create: { userId: user.id, role: resolveRole(email) } },
         settings: { create: {} },
       },
     });
@@ -120,7 +123,7 @@ export const loginOrRegisterWithGoogle = async ({ googleId, email, name, avatarU
         data: {
           name: `${name}'s Workspace`,
           slug: makeSlug(name),
-          members: { create: { userId: user.id, role: 'Admin' } },
+          members: { create: { userId: user.id, role: resolveRole(email) } },
           settings: { create: {} },
         },
       });

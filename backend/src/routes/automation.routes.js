@@ -7,11 +7,11 @@ import { keywordTriggerSchema, flowSchema } from '../validators/automation.valid
 const router = Router({ mergeParams: true });
 
 router.get('/triggers', ctrl.listTriggers);
-router.post('/triggers', authorize('Admin', 'Agent'), validate(keywordTriggerSchema), ctrl.createTrigger);
-router.patch('/triggers/:triggerId', authorize('Admin', 'Agent'), validate(keywordTriggerSchema.partial()), ctrl.updateTrigger);
-router.delete('/triggers/:triggerId', authorize('Admin'), ctrl.deleteTrigger);
+router.post('/triggers', authorize('Admin', 'Viewer'), validate(keywordTriggerSchema), ctrl.createTrigger);
+router.patch('/triggers/:triggerId', authorize('Admin', 'Viewer'), validate(keywordTriggerSchema.partial()), ctrl.updateTrigger);
+router.delete('/triggers/:triggerId', authorize('Admin', 'Viewer'), ctrl.deleteTrigger);
 
 router.get('/flow', ctrl.getFlow);
-router.put('/flow', authorize('Admin', 'Agent'), validate(flowSchema), ctrl.saveFlow);
+router.put('/flow', authorize('Admin', 'Viewer'), validate(flowSchema), ctrl.saveFlow);
 
 export default router;

@@ -64,7 +64,7 @@ echo ========================================
 echo Starting Backend Server...
 echo ========================================
 echo.
-echo Server will run on: http://localhost:4000
+echo Server will run on: http://localhost:4001
 echo.
 echo Mock Auth Test Credentials:
 echo   Email: test@example.com

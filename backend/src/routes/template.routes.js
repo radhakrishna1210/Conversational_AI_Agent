@@ -7,10 +7,10 @@ import { createTemplateSchema, updateTemplateSchema } from '../validators/templa
 const router = Router({ mergeParams: true });
 
 router.get('/', ctrl.listTemplates);
-router.post('/', authorize('Admin', 'Agent'), validate(createTemplateSchema), ctrl.createTemplate);
+router.post('/', authorize('Admin', 'Viewer'), validate(createTemplateSchema), ctrl.createTemplate);
 router.get('/:templateId', ctrl.getTemplate);
-router.patch('/:templateId', authorize('Admin', 'Agent'), validate(updateTemplateSchema), ctrl.updateTemplate);
-router.delete('/:templateId', authorize('Admin'), ctrl.deleteTemplate);
-router.post('/:templateId/duplicate', authorize('Admin', 'Agent'), ctrl.duplicateTemplate);
+router.patch('/:templateId', authorize('Admin', 'Viewer'), validate(updateTemplateSchema), ctrl.updateTemplate);
+router.delete('/:templateId', authorize('Admin', 'Viewer'), ctrl.deleteTemplate);
+router.post('/:templateId/duplicate', authorize('Admin', 'Viewer'), ctrl.duplicateTemplate);
 
 export default router;
