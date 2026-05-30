@@ -363,6 +363,41 @@ html.light [style*="border:1px solid var(--border)"] {
   border-color: var(--border) !important;
 }
 
+/* Align all variations of green/teal buttons/texts to var(--teal) in light mode */
+html.light [style*="background: #00bcd4"],
+html.light [style*="background:#00bcd4"],
+html.light [style*="background: rgb(0, 188, 212)"],
+html.light [style*="background:rgb(0, 188, 212)"],
+html.light [style*="background: #12c8d0"],
+html.light [style*="background:#12c8d0"],
+html.light [style*="background: rgb(18, 200, 208)"],
+html.light [style*="background:rgb(18, 200, 208)"],
+html.light [style*="background: #0f6f73"],
+html.light [style*="background:#0f6f73"],
+html.light [style*="background: rgb(15, 111, 115)"] {
+  background: var(--teal) !important;
+}
+
+html.light [style*="color: #00bcd4"],
+html.light [style*="color:#00bcd4"],
+html.light [style*="color: rgb(0, 188, 212)"],
+html.light [style*="color:rgb(0, 188, 212)"],
+html.light [style*="color: #11c7cf"],
+html.light [style*="color:#11c7cf"],
+html.light [style*="color: rgb(17, 199, 207)"],
+html.light [style*="color:rgb(17, 199, 207)"] {
+  color: var(--teal) !important;
+}
+
+html.light [style*="border-color: #00bcd4"],
+html.light [style*="border-color:#00bcd4"],
+html.light [style*="border: 1px solid #00bcd4"],
+html.light [style*="border:1px solid #00bcd4"],
+html.light [style*="border: 1px solid rgb(0, 188, 212)"],
+html.light [style*="border:1px solid rgb(0, 188, 212)"] {
+  border-color: var(--teal) !important;
+}
+
 /* Global Dark Mode Overrides for Hardcoded/Inline Colors to guarantee visibility and accessibility */
 html:not(.light) [style*="color: #666"],
 html:not(.light) [style*="color:#666"],
