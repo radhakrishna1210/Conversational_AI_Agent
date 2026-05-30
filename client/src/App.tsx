@@ -74,11 +74,13 @@ function DashboardLayoutWrapper() {
 }
 
 import { Toaster } from './components/ui/sonner';
+import { ThemeProvider } from './hooks/useTheme';
 
 function App() {
   return (
-    <Router>
-      <ScrollToTop />
+    <ThemeProvider>
+      <Router>
+        <ScrollToTop />
       <Toaster position="top-right" richColors />
       <Routes>
         <Route path="/" element={<DefaultLayout><Home /></DefaultLayout>} />
@@ -113,7 +115,8 @@ function App() {
           </Route>
         </Route>
       </Routes>
-    </Router>
+      </Router>
+    </ThemeProvider>
   );
 }
 

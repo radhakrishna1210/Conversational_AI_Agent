@@ -59,7 +59,7 @@ export default function Login() {
       {/* Left Panel — Branding */}
       <div style={{
         width: '45%',
-        background: 'linear-gradient(135deg, #0a1628 0%, #0d2137 50%, #091a2f 100%)',
+        background: 'linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-primary) 100%)',
         borderRight: '1px solid var(--border)',
         display: 'flex',
         flexDirection: 'column',
@@ -69,18 +69,18 @@ export default function Login() {
         overflow: 'hidden'
       }}>
         {/* Background glow effects */}
-        <div style={{ position: 'absolute', top: '-80px', left: '-80px', width: '400px', height: '400px', background: 'radial-gradient(circle, rgba(0,212,200,0.08) 0%, transparent 70%)', pointerEvents: 'none' }} />
-        <div style={{ position: 'absolute', bottom: '-100px', right: '-60px', width: '350px', height: '350px', background: 'radial-gradient(circle, rgba(99,102,241,0.06) 0%, transparent 70%)', pointerEvents: 'none' }} />
+        <div style={{ position: 'absolute', top: '-80px', left: '-80px', width: '400px', height: '400px', background: 'radial-gradient(circle, rgba(0,212,200,0.05) 0%, transparent 70%)', pointerEvents: 'none' }} />
+        <div style={{ position: 'absolute', bottom: '-100px', right: '-60px', width: '350px', height: '350px', background: 'radial-gradient(circle, rgba(99,102,241,0.03) 0%, transparent 70%)', pointerEvents: 'none' }} />
 
         {/* Logo */}
         <Link to="/" style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '12px' }}>
-          <div style={{ width: '40px', height: '40px', background: 'var(--teal)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: '18px', color: '#0a0a0a' }}>O</div>
-          <span style={{ fontWeight: 800, fontSize: '18px', color: 'white', letterSpacing: '-0.5px' }}>OMNI<span style={{ color: 'var(--teal)', fontStyle: 'italic' }}>D</span>IMENSION</span>
+          <div style={{ width: '40px', height: '40px', background: 'var(--teal)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: '18px', color: 'var(--bg-primary)' }}>O</div>
+          <span style={{ fontWeight: 800, fontSize: '18px', color: 'var(--text-primary)', letterSpacing: '-0.5px' }}>OMNI<span style={{ color: 'var(--teal)', fontStyle: 'italic' }}>D</span>IMENSION</span>
         </Link>
 
         {/* Quote / Welcome back */}
         <div>
-          <h2 style={{ fontSize: '28px', fontWeight: 800, color: 'white', lineHeight: 1.3, marginBottom: '16px' }}>
+          <h2 style={{ fontSize: '28px', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1.3, marginBottom: '16px' }}>
             Welcome back 👋
           </h2>
           <p style={{ color: 'var(--text-secondary)', fontSize: '16px', lineHeight: 1.6, marginBottom: '40px' }}>
@@ -101,11 +101,11 @@ export default function Login() {
         </div>
 
         {/* Social proof */}
-        <div style={{ borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '24px' }}>
-          <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginBottom: '12px' }}>Trusted by teams at</p>
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: '24px' }}>
+          <p style={{ color: 'var(--text-secondary)', opacity: 0.7, fontSize: '13px', marginBottom: '12px' }}>Trusted by teams at</p>
           <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
             {['OpenAI', 'Salesforce', 'Twilio', 'HubSpot'].map(b => (
-              <span key={b} style={{ background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)', padding: '4px 12px', borderRadius: '20px', fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>{b}</span>
+              <span key={b} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', padding: '4px 12px', borderRadius: '20px', fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>{b}</span>
             ))}
           </div>
         </div>
@@ -116,7 +116,7 @@ export default function Login() {
         <div style={{ width: '100%', maxWidth: '400px' }}>
 
           <div style={{ marginBottom: '32px' }}>
-            <h1 style={{ fontSize: '26px', fontWeight: 800, color: 'white', letterSpacing: '-0.5px', marginBottom: '8px' }}>Sign in to your account</h1>
+            <h1 style={{ fontSize: '26px', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.5px', marginBottom: '8px' }}>Sign in to your account</h1>
             <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
               Don't have an account?{' '}
               <Link to="/signup" style={{ color: 'var(--teal)', fontWeight: 600, textDecoration: 'none' }}>Create one free →</Link>
@@ -133,18 +133,18 @@ export default function Login() {
               justifyContent: 'center',
               gap: '10px',
               padding: '11px 16px',
-              background: 'rgba(255,255,255,0.04)',
-              border: '1px solid rgba(255,255,255,0.12)',
+              background: 'var(--bg-card)',
+              border: '1px solid var(--border)',
               borderRadius: '8px',
-              color: 'white',
+              color: 'var(--text-primary)',
               fontSize: '14px',
               fontWeight: 600,
               cursor: 'pointer',
               marginBottom: '24px',
               transition: 'background 0.2s',
             }}
-            onMouseOver={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.08)')}
-            onMouseOut={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.04)')}
+            onMouseOver={e => (e.currentTarget.style.background = 'var(--bg-secondary)')}
+            onMouseOut={e => (e.currentTarget.style.background = 'var(--bg-card)')}
             onClick={() => { window.location.href = '/api/v1/auth/google'; }}
           >
             <svg width="18" height="18" viewBox="0 0 24 24">
@@ -158,28 +158,28 @@ export default function Login() {
 
           {/* Divider */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
-            <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.08)' }} />
-            <span style={{ color: 'var(--text-muted)', fontSize: '12px', fontWeight: 500 }}>or sign in with email</span>
-            <div style={{ flex: 1, height: '1px', background: 'rgba(255,255,255,0.08)' }} />
+            <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
+            <span style={{ color: 'var(--text-secondary)', opacity: 0.8, fontSize: '12px', fontWeight: 500 }}>or sign in with email</span>
+            <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
           </div>
 
           {/* Form */}
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
             {errorMsg && (
-              <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', padding: '12px 16px', color: '#fca5a5', fontSize: '13px' }}>
+              <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', padding: '12px 16px', color: '#ef4444', fontSize: '13px' }}>
                 ⚠️ {errorMsg}
               </div>
             )}
 
             {status === 'success' && (
-              <div style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: '8px', padding: '12px 16px', color: '#86efac', fontSize: '13px' }}>
+              <div style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: '8px', padding: '12px 16px', color: '#22c55e', fontSize: '13px' }}>
                 ✓ Login successful! Redirecting...
               </div>
             )}
 
             <div>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'white', marginBottom: '8px' }}>Email</label>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>Email</label>
               <input
                 type="email"
                 name="email"
@@ -188,13 +188,13 @@ export default function Login() {
                 value={form.email}
                 onChange={handleChange}
                 required
-                style={{ width: '100%', background: 'rgba(255,255,255,0.04)' }}
+                style={{ width: '100%', background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
               />
             </div>
 
             <div>
               <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'white' }}>Password</label>
+                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>Password</label>
                 <a href="#" style={{ fontSize: '12px', color: 'var(--teal)', textDecoration: 'none' }}>Forgot password?</a>
               </div>
               <div style={{ position: 'relative' }}>
@@ -206,11 +206,11 @@ export default function Login() {
                   value={form.password}
                   onChange={handleChange}
                   required
-                  style={{ width: '100%', background: 'rgba(255,255,255,0.04)', paddingRight: '44px' }}
+                  style={{ width: '100%', background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)', paddingRight: '44px' }}
                 />
                 <button
                   type="button"
-                  style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '16px', padding: 0 }}
+                  style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '16px', padding: 0 }}
                   onClick={() => setShowPass(!showPass)}
                 >
                   {showPass ? '🙈' : '👁️'}
@@ -222,7 +222,7 @@ export default function Login() {
               type="submit"
               className="btn btn-primary"
               disabled={status === 'submitting' || status === 'success'}
-              style={{ width: '100%', padding: '13px', fontSize: '15px', fontWeight: 700, background: status === 'success' ? '#22c55e' : undefined }}
+              style={{ width: '100%', padding: '13px', fontSize: '15px', fontWeight: 700, background: status === 'success' ? '#22c55e' : undefined, color: 'var(--bg-primary)' }}
             >
               {(status === 'idle' || status === 'error') && 'Sign In →'}
               {status === 'submitting' && (

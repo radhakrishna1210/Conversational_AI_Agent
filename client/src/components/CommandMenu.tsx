@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   CommandDialog,
@@ -18,7 +18,6 @@ import {
   PhoneCall,
   FileText,
   BarChart3,
-  MessageCircle,
   Settings,
   CreditCard,
   Key,

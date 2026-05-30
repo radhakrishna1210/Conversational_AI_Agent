@@ -160,7 +160,7 @@ html.light {
   /* Text */
   --text-primary:   #0f172a;
   --text-secondary: #475569;
-  --text-muted:     #94a3b8;
+  --text-muted:     #64748b;
 
   /* Borders */
   --border:       #e2e8f0;
@@ -186,6 +186,100 @@ html.light {
 html.light body {
   background-color: var(--bg-primary);
   color: var(--text-primary);
+}
+
+/* Global Light Mode Overrides for Hardcoded/Inline Colors to guarantee visibility and accessibility */
+html.light [style*="color: white"],
+html.light [style*="color:white"],
+html.light [style*="color: 'white'"],
+html.light [style*="color:'white'"],
+html.light [style*="color: '#fff'"],
+html.light [style*="color:'#fff'"],
+html.light [style*="color: #fff"],
+html.light [style*="color:#fff"],
+html.light [style*="color: #f4f4f4"],
+html.light [style*="color:#f4f4f4"],
+html.light [style*="color: #f6f6f6"],
+html.light [style*="color:#f6f6f6"],
+html.light [style*="color: #f2f2f2"],
+html.light [style*="color:#f2f2f2"],
+html.light [style*="color: #e8e8e8"],
+html.light [style*="color:#e8e8e8"],
+html.light [style*="color: #d6d6d6"],
+html.light [style*="color:#d6d6d6"],
+html.light [style*="color: #a3a3a3"],
+html.light [style*="color:#a3a3a3"],
+html.light [style*="color: #8e8e8e"],
+html.light [style*="color:#8e8e8e"],
+html.light [style*="color: #9a9a9a"],
+html.light [style*="color:#9a9a9a"],
+html.light [style*="color: #8b8b8b"],
+html.light [style*="color:#8b8b8b"],
+html.light [style*="color: #8a8a8a"],
+html.light [style*="color:#8a8a8a"],
+html.light [style*="color: #999"],
+html.light [style*="color:#999"],
+html.light [style*="color: #888"],
+html.light [style*="color:#888"],
+html.light [style*="color: rgb(255, 255, 255)"],
+html.light [style*="color:rgb(255, 255, 255)"],
+html.light [style*="color: rgb(255,255,255)"],
+html.light [style*="color:rgb(255,255,255)"],
+html.light [style*="color: rgb(244, 244, 244)"],
+html.light [style*="color: rgb(246, 246, 246)"],
+html.light [style*="color: rgb(242, 242, 242)"] {
+  color: var(--text-primary) !important;
+}
+
+html.light [style*="background: #0f0f0f"],
+html.light [style*="background:#0f0f0f"],
+html.light [style*="background: #0a0a0a"],
+html.light [style*="background:#0a0a0a"] {
+  background: var(--bg-primary) !important;
+}
+
+html.light [style*="background: #111"],
+html.light [style*="background:#111"],
+html.light [style*="background: #101010"],
+html.light [style*="background:#101010"],
+html.light [style*="background: #151515"],
+html.light [style*="background:#151515"],
+html.light [style*="background: #1a1a1a"],
+html.light [style*="background:#1a1a1a"],
+html.light [style*="background: #050505"],
+html.light [style*="background:#050505"],
+html.light [style*="background: #141414"],
+html.light [style*="background:#141414"],
+html.light [style*="background: linear-gradient(180deg, #151515"],
+html.light [style*="background:linear-gradient(180deg, #151515"],
+html.light [style*="background: linear-gradient(180deg, #1e1e1e"],
+html.light [style*="background:linear-gradient(180deg, #1e1e1e"],
+html.light [style*="background: rgba(255,255,255,0.02)"],
+html.light [style*="background:rgba(255,255,255,0.02)"],
+html.light [style*="background: rgba(255,255,255,0.01)"],
+html.light [style*="background:rgba(255,255,255,0.01)"] {
+  background: var(--bg-card) !important;
+  background-image: none !important;
+}
+
+html.light [style*="background: rgba(0,0,0,0.1)"],
+html.light [style*="background:rgba(0,0,0,0.1)"],
+html.light [style*="background: rgba(0,0,0,0.2)"],
+html.light [style*="background:rgba(0,0,0,0.2)"],
+html.light [style*="background: rgba(0,0,0,0.3)"],
+html.light [style*="background:rgba(0,0,0,0.3)"] {
+  background: var(--bg-secondary) !important;
+}
+
+
+
+html.light [style*="border: 1px solid #2"],
+html.light [style*="border:1px solid #2"],
+html.light [style*="border: 1px solid #3"],
+html.light [style*="border:1px solid #3"],
+html.light [style*="border: 1px solid var(--border)"],
+html.light [style*="border:1px solid var(--border)"] {
+  border-color: var(--border) !important;
 }
 
 /* ═══════════════════════════════════════════
