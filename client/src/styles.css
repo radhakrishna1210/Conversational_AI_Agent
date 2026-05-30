@@ -127,6 +127,20 @@
    LIGHT MODE — Clean Slate White
    ═══════════════════════════════════════════ */
 html.light {
+  /* Tailwind HSL theme variables override */
+  --background: 210 40% 98%;
+  --foreground: 222 47% 10%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 10%;
+  --border: 214 32% 91%;
+  --input: 214 32% 91%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 10%;
+  --muted: 210 40% 96.1%;
+  --muted-foreground: 215.4 16.3% 46.9%;
+  --accent: 142 70% 49%;
+  --accent-foreground: 222 47% 6%;
+
   /* Backgrounds */
   --bg-primary:    #f0f4f9;
   --bg-secondary:  #ffffff;
@@ -374,6 +388,86 @@ html:not(.light) [style*="color:rgb(153, 153, 153)"] {
 /* ═══════════════════════════════════════════
    LIGHT MODE — Component overrides
    ═══════════════════════════════════════════ */
+
+/* Forms input fields / textareas overrides */
+html.light .form-input,
+html.light .form-select,
+html.light .form-textarea {
+  background: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border) !important;
+}
+html.light .form-select option {
+  background: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Voice Assistant Component overrides */
+html.light .voice-card {
+  background: rgba(0, 0, 0, 0.03) !important;
+  border-color: var(--border) !important;
+}
+html.light .voice-card:hover {
+  background: rgba(0, 0, 0, 0.06) !important;
+}
+html.light .voice-card.active {
+  background: rgba(14, 179, 158, 0.08) !important;
+  border-color: var(--teal) !important;
+}
+html.light .ai-auto-card.active {
+  background: linear-gradient(135deg, rgba(14, 179, 158, 0.12) 0%, rgba(124, 58, 237, 0.12) 100%) !important;
+}
+html.light .voice-badge--female {
+  background: rgba(236, 72, 153, 0.1) !important;
+  color: #db2777 !important;
+}
+html.light .voice-badge--male {
+  background: rgba(59, 130, 246, 0.1) !important;
+  color: #2563eb !important;
+}
+html.light .voice-badge--ai {
+  background: rgba(124, 58, 237, 0.1) !important;
+  color: #7c3aed !important;
+}
+html.light .voice-tag {
+  background: rgba(0, 0, 0, 0.04) !important;
+  border-color: rgba(0, 0, 0, 0.06) !important;
+  color: var(--text-secondary) !important;
+}
+html.light .voice-selected-bar {
+  background: rgba(14, 179, 158, 0.05) !important;
+  border-color: rgba(14, 179, 158, 0.15) !important;
+}
+html.light .mic-btn {
+  background: rgba(0, 0, 0, 0.04) !important;
+  border-color: var(--border) !important;
+  color: var(--text-primary) !important;
+}
+html.light .mic-btn:hover {
+  background: rgba(0, 0, 0, 0.08) !important;
+  border-color: var(--teal) !important;
+}
+html.light .voice-group-label {
+  color: var(--text-secondary) !important;
+}
+html.light .voice-group-count {
+  background: rgba(0, 0, 0, 0.05) !important;
+  color: var(--text-secondary) !important;
+}
+
+html.light [style*="background: rgba(255,255,255,0.05)"],
+html.light [style*="background:rgba(255,255,255,0.05)"],
+html.light [style*="background: rgba(255, 255, 255, 0.05)"],
+html.light [style*="background:rgba(255, 255, 255, 0.05)"] {
+  background: rgba(0, 0, 0, 0.04) !important;
+}
+html.light [style*="background: rgba(255,255,255,0.03)"],
+html.light [style*="background:rgba(255,255,255,0.03)"],
+html.light [style*="background: rgba(255, 255, 255, 0.03)"],
+html.light [style*="background:rgba(255, 255, 255, 0.03)"] {
+  background: rgba(0, 0, 0, 0.02) !important;
+}
+
 
 /* Sidebar: force deep navy background + keep icons/text white */
 html.light .sidebar {
