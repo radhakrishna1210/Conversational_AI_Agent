@@ -4,6 +4,8 @@ import { encryptToken } from '../lib/encryption.js';
 import { env } from '../config/env.js';
 import { metaGet, metaPost } from '../lib/metaApi.js';
 import fetch from 'node-fetch';
+import * as adminAnalytics from '../services/adminAnalytics.service.js';
+import * as userMgmt from '../services/userManagement.service.js';
 
 // ─── In-memory OTP store (keyed by E.164 phone number, TTL 10 min) ─────────────
 const pendingOtps = new Map(); // phoneNumber → { otp, expiresAt }
@@ -486,4 +488,187 @@ export const getNumberPool = async (req, res) => {
   );
 
   return res.json({ summary, pool });
+};
+
+// ─── Admin Analytics ──────────────────────────────────────────────────────────
+
+export const getPlatformOverview = async (req, res) => {
+  const data = await adminAnalytics.getPlatformOverview();
+  return res.json(data);
+};
+
+export const getUserSignupChart = async (req, res) => {
+  const days = parseInt(req.query.days) || 30;
+  const data = await adminAnalytics.getUserSignupChart(days);
+  return res.json(data);
+};
+
+export const getWorkspaceGrowthChart = async (req, res) => {
+  const days = parseInt(req.query.days) || 30;
+  const data = await adminAnalytics.getWorkspaceGrowthChart(days);
+  return res.json(data);
+};
+
+export const getAgentCreationChart = async (req, res) => {
+  const days = parseInt(req.query.days) || 30;
+  const data = await adminAnalytics.getAgentCreationChart(days);
+  return res.json(data);
+};
+
+export const getTopWorkspaces = async (req, res) => {
+  const limit = parseInt(req.query.limit) || 10;
+  const data = await adminAnalytics.getTopWorkspacesByAgents(limit);
+  return res.json(data);
+};
+
+export const getRecentUsers = async (req, res) => {
+  const limit = parseInt(req.query.limit) || 20;
+  const data = await adminAnalytics.getRecentUsers(limit);
+  return res.json(data);
+};
+
+// ─── Number Pool Management (extended) ───────────────────────────────────────
+
+/** GET /admin/numbers/pool?status=&country=&search= */
+export const getNumberPoolFiltered = async (req, res) => {
+  const { status, country, search } = req.query;
+  const data = await adminAnalytics.getNumberPoolDetails({ status, country, search });
+
+  const summary = {
+    total: data.length,
+    available: data.filter((e) => e.status === 'AVAILABLE').length,
+    assigned: data.filter((e) => e.status === 'ASSIGNED').length,
+    inactive: data.filter((e) => e.status === 'INACTIVE').length,
+    banned: data.filter((e) => e.status === 'BANNED').length,
+  };
+
+  return res.json({ summary, pool: data });
+};
+
+/** PATCH /admin/numbers/pool/:id/assign  — assign to a workspace */
+export const assignPoolNumber = async (req, res) => {
+  const { id } = req.params;
+  const { workspaceId } = req.body;
+
+  if (!workspaceId) return res.status(400).json({ error: 'workspaceId is required' });
+
+  const entry = await prisma.numberPool.findUnique({ where: { id } });
+  if (!entry) return res.status(404).json({ error: 'Pool entry not found' });
+  if (entry.status === 'ASSIGNED') {
+    return res.status(409).json({ error: 'Number is already assigned. Reset it first.' });
+  }
+
+  const workspace = await prisma.workspace.findUnique({ where: { id: workspaceId } });
+  if (!workspace) return res.status(404).json({ error: 'Workspace not found' });
+
+  await prisma.numberPool.update({
+    where: { id },
+    data: { status: 'ASSIGNED', assignedTo: workspaceId },
+  });
+
+  logger.info({ adminId: req.user?.id ?? req.user?.userId, id, workspaceId }, 'Pool number assigned');
+  return res.json({ success: true, id, workspaceId, status: 'ASSIGNED' });
+};
+
+/** PATCH /admin/numbers/pool/:id/unassign */
+export const unassignPoolNumber = async (req, res) => {
+  const { id } = req.params;
+
+  const entry = await prisma.numberPool.findUnique({ where: { id } });
+  if (!entry) return res.status(404).json({ error: 'Pool entry not found' });
+
+  await prisma.numberPool.update({
+    where: { id },
+    data: { status: 'AVAILABLE', assignedTo: null },
+  });
+
+  logger.info({ adminId: req.user?.id ?? req.user?.userId, id }, 'Pool number unassigned');
+  return res.json({ success: true, id, status: 'AVAILABLE' });
+};
+
+/** PATCH /admin/numbers/pool/:id/deactivate */
+export const deactivatePoolNumber = async (req, res) => {
+  const { id } = req.params;
+
+  const entry = await prisma.numberPool.findUnique({ where: { id } });
+  if (!entry) return res.status(404).json({ error: 'Pool entry not found' });
+
+  await prisma.numberPool.update({
+    where: { id },
+    data: { status: 'INACTIVE', assignedTo: null },
+  });
+
+  logger.info({ adminId: req.user?.id ?? req.user?.userId, id }, 'Pool number deactivated');
+  return res.json({ success: true, id, status: 'INACTIVE' });
+};
+
+/** DELETE /admin/numbers/pool/:id */
+export const deletePoolNumber = async (req, res) => {
+  const { id } = req.params;
+
+  const entry = await prisma.numberPool.findUnique({ where: { id } });
+  if (!entry) return res.status(404).json({ error: 'Pool entry not found' });
+
+  await prisma.numberPool.delete({ where: { id } });
+
+  logger.info({ adminId: req.user?.id ?? req.user?.userId, id, phoneNumber: entry.phoneNumber }, 'Pool number deleted');
+  return res.json({ success: true, id, phoneNumber: entry.phoneNumber });
+};
+
+/** GET /admin/workspaces — list all workspaces (for assign dropdown) */
+export const listWorkspaces = async (req, res) => {
+  const workspaces = await prisma.workspace.findMany({
+    select: { id: true, name: true, slug: true, planName: true },
+    orderBy: { name: 'asc' },
+  });
+  return res.json({ workspaces });
+};
+
+// ─── User Management ──────────────────────────────────────────────────────────
+
+export const listUsers = async (req, res) => {
+  const { search, status, plan, page, limit } = req.query;
+  const data = await userMgmt.listUsers({
+    search, status, plan,
+    page: parseInt(page) || 1,
+    limit: parseInt(limit) || 20,
+  });
+  return res.json(data);
+};
+
+export const getUserDetail = async (req, res) => {
+  const user = await userMgmt.getUserDetail(req.params.id);
+  if (!user) return res.status(404).json({ error: 'User not found' });
+  return res.json(user);
+};
+
+export const banUser = async (req, res) => {
+  const { reason } = req.body;
+  const user = await userMgmt.banUser(req.params.id, reason);
+  logger.info({ adminId: req.user?.userId, targetId: req.params.id }, 'User banned');
+  return res.json({ success: true, user });
+};
+
+export const unbanUser = async (req, res) => {
+  const user = await userMgmt.unbanUser(req.params.id);
+  logger.info({ adminId: req.user?.userId, targetId: req.params.id }, 'User unbanned');
+  return res.json({ success: true, user });
+};
+
+export const deleteUser = async (req, res) => {
+  await userMgmt.deleteUser(req.params.id);
+  logger.info({ adminId: req.user?.userId, targetId: req.params.id }, 'User deleted');
+  return res.json({ success: true });
+};
+
+export const changeUserPlan = async (req, res) => {
+  const { planName } = req.body;
+  if (!planName) return res.status(400).json({ error: 'planName is required' });
+  const user = await userMgmt.changeUserPlan(req.params.id, planName);
+  logger.info({ adminId: req.user?.userId, targetId: req.params.id, planName }, 'User plan changed');
+  return res.json({ success: true, user });
+};
+
+export const getPlans = (_req, res) => {
+  return res.json({ plans: userMgmt.PLANS });
 };
