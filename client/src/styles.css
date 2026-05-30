@@ -349,6 +349,28 @@ html.light [style*="border:1px solid var(--border)"] {
   border-color: var(--border) !important;
 }
 
+/* Global Dark Mode Overrides for Hardcoded/Inline Colors to guarantee visibility and accessibility */
+html:not(.light) [style*="color: #666"],
+html:not(.light) [style*="color:#666"],
+html:not(.light) [style*="color: rgb(102, 102, 102)"],
+html:not(.light) [style*="color:rgb(102, 102, 102)"] {
+  color: #94a3b8 !important;
+}
+
+html:not(.light) [style*="color: #888"],
+html:not(.light) [style*="color:#888"],
+html:not(.light) [style*="color: rgb(136, 136, 136)"],
+html:not(.light) [style*="color:rgb(136, 136, 136)"] {
+  color: #cbd5e1 !important;
+}
+
+html:not(.light) [style*="color: #999"],
+html:not(.light) [style*="color:#999"],
+html:not(.light) [style*="color: rgb(153, 153, 153)"],
+html:not(.light) [style*="color:rgb(153, 153, 153)"] {
+  color: #e2e8f0 !important;
+}
+
 /* ═══════════════════════════════════════════
    LIGHT MODE — Component overrides
    ═══════════════════════════════════════════ */
