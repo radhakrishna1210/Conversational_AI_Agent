@@ -294,8 +294,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </div>
             </Link>
 
-            <Link to="/bulk_call">
-              <div className={`sidebar-item ${path === '/bulk_call' ? 'active' : ''}`}>
+            <Link to="/bulk_call/create">
+              <div className={`sidebar-item ${path === '/bulk_call' || path === '/bulk_call/create' ? 'active' : ''}`}>
                 <span className="sidebar-icon"><PhoneCall size={16} /></span>
                 <span className="sidebar-text">Bulk Call</span>
               </div>
