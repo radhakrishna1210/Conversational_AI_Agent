@@ -50,7 +50,7 @@ echo Starting Frontend Server...
 echo ========================================
 echo.
 echo Frontend will run on: http://localhost:5173
-echo Backend should be running on: http://localhost:4000
+echo Backend should be running on: http://localhost:4001
 echo.
 echo ========================================
 echo Press Ctrl+C to stop the server

@@ -7,7 +7,11 @@
       "Bash(git checkout *)",
       "Bash(git pull *)",
       "Bash(git merge *)",
-      "Bash(node -e ' *)"
+      "Bash(node -e ' *)",
+      "Bash(npm install *)",
+      "Bash(npm start *)",
+      "PowerShell(Stop-Process *)",
+      "Bash(git add *)"
     ]
   }
 }

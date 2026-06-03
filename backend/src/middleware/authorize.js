@@ -3,7 +3,7 @@ import logger from '../lib/logger.js';
 /**
  * Role guard factory.
  * Usage: router.delete('/...', authorize('Admin'), handler)
- *        router.get('/...', authorize('Admin', 'Agent'), handler)
+ *        router.get('/...', authorize('Admin', 'Viewer'), handler)
  */
 export const authorize = (...allowedRoles) => (req, res, next) => {
   const role = req.user?.role;

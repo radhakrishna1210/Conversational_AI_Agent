@@ -10,12 +10,12 @@ const router = Router({ mergeParams: true });
 router.get('/', ctrl.listConversations);
 router.get('/stream', ctrl.streamEvents); // SSE
 router.get('/:convId', ctrl.getConversation);
-router.patch('/:convId', authorize('Admin', 'Agent'), validate(updateConvSchema), ctrl.updateConversation);
-router.patch('/:convId/assign', authorize('Admin', 'Agent'), validate(assignAgentSchema), ctrl.assignAgent);
+router.patch('/:convId', authorize('Admin', 'Viewer'), validate(updateConvSchema), ctrl.updateConversation);
+router.patch('/:convId/assign', authorize('Admin', 'Viewer'), validate(assignAgentSchema), ctrl.assignAgent);
 router.post('/:convId/read', ctrl.markRead);
 
 // Messages nested under conversations
 router.get('/:convId/messages', msgCtrl.listMessages);
-router.post('/:convId/messages', authorize('Admin', 'Agent'), validate(sendMessageSchema), msgCtrl.sendMessage);
+router.post('/:convId/messages', authorize('Admin', 'Viewer'), validate(sendMessageSchema), msgCtrl.sendMessage);
 
 export default router;

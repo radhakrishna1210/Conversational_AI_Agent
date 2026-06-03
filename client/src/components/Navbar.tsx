@@ -171,28 +171,27 @@ export default function Navbar() {
         <li><Link to="/book-appointment" className={`nav-link ${isActive('/book-appointment')}`}>Book an Appointment</Link></li>
       </ul>
 
-      <div className="navbar-actions" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-        <button
-          onClick={toggleDarkMode}
-          style={{
-            background: 'none',
-            border: 'none',
-            color: 'var(--text-secondary)',
-            cursor: 'pointer',
-            padding: '8px',
-            borderRadius: '50%',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            transition: 'background 0.2s',
-          }}
-          onMouseOver={e => (e.currentTarget.style.background = 'var(--bg-hover)')}
-          onMouseOut={e => (e.currentTarget.style.background = 'none')}
-          title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
-        >
-          {darkMode ? <Sun size={18} /> : <Moon size={18} />}
-        </button>
-
+<div className="navbar-actions" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+  <button
+    onClick={toggleDarkMode}
+    style={{
+      background: 'none',
+      border: 'none',
+      color: 'var(--text-secondary)',
+      cursor: 'pointer',
+      padding: '8px',
+      borderRadius: '50%',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      transition: 'background 0.2s',
+    }}
+    onMouseOver={e => (e.currentTarget.style.background = 'var(--bg-hover)')}
+    onMouseOut={e => (e.currentTarget.style.background = 'none')}
+    title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+  >
+    {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+  </button>
         {isLoggedIn ? (
           <>
             <Link to="/dashboard" style={{ color: 'var(--text-secondary)', fontSize: '14px', fontWeight: 500, textDecoration: 'none' }}>Dashboard</Link>

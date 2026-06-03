@@ -8,15 +8,20 @@ import { createCampaignSchema, scheduleCampaignSchema, updateCampaignSchema } fr
 const router = Router({ mergeParams: true });
 
 router.get('/', ctrl.listCampaigns);
-router.post('/', authorize('Admin', 'Agent'), validate(createCampaignSchema), ctrl.createCampaign);
-router.post('/bulk', authorize('Admin', 'Agent'), uploadCsv, ctrl.createBulkCampaign);
+router.post('/', authorize('Admin', 'Viewer'), validate(createCampaignSchema), ctrl.createCampaign);
+router.post('/bulk', authorize('Admin', 'Viewer'), uploadCsv, ctrl.createBulkCampaign);
+
 router.get('/:campaignId', ctrl.getCampaign);
 router.get('/:campaignId/stats', ctrl.getCampaignStats);
-router.put('/:campaignId', authorize('Admin', 'Agent'), validate(updateCampaignSchema), ctrl.updateCampaign);
+
+router.put('/:campaignId', authorize('Admin', 'Viewer'), validate(updateCampaignSchema), ctrl.updateCampaign);
 router.delete('/:campaignId', authorize('Admin'), ctrl.deleteCampaign);
-router.post('/:campaignId/recipients', authorize('Admin', 'Agent'), ctrl.addRecipients);
-router.post('/:campaignId/start', authorize('Admin', 'Agent'), ctrl.startCampaign);
-router.post('/:campaignId/launch', authorize('Admin', 'Agent'), validate(scheduleCampaignSchema), ctrl.launchCampaign);
-router.post('/:campaignId/cancel', authorize('Admin'), ctrl.cancelCampaign);
+
+router.post('/:campaignId/recipients', authorize('Admin', 'Viewer'), ctrl.addRecipients);
+
+router.post('/:campaignId/start', authorize('Admin', 'Viewer'), ctrl.startCampaign);
+router.post('/:campaignId/launch', authorize('Admin', 'Viewer'), validate(scheduleCampaignSchema), ctrl.launchCampaign);
+
+router.post('/:campaignId/cancel', authorize('Admin', 'Viewer'), ctrl.cancelCampaign);
 
 export default router;

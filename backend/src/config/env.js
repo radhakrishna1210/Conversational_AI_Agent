@@ -25,7 +25,7 @@ export const env = {
   META_SYSTEM_USER_TOKEN: optional('META_SYSTEM_USER_TOKEN'),
   META_SYSTEM_USER_ID: optional('META_SYSTEM_USER_ID'),
   META_DISPLAY_NAME: optional('META_DISPLAY_NAME', 'Whabridge'),
-  META_WEBHOOK_VERIFY_TOKEN: required('META_WEBHOOK_VERIFY_TOKEN'),
+  META_WEBHOOK_VERIFY_TOKEN: optional('META_WEBHOOK_VERIFY_TOKEN'),
   META_API_VERSION: optional('META_API_VERSION', 'v19.0'),
 
   ENCRYPTION_KEY: optional('ENCRYPTION_KEY'),
@@ -74,6 +74,8 @@ export const env = {
   UPLOAD_DIR: optional('UPLOAD_DIR', 'uploads'),
   MAX_FILE_SIZE_MB: parseInt(optional('MAX_FILE_SIZE_MB', '10'), 10),
   JSON_BODY_LIMIT: optional('JSON_BODY_LIMIT', '2mb'),
+
+  ADMIN_EMAIL: optional('ADMIN_EMAIL', ''),
 
   BCRYPT_SALT_ROUNDS: parseInt(optional('BCRYPT_SALT_ROUNDS', '12'), 10),
 

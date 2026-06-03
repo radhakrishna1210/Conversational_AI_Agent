@@ -12,6 +12,18 @@ export default function Dashboard() {
   const [searchQuery, setSearchQuery] = useState('');
   const navigate = useNavigate();
 
+  const hardcodedAssistant = {
+    name: 'Outbound Lead Qualification Agent',
+    language: 'English (India)',
+    llm: 'gpt-4.1-mini',
+    voice: 'google',
+    kbFiles: 0,
+    search: 'Off',
+    postCall: 'None',
+    integrations: 'None',
+    id: '131000',
+  };
+
   useEffect(() => {
     const fetchAgents = async () => {
       try {
@@ -137,12 +149,31 @@ export default function Dashboard() {
         </div>
 
         <div className="assistants-grid">
-          {filteredAgents.length === 0 ? (
-            <div style={{ padding: '32px', textAlign: 'center', color: '#999' }}>
-              No assistants match your search. Create one to get started.
+          <article className="assistant-card">
+            <div className="assistant-card-head">
+              <div>
+                <h3>{hardcodedAssistant.name}</h3>
+                <p>{hardcodedAssistant.language}</p>
+              </div>
+              <button className="assistant-menu" aria-label="Assistant actions">⋮</button>
             </div>
-          ) : (
-            filteredAgents.map((assistant) => (
+
+            <div className="assistant-metadata">
+              <div><span>LLM:</span> <strong>{hardcodedAssistant.llm}</strong></div>
+              <div><span>Voice:</span> <strong>{hardcodedAssistant.voice}</strong></div>
+              <div><span>KB Files:</span> <strong>{hardcodedAssistant.kbFiles}</strong></div>
+              <div><span>Search:</span> <strong>{hardcodedAssistant.search}</strong></div>
+              <div><span>Post-call (1):</span> <strong>{hardcodedAssistant.postCall}</strong></div>
+              <div><span>Integrations (0):</span> <strong>{hardcodedAssistant.integrations}</strong></div>
+            </div>
+
+            <div className="assistant-card-footer">
+              <span className="assistant-id">ID: #{hardcodedAssistant.id}</span>
+              <button className="btn btn-primary" onClick={() => navigate(`/agent/${hardcodedAssistant.id}`)}>Edit Agent</button>
+            </div>
+          </article>
+
+          {filteredAgents.length > 0 && filteredAgents.map((assistant) => (
               <article key={assistant.id} className="assistant-card">
                 <div className="assistant-card-head">
                   <div>
@@ -171,8 +202,7 @@ export default function Dashboard() {
                   </button>
                 </div>
               </article>
-            ))
-          )}
+            ))}
         </div>
       </div>
     </>
