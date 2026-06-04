@@ -10,13 +10,18 @@ function getAuth() {
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const { token, workspaceId } = getAuth();
   const url = `${BASE}/workspaces/${workspaceId}${path}`;
-  const res = await fetch(url, {
+  const headers: Record<string, string> = {
+    ...(options.headers ?? {}),
+  };
+  if (token) headers.Authorization = `Bearer ${token}`;
+
+  if (!(options.body instanceof FormData)) {
+    headers['Content-Type'] = 'application/json';
+  }
+
+  const res = await safeFetch(url, {
     ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      ...(options.headers ?? {}),
-    },
+    headers,
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
@@ -25,10 +30,25 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   return res.json() as Promise<T>;
 }
 
+// Improve network error messages for easier debugging
+async function safeFetch(url: string, opts: RequestInit) {
+  try {
+    return await fetch(url, opts);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`Network error calling ${url}: ${msg}`);
+  }
+}
+
+// Replace direct fetch usage with safeFetch to provide clearer errors
+// (keeps request above unchanged for successful paths)
+
 export const whapi = {
   get: <T>(path: string) => request<T>(path),
   post: <T>(path: string, body: unknown) =>
     request<T>(path, { method: 'POST', body: JSON.stringify(body) }),
+  postForm: <T>(path: string, formData: FormData) =>
+    request<T>(path, { method: 'POST', body: formData }),
   patch: <T>(path: string, body: unknown) =>
     request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
   put: <T>(path: string, body: unknown) =>

@@ -19,31 +19,14 @@ import {
   LogOut,
   Search
 } from "lucide-react";
+import { useTheme } from '../hooks/useTheme';
 import { CommandMenu } from './CommandMenu';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
-  // true = dark (default), false = light
-  const [darkMode, setDarkMode] = useState(true);
+  const { darkMode, toggleDarkMode } = useTheme();
   const [user, setUser] = useState({ name: 'User', email: '', initials: 'U', plan: '' });
   const profileRef = useRef<HTMLDivElement>(null);
-
-  const toggleDarkMode = () => {
-    const next = !darkMode;
-    setDarkMode(next);
-    document.documentElement.classList.toggle('light', !next);
-    localStorage.setItem('darkMode', next ? '1' : '0');
-  };
-
-  useEffect(() => {
-    const saved = localStorage.getItem('darkMode');
-    if (saved === '0') {
-      setDarkMode(false);
-      document.documentElement.classList.add('light');
-    } else {
-      document.documentElement.classList.remove('light');
-    }
-  }, []);
   
   const location = useLocation();
   const navigate = useNavigate();
@@ -311,8 +294,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </div>
             </Link>
 
-            <Link to="/bulk_call">
-              <div className={`sidebar-item ${path === '/bulk_call' ? 'active' : ''}`}>
+            <Link to="/bulk_call/create">
+              <div className={`sidebar-item ${path === '/bulk_call' || path === '/bulk_call/create' ? 'active' : ''}`}>
                 <span className="sidebar-icon"><PhoneCall size={16} /></span>
                 <span className="sidebar-text">Bulk Call</span>
               </div>
@@ -413,8 +396,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </aside>
 
-      <main className="dashboard-main" style={{ marginTop: '56px', marginLeft: '64px' }}>
-        {children}
+      <main className="dashboard-main" style={{ marginTop: '56px', marginLeft: '68px' }}>
+        <div className="dashboard-content">
+          {children}
+        </div>
       </main>
     </div>
   );
