@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Link, useLocation } from 'react-router-dom';
+import { useTheme } from '../hooks/useTheme';
 import {
   Home,
   Shield,
@@ -14,10 +15,13 @@ import {
   Headphones,
   Settings,
   Radio,
-  Cloud
+  Cloud,
+  Sun,
+  Moon
 } from "lucide-react";
 
 export default function Navbar() {
+  const { darkMode, toggleDarkMode } = useTheme();
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const location = useLocation();
@@ -167,8 +171,27 @@ export default function Navbar() {
         <li><Link to="/book-appointment" className={`nav-link ${isActive('/book-appointment')}`}>Book an Appointment</Link></li>
       </ul>
 
-      <div className="navbar-actions">
-
+<div className="navbar-actions" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+  <button
+    onClick={toggleDarkMode}
+    style={{
+      background: 'none',
+      border: 'none',
+      color: 'var(--text-secondary)',
+      cursor: 'pointer',
+      padding: '8px',
+      borderRadius: '50%',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      transition: 'background 0.2s',
+    }}
+    onMouseOver={e => (e.currentTarget.style.background = 'var(--bg-hover)')}
+    onMouseOut={e => (e.currentTarget.style.background = 'none')}
+    title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+  >
+    {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+  </button>
         {isLoggedIn ? (
           <>
             <Link to="/dashboard" style={{ color: 'var(--text-secondary)', fontSize: '14px', fontWeight: 500, textDecoration: 'none' }}>Dashboard</Link>
@@ -190,7 +213,6 @@ export default function Navbar() {
             <Link to="/signup" className="btn btn-primary" style={{ padding: '8px 18px', fontSize: '14px' }}>Get Started Free</Link>
           </>
         )}
-
       </div>
     </nav>
   );
