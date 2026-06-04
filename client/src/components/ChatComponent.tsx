@@ -84,11 +84,23 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
       });
 
       if (!response.ok) {
-        const errorData = await response.json();
+        let errorData;
+        const text = await response.text();
+        try {
+          errorData = JSON.parse(text);
+        } catch (e) {
+          throw new Error(`HTTP ${response.status}: ${text || 'Empty response'}`);
+        }
         throw new Error(errorData.error || `HTTP ${response.status}`);
       }
 
-      const data = await response.json();
+      let data;
+      const responseText = await response.text();
+      try {
+        data = JSON.parse(responseText);
+      } catch (e) {
+        throw new Error(`Invalid JSON response: ${responseText || 'Empty response'}`);
+      }
 
       // Add assistant message to chat
       const assistantMessage: Message = {
