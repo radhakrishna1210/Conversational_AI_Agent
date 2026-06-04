@@ -2,6 +2,7 @@ import { z } from 'zod';
 
 export const integrationProviderParamSchema = z.object({
   provider: z.string().min(2),
+  workspaceId: z.string().optional(),
 });
 
 export const integrationConnectSchema = z.object({

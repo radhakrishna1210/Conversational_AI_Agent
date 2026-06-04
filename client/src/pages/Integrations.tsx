@@ -14,15 +14,13 @@ type ProviderMeta = {
 };
 
 const PROVIDER_META: ProviderMeta[] = [
-  { key: 'cal', name: 'Cal.com', description: 'Allow your bot to schedule meetings and sync booking events.', mode: 'During Call', accent: '#23d18b', tint: 'rgba(35, 209, 139, 0.15)' },
-  { key: 'calendly', name: 'Calendly', description: 'Route qualified prospects into scheduled follow-ups and event syncs.', mode: 'During Call', accent: '#5aa8ff', tint: 'rgba(90, 168, 255, 0.15)' },
-  { key: 'custom_api', name: 'Custom API', description: 'Connect any REST endpoint with custom headers, auth, and testing.', mode: 'During Call', accent: '#f59e0b', tint: 'rgba(245, 158, 11, 0.14)', ctaLabel: 'Configure' },
-  { key: 'salesforce', name: 'Salesforce', description: 'Push transcripts, notes, leads, and opportunities back to your CRM.', mode: 'Post Call', accent: '#7cc0ff', tint: 'rgba(124, 192, 255, 0.15)' },
   { key: 'google_calendar', name: 'Google Calendar', description: 'Read calendars, create events, and automate scheduling reminders.', mode: 'During Call', accent: '#7cfd98', tint: 'rgba(124, 253, 152, 0.15)' },
+  { key: 'google_meet', name: 'Google Meet', description: 'Automatically generate and share Google Meet links for scheduled meetings.', mode: 'During Call', accent: '#00ac47', tint: 'rgba(0, 172, 71, 0.15)' },
   { key: 'google_sheets', name: 'Google Sheets', description: 'Append AI call logs and reporting rows into spreadsheets in real time.', mode: 'Post Call', accent: '#6ad4ff', tint: 'rgba(106, 212, 255, 0.15)' },
-  { key: 'slack', name: 'Slack', description: 'Send alerts, summaries, and live escalations to the right channel.', mode: 'During Call', accent: '#8b99ff', tint: 'rgba(139, 153, 255, 0.15)' },
+  { key: 'twilio', name: 'Twilio', description: 'Connect Twilio numbers and SMS capabilities for seamless voice and text interactions.', mode: 'During Call', accent: '#f22f46', tint: 'rgba(242, 47, 70, 0.15)' },
+  { key: 'cal', name: 'Cal.com', description: 'Allow your bot to schedule meetings and sync booking events.', mode: 'During Call', accent: '#23d18b', tint: 'rgba(35, 209, 139, 0.15)' },
+  { key: 'salesforce', name: 'Salesforce', description: 'Push transcripts, notes, leads, and opportunities back to your CRM.', mode: 'Post Call', accent: '#7cc0ff', tint: 'rgba(124, 192, 255, 0.15)' },
   { key: 'hubspot', name: 'HubSpot', description: 'Sync contacts, notes, tickets, and follow-up workflows automatically.', mode: 'Post Call', accent: '#ff9f5a', tint: 'rgba(255, 159, 90, 0.15)' },
-  { key: 'genesys', name: 'Genesys', description: 'Power queue routing, AI handoff, and real-time conversation sync.', mode: 'During Call', accent: '#ff6f91', tint: 'rgba(255, 111, 145, 0.15)' },
 ];
 
 const formatRelativeTime = (value?: string | null) => {
@@ -284,6 +282,17 @@ export default function Integrations() {
   const [modalIntegration, setModalIntegration] = useState<IntegrationItem | null>(null);
   const [filter, setFilter] = useState<'all' | 'connected'>('all');
   const [search, setSearch] = useState('');
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    if (token) {
+      try {
+        const payload = JSON.parse(atob(token.split('.')[1]));
+        setIsAdmin(payload.email === 'admin@example.com');
+      } catch (_) {}
+    }
+  }, []);
 
   const refresh = async (silent = false) => {
     if (silent) setRefreshing(true); else setLoading(true);
@@ -316,7 +325,16 @@ export default function Integrations() {
     }
   }, []);
 
-  const items = (dashboard?.integrations ?? []).filter((item) => {
+  const items = PROVIDER_META.map((meta) => {
+    const existing = (dashboard?.integrations ?? []).find(i => i.provider === meta.key);
+    return existing || {
+      id: meta.key,
+      provider: meta.key,
+      name: meta.name,
+      status: 'disconnected',
+      connected: false,
+    } as IntegrationItem;
+  }).filter((item) => {
     if (filter === 'connected' && !item.connected) return false;
     if (!search.trim()) return true;
     return `${item.name} ${item.provider} ${item.accountLabel ?? ''}`.toLowerCase().includes(search.toLowerCase());
@@ -391,7 +409,7 @@ export default function Integrations() {
         <div>
           <div style={{ fontSize: '30px', fontWeight: 900, letterSpacing: '-0.03em', marginBottom: '8px' }}>Integrations</div>
           <div style={{ color: '#9a9a9a', fontSize: '14px', maxWidth: '760px', lineHeight: 1.6 }}>
-            Connect Cal.com, Calendly, Salesforce, Google, Slack, HubSpot, Genesys, and custom APIs with secure OAuth, logs, sync jobs, and webhook-driven updates.
+            Connect Google Calendar, Google Meet, Google Sheets, Twilio, Cal.com, Salesforce, and HubSpot with secure OAuth, logs, sync jobs, and webhook-driven updates.
           </div>
         </div>
         <button
@@ -484,39 +502,51 @@ export default function Integrations() {
 
                   <p style={{ color: '#a3a3a3', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>{meta.description}</p>
 
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '10px' }}>
-                    <MiniStat label="Last synced" value={formatRelativeTime(integration.lastSyncAt)} />
-                    <MiniStat label="Webhook" value={integration.webhookEnabled ? 'Enabled' : 'Disabled'} />
-                    <MiniStat label="Synced items" value={String(integration.lastSyncedCount ?? 0)} />
-                    <MiniStat label="Token expiry" value={formatRelativeTime(integration.tokenExpiresAt)} />
-                  </div>
+                  {isAdmin && (
+                    <>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, minmax(0, 1fr))', gap: '10px' }}>
+                        <MiniStat label="Last synced" value={formatRelativeTime(integration.lastSyncAt)} />
+                        <MiniStat label="Webhook" value={integration.webhookEnabled ? 'Enabled' : 'Disabled'} />
+                        <MiniStat label="Synced items" value={String(integration.lastSyncedCount ?? 0)} />
+                        <MiniStat label="Token expiry" value={formatRelativeTime(integration.tokenExpiresAt)} />
+                      </div>
 
-                  {integration.lastError && (
-                    <div style={{ border: '1px solid #5c2222', background: 'rgba(255, 80, 80, 0.08)', borderRadius: '12px', padding: '12px', color: '#ffb8b8', fontSize: '12px', lineHeight: 1.5 }}>
-                      {integration.lastError}
-                    </div>
+                      {integration.lastError && (
+                        <div style={{ border: '1px solid #5c2222', background: 'rgba(255, 80, 80, 0.08)', borderRadius: '12px', padding: '12px', color: '#ffb8b8', fontSize: '12px', lineHeight: 1.5 }}>
+                          {integration.lastError}
+                        </div>
+                      )}
+
+                      <div style={{ marginTop: 'auto', display: 'grid', gap: '10px' }}>
+                        <IntegrationLogs logs={(integration.logs ?? []).slice(0, 2)} />
+                      </div>
+                    </>
                   )}
-
-                  <div style={{ marginTop: 'auto', display: 'grid', gap: '10px' }}>
-                    <IntegrationLogs logs={(integration.logs ?? []).slice(0, 2)} />
-                  </div>
                 </div>
 
-                <div style={{ padding: '16px 18px', borderTop: '1px solid #222', display: 'flex', gap: '10px', justifyContent: 'space-between', flexWrap: 'wrap' }}>
-                  <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                    {integration.connected ? (
-                      <>
-                        <button onClick={() => handleDisconnect(integration)} style={secondaryButtonStyle} disabled={disconnectLoading}>{disconnectLoading ? 'Disconnecting...' : 'Disconnect'}</button>
-                        <SyncButton loading={syncLoading} onClick={() => handleSync(integration)} />
-                      </>
-                    ) : (
-                      <OAuthButton loading={connectLoading} label={meta.ctaLabel ?? 'Connect'} onClick={() => handleConnect(integration)} />
+                {(!integration.connected || isAdmin) && (
+                  <div style={{ padding: '16px 18px', borderTop: '1px solid #222', display: 'flex', gap: '10px', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                    <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                      {integration.connected ? (
+                        <>
+                          {isAdmin && (
+                            <button onClick={() => handleDisconnect(integration)} style={secondaryButtonStyle} disabled={disconnectLoading}>{disconnectLoading ? 'Disconnecting...' : 'Disconnect'}</button>
+                          )}
+                          {isAdmin && (
+                            <SyncButton loading={syncLoading} onClick={() => handleSync(integration)} />
+                          )}
+                        </>
+                      ) : (
+                        <OAuthButton loading={connectLoading} label={meta.ctaLabel ?? 'Connect'} onClick={() => handleConnect(integration)} />
+                      )}
+                    </div>
+                    {isAdmin && (
+                      <button onClick={() => setModalIntegration(integration)} style={secondaryButtonStyle}>
+                        <Settings2 size={14} /> Settings
+                      </button>
                     )}
                   </div>
-                  <button onClick={() => setModalIntegration(integration)} style={secondaryButtonStyle}>
-                    <Settings2 size={14} /> Settings
-                  </button>
-                </div>
+                )}
               </div>
             );
           })}

@@ -1,10 +1,25 @@
 const BASE = '/api/v1';
 
 function getAuth() {
-  return {
-    token: localStorage.getItem('token') ?? '',
-    workspaceId: localStorage.getItem('workspaceId') ?? '',
-  };
+  const token = localStorage.getItem('token') ?? '';
+  let workspaceId = localStorage.getItem('workspaceId') ?? '';
+  
+  if (workspaceId === 'undefined' || workspaceId === 'null') {
+    workspaceId = '';
+  }
+  
+  // Auto-recover workspaceId from token if it's missing in localStorage
+  if (!workspaceId && token) {
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      if (payload.workspaceId) {
+        workspaceId = payload.workspaceId;
+        localStorage.setItem('workspaceId', workspaceId);
+      }
+    } catch (_) {}
+  }
+
+  return { token, workspaceId };
 }
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
@@ -20,7 +35,18 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    throw new Error((err as any).message ?? `Request failed: ${res.status}`);
+    let errMsg = (err as any).message ?? (err as any).error ?? `Request failed: ${res.status}`;
+    if ((err as any).debug) {
+      errMsg += ` [DEBUG: ${JSON.stringify((err as any).debug)}]`;
+    }
+    
+    if (res.status === 401) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('workspaceId');
+      window.location.href = '/login';
+    }
+    
+    throw new Error(errMsg);
   }
   return res.json() as Promise<T>;
 }
