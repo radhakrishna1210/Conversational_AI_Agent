@@ -127,6 +127,20 @@
    LIGHT MODE — Clean Slate White
    ═══════════════════════════════════════════ */
 html.light {
+  /* Tailwind HSL theme variables override */
+  --background: 210 40% 98%;
+  --foreground: 222 47% 10%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 10%;
+  --border: 214 32% 91%;
+  --input: 214 32% 91%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 10%;
+  --muted: 210 40% 96.1%;
+  --muted-foreground: 215.4 16.3% 46.9%;
+  --accent: 142 70% 49%;
+  --accent-foreground: 222 47% 6%;
+
   /* Backgrounds */
   --bg-primary:    #f0f4f9;
   --bg-secondary:  #ffffff;
@@ -160,7 +174,7 @@ html.light {
   /* Text */
   --text-primary:   #0f172a;
   --text-secondary: #475569;
-  --text-muted:     #94a3b8;
+  --text-muted:     #64748b;
 
   /* Borders */
   --border:       #e2e8f0;
@@ -188,9 +202,307 @@ html.light body {
   color: var(--text-primary);
 }
 
+/* Global Light Mode Overrides for Hardcoded/Inline Colors to guarantee visibility and accessibility */
+html.light [style*="color: white"],
+html.light [style*="color:white"],
+html.light [style*="color: 'white'"],
+html.light [style*="color:'white'"],
+html.light [style*="color: '#fff'"],
+html.light [style*="color:'#fff'"],
+html.light [style*="color: #fff"],
+html.light [style*="color:#fff"],
+html.light [style*="color: #f5f5f5"],
+html.light [style*="color:#f5f5f5"],
+html.light [style*="color: #f1f1f1"],
+html.light [style*="color:#f1f1f1"],
+html.light [style*="color: #f4f4f4"],
+html.light [style*="color:#f4f4f4"],
+html.light [style*="color: #f6f6f6"],
+html.light [style*="color:#f6f6f6"],
+html.light [style*="color: #f2f2f2"],
+html.light [style*="color:#f2f2f2"],
+html.light [style*="color: #e8e8e8"],
+html.light [style*="color:#e8e8e8"],
+html.light [style*="color: #d6d6d6"],
+html.light [style*="color:#d6d6d6"],
+html.light [style*="color: rgb(255, 255, 255)"],
+html.light [style*="color:rgb(255, 255, 255)"],
+html.light [style*="color: rgb(255,255,255)"],
+html.light [style*="color:rgb(255,255,255)"],
+html.light [style*="color: rgb(245, 245, 245)"],
+html.light [style*="color: rgb(241, 241, 241)"],
+html.light [style*="color: rgb(244, 244, 244)"],
+html.light [style*="color: rgb(246, 246, 246)"],
+html.light [style*="color: rgb(242, 242, 242)"] {
+  color: var(--text-primary) !important;
+}
+
+html.light [style*="color: #a3a3a3"],
+html.light [style*="color:#a3a3a3"],
+html.light [style*="color: #8e8e8e"],
+html.light [style*="color:#8e8e8e"],
+html.light [style*="color: #9a9a9a"],
+html.light [style*="color:#9a9a9a"],
+html.light [style*="color: #8b8b8b"],
+html.light [style*="color:#8b8b8b"],
+html.light [style*="color: #8a8a8a"],
+html.light [style*="color:#8a8a8a"],
+html.light [style*="color: #999"],
+html.light [style*="color:#999"],
+html.light [style*="color: #888"],
+html.light [style*="color:#888"],
+html.light [style*="color: #666"],
+html.light [style*="color:#666"],
+html.light [style*="color: #b3b3b3"],
+html.light [style*="color:#b3b3b3"],
+html.light [style*="color: #b7b7b7"],
+html.light [style*="color:#b7b7b7"],
+html.light [style*="color: #8d8d8d"],
+html.light [style*="color:#8d8d8d"],
+html.light [style*="color: rgb(179, 179, 179)"],
+html.light [style*="color: rgb(183, 183, 183)"],
+html.light [style*="color: rgb(141, 141, 141)"],
+html.light [style*="color: rgb(136, 136, 136)"],
+html.light [style*="color: rgb(153, 153, 153)"],
+html.light [style*="color: rgb(102, 102, 102)"] {
+  color: var(--text-secondary) !important;
+}
+
+html.light [style*="background: #0f0f0f"],
+html.light [style*="background:#0f0f0f"],
+html.light [style*="background: rgb(15, 15, 15)"],
+html.light [style*="background:rgb(15, 15, 15)"],
+html.light [style*="background: rgb(15,15,15)"],
+html.light [style*="background:rgb(15,15,15)"] {
+  background: var(--bg-primary) !important;
+}
+
+html.light [style*="background: #0a0a0a"],
+html.light [style*="background:#0a0a0a"],
+html.light [style*="background: rgb(10, 10, 10)"],
+html.light [style*="background:rgb(10, 10, 10)"],
+html.light [style*="background: #0b0b0b"],
+html.light [style*="background:#0b0b0b"],
+html.light [style*="background: rgb(11, 11, 11)"],
+html.light [style*="background:rgb(11, 11, 11)"],
+html.light [style*="background: #0c0c0c"],
+html.light [style*="background:#0c0c0c"],
+html.light [style*="background: rgb(12, 12, 12)"],
+html.light [style*="background:rgb(12, 12, 12)"] {
+  background: var(--bg-secondary) !important;
+}
+
+html.light [style*="background: #111"],
+html.light [style*="background:#111"],
+html.light [style*="background: rgb(17, 17, 17)"],
+html.light [style*="background:rgb(17, 17, 17)"],
+html.light [style*="background: #101010"],
+html.light [style*="background:#101010"],
+html.light [style*="background: rgb(16, 16, 16)"],
+html.light [style*="background:rgb(16, 16, 16)"],
+html.light [style*="background: #151515"],
+html.light [style*="background:#151515"],
+html.light [style*="background: rgb(21, 21, 21)"],
+html.light [style*="background:rgb(21, 21, 21)"],
+html.light [style*="background: #1a1a1a"],
+html.light [style*="background:#1a1a1a"],
+html.light [style*="background: rgb(26, 26, 26)"],
+html.light [style*="background:rgb(26, 26, 26)"],
+html.light [style*="background: #050505"],
+html.light [style*="background:#050505"],
+html.light [style*="background: rgb(5, 5, 5)"],
+html.light [style*="background:rgb(5, 5, 5)"],
+html.light [style*="background: #141414"],
+html.light [style*="background:#141414"],
+html.light [style*="background: rgb(20, 20, 20)"],
+html.light [style*="background:rgb(20, 20, 20)"],
+html.light [style*="background: #171717"],
+html.light [style*="background:#171717"],
+html.light [style*="background: rgb(23, 23, 23)"],
+html.light [style*="background:rgb(23, 23, 23)"],
+html.light [style*="background: #062021"],
+html.light [style*="background:#062021"],
+html.light [style*="background: rgb(6, 32, 33)"],
+html.light [style*="background:rgb(6, 32, 33)"],
+html.light [style*="background: linear-gradient(180deg, #151515"],
+html.light [style*="background:linear-gradient(180deg, #151515"],
+html.light [style*="background: linear-gradient(180deg, #1e1e1e"],
+html.light [style*="background:linear-gradient(180deg, #1e1e1e"],
+html.light [style*="background: rgba(255,255,255,0.02)"],
+html.light [style*="background:rgba(255,255,255,0.02)"],
+html.light [style*="background: rgba(255,255,255,0.01)"],
+html.light [style*="background:rgba(255,255,255,0.01)"] {
+  background: var(--bg-card) !important;
+  background-image: none !important;
+}
+
+html.light [style*="background: #07393b"],
+html.light [style*="background:#07393b"],
+html.light [style*="background: rgb(7, 57, 59)"],
+html.light [style*="background:rgb(7, 57, 59)"] {
+  background: var(--bg-elevated) !important;
+}
+
+html.light [style*="background: rgba(0,0,0,0.1)"],
+html.light [style*="background:rgba(0,0,0,0.1)"],
+html.light [style*="background: rgba(0,0,0,0.2)"],
+html.light [style*="background:rgba(0,0,0,0.2)"],
+html.light [style*="background: rgba(0,0,0,0.3)"],
+html.light [style*="background:rgba(0,0,0,0.3)"] {
+  background: var(--bg-secondary) !important;
+}
+
+
+
+html.light [style*="border: 1px solid #2"],
+html.light [style*="border:1px solid #2"],
+html.light [style*="border: 1px solid #3"],
+html.light [style*="border:1px solid #3"],
+html.light [style*="border: 1px solid var(--border)"],
+html.light [style*="border:1px solid var(--border)"] {
+  border-color: var(--border) !important;
+}
+
+/* Align all variations of green/teal buttons/texts to var(--teal) in light mode */
+html.light [style*="background: #00bcd4"],
+html.light [style*="background:#00bcd4"],
+html.light [style*="background: rgb(0, 188, 212)"],
+html.light [style*="background:rgb(0, 188, 212)"],
+html.light [style*="background: #12c8d0"],
+html.light [style*="background:#12c8d0"],
+html.light [style*="background: rgb(18, 200, 208)"],
+html.light [style*="background:rgb(18, 200, 208)"],
+html.light [style*="background: #0f6f73"],
+html.light [style*="background:#0f6f73"],
+html.light [style*="background: rgb(15, 111, 115)"] {
+  background: var(--teal) !important;
+}
+
+html.light [style*="color: #00bcd4"],
+html.light [style*="color:#00bcd4"],
+html.light [style*="color: rgb(0, 188, 212)"],
+html.light [style*="color:rgb(0, 188, 212)"],
+html.light [style*="color: #11c7cf"],
+html.light [style*="color:#11c7cf"],
+html.light [style*="color: rgb(17, 199, 207)"],
+html.light [style*="color:rgb(17, 199, 207)"] {
+  color: var(--teal) !important;
+}
+
+html.light [style*="border-color: #00bcd4"],
+html.light [style*="border-color:#00bcd4"],
+html.light [style*="border: 1px solid #00bcd4"],
+html.light [style*="border:1px solid #00bcd4"],
+html.light [style*="border: 1px solid rgb(0, 188, 212)"],
+html.light [style*="border:1px solid rgb(0, 188, 212)"] {
+  border-color: var(--teal) !important;
+}
+
+/* Global Dark Mode Overrides for Hardcoded/Inline Colors to guarantee visibility and accessibility */
+html:not(.light) [style*="color: #666"],
+html:not(.light) [style*="color:#666"],
+html:not(.light) [style*="color: rgb(102, 102, 102)"],
+html:not(.light) [style*="color:rgb(102, 102, 102)"] {
+  color: #94a3b8 !important;
+}
+
+html:not(.light) [style*="color: #888"],
+html:not(.light) [style*="color:#888"],
+html:not(.light) [style*="color: rgb(136, 136, 136)"],
+html:not(.light) [style*="color:rgb(136, 136, 136)"] {
+  color: #cbd5e1 !important;
+}
+
+html:not(.light) [style*="color: #999"],
+html:not(.light) [style*="color:#999"],
+html:not(.light) [style*="color: rgb(153, 153, 153)"],
+html:not(.light) [style*="color:rgb(153, 153, 153)"] {
+  color: #e2e8f0 !important;
+}
+
 /* ═══════════════════════════════════════════
    LIGHT MODE — Component overrides
    ═══════════════════════════════════════════ */
+
+/* Forms input fields / textareas overrides */
+html.light .form-input,
+html.light .form-select,
+html.light .form-textarea {
+  background: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border) !important;
+}
+html.light .form-select option {
+  background: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Voice Assistant Component overrides */
+html.light .voice-card {
+  background: rgba(0, 0, 0, 0.03) !important;
+  border-color: var(--border) !important;
+}
+html.light .voice-card:hover {
+  background: rgba(0, 0, 0, 0.06) !important;
+}
+html.light .voice-card.active {
+  background: rgba(14, 179, 158, 0.08) !important;
+  border-color: var(--teal) !important;
+}
+html.light .ai-auto-card.active {
+  background: linear-gradient(135deg, rgba(14, 179, 158, 0.12) 0%, rgba(124, 58, 237, 0.12) 100%) !important;
+}
+html.light .voice-badge--female {
+  background: rgba(236, 72, 153, 0.1) !important;
+  color: #db2777 !important;
+}
+html.light .voice-badge--male {
+  background: rgba(59, 130, 246, 0.1) !important;
+  color: #2563eb !important;
+}
+html.light .voice-badge--ai {
+  background: rgba(124, 58, 237, 0.1) !important;
+  color: #7c3aed !important;
+}
+html.light .voice-tag {
+  background: rgba(0, 0, 0, 0.04) !important;
+  border-color: rgba(0, 0, 0, 0.06) !important;
+  color: var(--text-secondary) !important;
+}
+html.light .voice-selected-bar {
+  background: rgba(14, 179, 158, 0.05) !important;
+  border-color: rgba(14, 179, 158, 0.15) !important;
+}
+html.light .mic-btn {
+  background: rgba(0, 0, 0, 0.04) !important;
+  border-color: var(--border) !important;
+  color: var(--text-primary) !important;
+}
+html.light .mic-btn:hover {
+  background: rgba(0, 0, 0, 0.08) !important;
+  border-color: var(--teal) !important;
+}
+html.light .voice-group-label {
+  color: var(--text-secondary) !important;
+}
+html.light .voice-group-count {
+  background: rgba(0, 0, 0, 0.05) !important;
+  color: var(--text-secondary) !important;
+}
+
+html.light [style*="background: rgba(255,255,255,0.05)"],
+html.light [style*="background:rgba(255,255,255,0.05)"],
+html.light [style*="background: rgba(255, 255, 255, 0.05)"],
+html.light [style*="background:rgba(255, 255, 255, 0.05)"] {
+  background: rgba(0, 0, 0, 0.04) !important;
+}
+html.light [style*="background: rgba(255,255,255,0.03)"],
+html.light [style*="background:rgba(255,255,255,0.03)"],
+html.light [style*="background: rgba(255, 255, 255, 0.03)"],
+html.light [style*="background:rgba(255, 255, 255, 0.03)"] {
+  background: rgba(0, 0, 0, 0.02) !important;
+}
+
 
 /* Sidebar: force deep navy background + keep icons/text white */
 html.light .sidebar {

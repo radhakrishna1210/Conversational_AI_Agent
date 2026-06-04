@@ -16,7 +16,7 @@ import Contact from './pages/Contact';
 import Docs from './pages/Docs';
 import ReportIssue from './pages/ReportIssue';
 import Dashboard from './pages/Dashboard';
-import BulkCall from './pages/BulkCall';
+import BulkCallCreate from './pages/BulkCallCreate';
 import CloneVoice from './pages/CloneVoice';
 import Files from './pages/Files';
 import Integrations from './pages/Integrations';
@@ -74,11 +74,13 @@ function DashboardLayoutWrapper() {
 }
 
 import { Toaster } from './components/ui/sonner';
+import { ThemeProvider } from './hooks/useTheme';
 
 function App() {
   return (
-    <Router>
-      <ScrollToTop />
+    <ThemeProvider>
+      <Router>
+        <ScrollToTop />
       <Toaster position="top-right" richColors />
       <Routes>
         <Route path="/" element={<DefaultLayout><Home /></DefaultLayout>} />
@@ -96,7 +98,8 @@ function App() {
         <Route element={<ProtectedRoute />}>
           <Route element={<DashboardLayoutWrapper />}>
             <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/bulk_call" element={<BulkCall />} />
+            <Route path="/bulk_call" element={<BulkCallCreate />} />
+            <Route path="/bulk_call/create" element={<BulkCallCreate />} />
             <Route path="/clone_voice" element={<CloneVoice />} />
             <Route path="/files" element={<Files />} />
             <Route path="/integrations" element={<Integrations />} />
@@ -113,7 +116,8 @@ function App() {
           </Route>
         </Route>
       </Routes>
-    </Router>
+      </Router>
+    </ThemeProvider>
   );
 }
 

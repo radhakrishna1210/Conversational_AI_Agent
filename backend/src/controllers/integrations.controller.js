@@ -16,8 +16,11 @@ export const getIntegration = async (req, res) => {
 };
 
 export const connect = async (req, res) => {
-  const { redirectUri } = req.body ?? {};
-  const result = await service.createOAuthConnectUrl(req.params.workspaceId, req.params.provider, req.user?.userId ?? req.user?.id, redirectUri);
+  // Always prefer the backend's own host for the callback to match what is usually registered in Google Console
+  const dynamicCallbackUrl = `${req.protocol}://${req.get('host')}/api/v1/integrations/${req.params.provider}/callback`;
+  const finalRedirectUri = process.env.GOOGLE_REDIRECT_URI || dynamicCallbackUrl;
+  
+  const result = await service.createOAuthConnectUrl(req.params.workspaceId, req.params.provider, req.user?.userId ?? req.user?.id, finalRedirectUri);
   res.json(result);
 };
 

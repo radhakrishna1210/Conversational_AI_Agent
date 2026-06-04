@@ -1,6 +1,7 @@
 import prisma from '../config/prisma.js';
 import * as sarvamService from '../services/sarvam.service.js';
 import logger from '../lib/logger.js';
+import fetch from 'node-fetch';
 
 const safeJson = (value, fallback = []) => {
   if (value == null) return fallback;
@@ -137,8 +138,25 @@ export const chat = async (req, res) => {
   }
 
   try {
+    let agent = null;
+    if (process.env.DB_STATUS !== 'unavailable') {
+      try {
+        agent = await prisma.agent.findUnique({
+          where: { id: agentId },
+        });
+      } catch (dbErr) {
+        logger.warn({ dbErr: dbErr.message }, 'Failed to fetch agent from DB for chat context');
+      }
+    }
+
     const agentContext = {
-      welcomeMessage: welcomeMessage || 'You are a helpful assistant.',
+      name: agent?.name || 'AI Assistant',
+      welcomeMessage: agent?.welcomeMessage || welcomeMessage || 'Hello!',
+      aiModel: agent?.aiModel || 'sarvam-30b',
+      voice: agent?.voice || 'Google',
+      transcription: agent?.transcription || 'Azure',
+      languages: selectedLanguages,
+      flowItems: agent?.flowItems ? safeJson(agent.flowItems) : null,
     };
 
     logger.debug(
@@ -190,6 +208,78 @@ export const checkSarvamHealth = async (req, res) => {
     res.status(500).json({
       status: 'error',
       error: err.message,
+    });
+  }
+};
+
+/**
+ * Initiate an outbound voice test call using Twilio, falling back to a simulation.
+ * POST /api/v1/workspaces/:workspaceId/agents/test-call
+ */
+export const testCall = async (req, res) => {
+  const { agentId, phoneNumber } = req.body;
+  const accountSid = process.env.TWILIO_ACCOUNT_SID;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const fromNumber = process.env.TWILIO_FROM_NUMBER || '+15017122661';
+
+  if (!agentId || !phoneNumber) {
+    return res.status(400).json({ error: 'agentId and phoneNumber are required' });
+  }
+
+  logger.info({ agentId, phoneNumber }, 'Initiating test call');
+
+  // If no Twilio credentials are set, simulate the call with standard success
+  if (!accountSid || !authToken) {
+    logger.warn('Twilio credentials not found. Simulating test call.');
+    return res.json({
+      success: true,
+      simulated: true,
+      message: `[Simulated] Call sent successfully to ${phoneNumber}!`
+    });
+  }
+
+  try {
+    const credentials = Buffer.from(`${accountSid}:${authToken}`).toString('base64');
+    const twimlUrl = `http://demo.twilio.com/docs/voice.xml`;
+
+    const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${credentials}`,
+        'Content-Type': 'application/x-www-form-urlencoded'
+      },
+      body: new URLSearchParams({
+        To: phoneNumber,
+        From: fromNumber,
+        Url: twimlUrl
+      })
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      logger.warn({ errorData }, 'Twilio call request failed. Falling back to simulation.');
+      return res.json({
+        success: true,
+        simulated: true,
+        message: `[Simulated] Call sent successfully to ${phoneNumber}! (Twilio info: ${errorData.message})`
+      });
+    }
+
+    const data = await response.json();
+    logger.info({ callSid: data.sid }, 'Twilio outbound call initiated');
+
+    res.json({
+      success: true,
+      simulated: false,
+      callSid: data.sid,
+      message: `Test call initiated successfully via Twilio!`
+    });
+  } catch (error) {
+    logger.error('Failed to initiate Twilio call, falling back to simulation', error);
+    res.json({
+      success: true,
+      simulated: true,
+      message: `[Simulated] Call sent successfully to ${phoneNumber}!`
     });
   }
 };

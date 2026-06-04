@@ -61,3 +61,4 @@ process.on('uncaughtException', (err) => {
 process.on('unhandledRejection', (reason) => {
   logger.error({ reason }, 'Unhandled promise rejection');
 });
+// Watched reload triggered by .env fix

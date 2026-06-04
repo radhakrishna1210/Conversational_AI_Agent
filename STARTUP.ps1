@@ -5,9 +5,9 @@
 # Usage: .\STARTUP.ps1
 
 Write-Host "`n" -ForegroundColor Gray
-Write-Host "╔════════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "║  Conversational AI - Complete Startup  ║" -ForegroundColor Cyan
-Write-Host "╚════════════════════════════════════════╝" -ForegroundColor Cyan
+Write-Host "******************************************" -ForegroundColor Cyan
+Write-Host "|  Conversational AI - Complete Startup  |" -ForegroundColor Cyan
+Write-Host "******************************************" -ForegroundColor Cyan
 Write-Host "`n" -ForegroundColor Gray
 
 # Check if Node.js is installed
@@ -19,7 +19,7 @@ if (-not $nodeExists) {
     exit 1
 }
 
-Write-Host "[✓] Node.js detected`n" -ForegroundColor Green
+Write-Host "[OK] Node.js detected`n" -ForegroundColor Green
 
 # Check if we're in the project root
 if (-not (Test-Path "backend")) {
@@ -40,13 +40,13 @@ if (-not (Test-Path "node_modules")) {
 if (-not (Test-Path ".env")) {
     if (Test-Path ".env.template") {
         Copy-Item ".env.template" ".env" -Force
-        Write-Host "[✓] Created .env from template`n" -ForegroundColor Green
+        Write-Host "[OK] Created .env from template`n" -ForegroundColor Green
     }
 }
 
 Pop-Location
 
-Write-Host "[✓] Backend ready`n" -ForegroundColor Green
+Write-Host "[OK] Backend ready`n" -ForegroundColor Green
 
 Write-Host "[*] Setting up Frontend...`n" -ForegroundColor Yellow
 
@@ -59,11 +59,11 @@ if (-not (Test-Path "node_modules")) {
 
 Pop-Location
 
-Write-Host "[✓] Frontend ready`n" -ForegroundColor Green
+Write-Host "[OK] Frontend ready`n" -ForegroundColor Green
 
-Write-Host "╔════════════════════════════════════════╗" -ForegroundColor Cyan
-Write-Host "║         STARTUP COMPLETE               ║" -ForegroundColor Cyan
-Write-Host "╚════════════════════════════════════════╝" -ForegroundColor Cyan
+Write-Host "******************************************" -ForegroundColor Cyan
+Write-Host "|         STARTUP COMPLETE               |" -ForegroundColor Cyan
+Write-Host "******************************************" -ForegroundColor Cyan
 Write-Host "`n" -ForegroundColor Gray
 
 Write-Host "[!] IMPORTANT: You need TWO PowerShell windows`n" -ForegroundColor Yellow

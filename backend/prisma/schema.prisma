@@ -208,7 +208,13 @@ model Campaign {
   name              String
   templateId        String
   whatsappNumberId  String
-  variableMapping   String?   @default("{}")
+variableMapping   String?   @default("{}")
+botId             String?
+phoneNumbers      Json?
+csvFileName       String?
+fromNumber        String?
+progress          Int       @default(0)
+concurrentCalls   Int       @default(1)
   status            String    @default("DRAFT")
   scheduledAt       DateTime?
   launchedAt        DateTime?

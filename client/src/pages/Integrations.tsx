@@ -404,18 +404,18 @@ export default function Integrations() {
   const metaByKey = new Map(PROVIDER_META.map((provider) => [provider.key, provider]));
 
   return (
-    <div style={{ color: '#fff' }}>
+    <div style={{ color: 'var(--text-primary)' }}>
       <div style={{ marginBottom: '28px', display: 'flex', alignItems: 'flex-end', justifyContent: 'space-between', gap: '16px', flexWrap: 'wrap' }}>
         <div>
           <div style={{ fontSize: '30px', fontWeight: 900, letterSpacing: '-0.03em', marginBottom: '8px' }}>Integrations</div>
-          <div style={{ color: '#9a9a9a', fontSize: '14px', maxWidth: '760px', lineHeight: 1.6 }}>
-            Connect Google Calendar, Google Meet, Google Sheets, Twilio, Cal.com, Salesforce, and HubSpot with secure OAuth, logs, sync jobs, and webhook-driven updates.
+          <div style={{ color: 'var(--text-secondary)', fontSize: '14px', maxWidth: '760px', lineHeight: 1.6 }}>
+            Connect Cal.com, Calendly, Salesforce, Google, Slack, HubSpot, Genesys, and custom APIs with secure OAuth, logs, sync jobs, and webhook-driven updates.
           </div>
         </div>
         <button
           onClick={() => refresh(true)}
           style={{
-            display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 14px', borderRadius: '10px', border: '1px solid #2e2e2e', background: 'linear-gradient(180deg, #1e1e1e 0%, #141414 100%)', color: '#f2f2f2', fontWeight: 700, cursor: 'pointer'
+            display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 14px', borderRadius: '10px', border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text-primary)', fontWeight: 700, cursor: 'pointer'
           }}
         >
           {refreshing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />}
@@ -430,12 +430,12 @@ export default function Integrations() {
           { label: 'Failed Syncs', value: dashboard?.stats.failed ?? 0, icon: AlertTriangle },
           { label: 'Queued Jobs', value: dashboard?.stats.queuedJobs ?? 0, icon: Zap },
         ].map((stat) => (
-          <div key={stat.label} style={{ background: 'linear-gradient(180deg, #141414 0%, #101010 100%)', border: '1px solid #232323', borderRadius: '16px', padding: '18px' }}>
+          <div key={stat.label} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '16px', padding: '18px' }}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '18px' }}>
-              <div style={{ color: '#9a9a9a', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{stat.label}</div>
-              <stat.icon size={16} color="#8b8b8b" />
+              <div style={{ color: 'var(--text-secondary)', fontSize: '12px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{stat.label}</div>
+              <stat.icon size={16} color="var(--text-secondary)" />
             </div>
-            <div style={{ fontSize: '28px', fontWeight: 900, letterSpacing: '-0.03em' }}>{stat.value}</div>
+            <div style={{ fontSize: '28px', fontWeight: 900, letterSpacing: '-0.03em', color: 'var(--text-primary)' }}>{stat.value}</div>
           </div>
         ))}
       </div>
@@ -566,9 +566,9 @@ export default function Integrations() {
 
 function MiniStat({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ border: '1px solid #232323', borderRadius: '12px', padding: '12px', background: '#111' }}>
-      <div style={{ color: '#7d7d7d', fontSize: '11px', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</div>
-      <div style={{ color: '#f4f4f4', fontSize: '13px', fontWeight: 700 }}>{value}</div>
+    <div style={{ border: '1px solid var(--border)', borderRadius: '12px', padding: '12px', background: 'var(--bg-elevated)' }}>
+      <div style={{ color: 'var(--text-secondary)', fontSize: '11px', marginBottom: '5px', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{label}</div>
+      <div style={{ color: 'var(--text-primary)', fontSize: '13px', fontWeight: 700 }}>{value}</div>
     </div>
   );
 }
@@ -577,9 +577,9 @@ function pillStyle(active: boolean): React.CSSProperties {
   return {
     padding: '10px 14px',
     borderRadius: '999px',
-    border: '1px solid #2d2d2d',
-    background: active ? 'linear-gradient(180deg, #212121 0%, #161616 100%)' : '#111',
-    color: active ? '#fff' : '#9f9f9f',
+    border: '1px solid var(--border)',
+    background: active ? 'var(--bg-elevated)' : 'var(--bg-card)',
+    color: active ? 'var(--teal)' : 'var(--text-secondary)',
     fontSize: '12px',
     fontWeight: 700,
     cursor: 'pointer',
@@ -592,9 +592,9 @@ const secondaryButtonStyle: React.CSSProperties = {
   gap: '8px',
   padding: '10px 14px',
   borderRadius: '10px',
-  border: '1px solid #303030',
-  background: '#141414',
-  color: '#e8e8e8',
+  border: '1px solid var(--border)',
+  background: 'var(--bg-elevated)',
+  color: 'var(--text-primary)',
   fontSize: '12px',
   fontWeight: 800,
   cursor: 'pointer',
