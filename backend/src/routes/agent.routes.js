@@ -3,6 +3,7 @@ import * as ctrl from '../controllers/agent.controller.js';
 
 const router = Router({ mergeParams: true });
 
+router.post('/test-call', ctrl.testCall);
 router.post('/', ctrl.createAgent);
 router.get('/', ctrl.getAgents);
 router.get('/health/sarvam', ctrl.checkSarvamHealth);
