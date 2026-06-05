@@ -1,6 +1,9 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/authenticate.js';
 import { workspaceContext } from '../middleware/workspaceContext.js';
+import { mockLLMService } from '../services/llm/mock.service.js';
+import { getLLMProviderWithFallback } from '../services/llm.factory.js';
+import logger from '../lib/logger.js';
 
 import authRoutes from './auth.routes.js';
 import adminRoutes from './admin.routes.js';
@@ -39,6 +42,37 @@ router.get('/config', (_req, res) => {
 router.use('/auth', authRoutes);
 router.use('/agents', agentRoutes);
 router.use('/integrations', integrationsPublicRoutes);
+
+// Public AI Assistant chat — no auth required, always works
+router.post('/assistant/chat', async (req, res) => {
+  try {
+    const { message, systemPrompt } = req.body;
+    if (!message || typeof message !== 'string' || !message.trim()) {
+      return res.status(400).json({ error: 'Message is required' });
+    }
+
+    // Try real LLM provider with fallback, ultimately falls back to mock
+    const provider = getLLMProviderWithFallback('gemini');
+    const response = await provider.generateResponse(
+      message,
+      { model: 'gemini-2.5-flash', temperature: 0.7 },
+      {
+        systemPrompt: systemPrompt || "You are a helpful AI assistant representing the Whabridge Conversational Voice AI platform. Your job is to answer the user's questions about configuring their agent, setting up integrations (like N8N, Genesys, Twilio), setting up speech-to-text / text-to-speech, and configuring languages. Be concise, professional, and friendly.",
+        maxTokens: 2000,
+      }
+    );
+
+    // Handle both string and object responses (mock returns object, real LLM returns string)
+    const replyText = typeof response === 'object' ? response.message : response;
+    res.json({ success: true, message: replyText });
+  } catch (err) {
+    logger.error('Assistant chat error:', err);
+    res.status(500).json({
+      error: 'Failed to generate response',
+      message: "I'm having trouble right now. Please try again in a moment.",
+    });
+  }
+});
 
 // Admin (authenticate + isAdmin enforced inside admin.routes.js)
 router.use('/admin', adminRoutes);

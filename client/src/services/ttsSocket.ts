@@ -11,7 +11,7 @@
 
 class TTSSocketService {
   private socket: WebSocket | null = null;
-  private readonly url = "ws://127.0.0.1:8000/ws/tts";
+  private readonly url = "ws://127.0.0.1:8000/api/tts/ws/tts";
 
   private autoReconnect = true;
   private reconnectAttempts = 0;
