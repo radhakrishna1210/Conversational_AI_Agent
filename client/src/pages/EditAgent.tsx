@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
-import { AgentConfig, getAgent, saveAgent } from '../lib/agentStore';
+import { AgentConfig, getAgent, saveAgent, getDefaultFlowItems } from '../lib/agentStore';
 import { whapi } from '../lib/whapi';
 import ChatComponent from '../components/ChatComponent';
 import { useTheme } from '../hooks/useTheme';
@@ -10,6 +10,7 @@ interface FlowItem {
   id: string;
   title: string;
   enabled: boolean;
+  body?: string;
 }
 
 interface ExtractedVariable {
@@ -100,16 +101,15 @@ export default function EditAgent() {
   const { darkMode, toggleDarkMode } = useTheme();
 
 
+  const [isLoading, setIsLoading] = useState(true);
+
   // Form state
-  const [welcomeMessage, setWelcomeMessage] = useState('Hello, I am Luna, your Moon Information Assistant. What would you like to know about the Moon?');
+  const [welcomeMessage, setWelcomeMessage] = useState('');
   const [maxDuration, setMaxDuration] = useState(30);
   const [silenceTimeout, setSilenceTimeout] = useState(5);
   const [dynamicEnabled, setDynamicEnabled] = useState(true);
   const [interruptibleEnabled, setInterruptibleEnabled] = useState(true);
-  const [flowItems, setFlowItems] = useState<FlowItem[]>([
-    { id: '1', title: 'Agent Identity & Purpose', enabled: true },
-    { id: '2', title: 'General Moon Facts Flow', enabled: true }
-  ]);
+  const [flowItems, setFlowItems] = useState<FlowItem[]>([]);
 
   const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
   const [voice, setVoice] = useState('Google - Aoede (female)');
@@ -132,9 +132,21 @@ export default function EditAgent() {
   const [isSttLanguageDropdownOpen, setIsSttLanguageDropdownOpen] = useState(false);
   
   const [voiceProvider, setVoiceProvider] = useState('google');
-  const [agentName, setAgentName] = useState('Moon Information Agent');
+  const [agentName, setAgentName] = useState('');
   const [agentNotFound, setAgentNotFound] = useState(false);
   const [postCallConfigs, setPostCallConfigs] = useState<PostCallConfig[]>([createDefaultPostCallConfig()]);
+
+  // Collapse/Expand state for conversational flow items (first item expanded by default)
+  const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({
+    '1': true
+  });
+
+  const toggleExpand = (id: string) => {
+    setExpandedItems(prev => ({
+      ...prev,
+      [id]: !prev[id]
+    }));
+  };
   
   // Chat test state
   const [showChatModal, setShowChatModal] = useState(false);
@@ -161,10 +173,7 @@ export default function EditAgent() {
           setSilenceTimeout(agent.silenceTimeout ?? 5);
           setDynamicEnabled(agent.dynamicEnabled ?? true);
           setInterruptibleEnabled(agent.interruptibleEnabled ?? true);
-          setFlowItems((agent.flowItems as any) || [
-            { id: '1', title: 'Agent Identity & Purpose', enabled: true },
-            { id: '2', title: 'General Moon Facts Flow', enabled: true }
-          ]);
+          setFlowItems((agent.flowItems as any) || getDefaultFlowItems(agent.name || ''));
           setPostCallConfigs(savedPostCallConfigs?.length ? savedPostCallConfigs : [createDefaultPostCallConfig()]);
           if (agent.voice?.toLowerCase().startsWith('google')) {
             setVoiceProvider('google');
@@ -173,6 +182,7 @@ export default function EditAgent() {
           } else if (agent.voice?.toLowerCase().startsWith('cartesia')) {
             setVoiceProvider('cartesia');
           }
+          setIsLoading(false);
           return;
         }
       } catch (err) {
@@ -183,9 +193,9 @@ export default function EditAgent() {
       const localAgent = getAgent(agentId);
       if (!localAgent) {
         setAgentNotFound(true);
+        setIsLoading(false);
         return;
       }
-      // ... (existing set state logic)
       setAgentName(localAgent.name);
       setWelcomeMessage(localAgent.welcomeMessage);
       setSelectedLanguages(localAgent.selectedLanguages || ['English (Indian)']);
@@ -193,6 +203,8 @@ export default function EditAgent() {
       setAiModel(localAgent.aiModel || 'GPT-4.1-Mini');
       setTranscription(localAgent.transcription || 'Azure');
       setPostCallConfigs((localAgent as any).postCallConfigs?.length ? (localAgent as any).postCallConfigs : [createDefaultPostCallConfig()]);
+      setFlowItems((localAgent as any).flowItems || getDefaultFlowItems(localAgent.name || ''));
+      setIsLoading(false);
     };
 
     fetchAgent();
@@ -239,14 +251,23 @@ export default function EditAgent() {
   const deleteFlowItem = (id: string) => {
     setFlowItems(flowItems.filter(item => item.id !== id));
   };
-
   const addFlowItem = () => {
-    const newItem: FlowItem = {
-      id: Date.now().toString(),
+    const newItemId = Date.now().toString();
+    const newItem = {
+      id: newItemId,
       title: 'New Flow Item',
-      enabled: true
+      enabled: true,
+      body: ''
     };
     setFlowItems([...flowItems, newItem]);
+    setExpandedItems(prev => ({
+      ...prev,
+      [newItemId]: true
+    }));
+  };
+
+  const updateFlowItem = (id: string, updates: Partial<FlowItem>) => {
+    setFlowItems(flowItems.map(item => item.id === id ? { ...item, ...updates } : item));
   };
 
   const toggleLanguage = (lang: string) => {
@@ -353,10 +374,11 @@ export default function EditAgent() {
 
     try {
       const isGemini = aiModel.toLowerCase().includes('gemini');
+      const enabledFlowText = flowItems.filter(f => f.enabled).map(f => `${f.title}\n${f.body || ''}`).join('\n\n');
       const response = await whapi.post<{ message: string }>('/llm/generate', {
         agentId,
         message: userMessage,
-        systemPrompt: `${welcomeMessage}\n\nFlow:\n${flowItems.filter(f => f.enabled).map(f => f.title).join('\n')}`,
+        systemPrompt: `${welcomeMessage}\n\nFlow:\n${enabledFlowText}`,
         provider: isGemini ? 'gemini' : 'openai',
         model: isGemini ? 'gemini-2.5-flash' : 'gpt-4o'
       });
@@ -370,6 +392,22 @@ export default function EditAgent() {
     }
   };
 
+
+  if (isLoading) {
+    return (
+      <div style={{ width: '100%', minHeight: '100vh', background: '#0f0f0f', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
+          <div style={{ width: '40px', height: '40px', border: '3px solid #1a1a1a', borderTopColor: '#00bcd4', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+          <span style={{ fontSize: '14px', color: '#999' }}>Loading agent configuration...</span>
+          <style>{`
+            @keyframes spin {
+              to { transform: rotate(360deg); }
+            }
+          `}</style>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ width: '100%', minHeight: '100vh', background: '#0f0f0f', color: '#fff', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
@@ -939,30 +977,197 @@ export default function EditAgent() {
             <div style={{ background: '#0b0b0b', border: '1px solid #222', borderRadius: '16px', padding: '0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 30px', borderBottom: '1px solid #1c1c1c' }}>
                 <div style={{ display: 'flex', alignItems: 'center', fontSize: '16px', fontWeight: '700', color: '#fff' }}>
-                  <span style={{ color: '#11c7cf', marginRight: '10px', fontWeight: '700' }}>=</span> Conversational Flow <InfoIcon />
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#11c7cf" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '10px' }}>
+                    <line x1="8" y1="6" x2="21" y2="6"></line>
+                    <line x1="8" y1="12" x2="21" y2="12"></line>
+                    <line x1="8" y1="18" x2="21" y2="18"></line>
+                    <circle cx="3" cy="6" r="1" fill="#11c7cf"></circle>
+                    <circle cx="3" cy="12" r="1" fill="#11c7cf"></circle>
+                    <circle cx="3" cy="18" r="1" fill="#11c7cf"></circle>
+                  </svg>
+                  Conversational Flow <InfoIcon />
                 </div>
                 <button onClick={addFlowItem} style={{ padding: '10px 18px', background: 'transparent', border: '1px solid #2d2d2d', borderRadius: '10px', color: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: '700' }}>+ Add Section</button>
               </div>
               <div style={{ padding: '16px 30px 20px' }}>
-                {flowItems.map((item, index) => (
-                  <div key={item.id} style={{ background: '#101010', border: '1px solid #262626', borderRadius: '12px', padding: '12px 16px', marginBottom: '12px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flex: 1 }}>
-                      <span style={{ color: '#fff', fontSize: '14px', cursor: 'pointer' }}>v</span>
-                      <span style={{ color: '#666', fontSize: '16px', letterSpacing: '-2px', cursor: 'grab' }}>::</span>
-                      <span style={{ fontSize: '16px', fontWeight: '700', width: '22px', color: '#fff' }}>{index + 1}.</span>
-                      <div style={{ flex: 1, minHeight: '42px', border: '1px solid #2f2f2f', borderRadius: '10px', display: 'flex', alignItems: 'center', padding: '0 16px', fontSize: '14px', fontWeight: '700', color: '#fff' }}>{item.title}</div>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginLeft: '12px' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '12px', color: '#fff', fontWeight: '700', background: '#171717', border: '1px solid #2c2c2c', borderRadius: '10px', padding: '0 10px', height: '36px' }}>
-                        <span>{item.enabled ? 'ON' : 'OFF'}</span>
-                        <div onClick={() => toggleFlowItem(item.id)} style={{ width: '34px', height: '20px', background: item.enabled ? '#12c8d0' : '#333', borderRadius: '999px', position: 'relative', cursor: 'pointer' }}>
-                          <div style={{ width: '16px', height: '16px', background: '#000', borderRadius: '50%', position: 'absolute', top: '2px', left: item.enabled ? '16px' : '2px', transition: 'left 0.2s' }} />
+                {flowItems.map((item, index) => {
+                  const isExpanded = !!expandedItems[item.id];
+                  return (
+                    <div key={item.id} style={{ background: '#0d0d0d', border: '1px solid #1c1c1c', borderRadius: '12px', padding: '12px 16px', marginBottom: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                        {/* Caret Toggle Button */}
+                        <button
+                          onClick={() => toggleExpand(item.id)}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            color: '#999',
+                            cursor: 'pointer',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            padding: '4px',
+                            transition: 'transform 0.2s',
+                          }}
+                        >
+                          {isExpanded ? (
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="18 15 12 9 6 15"></polyline>
+                            </svg>
+                          ) : (
+                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="6 9 12 15 18 9"></polyline>
+                            </svg>
+                          )}
+                        </button>
+
+                        {/* Grip Vertical Handle */}
+                        <div style={{ display: 'flex', alignItems: 'center', cursor: 'grab', padding: '0 2px' }}>
+                          <svg width="12" height="18" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="9" cy="5" r="1.5" fill="#555" />
+                            <circle cx="9" cy="12" r="1.5" fill="#555" />
+                            <circle cx="9" cy="19" r="1.5" fill="#555" />
+                            <circle cx="15" cy="5" r="1.5" fill="#555" />
+                            <circle cx="15" cy="12" r="1.5" fill="#555" />
+                            <circle cx="15" cy="19" r="1.5" fill="#555" />
+                          </svg>
+                        </div>
+
+                        {/* Number */}
+                        <span style={{ fontSize: '14px', fontWeight: '700', width: '22px', color: '#fff' }}>{index + 1}.</span>
+
+                        {/* Editable Title Input Styled Cleanly */}
+                        <input
+                          value={item.title}
+                          onChange={(e) => updateFlowItem(item.id, { title: e.target.value })}
+                          style={{
+                            flex: 1,
+                            border: '1px solid transparent',
+                            borderRadius: '6px',
+                            padding: '6px 8px',
+                            fontSize: '14px',
+                            fontWeight: '600',
+                            color: '#fff',
+                            background: 'transparent',
+                            outline: 'none',
+                            cursor: 'text',
+                            transition: 'all 0.2s'
+                          }}
+                          onMouseEnter={(e) => {
+                            if (document.activeElement !== e.currentTarget) {
+                              e.currentTarget.style.borderColor = '#222';
+                              e.currentTarget.style.background = '#111';
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (document.activeElement !== e.currentTarget) {
+                              e.currentTarget.style.borderColor = 'transparent';
+                              e.currentTarget.style.background = 'transparent';
+                            }
+                          }}
+                          onFocus={(e) => {
+                            e.currentTarget.style.borderColor = '#11c7cf';
+                            e.currentTarget.style.background = '#0f0f0f';
+                          }}
+                          onBlur={(e) => {
+                            e.currentTarget.style.borderColor = 'transparent';
+                            e.currentTarget.style.background = 'transparent';
+                          }}
+                        />
+
+                        {/* Right Actions */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginLeft: '12px' }}>
+                          {/* Toggle ON/OFF Switch Block */}
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#b3b3b3', fontWeight: '700', background: '#111', border: '1px solid #222', borderRadius: '8px', padding: '0 10px', height: '32px' }}>
+                            <span style={{ color: item.enabled ? '#fff' : '#666', minWidth: '24px' }}>{item.enabled ? 'ON' : 'OFF'}</span>
+                            <div
+                              onClick={() => toggleFlowItem(item.id)}
+                              style={{
+                                width: '32px',
+                                height: '18px',
+                                background: item.enabled ? '#12c8d0' : '#333',
+                                borderRadius: '999px',
+                                position: 'relative',
+                                cursor: 'pointer',
+                                transition: 'background 0.2s'
+                              }}
+                            >
+                              <div
+                                style={{
+                                  width: '14px',
+                                  height: '14px',
+                                  background: '#000',
+                                  borderRadius: '50%',
+                                  position: 'absolute',
+                                  top: '2px',
+                                  left: item.enabled ? '16px' : '2px',
+                                  transition: 'left 0.2s'
+                                }}
+                              />
+                            </div>
+                          </div>
+
+                          {/* Delete Button (Trash can icon) */}
+                          <button
+                            onClick={() => deleteFlowItem(item.id)}
+                            style={{
+                              background: 'none',
+                              border: 'none',
+                              color: '#666',
+                              cursor: 'pointer',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              padding: '6px',
+                              borderRadius: '6px',
+                              transition: 'all 0.2s'
+                            }}
+                            onMouseEnter={(e) => {
+                              e.currentTarget.style.color = '#ff4d4f';
+                              e.currentTarget.style.background = 'rgba(255, 77, 79, 0.1)';
+                            }}
+                            onMouseLeave={(e) => {
+                              e.currentTarget.style.color = '#666';
+                              e.currentTarget.style.background = 'none';
+                            }}
+                          >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                              <polyline points="3 6 5 6 21 6"></polyline>
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                            </svg>
+                          </button>
                         </div>
                       </div>
-                      <button onClick={() => deleteFlowItem(item.id)} style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '16px', padding: 0 }}>X</button>
+
+                      {/* Expandable Textarea Body */}
+                      {isExpanded && (
+                        <div style={{ marginTop: '12px', borderTop: '1px solid #1c1c1c', paddingTop: '12px' }}>
+                          <textarea
+                            value={item.body || ''}
+                            onChange={(e) => updateFlowItem(item.id, { body: e.target.value })}
+                            style={{
+                              width: '100%',
+                              minHeight: '120px',
+                              background: '#141414',
+                              border: '1px solid #222',
+                              borderRadius: '8px',
+                              padding: '12px',
+                              color: '#e5e5e5',
+                              fontFamily: 'inherit',
+                              fontSize: '13px',
+                              lineHeight: '1.5',
+                              resize: 'vertical',
+                              outline: 'none',
+                              transition: 'border-color 0.2s'
+                            }}
+                            onFocus={(e) => e.currentTarget.style.borderColor = '#11c7cf'}
+                            onBlur={(e) => e.currentTarget.style.borderColor = '#222'}
+                          />
+                        </div>
+                      )}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </div>
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AgentConfig, createAgent, loadAgents } from '../lib/agentStore';
+import { AgentConfig, createAgent, loadAgents, getDefaultFlowItems, getDefaultWelcomeMessage } from '../lib/agentStore';
 import { whapi } from '../lib/whapi';
 
 
@@ -42,10 +42,15 @@ export default function Dashboard() {
     if (!prompt.trim()) return;
     setCreating(true);
     
+    const name = prompt.trim();
+    const welcomeMsg = getDefaultWelcomeMessage(name);
+    const defaultFlow = getDefaultFlowItems(name);
+
     try {
       const newAgent = await whapi.post<AgentConfig>('/agents', { 
-        name: prompt.trim(),
-        welcomeMessage: `Hello, I am ${prompt.trim()}. How can I help you today?`,
+        name,
+        welcomeMessage: welcomeMsg,
+        flowItems: defaultFlow,
         aiModel: 'GPT-4.1-Mini',
         voice: 'Google - Aoede (female)',
       });
@@ -57,7 +62,7 @@ export default function Dashboard() {
     } catch (err) {
       console.error('Failed to create agent on backend', err);
       // Fallback to local
-      const localAgent = createAgent(prompt.trim());
+      const localAgent = createAgent(name);
       setAgents(prev => [localAgent, ...prev]);
       setPrompt('');
       setSuccess(true);
