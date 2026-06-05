@@ -18,8 +18,14 @@ export const getCampaign = (workspaceId, campaignId) =>
 export const createCampaign = (workspaceId, data) =>
   prisma.campaign.create({ data: { ...data, workspaceId, status: CAMPAIGN_STATUS.DRAFT } });
 
+export const createBulkCampaign = (workspaceId, data) =>
+  prisma.campaign.create({ data: { ...data, workspaceId, status: CAMPAIGN_STATUS.DRAFT, progress: 0 } });
+
 export const updateCampaign = (workspaceId, campaignId, data) =>
   prisma.campaign.update({ where: { id: campaignId, workspaceId }, data });
+
+export const deleteCampaign = (workspaceId, campaignId) =>
+  prisma.campaign.delete({ where: { id: campaignId, workspaceId } });
 
 export const addRecipients = async (workspaceId, campaignId, contactIds) => {
   const rows = contactIds.map((contactId) => ({ campaignId, contactId }));
@@ -64,6 +70,46 @@ export const launchCampaign = async (workspaceId, campaignId, scheduledAt) => {
     throw error;
   }
 
+  return updated;
+};
+
+export const startCampaign = async (workspaceId, campaignId) => {
+  const campaign = await prisma.campaign.findFirstOrThrow({
+    where: { id: campaignId, workspaceId },
+  });
+
+  if (campaign.status !== CAMPAIGN_STATUS.DRAFT) {
+    throw Object.assign(new Error('Campaign cannot be started in its current state'), { statusCode: 409 });
+  }
+
+  const updated = await prisma.campaign.update({
+    where: { id: campaignId, workspaceId },
+    data: { status: CAMPAIGN_STATUS.RUNNING, progress: 0 },
+  });
+
+  const simulate = async (currentProgress = 0) => {
+    const next = Math.min(100, currentProgress + 20);
+    try {
+      await prisma.campaign.update({
+        where: { id: campaignId, workspaceId },
+        data: { progress: next },
+      });
+    } catch {
+      return;
+    }
+
+    if (next < 100) {
+      setTimeout(() => simulate(next), 1000);
+      return;
+    }
+
+    await prisma.campaign.update({
+      where: { id: campaignId, workspaceId },
+      data: { status: CAMPAIGN_STATUS.COMPLETED },
+    });
+  };
+
+  setTimeout(() => simulate(0), 1000);
   return updated;
 };
 

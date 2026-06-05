@@ -119,6 +119,16 @@ export default function EditAgent() {
   // Modal states
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [showVoiceModal, setShowVoiceModal] = useState(false);
+  
+  // Call Configuration states
+  const [expandedConfigSection, setExpandedConfigSection] = useState<string | null>(null);
+  const [maxSilenceBeforeHangup, setMaxSilenceBeforeHangup] = useState(15);
+  const [endCallMessage, setEndCallMessage] = useState('Goodbye and thank you for calling.');
+  const [transferNumber, setTransferNumber] = useState('');
+  const [transferCondition, setTransferCondition] = useState('');
+  const [fillerWords, setFillerWords] = useState(false);
+  const [speakingRate, setSpeakingRate] = useState(1.0);
+  const [ambientSound, setAmbientSound] = useState('None');
   const [showModelModal, setShowModelModal] = useState(false);
   const [showTranscriptionModal, setShowTranscriptionModal] = useState(false);
   const [sttProvider, setSttProvider] = useState('Sarvam');
@@ -154,6 +164,20 @@ export default function EditAgent() {
   const [userMessage, setUserMessage] = useState('');
   const [isTyping, setIsTyping] = useState(false);
 
+  // Top-bar button states
+  const [showWebCallModal, setShowWebCallModal] = useState(false);
+  const [showPhoneCallModal, setShowPhoneCallModal] = useState(false);
+  const [showAskAIModal, setShowAskAIModal] = useState(false);
+  const [showDeployDropdown, setShowDeployDropdown] = useState(false);
+  const [viewMode, setViewMode] = useState<'ui' | 'code'>('ui');
+  const [phoneTestNumber, setPhoneTestNumber] = useState('');
+  const [deployStatus, setDeployStatus] = useState<'idle' | 'deploying' | 'done'>('idle');
+  const [askAIInput, setAskAIInput] = useState('');
+  const [askAIResponse, setAskAIResponse] = useState('');
+  const [isAskAILoading, setIsAskAILoading] = useState(false);
+  const [webCallActive, setWebCallActive] = useState(false);
+  const [webCallStatus, setWebCallStatus] = useState<'idle' | 'connecting' | 'connected' | 'ended'>('idle');
+
 
   useEffect(() => {
     if (!agentId) return;
@@ -171,6 +195,13 @@ export default function EditAgent() {
           setTranscription(agent.transcription || 'Azure');
           setMaxDuration(agent.maxDuration ?? 30);
           setSilenceTimeout(agent.silenceTimeout ?? 5);
+          setMaxSilenceBeforeHangup((agent as any).maxSilenceBeforeHangup ?? 15);
+          setEndCallMessage((agent as any).endCallMessage ?? 'Goodbye and thank you for calling.');
+          setTransferNumber((agent as any).transferNumber ?? '');
+          setTransferCondition((agent as any).transferCondition ?? '');
+          setFillerWords((agent as any).fillerWords ?? false);
+          setSpeakingRate((agent as any).speakingRate ?? 1.0);
+          setAmbientSound((agent as any).ambientSound ?? 'None');
           setDynamicEnabled(agent.dynamicEnabled ?? true);
           setInterruptibleEnabled(agent.interruptibleEnabled ?? true);
           setFlowItems((agent.flowItems as any) || getDefaultFlowItems(agent.name || ''));
@@ -202,6 +233,13 @@ export default function EditAgent() {
       setVoice(localAgent.voice || 'Google - Aoede (female)');
       setAiModel(localAgent.aiModel || 'GPT-4.1-Mini');
       setTranscription(localAgent.transcription || 'Azure');
+      setMaxSilenceBeforeHangup((localAgent as any).maxSilenceBeforeHangup ?? 15);
+      setEndCallMessage((localAgent as any).endCallMessage ?? 'Goodbye and thank you for calling.');
+      setTransferNumber((localAgent as any).transferNumber ?? '');
+      setTransferCondition((localAgent as any).transferCondition ?? '');
+      setFillerWords((localAgent as any).fillerWords ?? false);
+      setSpeakingRate((localAgent as any).speakingRate ?? 1.0);
+      setAmbientSound((localAgent as any).ambientSound ?? 'None');
       setPostCallConfigs((localAgent as any).postCallConfigs?.length ? (localAgent as any).postCallConfigs : [createDefaultPostCallConfig()]);
       setFlowItems((localAgent as any).flowItems || getDefaultFlowItems(localAgent.name || ''));
       setIsLoading(false);
@@ -224,6 +262,13 @@ export default function EditAgent() {
       flowItems,
       maxDuration,
       silenceTimeout,
+      maxSilenceBeforeHangup,
+      endCallMessage,
+      transferNumber,
+      transferCondition,
+      fillerWords,
+      speakingRate,
+      ambientSound,
       dynamicEnabled,
       interruptibleEnabled,
       postCallConfigs
@@ -389,6 +434,64 @@ export default function EditAgent() {
       setChatMessages([...newMessages, { role: 'assistant', content: 'Error: Failed to get response from AI.' }]);
     } finally {
       setIsTyping(false);
+    }
+  };
+
+  const handleAskAI = async () => {
+    if (!askAIInput.trim()) return;
+    setIsAskAILoading(true);
+    setAskAIResponse('');
+    try {
+      const response = await whapi.post<{ message: string }>('/llm/generate', {
+        agentId,
+        message: askAIInput,
+        systemPrompt: `You are an AI assistant helping configure an AI voice agent. The agent is named "${agentName}" and its welcome message is: "${welcomeMessage}". Provide helpful, concise suggestions for improving or configuring this agent.`,
+        provider: 'openai',
+        model: 'gpt-4o'
+      });
+      setAskAIResponse(response.message);
+    } catch (err) {
+      setAskAIResponse('Failed to get AI response. Please check your backend connection.');
+    } finally {
+      setIsAskAILoading(false);
+    }
+  };
+
+  const handleDeploy = async () => {
+    setDeployStatus('deploying');
+    setShowDeployDropdown(false);
+    try {
+      await handleSave();
+      await new Promise(resolve => setTimeout(resolve, 1200));
+      setDeployStatus('done');
+      setTimeout(() => setDeployStatus('idle'), 3000);
+    } catch {
+      setDeployStatus('idle');
+    }
+  };
+
+  const handleStartWebCall = () => {
+    setWebCallStatus('connecting');
+    setWebCallActive(true);
+    setTimeout(() => setWebCallStatus('connected'), 1500);
+  };
+
+  const handleEndWebCall = () => {
+    setWebCallStatus('ended');
+    setTimeout(() => {
+      setWebCallActive(false);
+      setWebCallStatus('idle');
+    }, 1000);
+  };
+
+  const handlePhoneCall = async () => {
+    if (!phoneTestNumber.trim()) return;
+    try {
+      const res = await whapi.post<{ message: string }>('/agents/test-call', { agentId, phoneNumber: phoneTestNumber });
+      alert(res.message || `Test call initiated to ${phoneTestNumber}.`);
+      setShowPhoneCallModal(false);
+    } catch (err: any) {
+      alert(err.message || 'Failed to initiate test call. Please check your Twilio configuration.');
     }
   };
 
@@ -751,6 +854,114 @@ export default function EditAgent() {
           </div>
         </div>
       )}
+
+      {/* Ask AI Modal */}
+      {showAskAIModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#1a1a1a', borderRadius: '12px', padding: '30px', maxWidth: '600px', width: '90%', maxHeight: '80vh', overflowY: 'auto', border: '1px solid #333' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h2 style={{ fontSize: '18px', fontWeight: '600', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>✨ Ask AI Assistant</h2>
+              <button onClick={() => setShowAskAIModal(false)} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '24px' }}>✕</button>
+            </div>
+            <p style={{ fontSize: '13px', color: '#999', marginBottom: '16px' }}>Ask AI to help you configure your agent "{agentName}". Get suggestions for prompts, flows, or settings.</p>
+            <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
+              <input
+                type="text"
+                value={askAIInput}
+                onChange={e => setAskAIInput(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleAskAI()}
+                placeholder="e.g. Suggest a better welcome message for a support agent..."
+                style={{ flex: 1, background: '#0f0f0f', border: '1px solid #333', borderRadius: '8px', padding: '12px 14px', color: '#fff', fontSize: '13px', outline: 'none' }}
+              />
+              <button
+                onClick={handleAskAI}
+                disabled={isAskAILoading || !askAIInput.trim()}
+                style={{ padding: '12px 20px', background: '#ff9800', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', opacity: (isAskAILoading || !askAIInput.trim()) ? 0.6 : 1 }}
+              >{isAskAILoading ? '⏳ Thinking...' : '✨ Ask'}</button>
+            </div>
+            {askAIResponse && (
+              <div style={{ background: '#0f0f0f', border: '1px solid #333', borderRadius: '8px', padding: '16px', fontSize: '13px', lineHeight: '1.6', color: '#ddd', whiteSpace: 'pre-wrap' }}>
+                <div style={{ fontSize: '11px', color: '#00bcd4', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>AI Response</div>
+                {askAIResponse}
+              </div>
+            )}
+            <div style={{ display: 'flex', gap: '8px', marginTop: '16px', flexWrap: 'wrap' }}>
+              {['Suggest a welcome message', 'Improve my flow', 'Add error handling', 'Make it more natural'].map(suggestion => (
+                <button
+                  key={suggestion}
+                  onClick={() => { setAskAIInput(suggestion); }}
+                  style={{ padding: '6px 12px', background: '#0f0f0f', border: '1px solid #333', borderRadius: '20px', color: '#aaa', fontSize: '11px', cursor: 'pointer' }}
+                  onMouseEnter={e => { e.currentTarget.style.borderColor = '#00bcd4'; e.currentTarget.style.color = '#fff'; }}
+                  onMouseLeave={e => { e.currentTarget.style.borderColor = '#333'; e.currentTarget.style.color = '#aaa'; }}
+                >{suggestion}</button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Web Call Modal */}
+      {showWebCallModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#1a1a1a', borderRadius: '12px', padding: '40px', maxWidth: '420px', width: '90%', textAlign: 'center', border: '1px solid #333' }}>
+            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '10px' }}>
+              <button onClick={() => { setShowWebCallModal(false); setWebCallActive(false); setWebCallStatus('idle'); }} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '20px' }}>✕</button>
+            </div>
+            <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: webCallStatus === 'connected' ? 'rgba(76,175,80,0.2)' : webCallStatus === 'connecting' ? 'rgba(255,152,0,0.2)' : 'rgba(0,188,212,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px', border: webCallStatus === 'connected' ? '2px solid #4caf50' : '2px solid #00bcd4', transition: 'all 0.3s' }}>
+              <span style={{ fontSize: '36px' }}>{webCallStatus === 'connected' ? '🎙️' : webCallStatus === 'connecting' ? '⏳' : '🌐'}</span>
+            </div>
+            <h3 style={{ fontSize: '18px', fontWeight: '600', margin: '0 0 8px', color: '#fff' }}>
+              {webCallStatus === 'idle' ? 'Web Call Test' : webCallStatus === 'connecting' ? 'Connecting...' : webCallStatus === 'connected' ? 'Call Connected' : 'Call Ended'}
+            </h3>
+            <p style={{ fontSize: '13px', color: '#999', marginBottom: '24px' }}>
+              {webCallStatus === 'idle' ? `Test your agent "${agentName}" with a browser-based voice call.` : webCallStatus === 'connecting' ? 'Setting up audio connection...' : webCallStatus === 'connected' ? 'Speak into your microphone to interact with the agent.' : 'The test call has ended.'}
+            </p>
+            {!webCallActive ? (
+              <button
+                onClick={handleStartWebCall}
+                style={{ padding: '14px 32px', background: '#00bcd4', color: '#000', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '600' }}
+              >🎤 Start Web Call</button>
+            ) : webCallStatus === 'connected' ? (
+              <button
+                onClick={handleEndWebCall}
+                style={{ padding: '14px 32px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '600' }}
+              >📞 End Call</button>
+            ) : null}
+          </div>
+        </div>
+      )}
+
+      {/* Phone Call Modal */}
+      {showPhoneCallModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#1a1a1a', borderRadius: '12px', padding: '30px', maxWidth: '440px', width: '90%', border: '1px solid #333' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h2 style={{ fontSize: '18px', fontWeight: '600', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>📞 Test Phone Call</h2>
+              <button onClick={() => setShowPhoneCallModal(false)} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '24px' }}>✕</button>
+            </div>
+            <p style={{ fontSize: '13px', color: '#999', marginBottom: '16px' }}>Enter a phone number to receive a test call from your agent "{agentName}". Make sure your Twilio account is configured.</p>
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '8px' }}>Phone Number</label>
+              <input
+                type="tel"
+                value={phoneTestNumber}
+                onChange={e => setPhoneTestNumber(e.target.value)}
+                placeholder="+1 (555) 123-4567"
+                style={{ width: '100%', background: '#0f0f0f', border: '1px solid #333', borderRadius: '8px', padding: '12px 14px', color: '#fff', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
+              />
+            </div>
+            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
+              <button onClick={() => setShowPhoneCallModal(false)} style={{ padding: '10px 20px', background: 'transparent', border: '1px solid #333', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>Cancel</button>
+              <button
+                onClick={handlePhoneCall}
+                disabled={!phoneTestNumber.trim()}
+                style={{ padding: '10px 20px', background: '#00bcd4', color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', opacity: !phoneTestNumber.trim() ? 0.6 : 1 }}
+              >📞 Call Now</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header */}
       <div style={{ background: '#0a0a0a', borderBottom: '1px solid #1a1a1a', padding: '12px 24px', display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
         <button onClick={() => navigate('/dashboard')} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '18px', padding: 0 }}>{'<'}</button>
@@ -780,24 +991,74 @@ export default function EditAgent() {
         <div style={{ fontSize: '12px', color: '#888' }}>Cost/min: $0.115</div>
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <button onClick={() => alert('Ask AI')} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', background: '#ff9800', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '600' }}>Ask AI</button>
+          {/* Ask AI Button */}
+          <button
+            onClick={() => { setShowAskAIModal(true); setAskAIResponse(''); setAskAIInput(''); }}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', background: '#ff9800', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', transition: 'opacity 0.2s' }}
+            onMouseEnter={e => e.currentTarget.style.opacity = '0.85'}
+            onMouseLeave={e => e.currentTarget.style.opacity = '1'}
+          >✨ Ask AI</button>
           
+          {/* Test With Buttons */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '12px', color: '#fff', fontWeight: '500' }}>Test with</span>
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#111', padding: '4px', borderRadius: '8px', border: '1px solid #222' }}>
-              <button style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', background: '#00bcd4', color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '600' }}>Chat</button>
-              <button style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', background: '#0f0f0f', color: '#00bcd4', border: '1px solid #00bcd4', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '500' }}>Web Call</button>
-              <button style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', background: '#0f0f0f', color: '#00bcd4', border: '1px solid #00bcd4', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '500' }}>Phone Call</button>
+              <button
+                onClick={() => setActiveTab('chat')}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', background: activeTab === 'chat' ? '#00bcd4' : '#0f0f0f', color: activeTab === 'chat' ? '#000' : '#00bcd4', border: activeTab === 'chat' ? 'none' : '1px solid #00bcd4', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', transition: 'all 0.2s' }}
+              >💬 Chat</button>
+              <button
+                onClick={() => setShowWebCallModal(true)}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', background: '#0f0f0f', color: '#00bcd4', border: '1px solid #00bcd4', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '500', transition: 'all 0.2s' }}
+                onMouseEnter={e => (e.currentTarget.style.background = '#00bcd420')}
+                onMouseLeave={e => (e.currentTarget.style.background = '#0f0f0f')}
+              >🌐 Web Call</button>
+              <button
+                onClick={() => setShowPhoneCallModal(true)}
+                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', background: '#0f0f0f', color: '#00bcd4', border: '1px solid #00bcd4', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '500', transition: 'all 0.2s' }}
+                onMouseEnter={e => (e.currentTarget.style.background = '#00bcd420')}
+                onMouseLeave={e => (e.currentTarget.style.background = '#0f0f0f')}
+              >📞 Phone Call</button>
             </div>
           </div>
 
-          <button onClick={handleSave} disabled={isSaving} style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', background: '#1a1a1a', color: '#fff', border: '1px solid #333', borderRadius: '6px', cursor: isSaving ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: '500', opacity: isSaving ? 0.6 : 1 }}>
-            Deploy <span>v</span>
-          </button>
+          {/* Deploy Button with Dropdown */}
+          <div style={{ position: 'relative' }}>
+            <button
+              onClick={() => setShowDeployDropdown(prev => !prev)}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', background: deployStatus === 'done' ? '#2e7d32' : deployStatus === 'deploying' ? '#444' : '#1a1a1a', color: '#fff', border: '1px solid #333', borderRadius: '6px', cursor: deployStatus === 'deploying' ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: '500', transition: 'all 0.3s' }}
+              disabled={deployStatus === 'deploying'}
+            >
+              {deployStatus === 'deploying' ? '⏳ Deploying...' : deployStatus === 'done' ? '✅ Deployed!' : '🚀 Deploy'} <span style={{ fontSize: '10px', opacity: 0.7 }}>▼</span>
+            </button>
+            {showDeployDropdown && (
+              <div style={{ position: 'absolute', top: '110%', right: 0, background: '#1a1a1a', border: '1px solid #333', borderRadius: '8px', minWidth: '200px', zIndex: 200, overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}>
+                <div style={{ padding: '8px 0' }}>
+                  <div onClick={handleDeploy} style={{ padding: '10px 16px', cursor: 'pointer', fontSize: '13px', color: '#fff', display: 'flex', gap: '10px', alignItems: 'center' }} onMouseEnter={e => e.currentTarget.style.background = '#222'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    <span>🚀</span> Save & Deploy
+                  </div>
+                  <div onClick={() => { handleSave(); setShowDeployDropdown(false); }} style={{ padding: '10px 16px', cursor: 'pointer', fontSize: '13px', color: '#fff', display: 'flex', gap: '10px', alignItems: 'center' }} onMouseEnter={e => e.currentTarget.style.background = '#222'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    <span>💾</span> Save Draft
+                  </div>
+                  <div style={{ height: '1px', background: '#333', margin: '4px 0' }} />
+                  <div onClick={() => { navigator.clipboard.writeText(window.location.href); setShowDeployDropdown(false); }} style={{ padding: '10px 16px', cursor: 'pointer', fontSize: '13px', color: '#aaa', display: 'flex', gap: '10px', alignItems: 'center' }} onMouseEnter={e => e.currentTarget.style.background = '#222'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    <span>🔗</span> Copy Agent Link
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
 
+          {/* UI / Code Toggle */}
           <div style={{ display: 'flex', alignItems: 'center', background: '#111', border: '1px solid #222', borderRadius: '20px', padding: '2px' }}>
-            <div style={{ padding: '4px 12px', background: '#333', color: '#fff', borderRadius: '18px', fontSize: '11px', fontWeight: '600', cursor: 'pointer' }}>UI</div>
-            <div style={{ padding: '4px 12px', color: '#666', fontSize: '11px', fontWeight: '500', cursor: 'pointer' }}>Code</div>
+            <div
+              onClick={() => setViewMode('ui')}
+              style={{ padding: '4px 12px', background: viewMode === 'ui' ? '#333' : 'transparent', color: viewMode === 'ui' ? '#fff' : '#666', borderRadius: '18px', fontSize: '11px', fontWeight: '600', cursor: 'pointer', transition: 'all 0.2s' }}
+            >UI</div>
+            <div
+              onClick={() => setViewMode('code')}
+              style={{ padding: '4px 12px', background: viewMode === 'code' ? '#333' : 'transparent', color: viewMode === 'code' ? '#fff' : '#666', borderRadius: '18px', fontSize: '11px', fontWeight: '500', cursor: 'pointer', transition: 'all 0.2s' }}
+            >Code</div>
           </div>
 
           <button
@@ -899,6 +1160,41 @@ export default function EditAgent() {
       </div>
 
       {/* Content */}
+      {viewMode === 'code' ? (
+        <div style={{ padding: '30px 24px' }}>
+          <div style={{ fontSize: '15px', fontWeight: '700', marginBottom: '18px', color: '#f5f5f5', display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ fontSize: '16px' }}>{'{ }'}</span> Agent Configuration (JSON)
+          </div>
+          <textarea
+            readOnly
+            value={JSON.stringify({
+              name: agentName,
+              welcomeMessage,
+              aiModel,
+              voice,
+              transcription,
+              languages: selectedLanguages,
+              flowItems,
+              maxDuration,
+              silenceTimeout,
+              dynamicEnabled,
+              interruptibleEnabled,
+              postCallConfigs
+            }, null, 2)}
+            style={{ width: '100%', minHeight: '500px', background: '#0a0a0a', border: '1px solid #222', borderRadius: '8px', padding: '20px', color: '#00bcd4', fontSize: '13px', fontFamily: 'monospace', resize: 'vertical', outline: 'none', boxSizing: 'border-box' }}
+          />
+          <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
+            <button
+              onClick={() => { navigator.clipboard.writeText(JSON.stringify({ name: agentName, welcomeMessage, aiModel, voice, transcription, languages: selectedLanguages, flowItems, maxDuration, silenceTimeout, dynamicEnabled, interruptibleEnabled, postCallConfigs }, null, 2)); alert('Copied to clipboard!'); }}
+              style={{ padding: '10px 20px', background: '#1a1a1a', border: '1px solid #333', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}
+            >📋 Copy JSON</button>
+            <button
+              onClick={() => { const blob = new Blob([JSON.stringify({ name: agentName, welcomeMessage, aiModel, voice, transcription, languages: selectedLanguages, flowItems, maxDuration, silenceTimeout, dynamicEnabled, interruptibleEnabled, postCallConfigs }, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${agentName.replace(/\s+/g, '_')}_config.json`; a.click(); URL.revokeObjectURL(url); }}
+              style={{ padding: '10px 20px', background: '#1a1a1a', border: '1px solid #333', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}
+            >⬇️ Download JSON</button>
+          </div>
+        </div>
+      ) : (
       <div style={{ padding: '30px 24px' }}>
         {activeTab === 'details' && (
           <>
@@ -1188,23 +1484,123 @@ export default function EditAgent() {
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {[
-                { title: 'Silence Handling', subtitle: 'What happens when a caller goes quiet or stops responding' },
-                { title: 'End Call Rules', subtitle: 'Set conditions for when the assistant should hang up' },
-                { title: 'Transfer & Routing', subtitle: 'Route callers to phone numbers based on conditions' },
-                { title: 'Response Behavior', subtitle: 'Filler phrases and personality style' },
-                { title: 'Ambient Sound', subtitle: 'Add background music or noise to calls' }
+                { id: 'silence', title: 'Silence Handling', subtitle: 'What happens when a caller goes quiet or stops responding' },
+                { id: 'endCall', title: 'End Call Rules', subtitle: 'Set conditions for when the assistant should hang up' },
+                { id: 'transfer', title: 'Transfer & Routing', subtitle: 'Route callers to phone numbers based on conditions' },
+                { id: 'response', title: 'Response Behavior', subtitle: 'Filler phrases and personality style' },
+                { id: 'ambient', title: 'Ambient Sound', subtitle: 'Add background music or noise to calls' }
               ].map((section, i) => (
-                <div key={section.title} style={{ background: '#0b0b0b', border: '1px solid #222', borderRadius: '14px', padding: '18px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                    <div style={{ width: '32px', height: '32px', borderRadius: '10px', background: '#062d2f', color: '#12c8d0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '700' }}>
-                      {i === 0 ? 'o' : i === 1 ? 'X' : i === 2 ? 'R' : i === 3 ? '=' : 'n'}
+                <div key={section.id} style={{ background: '#0b0b0b', border: '1px solid #222', borderRadius: '14px', overflow: 'hidden' }}>
+                  <div 
+                    onClick={() => setExpandedConfigSection(expandedConfigSection === section.id ? null : section.id)}
+                    style={{ padding: '18px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
+                      <div style={{ width: '32px', height: '32px', borderRadius: '10px', background: '#062d2f', color: '#12c8d0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '700' }}>
+                        {i === 0 ? 'o' : i === 1 ? 'X' : i === 2 ? 'R' : i === 3 ? '=' : 'n'}
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '16px', fontWeight: '700', color: '#fff', marginBottom: '2px' }}>{section.title}</div>
+                        <div style={{ fontSize: '13px', color: '#b7b7b7' }}>{section.subtitle}</div>
+                      </div>
                     </div>
-                    <div>
-                      <div style={{ fontSize: '16px', fontWeight: '700', color: '#fff', marginBottom: '2px' }}>{section.title}</div>
-                      <div style={{ fontSize: '13px', color: '#b7b7b7' }}>{section.subtitle}</div>
-                    </div>
+                    <div style={{ color: '#b3b3b3', fontSize: '14px', transform: expandedConfigSection === section.id ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▼</div>
                   </div>
-                  <div style={{ color: '#b3b3b3', fontSize: '16px' }}>v</div>
+                  
+                  {expandedConfigSection === section.id && (
+                    <div style={{ padding: '20px', borderTop: '1px solid #222', background: '#0f0f0f' }}>
+                      {section.id === 'silence' && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                          <div>
+                            <label style={{ display: 'block', color: '#fff', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Response Delay (seconds)</label>
+                            <div style={{ fontSize: '12px', color: '#888', marginBottom: '12px' }}>How long the assistant waits after the user stops speaking before replying.</div>
+                            <input type="range" min="1" max="10" step="1" value={silenceTimeout} onChange={e => setSilenceTimeout(Number(e.target.value))} style={{ width: '100%', accentColor: '#12c8d0' }} />
+                            <div style={{ textAlign: 'right', color: '#12c8d0', fontSize: '14px', fontWeight: '700' }}>{silenceTimeout}s</div>
+                          </div>
+                          <div style={{ height: '1px', background: '#222' }} />
+                          <div>
+                            <label style={{ display: 'block', color: '#fff', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Max Silence Before Hangup (seconds)</label>
+                            <input type="number" value={maxSilenceBeforeHangup} onChange={e => setMaxSilenceBeforeHangup(Number(e.target.value))} style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: '8px', color: '#fff', outline: 'none' }} />
+                          </div>
+                        </div>
+                      )}
+                      
+                      {section.id === 'endCall' && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                          <div>
+                            <label style={{ display: 'block', color: '#fff', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Maximum Call Duration (minutes)</label>
+                            <input type="number" min="1" max="120" value={maxDuration} onChange={e => setMaxDuration(Number(e.target.value))} style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: '8px', color: '#fff', outline: 'none' }} />
+                          </div>
+                          <div>
+                            <label style={{ display: 'block', color: '#fff', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>End Call Message</label>
+                            <div style={{ fontSize: '12px', color: '#888', marginBottom: '12px' }}>The message the agent will speak right before ending the call intentionally.</div>
+                            <input type="text" value={endCallMessage} onChange={e => setEndCallMessage(e.target.value)} style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: '8px', color: '#fff', outline: 'none' }} />
+                          </div>
+                        </div>
+                      )}
+
+                      {section.id === 'transfer' && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                          <div>
+                            <label style={{ display: 'block', color: '#fff', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Transfer Phone Number</label>
+                            <input type="text" placeholder="+1234567890" value={transferNumber} onChange={e => setTransferNumber(e.target.value)} style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: '8px', color: '#fff', outline: 'none' }} />
+                          </div>
+                          <div>
+                            <label style={{ display: 'block', color: '#fff', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Transfer Condition Prompt</label>
+                            <div style={{ fontSize: '12px', color: '#888', marginBottom: '12px' }}>When should the agent initiate a hand-off? e.g., "When the user asks to speak to a human or gets angry"</div>
+                            <textarea value={transferCondition} onChange={e => setTransferCondition(e.target.value)} style={{ width: '100%', minHeight: '80px', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: '8px', color: '#fff', outline: 'none', resize: 'vertical' }} />
+                          </div>
+                        </div>
+                      )}
+
+                      {section.id === 'response' && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <div>
+                              <div style={{ color: '#fff', fontSize: '14px', fontWeight: '600' }}>Use Filler Words</div>
+                              <div style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>Add "umm", "ahh" to make the agent sound more human.</div>
+                            </div>
+                            <div onClick={() => setFillerWords(!fillerWords)} style={{ width: '42px', height: '24px', background: fillerWords ? '#12c8d0' : '#333', borderRadius: '999px', position: 'relative', cursor: 'pointer' }}>
+                              <div style={{ width: '20px', height: '20px', background: '#fff', borderRadius: '50%', position: 'absolute', top: '2px', left: fillerWords ? '20px' : '2px', transition: 'left 0.2s' }} />
+                            </div>
+                          </div>
+                          <div style={{ height: '1px', background: '#222' }} />
+                          <div>
+                            <label style={{ display: 'block', color: '#fff', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Speaking Rate (Speed)</label>
+                            <input type="range" min="0.5" max="2.0" step="0.1" value={speakingRate} onChange={e => setSpeakingRate(Number(e.target.value))} style={{ width: '100%', accentColor: '#12c8d0' }} />
+                            <div style={{ textAlign: 'right', color: '#12c8d0', fontSize: '14px', fontWeight: '700' }}>{speakingRate}x</div>
+                          </div>
+                        </div>
+                      )}
+
+                      {section.id === 'ambient' && (
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                          <label style={{ display: 'block', color: '#fff', fontSize: '14px', fontWeight: '600' }}>Select Background Noise</label>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
+                            {['None', 'Office', 'Call Center', 'Static', 'Cafe', 'Street'].map(sound => (
+                              <div 
+                                key={sound}
+                                onClick={() => setAmbientSound(sound)}
+                                style={{
+                                  padding: '14px', 
+                                  background: ambientSound === sound ? '#0a2e30' : '#1a1a1a', 
+                                  border: `1px solid ${ambientSound === sound ? '#12c8d0' : '#333'}`, 
+                                  borderRadius: '8px', 
+                                  color: ambientSound === sound ? '#12c8d0' : '#fff',
+                                  cursor: 'pointer',
+                                  fontWeight: '600',
+                                  textAlign: 'center',
+                                  transition: 'all 0.2s'
+                                }}
+                              >
+                                {sound}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
               ))}
             </div>
@@ -1941,6 +2337,7 @@ export default function EditAgent() {
           </div>
         )}
       </div>
+      )}
 
       {/* Chat Modal */}
       {showChatModal && (
