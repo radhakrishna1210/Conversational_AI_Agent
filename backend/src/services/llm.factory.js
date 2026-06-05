@@ -9,6 +9,7 @@ import { openaiService } from "./llm/openai.service.js";
 import { azureService } from "./llm/azure.service.js";
 import { geminiService } from "./gemini.service.js";
 import CustomLLMService from "./llm/custom.service.js";
+import { mockLLMService } from "./llm/mock.service.js";
 
 /**
  * Factory function to get LLM provider instance
@@ -48,14 +49,34 @@ export const getLLMProvider = (provider) => {
  * @returns {Object} - Provider service instance with fallback
  */
 export const getLLMProviderWithFallback = (primaryProvider) => {
+  // If no API keys are configured at all, fallback to mock service immediately
+  if (!process.env.OPENAI_API_KEY && !process.env.GEMINI_API_KEY && !process.env.AZURE_OPENAI_API_KEY) {
+    logger.info("No LLM API keys configured. Using Mock LLM Service.");
+    return mockLLMService;
+  }
+
   try {
-    return getLLMProvider(primaryProvider);
+    const provider = getLLMProvider(primaryProvider);
+    // Check if the selected provider has its API key configured
+    if (primaryProvider.toLowerCase() === LLM_PROVIDERS.OPENAI && !process.env.OPENAI_API_KEY) {
+      throw new Error("OpenAI API key is missing");
+    }
+    if (primaryProvider.toLowerCase() === LLM_PROVIDERS.GEMINI && !process.env.GEMINI_API_KEY) {
+      throw new Error("Gemini API key is missing");
+    }
+    return provider;
   } catch (error) {
     logger.warn(
-      `Failed to initialize primary provider ${primaryProvider}, falling back to OpenAI`,
-      error
+      `Failed to initialize or missing key for primary provider ${primaryProvider}, falling back: ${error.message}`
     );
-    return openaiService;
+    // Fallback order: Gemini -> OpenAI -> Mock
+    if (process.env.GEMINI_API_KEY) {
+      return geminiService;
+    }
+    if (process.env.OPENAI_API_KEY) {
+      return openaiService;
+    }
+    return mockLLMService;
   }
 };
 
