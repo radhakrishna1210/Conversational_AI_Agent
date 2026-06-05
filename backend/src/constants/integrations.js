@@ -128,6 +128,37 @@ export const INTEGRATION_PROVIDERS = {
     apiBaseUrlEnv: 'GENESYS_API_BASE_URL',
     syncEndpoint: '/api/v2/users/me',
   },
+  twilio: {
+    key: 'twilio',
+    name: 'Twilio',
+    category: 'During Call',
+    oauth: {
+      authorizationUrl: 'https://www.twilio.com/authorize',
+      tokenUrl: 'https://api.twilio.com/oauth/token',
+      scope: ['api'],
+      clientIdEnv: 'TWILIO_CLIENT_ID',
+      clientSecretEnv: 'TWILIO_CLIENT_SECRET',
+      redirectUriEnv: 'TWILIO_REDIRECT_URI',
+    },
+    apiBaseUrlEnv: 'TWILIO_API_BASE_URL',
+    syncEndpoint: '/2010-04-01/Accounts.json',
+  },
+  google_meet: {
+    key: 'google_meet',
+    name: 'Google Meet',
+    category: 'During Call',
+    oauth: {
+      authorizationUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
+      tokenUrl: 'https://oauth2.googleapis.com/token',
+      scope: ['https://www.googleapis.com/auth/meetings', 'https://www.googleapis.com/auth/userinfo.email', 'offline_access'],
+      clientIdEnv: 'GOOGLE_CLIENT_ID',
+      clientSecretEnv: 'GOOGLE_CLIENT_SECRET',
+      redirectUriEnv: 'GOOGLE_REDIRECT_URI',
+      extraParams: { access_type: 'offline', prompt: 'consent' },
+    },
+    apiBaseUrlEnv: 'GOOGLE_API_BASE_URL',
+    syncEndpoint: '/v2/spaces',
+  },
 };
 
 export const INTEGRATION_ORDER = [
@@ -136,7 +167,9 @@ export const INTEGRATION_ORDER = [
   'custom_api',
   'salesforce',
   'google_calendar',
+  'google_meet',
   'google_sheets',
+  'twilio',
   'slack',
   'hubspot',
   'genesys',

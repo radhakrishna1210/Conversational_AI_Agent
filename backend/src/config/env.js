@@ -9,6 +9,7 @@ const optional = (key, fallback = '') => process.env[key] ?? fallback;
 export const env = {
   NODE_ENV: optional('NODE_ENV', 'development'),
   PORT: parseInt(optional('PORT', '4000'), 10),
+  USE_MOCK_AUTH: optional('USE_MOCK_AUTH', 'false'),
 
   DATABASE_URL: required('DATABASE_URL'),
   REDIS_URL: optional('REDIS_URL', ''),

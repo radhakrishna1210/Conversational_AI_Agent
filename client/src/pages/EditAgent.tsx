@@ -2,6 +2,8 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState } from 'react';
 import { AgentConfig, getAgent, saveAgent } from '../lib/agentStore';
 import { whapi } from '../lib/whapi';
+import { integrationsApi } from '../lib/integrationsApi';
+import { toast } from 'sonner';
 import ChatComponent from '../components/ChatComponent';
 import { useTheme } from '../hooks/useTheme';
 
@@ -1471,63 +1473,52 @@ export default function EditAgent() {
         {activeTab === 'integrations' && (() => {
           const integrations = [
             {
-              name: 'Cal.com',
-              mode: 'Post Call',
-              description: 'Auto-book meetings and sync call outcomes with your Cal.com scheduling workflows.',
-              external: true
-            },
-            {
-              name: 'Calendly',
-              mode: 'Post Call',
-              description: 'Create follow-up booking links and route prospects to the right calendar flow instantly.',
-              external: true
-            },
-            {
-              name: 'Custom API',
-              mode: 'During Call',
-              description: 'Connect your private endpoints to fetch records, validate users, and trigger actions live.',
-              external: false
-            },
-            {
-              name: 'Salesforce',
-              mode: 'Post Call',
-              description: 'Push transcripts, tags, and qualification notes to Salesforce with mapped field sync.',
-              external: false
-            },
-            {
+              provider: 'google_calendar',
               name: 'Google Calendar',
-              mode: 'Post Call',
-              description: 'Create events automatically from qualified calls and attach meeting metadata.',
+              mode: 'During Call',
+              description: 'Read calendars, create events, and automate scheduling reminders.',
               external: true
             },
             {
+              provider: 'google_meet',
+              name: 'Google Meet',
+              mode: 'During Call',
+              description: 'Automatically generate and share Google Meet links for scheduled meetings.',
+              external: true
+            },
+            {
+              provider: 'google_sheets',
               name: 'Google Sheets',
               mode: 'Post Call',
-              description: 'Append structured call records to Sheets for reporting, QA, and team operations.',
+              description: 'Append AI call logs and reporting rows into spreadsheets in real time.',
               external: true
             },
             {
-              name: 'Slack',
+              provider: 'twilio',
+              name: 'Twilio',
               mode: 'During Call',
-              description: 'Notify channels about active calls and surface escalations to your sales or support teams.',
-              external: false
+              description: 'Connect Twilio numbers and SMS capabilities for seamless voice and text interactions.',
+              external: true
             },
             {
+              provider: 'cal',
+              name: 'Cal.com',
+              mode: 'During Call',
+              description: 'Allow your bot to schedule meetings and sync booking events.',
+              external: true
+            },
+            {
+              provider: 'salesforce',
+              name: 'Salesforce',
+              mode: 'Post Call',
+              description: 'Push transcripts, notes, leads, and opportunities back to your CRM.',
+              external: true
+            },
+            {
+              provider: 'hubspot',
               name: 'HubSpot',
               mode: 'Post Call',
-              description: 'Update contacts, timeline notes, and lifecycle stages directly after every conversation.',
-              external: false
-            },
-            {
-              name: 'Genesys',
-              mode: 'During Call',
-              description: 'Route live call context into Genesys workflows for smarter agent assist and escalation.',
-              external: true
-            },
-            {
-              name: 'WhatsApp Cloud',
-              mode: 'Post Call',
-              description: 'Send follow-up messages, summaries, and next steps through WhatsApp Cloud API.',
+              description: 'Sync contacts, notes, tickets, and follow-up workflows automatically.',
               external: true
             }
           ];
@@ -1691,7 +1682,15 @@ export default function EditAgent() {
                         <div style={{ marginTop: '16px', paddingTop: '12px', borderTop: '1px solid #252525', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
                           <span style={{ fontSize: '12px', color: '#7d7d7d' }}>Ready to connect</span>
                           <button
-                            onClick={() => alert(`${integration.name} integration coming soon`) }
+                            onClick={async () => {
+                              try {
+                                const callbackUrl = `${window.location.origin}/api/v1/integrations/${integration.provider}/callback`;
+                                const { authorizationUrl } = await integrationsApi.connect(integration.provider, callbackUrl);
+                                window.location.href = authorizationUrl;
+                              } catch (error) {
+                                toast.error(error instanceof Error ? error.message : 'Failed to begin OAuth');
+                              }
+                            }}
                             onMouseEnter={(e) => {
                               e.currentTarget.style.background = '#2b2b2b';
                               e.currentTarget.style.borderColor = '#4a4a4a';

@@ -80,6 +80,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           const u = data.user;
           const name = u.name || u.email?.split('@')[0] || 'User';
           buildUser(name, u.email || '', u.plan || '');
+          if (u.workspaceId && !localStorage.getItem('workspaceId')) {
+            localStorage.setItem('workspaceId', u.workspaceId);
+          }
           return;
         }
       } catch (_) {}
@@ -91,6 +94,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           const payload = JSON.parse(atob(token2.split('.')[1]));
           const name = payload.name || payload.email?.split('@')[0] || 'User';
           buildUser(name, payload.email || '', payload.plan || '');
+          if (payload.workspaceId && !localStorage.getItem('workspaceId')) {
+            localStorage.setItem('workspaceId', payload.workspaceId);
+          }
           return;
         } catch (_) {}
       }
