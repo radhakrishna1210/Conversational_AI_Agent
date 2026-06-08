@@ -11,7 +11,8 @@ import logger from './lib/logger.js';
 const app = express();
 
 const clientUrls = env.CLIENT_URL ? env.CLIENT_URL.split(',').map(url => url.trim()) : [];
-const allowedOrigins = [...clientUrls, env.CHATFLOW_PRO_URL].filter(Boolean);
+const localDevOrigins = ['http://localhost:5173', 'http://localhost:5174'];
+const allowedOrigins = [...new Set([...clientUrls, env.CHATFLOW_PRO_URL, ...(env.NODE_ENV !== 'production' ? localDevOrigins : [])])].filter(Boolean);
 app.use(cors({
   origin: (origin, callback) => {
     if (!origin || allowedOrigins.includes(origin)) return callback(null, true);

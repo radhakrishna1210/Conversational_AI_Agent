@@ -313,7 +313,7 @@ export const createOAuthConnectUrl = async (workspaceId, providerKey, userId, re
   const state = generateSecureToken(24);
   const redirectUri = redirectUriOverride ?? providerRedirectUri(provider);
 
-  await prisma.oauthSession.create({
+  await prisma.oAuthSession.create({
     data: {
       workspaceId,
       integrationId: integration.id,
@@ -340,7 +340,7 @@ export const createOAuthConnectUrl = async (workspaceId, providerKey, userId, re
 
 export const completeOAuthCallback = async (providerKey, code, state, callbackRedirectUri = null) => {
   const provider = getProvider(providerKey);
-  const session = await prisma.oauthSession.findUnique({ where: { state } });
+  const session = await prisma.oAuthSession.findUnique({ where: { state } });
   if (!session || session.provider !== provider.key || session.consumedAt || session.expiresAt < now()) {
     const error = new Error('OAuth session expired or invalid');
     error.statusCode = 400;
@@ -395,7 +395,7 @@ export const completeOAuthCallback = async (providerKey, code, state, callbackRe
     },
   });
 
-  await prisma.oauthSession.update({ where: { id: session.id }, data: { consumedAt: now() } });
+  await prisma.oAuthSession.update({ where: { id: session.id }, data: { consumedAt: now() } });
 
   await logIntegration({
     workspaceId: session.workspaceId,

@@ -20,31 +20,20 @@ import {
   Search,
   Shield
 } from "lucide-react";
+import { useTheme } from '../hooks/useTheme';
 import { CommandMenu } from './CommandMenu';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
+
   // true = dark (default), false = light
   const [darkMode, setDarkMode] = useState(true);
   const [user, setUser] = useState({ name: 'User', email: '', initials: 'U', plan: '', role: '' });
+
+  const { darkMode, toggleDarkMode } = useTheme();
+  const [user, setUser] = useState({ name: 'User', email: '', initials: 'U', plan: '' });
+
   const profileRef = useRef<HTMLDivElement>(null);
-
-  const toggleDarkMode = () => {
-    const next = !darkMode;
-    setDarkMode(next);
-    document.documentElement.classList.toggle('light', !next);
-    localStorage.setItem('darkMode', next ? '1' : '0');
-  };
-
-  useEffect(() => {
-    const saved = localStorage.getItem('darkMode');
-    if (saved === '0') {
-      setDarkMode(false);
-      document.documentElement.classList.add('light');
-    } else {
-      document.documentElement.classList.remove('light');
-    }
-  }, []);
   
   const location = useLocation();
   const navigate = useNavigate();
@@ -99,7 +88,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           const data = await res.json();
           const u = data.user;
           const name = u.name || u.email?.split('@')[0] || 'User';
+
           buildUser(name, u.email || '', u.plan || '', u.role || '');
+
+          buildUser(name, u.email || '', u.plan || '');
+          if (u.workspaceId && !localStorage.getItem('workspaceId')) {
+            localStorage.setItem('workspaceId', u.workspaceId);
+          }
+
           return;
         }
       } catch (_) {}
@@ -110,7 +106,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         try {
           const payload = JSON.parse(atob(token2.split('.')[1]));
           const name = payload.name || payload.email?.split('@')[0] || 'User';
+
           buildUser(name, payload.email || '', payload.plan || '', payload.role || '');
+
+          buildUser(name, payload.email || '', payload.plan || '');
+          if (payload.workspaceId && !localStorage.getItem('workspaceId')) {
+            localStorage.setItem('workspaceId', payload.workspaceId);
+          }
+
           return;
         } catch (_) {}
       }
@@ -137,8 +140,179 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="dashboard-layout">
+      {/* Sidebar (moved before topbar so CSS sibling selectors can react) */}
+      <aside className="sidebar">
+        <Link to="/" style={{textDecoration: 'none'}}>
+          <div className="sidebar-header">
+            <div className="sidebar-logo-icon">O</div>
+            <div className="sidebar-logo-text">OMNI<span style={{color: 'white', fontWeight: 300}}>DIMENSION</span></div>
+          </div>
+        </Link>
+
+        <div className="sidebar-content-scroll">
+          <div className="sidebar-section">
+            <div className="sidebar-category">VOICE AI SETUP</div>
+
+            <Link to="/dashboard">
+              <div className={`sidebar-item ${path === '/dashboard' ? 'active' : ''}`}>
+                <span className="sidebar-icon"><Bot size={16} /></span>
+                <span className="sidebar-text">Voice AI Assistants</span>
+              </div>
+            </Link>
+            <Link to="/voice_assistant" style={{textDecoration: 'none'}}>
+              <div className={`sidebar-item ${path === '/voice_assistant' ? 'active' : ''}`}>
+                <span className="sidebar-icon">🔊</span>
+                <span className="sidebar-text">Real-time TTS</span>
+                <span className="badge-new">Live</span>
+              </div>
+            </Link>
+            <Link to="/clone_voice" style={{textDecoration: 'none'}}>
+              <div className={`sidebar-item ${path === '/clone_voice' ? 'active' : ''}`}>
+                <span className="sidebar-icon"><Mic size={16} /></span>
+                <span className="sidebar-text">Clone Voice</span>
+                <span className="badge-new">New</span>
+              </div>
+            </Link>
+
+            <Link to="/files">
+              <div className={`sidebar-item ${path === '/files' ? 'active' : ''}`}>
+                <span className="sidebar-icon"><Folder size={16} /></span>
+                <span className="sidebar-text">Files</span>
+              </div>
+            </Link>
+
+            <Link to="/integrations">
+              <div className={`sidebar-item ${path === '/integrations' ? 'active' : ''}`}>
+                <span className="sidebar-icon"><Plug size={16} /></span>
+                <span className="sidebar-text">Integrations</span>
+              </div>
+            </Link>
+          </div>
+
+          <div className="sidebar-section">
+            <div className="sidebar-category">OPERATIONS & MONITORING</div>
+
+            <Link to="/phone_numbers">
+              <div className={`sidebar-item ${path === '/phone_numbers' ? 'active' : ''}`}>
+                <span className="sidebar-icon"><Phone size={16} /></span>
+                <span className="sidebar-text">Phone Numbers</span>
+              </div>
+            </Link>
+
+            <Link to="/bulk_call/create">
+              <div className={`sidebar-item ${path === '/bulk_call' || path === '/bulk_call/create' ? 'active' : ''}`}>
+                <span className="sidebar-icon"><PhoneCall size={16} /></span>
+                <span className="sidebar-text">Bulk Call</span>
+              </div>
+            </Link>
+
+            <Link to="/call_logs">
+              <div className={`sidebar-item ${path === '/call_logs' ? 'active' : ''}`}>
+                <span className="sidebar-icon"><FileText size={16} /></span>
+                <span className="sidebar-text">Call Logs</span>
+              </div>
+            </Link>
+
+            <Link to="/analytics">
+              <div className={`sidebar-item ${path === '/analytics' ? 'active' : ''}`}>
+                <span className="sidebar-icon"><BarChart3 size={16} /></span>
+                <span className="sidebar-text">Analytics</span>
+              </div>
+            </Link>
+          </div>
+
+          <div className="sidebar-section">
+            <div className="sidebar-category">CHAT</div>
+
+            <Link to="/whatsapp">
+              <div className={`sidebar-item ${path === '/whatsapp' ? 'active' : ''}`}>
+                <span className="sidebar-icon"><MessageCircle size={16} /></span>
+                <span className="sidebar-text">WhatsApp</span>
+              </div>
+            </Link>
+
+            <div className="sidebar-item">
+              <span className="sidebar-icon"><MessageCircle size={16} /></span>
+              <span className="sidebar-text">WhaBridge</span>
+            </div>
+          </div>
+
+          <div className="sidebar-section">
+            <div className="sidebar-category">RESOURCES</div>
+
+            <a href="/docs" target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', color: 'inherit' }}>
+              <div className="sidebar-item">
+                <span className="sidebar-icon"><BookOpen size={16} /></span>
+                <span className="sidebar-text">Docs</span>
+              </div>
+            </a>
+
+            <Link to="/contact">
+              <div className={`sidebar-item ${path === '/contact' ? 'active' : ''}`}>
+                <span className="sidebar-icon"><Mail size={16} /></span>
+                <span className="sidebar-text">Contact Us</span>
+              </div>
+            </Link>
+
+            <a href="/report-issue" target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', color: 'inherit' }}>
+              <div className="sidebar-item">
+                <span className="sidebar-icon"><Bug size={16} /></span>
+                <span className="sidebar-text">Report Issue</span>
+              </div>
+            </a>
+          </div>
+
+          <div className="sidebar-section">
+            <div className="sidebar-category">ACCOUNT & BILLING</div>
+
+            {user.role === 'Admin' && (
+              <Link to="/admin">
+                <div className={`sidebar-item ${path === '/admin' ? 'active' : ''}`} style={{ position: 'relative' }}>
+                  <span className="sidebar-icon"><Shield size={16} /></span>
+                  <span className="sidebar-text">Admin Panel</span>
+                  <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', padding: '1px 6px', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, fontSize: 9, fontWeight: 800, color: '#f87171', letterSpacing: '0.3px' }}>ADMIN</span>
+                </div>
+              </Link>
+            )}
+
+            <Link to="/billing">
+              <div className={`sidebar-item ${path === '/billing' ? 'active' : ''}`}>
+                <span className="sidebar-icon"><CreditCard size={16} /></span>
+                <span className="sidebar-text">Billing</span>
+              </div>
+            </Link>
+
+            <Link to="/api_keys">
+              <div className={`sidebar-item ${path === '/api_keys' ? 'active' : ''}`}>
+                <span className="sidebar-icon"><Key size={16} /></span>
+                <span className="sidebar-text">API</span>
+              </div>
+            </Link>
+          </div>
+        </div>
+
+        <div className="sidebar-spacer"></div>
+
+        <div className="sidebar-bottom">
+          <Link to="/settings">
+            <div className={`sidebar-item ${path === '/settings' ? 'active' : ''}`}>
+              <span className="sidebar-icon"><Settings size={16} /></span>
+              <span className="sidebar-text">Settings</span>
+            </div>
+          </Link>
+          <div
+            className="sidebar-item"
+            onClick={handleLogout}
+            style={{ cursor: 'pointer' }}
+          >
+            <span className="sidebar-icon"><LogOut size={16} /></span>
+            <span className="sidebar-text">Logout</span>
+          </div>
+        </div>
+      </aside>
+
       {/* Topbar */}
-      <div style={{ borderBottom: '1px solid var(--topbar-border)', position: 'fixed', top: 0, left: '68px', right: 0, zIndex: 100, height: '56px', overflow: 'visible', boxShadow: 'var(--shadow-topbar)' }}>
+      <div className="topbar-fixed">
         <div className="dashboard-topbar">
           <div 
             className="topbar-search" 
@@ -256,179 +430,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </div>
 
-      {/* Sidebar */}
-      <aside className="sidebar">
-        <Link to="/" style={{textDecoration: 'none'}}>
-          <div className="sidebar-header">
-            <div className="sidebar-logo-icon">O</div>
-            <div className="sidebar-logo-text">OMNI<span style={{color: 'white', fontWeight: 300}}>DIMENSION</span></div>
-          </div>
-        </Link>
+      
 
-        <div className="sidebar-content-scroll">
-          <div className="sidebar-section">
-            <div className="sidebar-category">VOICE AI SETUP</div>
-
-            <Link to="/dashboard">
-              <div className={`sidebar-item ${path === '/dashboard' ? 'active' : ''}`}>
-                <span className="sidebar-icon"><Bot size={16} /></span>
-                <span className="sidebar-text">Voice AI Assistants</span>
-              </div>
-            </Link>
-            <Link to="/voice_assistant" style={{textDecoration: 'none'}}>
-              <div className={`sidebar-item ${path === '/voice_assistant' ? 'active' : ''}`}>
-                <span className="sidebar-icon">🔊</span>
-                <span className="sidebar-text">Real-time TTS</span>
-                <span className="badge-new">Live</span>
-              </div>
-            </Link>
-            <Link to="/clone_voice" style={{textDecoration: 'none'}}>
-              <div className={`sidebar-item ${path === '/clone_voice' ? 'active' : ''}`}>
-                <span className="sidebar-icon"><Mic size={16} /></span>
-                <span className="sidebar-text">Clone Voice</span>
-                <span className="badge-new">New</span>
-              </div>
-            </Link>
-
-            <Link to="/files">
-              <div className={`sidebar-item ${path === '/files' ? 'active' : ''}`}>
-                <span className="sidebar-icon"><Folder size={16} /></span>
-                <span className="sidebar-text">Files</span>
-              </div>
-            </Link>
-
-            <Link to="/integrations">
-              <div className={`sidebar-item ${path === '/integrations' ? 'active' : ''}`}>
-                <span className="sidebar-icon"><Plug size={16} /></span>
-                <span className="sidebar-text">Integrations</span>
-              </div>
-            </Link>
-          </div>
-
-          <div className="sidebar-section">
-            <div className="sidebar-category">OPERATIONS & MONITORING</div>
-
-            <Link to="/phone_numbers">
-              <div className={`sidebar-item ${path === '/phone_numbers' ? 'active' : ''}`}>
-                <span className="sidebar-icon"><Phone size={16} /></span>
-                <span className="sidebar-text">Phone Numbers</span>
-              </div>
-            </Link>
-
-            <Link to="/bulk_call">
-              <div className={`sidebar-item ${path === '/bulk_call' ? 'active' : ''}`}>
-                <span className="sidebar-icon"><PhoneCall size={16} /></span>
-                <span className="sidebar-text">Bulk Call</span>
-              </div>
-            </Link>
-
-            <Link to="/call_logs">
-              <div className={`sidebar-item ${path === '/call_logs' ? 'active' : ''}`}>
-                <span className="sidebar-icon"><FileText size={16} /></span>
-                <span className="sidebar-text">Call Logs</span>
-              </div>
-            </Link>
-
-            <Link to="/analytics">
-              <div className={`sidebar-item ${path === '/analytics' ? 'active' : ''}`}>
-                <span className="sidebar-icon"><BarChart3 size={16} /></span>
-                <span className="sidebar-text">Analytics</span>
-              </div>
-            </Link>
-          </div>
-
-          <div className="sidebar-section">
-            <div className="sidebar-category">CHAT</div>
-
-            <Link to="/whatsapp">
-              <div className={`sidebar-item ${path === '/whatsapp' ? 'active' : ''}`}>
-                <span className="sidebar-icon"><MessageCircle size={16} /></span>
-                <span className="sidebar-text">WhatsApp</span>
-              </div>
-            </Link>
-
-            <div className="sidebar-item">
-              <span className="sidebar-icon"><MessageCircle size={16} /></span>
-              <span className="sidebar-text">WhaBridge</span>
-            </div>
-          </div>
-
-          <div className="sidebar-section">
-            <div className="sidebar-category">RESOURCES</div>
-
-            <a href="/docs" target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', color: 'inherit' }}>
-              <div className="sidebar-item">
-                <span className="sidebar-icon"><BookOpen size={16} /></span>
-                <span className="sidebar-text">Docs</span>
-              </div>
-            </a>
-
-            <Link to="/contact">
-              <div className={`sidebar-item ${path === '/contact' ? 'active' : ''}`}>
-                <span className="sidebar-icon"><Mail size={16} /></span>
-                <span className="sidebar-text">Contact Us</span>
-              </div>
-            </Link>
-
-            <a href="/report-issue" target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', color: 'inherit' }}>
-              <div className="sidebar-item">
-                <span className="sidebar-icon"><Bug size={16} /></span>
-                <span className="sidebar-text">Report Issue</span>
-              </div>
-            </a>
-          </div>
-
-          <div className="sidebar-section">
-            <div className="sidebar-category">ACCOUNT & BILLING</div>
-
-            {user.role === 'Admin' && (
-              <Link to="/admin">
-                <div className={`sidebar-item ${path === '/admin' ? 'active' : ''}`} style={{ position: 'relative' }}>
-                  <span className="sidebar-icon"><Shield size={16} /></span>
-                  <span className="sidebar-text">Admin Panel</span>
-                  <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', padding: '1px 6px', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, fontSize: 9, fontWeight: 800, color: '#f87171', letterSpacing: '0.3px' }}>ADMIN</span>
-                </div>
-              </Link>
-            )}
-
-            <Link to="/billing">
-              <div className={`sidebar-item ${path === '/billing' ? 'active' : ''}`}>
-                <span className="sidebar-icon"><CreditCard size={16} /></span>
-                <span className="sidebar-text">Billing</span>
-              </div>
-            </Link>
-
-            <Link to="/api_keys">
-              <div className={`sidebar-item ${path === '/api_keys' ? 'active' : ''}`}>
-                <span className="sidebar-icon"><Key size={16} /></span>
-                <span className="sidebar-text">API</span>
-              </div>
-            </Link>
-          </div>
+      <main className="dashboard-main">
+        <div className="dashboard-content">
+          {children}
         </div>
-
-        <div className="sidebar-spacer"></div>
-
-        <div className="sidebar-bottom">
-          <Link to="/settings">
-            <div className={`sidebar-item ${path === '/settings' ? 'active' : ''}`}>
-              <span className="sidebar-icon"><Settings size={16} /></span>
-              <span className="sidebar-text">Settings</span>
-            </div>
-          </Link>
-          <div
-            className="sidebar-item"
-            onClick={handleLogout}
-            style={{ cursor: 'pointer' }}
-          >
-            <span className="sidebar-icon"><LogOut size={16} /></span>
-            <span className="sidebar-text">Logout</span>
-          </div>
-        </div>
-      </aside>
-
-      <main className="dashboard-main" style={{ marginTop: '56px', marginLeft: '64px' }}>
-        {children}
       </main>
     </div>
   );

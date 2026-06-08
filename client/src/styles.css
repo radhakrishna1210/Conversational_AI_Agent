@@ -127,6 +127,20 @@
    LIGHT MODE — Clean Slate White
    ═══════════════════════════════════════════ */
 html.light {
+  /* Tailwind HSL theme variables override */
+  --background: 210 40% 98%;
+  --foreground: 222 47% 10%;
+  --card: 0 0% 100%;
+  --card-foreground: 222 47% 10%;
+  --border: 214 32% 91%;
+  --input: 214 32% 91%;
+  --popover: 0 0% 100%;
+  --popover-foreground: 222 47% 10%;
+  --muted: 210 40% 96.1%;
+  --muted-foreground: 215.4 16.3% 46.9%;
+  --accent: 142 70% 49%;
+  --accent-foreground: 222 47% 6%;
+
   /* Backgrounds */
   --bg-primary:    #f0f4f9;
   --bg-secondary:  #ffffff;
@@ -160,7 +174,7 @@ html.light {
   /* Text */
   --text-primary:   #0f172a;
   --text-secondary: #475569;
-  --text-muted:     #94a3b8;
+  --text-muted:     #64748b;
 
   /* Borders */
   --border:       #e2e8f0;
@@ -188,9 +202,307 @@ html.light body {
   color: var(--text-primary);
 }
 
+/* Global Light Mode Overrides for Hardcoded/Inline Colors to guarantee visibility and accessibility */
+html.light [style*="color: white"],
+html.light [style*="color:white"],
+html.light [style*="color: 'white'"],
+html.light [style*="color:'white'"],
+html.light [style*="color: '#fff'"],
+html.light [style*="color:'#fff'"],
+html.light [style*="color: #fff"],
+html.light [style*="color:#fff"],
+html.light [style*="color: #f5f5f5"],
+html.light [style*="color:#f5f5f5"],
+html.light [style*="color: #f1f1f1"],
+html.light [style*="color:#f1f1f1"],
+html.light [style*="color: #f4f4f4"],
+html.light [style*="color:#f4f4f4"],
+html.light [style*="color: #f6f6f6"],
+html.light [style*="color:#f6f6f6"],
+html.light [style*="color: #f2f2f2"],
+html.light [style*="color:#f2f2f2"],
+html.light [style*="color: #e8e8e8"],
+html.light [style*="color:#e8e8e8"],
+html.light [style*="color: #d6d6d6"],
+html.light [style*="color:#d6d6d6"],
+html.light [style*="color: rgb(255, 255, 255)"],
+html.light [style*="color:rgb(255, 255, 255)"],
+html.light [style*="color: rgb(255,255,255)"],
+html.light [style*="color:rgb(255,255,255)"],
+html.light [style*="color: rgb(245, 245, 245)"],
+html.light [style*="color: rgb(241, 241, 241)"],
+html.light [style*="color: rgb(244, 244, 244)"],
+html.light [style*="color: rgb(246, 246, 246)"],
+html.light [style*="color: rgb(242, 242, 242)"] {
+  color: var(--text-primary) !important;
+}
+
+html.light [style*="color: #a3a3a3"],
+html.light [style*="color:#a3a3a3"],
+html.light [style*="color: #8e8e8e"],
+html.light [style*="color:#8e8e8e"],
+html.light [style*="color: #9a9a9a"],
+html.light [style*="color:#9a9a9a"],
+html.light [style*="color: #8b8b8b"],
+html.light [style*="color:#8b8b8b"],
+html.light [style*="color: #8a8a8a"],
+html.light [style*="color:#8a8a8a"],
+html.light [style*="color: #999"],
+html.light [style*="color:#999"],
+html.light [style*="color: #888"],
+html.light [style*="color:#888"],
+html.light [style*="color: #666"],
+html.light [style*="color:#666"],
+html.light [style*="color: #b3b3b3"],
+html.light [style*="color:#b3b3b3"],
+html.light [style*="color: #b7b7b7"],
+html.light [style*="color:#b7b7b7"],
+html.light [style*="color: #8d8d8d"],
+html.light [style*="color:#8d8d8d"],
+html.light [style*="color: rgb(179, 179, 179)"],
+html.light [style*="color: rgb(183, 183, 183)"],
+html.light [style*="color: rgb(141, 141, 141)"],
+html.light [style*="color: rgb(136, 136, 136)"],
+html.light [style*="color: rgb(153, 153, 153)"],
+html.light [style*="color: rgb(102, 102, 102)"] {
+  color: var(--text-secondary) !important;
+}
+
+html.light [style*="background: #0f0f0f"],
+html.light [style*="background:#0f0f0f"],
+html.light [style*="background: rgb(15, 15, 15)"],
+html.light [style*="background:rgb(15, 15, 15)"],
+html.light [style*="background: rgb(15,15,15)"],
+html.light [style*="background:rgb(15,15,15)"] {
+  background: var(--bg-primary) !important;
+}
+
+html.light [style*="background: #0a0a0a"],
+html.light [style*="background:#0a0a0a"],
+html.light [style*="background: rgb(10, 10, 10)"],
+html.light [style*="background:rgb(10, 10, 10)"],
+html.light [style*="background: #0b0b0b"],
+html.light [style*="background:#0b0b0b"],
+html.light [style*="background: rgb(11, 11, 11)"],
+html.light [style*="background:rgb(11, 11, 11)"],
+html.light [style*="background: #0c0c0c"],
+html.light [style*="background:#0c0c0c"],
+html.light [style*="background: rgb(12, 12, 12)"],
+html.light [style*="background:rgb(12, 12, 12)"] {
+  background: var(--bg-secondary) !important;
+}
+
+html.light [style*="background: #111"],
+html.light [style*="background:#111"],
+html.light [style*="background: rgb(17, 17, 17)"],
+html.light [style*="background:rgb(17, 17, 17)"],
+html.light [style*="background: #101010"],
+html.light [style*="background:#101010"],
+html.light [style*="background: rgb(16, 16, 16)"],
+html.light [style*="background:rgb(16, 16, 16)"],
+html.light [style*="background: #151515"],
+html.light [style*="background:#151515"],
+html.light [style*="background: rgb(21, 21, 21)"],
+html.light [style*="background:rgb(21, 21, 21)"],
+html.light [style*="background: #1a1a1a"],
+html.light [style*="background:#1a1a1a"],
+html.light [style*="background: rgb(26, 26, 26)"],
+html.light [style*="background:rgb(26, 26, 26)"],
+html.light [style*="background: #050505"],
+html.light [style*="background:#050505"],
+html.light [style*="background: rgb(5, 5, 5)"],
+html.light [style*="background:rgb(5, 5, 5)"],
+html.light [style*="background: #141414"],
+html.light [style*="background:#141414"],
+html.light [style*="background: rgb(20, 20, 20)"],
+html.light [style*="background:rgb(20, 20, 20)"],
+html.light [style*="background: #171717"],
+html.light [style*="background:#171717"],
+html.light [style*="background: rgb(23, 23, 23)"],
+html.light [style*="background:rgb(23, 23, 23)"],
+html.light [style*="background: #062021"],
+html.light [style*="background:#062021"],
+html.light [style*="background: rgb(6, 32, 33)"],
+html.light [style*="background:rgb(6, 32, 33)"],
+html.light [style*="background: linear-gradient(180deg, #151515"],
+html.light [style*="background:linear-gradient(180deg, #151515"],
+html.light [style*="background: linear-gradient(180deg, #1e1e1e"],
+html.light [style*="background:linear-gradient(180deg, #1e1e1e"],
+html.light [style*="background: rgba(255,255,255,0.02)"],
+html.light [style*="background:rgba(255,255,255,0.02)"],
+html.light [style*="background: rgba(255,255,255,0.01)"],
+html.light [style*="background:rgba(255,255,255,0.01)"] {
+  background: var(--bg-card) !important;
+  background-image: none !important;
+}
+
+html.light [style*="background: #07393b"],
+html.light [style*="background:#07393b"],
+html.light [style*="background: rgb(7, 57, 59)"],
+html.light [style*="background:rgb(7, 57, 59)"] {
+  background: var(--bg-elevated) !important;
+}
+
+html.light [style*="background: rgba(0,0,0,0.1)"],
+html.light [style*="background:rgba(0,0,0,0.1)"],
+html.light [style*="background: rgba(0,0,0,0.2)"],
+html.light [style*="background:rgba(0,0,0,0.2)"],
+html.light [style*="background: rgba(0,0,0,0.3)"],
+html.light [style*="background:rgba(0,0,0,0.3)"] {
+  background: var(--bg-secondary) !important;
+}
+
+
+
+html.light [style*="border: 1px solid #2"],
+html.light [style*="border:1px solid #2"],
+html.light [style*="border: 1px solid #3"],
+html.light [style*="border:1px solid #3"],
+html.light [style*="border: 1px solid var(--border)"],
+html.light [style*="border:1px solid var(--border)"] {
+  border-color: var(--border) !important;
+}
+
+/* Align all variations of green/teal buttons/texts to var(--teal) in light mode */
+html.light [style*="background: #00bcd4"],
+html.light [style*="background:#00bcd4"],
+html.light [style*="background: rgb(0, 188, 212)"],
+html.light [style*="background:rgb(0, 188, 212)"],
+html.light [style*="background: #12c8d0"],
+html.light [style*="background:#12c8d0"],
+html.light [style*="background: rgb(18, 200, 208)"],
+html.light [style*="background:rgb(18, 200, 208)"],
+html.light [style*="background: #0f6f73"],
+html.light [style*="background:#0f6f73"],
+html.light [style*="background: rgb(15, 111, 115)"] {
+  background: var(--teal) !important;
+}
+
+html.light [style*="color: #00bcd4"],
+html.light [style*="color:#00bcd4"],
+html.light [style*="color: rgb(0, 188, 212)"],
+html.light [style*="color:rgb(0, 188, 212)"],
+html.light [style*="color: #11c7cf"],
+html.light [style*="color:#11c7cf"],
+html.light [style*="color: rgb(17, 199, 207)"],
+html.light [style*="color:rgb(17, 199, 207)"] {
+  color: var(--teal) !important;
+}
+
+html.light [style*="border-color: #00bcd4"],
+html.light [style*="border-color:#00bcd4"],
+html.light [style*="border: 1px solid #00bcd4"],
+html.light [style*="border:1px solid #00bcd4"],
+html.light [style*="border: 1px solid rgb(0, 188, 212)"],
+html.light [style*="border:1px solid rgb(0, 188, 212)"] {
+  border-color: var(--teal) !important;
+}
+
+/* Global Dark Mode Overrides for Hardcoded/Inline Colors to guarantee visibility and accessibility */
+html:not(.light) [style*="color: #666"],
+html:not(.light) [style*="color:#666"],
+html:not(.light) [style*="color: rgb(102, 102, 102)"],
+html:not(.light) [style*="color:rgb(102, 102, 102)"] {
+  color: #94a3b8 !important;
+}
+
+html:not(.light) [style*="color: #888"],
+html:not(.light) [style*="color:#888"],
+html:not(.light) [style*="color: rgb(136, 136, 136)"],
+html:not(.light) [style*="color:rgb(136, 136, 136)"] {
+  color: #cbd5e1 !important;
+}
+
+html:not(.light) [style*="color: #999"],
+html:not(.light) [style*="color:#999"],
+html:not(.light) [style*="color: rgb(153, 153, 153)"],
+html:not(.light) [style*="color:rgb(153, 153, 153)"] {
+  color: #e2e8f0 !important;
+}
+
 /* ═══════════════════════════════════════════
    LIGHT MODE — Component overrides
    ═══════════════════════════════════════════ */
+
+/* Forms input fields / textareas overrides */
+html.light .form-input,
+html.light .form-select,
+html.light .form-textarea {
+  background: var(--bg-primary) !important;
+  color: var(--text-primary) !important;
+  border-color: var(--border) !important;
+}
+html.light .form-select option {
+  background: var(--bg-secondary) !important;
+  color: var(--text-primary) !important;
+}
+
+/* Voice Assistant Component overrides */
+html.light .voice-card {
+  background: rgba(0, 0, 0, 0.03) !important;
+  border-color: var(--border) !important;
+}
+html.light .voice-card:hover {
+  background: rgba(0, 0, 0, 0.06) !important;
+}
+html.light .voice-card.active {
+  background: rgba(14, 179, 158, 0.08) !important;
+  border-color: var(--teal) !important;
+}
+html.light .ai-auto-card.active {
+  background: linear-gradient(135deg, rgba(14, 179, 158, 0.12) 0%, rgba(124, 58, 237, 0.12) 100%) !important;
+}
+html.light .voice-badge--female {
+  background: rgba(236, 72, 153, 0.1) !important;
+  color: #db2777 !important;
+}
+html.light .voice-badge--male {
+  background: rgba(59, 130, 246, 0.1) !important;
+  color: #2563eb !important;
+}
+html.light .voice-badge--ai {
+  background: rgba(124, 58, 237, 0.1) !important;
+  color: #7c3aed !important;
+}
+html.light .voice-tag {
+  background: rgba(0, 0, 0, 0.04) !important;
+  border-color: rgba(0, 0, 0, 0.06) !important;
+  color: var(--text-secondary) !important;
+}
+html.light .voice-selected-bar {
+  background: rgba(14, 179, 158, 0.05) !important;
+  border-color: rgba(14, 179, 158, 0.15) !important;
+}
+html.light .mic-btn {
+  background: rgba(0, 0, 0, 0.04) !important;
+  border-color: var(--border) !important;
+  color: var(--text-primary) !important;
+}
+html.light .mic-btn:hover {
+  background: rgba(0, 0, 0, 0.08) !important;
+  border-color: var(--teal) !important;
+}
+html.light .voice-group-label {
+  color: var(--text-secondary) !important;
+}
+html.light .voice-group-count {
+  background: rgba(0, 0, 0, 0.05) !important;
+  color: var(--text-secondary) !important;
+}
+
+html.light [style*="background: rgba(255,255,255,0.05)"],
+html.light [style*="background:rgba(255,255,255,0.05)"],
+html.light [style*="background: rgba(255, 255, 255, 0.05)"],
+html.light [style*="background:rgba(255, 255, 255, 0.05)"] {
+  background: rgba(0, 0, 0, 0.04) !important;
+}
+html.light [style*="background: rgba(255,255,255,0.03)"],
+html.light [style*="background:rgba(255,255,255,0.03)"],
+html.light [style*="background: rgba(255, 255, 255, 0.03)"],
+html.light [style*="background:rgba(255, 255, 255, 0.03)"] {
+  background: rgba(0, 0, 0, 0.02) !important;
+}
+
 
 /* Sidebar: force deep navy background + keep icons/text white */
 html.light .sidebar {
@@ -1152,6 +1464,12 @@ footer {
   background: var(--bg-primary);
 }
 
+/* Layout variables for responsive sidebar/main interactions */
+:root {
+  --sidebar-collapsed-width: 68px;
+  --sidebar-expanded-width: 260px;
+}
+
 /* ─────────────────────────────────────────
    SIDEBAR
    ───────────────────────────────────────── */
@@ -1161,17 +1479,17 @@ footer {
   display: flex;
   flex-direction: column;
   position: fixed;
-  width: 68px;
+  width: var(--sidebar-collapsed-width);
   bottom: 0;
   top: 0;
   z-index: 100;
   overflow-x: hidden;
   overflow-y: hidden;
-  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .sidebar:hover {
-  width: 260px;
+  width: var(--sidebar-expanded-width);
   box-shadow: 8px 0 32px rgba(0,0,0,0.45);
 }
 
@@ -1179,11 +1497,46 @@ html.light .sidebar:hover {
   box-shadow: 4px 0 24px rgba(15,23,42,0.18);
 }
 
+/* Topbar fixed positioning should follow sidebar width dynamically */
+.topbar-fixed {
+  position: fixed;
+  top: 0;
+  left: var(--sidebar-collapsed-width);
+  right: 0;
+  z-index: 100;
+  height: 56px;
+  overflow: visible;
+  box-shadow: var(--shadow-topbar);
+  transition: left 0.28s ease;
+}
+
+/* When sidebar expands, shift topbar and main content */
+.sidebar:hover ~ .topbar-fixed {
+  left: var(--sidebar-expanded-width);
+}
+
+/* Main content adjusts to sidebar width to avoid overlap/jumps */
+.dashboard-main {
+  margin-top: 56px;
+  margin-left: var(--sidebar-collapsed-width);
+  transition: margin-left 0.28s ease, width 0.28s ease;
+  display: flex;
+  flex: 1;
+  width: calc(100% - var(--sidebar-collapsed-width));
+  min-width: 0;
+  flex-direction: column;
+}
+
+.sidebar:hover ~ .dashboard-main {
+  margin-left: var(--sidebar-expanded-width);
+  width: calc(100% - var(--sidebar-expanded-width));
+}
+
 .sidebar-header {
   display: flex;
   align-items: center;
-  height: 56px;
-  padding: 0 16px;
+  height: 52px;
+  padding: 0 14px;
   border-bottom: 1px solid var(--sidebar-border);
   flex-shrink: 0;
   min-width: 260px;
@@ -1246,10 +1599,10 @@ html.light .sidebar:hover {
   color: rgba(255,255,255,0.25);
   text-transform: uppercase;
   letter-spacing: 1px;
-  padding: 10px 16px 6px 68px;
+  padding: 8px 16px 4px 68px;
   white-space: nowrap;
   opacity: 0;
-  transition: opacity 0.2s ease;
+  transition: opacity 0.2s ease, padding-left 0.2s ease;
 }
 
 .sidebar:hover .sidebar-category {
@@ -1261,12 +1614,12 @@ html.light .sidebar:hover {
 .sidebar-item {
   display: flex;
   align-items: center;
-  padding: 0;
-  height: 40px;
-  margin: 1px 10px;
+  padding: 0 10px;
+  height: 36px;
+  margin: 4px 8px;
   border-radius: 9px;
   color: rgba(255,255,255,0.45);
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 500;
   transition: background 0.15s ease, color 0.15s ease;
   cursor: pointer;
@@ -1288,12 +1641,12 @@ html.light .sidebar:hover {
 }
 
 .sidebar-icon {
-  width: 40px;
-  height: 40px;
+  width: 34px;
+  height: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
+  font-size: 15px;
   flex-shrink: 0;
   border-radius: 8px;
 }
@@ -1315,9 +1668,9 @@ html.light .sidebar:hover {
   font-weight: 800;
   background: rgba(249,115,22,0.2);
   color: #fb923c;
-  padding: 2px 7px;
-  border-radius: 20px;
-  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 16px;
+  margin-left: 6px;
   opacity: 0;
   letter-spacing: 0.3px;
   transition: opacity 0.2s;
@@ -1488,8 +1841,8 @@ html.light .topbar-icon-btn:hover {
 }
 
 .dashboard-content {
-  padding: 32px 48px;
-  max-width: 1200px;
+  padding: 20px 32px;
+  max-width: 1320px;
   margin: 0 auto;
   width: 100%;
 }
@@ -1498,32 +1851,32 @@ html.light .topbar-icon-btn:hover {
   background: radial-gradient(circle at top right, rgba(0,212,200,0.1), transparent 40%), var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 32px;
-  margin-bottom: 40px;
+  padding: 24px;
+  margin-bottom: 32px;
 }
 
 .create-assistant-box h3 {
   color: var(--teal);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .create-assistant-box p {
-  font-size: 14px;
-  margin-bottom: 24px;
+  font-size: 13px;
+  margin-bottom: 18px;
 }
 
 .create-textarea {
   width: 100%;
-  background: rgba(0,0,0,0.25);
+  background: rgba(0,0,0,0.18);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: 20px;
+  padding: 16px;
   color: white;
   font-family: inherit;
-  font-size: 15px;
-  min-height: 120px;
+  font-size: 14px;
+  min-height: 100px;
   resize: vertical;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
   outline: none;
 }
 
@@ -1535,29 +1888,76 @@ html.light .topbar-icon-btn:hover {
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
+  gap: 12px;
 }
 
 .use-case-chips {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
 }
 
+.assistants-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.assistants-header h2 {
+  font-size: 28px;
+  line-height: 1.1;
+  letter-spacing: -0.5px;
+  margin: 0;
+}
+
+.assistants-header-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.assistants-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.assistants-suggestions span {
+  white-space: nowrap;
+}
+
+.assistants-suggestions button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--teal);
+  cursor: pointer;
+  font-size: 12px;
+  text-decoration: underline;
+}
+
 .assistants-section h2 {
-  font-size: 56px;
-  line-height: 1;
-  letter-spacing: -1.4px;
+  font-size: 28px;
+  line-height: 1.1;
+  letter-spacing: -0.5px;
 }
 
 .assistants-search {
-  width: 280px;
+  width: min(280px, 100%);
   border: 1px solid var(--border);
   background: var(--bg-card);
-  border-radius: 8px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 12px;
+  gap: 10px;
+  padding: 0 14px;
   height: 36px;
   color: var(--text-secondary);
 }
@@ -1567,23 +1967,26 @@ html.light .topbar-icon-btn:hover {
   border: none;
   background: transparent;
   color: var(--text-primary);
-  font-size: 16px;
+  font-size: 14px;
   outline: none;
 }
 
 .assistants-grid {
   border-top: 1px dashed var(--border);
   padding-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: 24px;
 }
 
 .assistant-card {
   width: 100%;
-  max-width: 360px;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 18px;
+  border-radius: 14px;
+  padding: 16px;
   transition: box-shadow 0.2s, border-color 0.2s;
+  box-sizing: border-box;
 }
 .assistant-card:hover {
   border-color: var(--teal-dim);
@@ -1594,26 +1997,27 @@ html.light .topbar-icon-btn:hover {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
+  gap: 10px;
+  margin-bottom: 12px;
 }
 
 .assistant-card-head h3 {
-  font-size: 31px;
-  letter-spacing: -0.8px;
-  margin-bottom: 6px;
+  font-size: 20px;
+  letter-spacing: -0.3px;
+  margin-bottom: 4px;
 }
 
 .assistant-card-head p {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-secondary);
+  margin: 0;
 }
 
 .assistant-menu {
   border: none;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 22px;
+  font-size: 20px;
   line-height: 1;
   padding: 0;
 }
@@ -1621,15 +2025,15 @@ html.light .topbar-icon-btn:hover {
 .assistant-metadata {
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
-  padding: 14px 0;
+  padding: 10px 0;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px 16px;
-  margin-bottom: 14px;
+  gap: 8px 14px;
+  margin-bottom: 12px;
 }
 
 .assistant-metadata div {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-secondary);
 }
 
@@ -1645,17 +2049,18 @@ html.light .topbar-icon-btn:hover {
 }
 
 .assistant-id {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-secondary);
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.02);
-  border-radius: 8px;
-  padding: 8px 10px;
+  border-radius: 10px;
+  padding: 6px 10px;
 }
 
 .assistant-card-footer .btn {
   flex: 1;
-  min-height: 36px;
+  min-height: 34px;
+  font-size: 13px;
 }
 
 .empty-state {

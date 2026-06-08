@@ -8,7 +8,7 @@ import { env } from '../config/env.js';
 
 // Fallback to mock service if database is unavailable
 const getAuthService = () => {
-  const useMock = env.USE_MOCK_AUTH === 'true' || env.DATABASE_URL?.includes('supabase') && process.env.DB_STATUS === 'unavailable';
+  const useMock = env.USE_MOCK_AUTH === 'true' || process.env.DB_STATUS === 'unavailable';
   return useMock ? mockAuthService : authService;
 };
 
@@ -61,7 +61,7 @@ export const refresh = async (req, res) => {
   } catch (err) {
     // Fallback
     if (service === authService && process.env.DB_STATUS === 'unavailable') {
-      const tokens = await mockAuthService.refreshTokens_fn(refreshToken);
+      const tokens = await mockAuthService.refreshUserToken(refreshToken);
       return res.json(tokens);
     }
     throw err;
@@ -106,7 +106,6 @@ export const googleCallback = async (req, res) => {
   if (!code) return res.redirect(`${env.CLIENT_URL}/login?error=no_code`);
 
   const redirectUri = `${req.protocol}://${req.get('host')}/api/v1/auth/google/callback`;
-  console.log('[Google OAuth] redirect_uri used:', redirectUri);
 
   // Exchange code for tokens
   const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
@@ -131,7 +130,6 @@ export const googleCallback = async (req, res) => {
     headers: { Authorization: `Bearer ${tokenData.access_token}` },
   });
   const profile = await userRes.json();
-  console.log('[Google OAuth] profile:', profile);
   if (!profile.sub) return res.redirect(`${env.CLIENT_URL}/login?error=no_profile`);
 
   const { accessToken, refreshToken, workspace } = await getAuthService().loginOrRegisterWithGoogle({
@@ -147,7 +145,6 @@ export const googleCallback = async (req, res) => {
     ...(workspace?.id ? { workspaceId: workspace.id } : {}),
   });
   const redirectUrl = `${env.CLIENT_URL}/auth/callback?${params}`;
-  console.log('[Google OAuth] Redirecting to:', redirectUrl.substring(0, 80) + '...');
   res.redirect(redirectUrl);
   } catch (err) {
     console.error('[Google OAuth] Unexpected error:', err);

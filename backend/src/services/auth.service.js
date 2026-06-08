@@ -37,10 +37,25 @@ export const loginUser = async ({ email, password }) => {
   const valid = await comparePassword(password, user.passwordHash);
   if (!valid) throw Object.assign(new Error('Invalid credentials'), { statusCode: 401 });
 
-  const membership = await prisma.workspaceMember.findFirst({
+  let membership = await prisma.workspaceMember.findFirst({
     where: { userId: user.id },
     include: { workspace: true },
   });
+
+  if (!membership) {
+    const workspace = await prisma.workspace.create({
+      data: {
+        name: `${user.name || user.email.split('@')[0]}'s Workspace`,
+        slug: makeSlug(user.name || user.email.split('@')[0]),
+        members: { create: { userId: user.id, role: resolveRole(user.email) } },
+        settings: { create: {} },
+      },
+    });
+    membership = await prisma.workspaceMember.findFirst({
+      where: { userId: user.id },
+      include: { workspace: true },
+    });
+  }
 
   const payload = {
     userId: user.id,

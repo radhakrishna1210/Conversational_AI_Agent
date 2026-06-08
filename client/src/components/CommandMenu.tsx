@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   CommandDialog,
@@ -18,7 +18,6 @@ import {
   PhoneCall,
   FileText,
   BarChart3,
-  MessageCircle,
   Settings,
   CreditCard,
   Key,
@@ -88,7 +87,7 @@ export function CommandMenu({ open, setOpen }: { open: boolean, setOpen: (open: 
               <Phone className="mr-2 h-4 w-4" />
               <span>Phone Numbers</span>
             </CommandItem>
-            <CommandItem onSelect={() => runCommand(() => navigate("/bulk_call"))}>
+            <CommandItem onSelect={() => runCommand(() => navigate("/bulk_call/create"))}>
               <PhoneCall className="mr-2 h-4 w-4" />
               <span>Bulk Call</span>
             </CommandItem>
