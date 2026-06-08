@@ -1464,6 +1464,12 @@ footer {
   background: var(--bg-primary);
 }
 
+/* Layout variables for responsive sidebar/main interactions */
+:root {
+  --sidebar-collapsed-width: 68px;
+  --sidebar-expanded-width: 260px;
+}
+
 /* ─────────────────────────────────────────
    SIDEBAR
    ───────────────────────────────────────── */
@@ -1473,17 +1479,17 @@ footer {
   display: flex;
   flex-direction: column;
   position: fixed;
-  width: 68px;
+  width: var(--sidebar-collapsed-width);
   bottom: 0;
   top: 0;
   z-index: 100;
   overflow-x: hidden;
   overflow-y: hidden;
-  transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .sidebar:hover {
-  width: 260px;
+  width: var(--sidebar-expanded-width);
   box-shadow: 8px 0 32px rgba(0,0,0,0.45);
 }
 
@@ -1491,11 +1497,46 @@ html.light .sidebar:hover {
   box-shadow: 4px 0 24px rgba(15,23,42,0.18);
 }
 
+/* Topbar fixed positioning should follow sidebar width dynamically */
+.topbar-fixed {
+  position: fixed;
+  top: 0;
+  left: var(--sidebar-collapsed-width);
+  right: 0;
+  z-index: 100;
+  height: 56px;
+  overflow: visible;
+  box-shadow: var(--shadow-topbar);
+  transition: left 0.28s ease;
+}
+
+/* When sidebar expands, shift topbar and main content */
+.sidebar:hover ~ .topbar-fixed {
+  left: var(--sidebar-expanded-width);
+}
+
+/* Main content adjusts to sidebar width to avoid overlap/jumps */
+.dashboard-main {
+  margin-top: 56px;
+  margin-left: var(--sidebar-collapsed-width);
+  transition: margin-left 0.28s ease, width 0.28s ease;
+  display: flex;
+  flex: 1;
+  width: calc(100% - var(--sidebar-collapsed-width));
+  min-width: 0;
+  flex-direction: column;
+}
+
+.sidebar:hover ~ .dashboard-main {
+  margin-left: var(--sidebar-expanded-width);
+  width: calc(100% - var(--sidebar-expanded-width));
+}
+
 .sidebar-header {
   display: flex;
   align-items: center;
-  height: 56px;
-  padding: 0 16px;
+  height: 52px;
+  padding: 0 14px;
   border-bottom: 1px solid var(--sidebar-border);
   flex-shrink: 0;
   min-width: 260px;
@@ -1558,10 +1599,10 @@ html.light .sidebar:hover {
   color: rgba(255,255,255,0.25);
   text-transform: uppercase;
   letter-spacing: 1px;
-  padding: 10px 16px 6px 68px;
+  padding: 8px 16px 4px 68px;
   white-space: nowrap;
   opacity: 0;
-  transition: opacity 0.2s ease;
+  transition: opacity 0.2s ease, padding-left 0.2s ease;
 }
 
 .sidebar:hover .sidebar-category {
@@ -1573,12 +1614,12 @@ html.light .sidebar:hover {
 .sidebar-item {
   display: flex;
   align-items: center;
-  padding: 0;
-  height: 40px;
-  margin: 1px 10px;
+  padding: 0 10px;
+  height: 36px;
+  margin: 4px 8px;
   border-radius: 9px;
   color: rgba(255,255,255,0.45);
-  font-size: 13.5px;
+  font-size: 13px;
   font-weight: 500;
   transition: background 0.15s ease, color 0.15s ease;
   cursor: pointer;
@@ -1600,12 +1641,12 @@ html.light .sidebar:hover {
 }
 
 .sidebar-icon {
-  width: 40px;
-  height: 40px;
+  width: 34px;
+  height: 34px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
+  font-size: 15px;
   flex-shrink: 0;
   border-radius: 8px;
 }
@@ -1627,9 +1668,9 @@ html.light .sidebar:hover {
   font-weight: 800;
   background: rgba(249,115,22,0.2);
   color: #fb923c;
-  padding: 2px 7px;
-  border-radius: 20px;
-  margin-left: 8px;
+  padding: 1px 6px;
+  border-radius: 16px;
+  margin-left: 6px;
   opacity: 0;
   letter-spacing: 0.3px;
   transition: opacity 0.2s;
@@ -1800,8 +1841,8 @@ html.light .topbar-icon-btn:hover {
 }
 
 .dashboard-content {
-  padding: 32px 48px;
-  max-width: 1200px;
+  padding: 20px 32px;
+  max-width: 1320px;
   margin: 0 auto;
   width: 100%;
 }
@@ -1810,32 +1851,32 @@ html.light .topbar-icon-btn:hover {
   background: radial-gradient(circle at top right, rgba(0,212,200,0.1), transparent 40%), var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 32px;
-  margin-bottom: 40px;
+  padding: 24px;
+  margin-bottom: 32px;
 }
 
 .create-assistant-box h3 {
   color: var(--teal);
-  margin-bottom: 8px;
+  margin-bottom: 6px;
 }
 
 .create-assistant-box p {
-  font-size: 14px;
-  margin-bottom: 24px;
+  font-size: 13px;
+  margin-bottom: 18px;
 }
 
 .create-textarea {
   width: 100%;
-  background: rgba(0,0,0,0.25);
+  background: rgba(0,0,0,0.18);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: 20px;
+  padding: 16px;
   color: white;
   font-family: inherit;
-  font-size: 15px;
-  min-height: 120px;
+  font-size: 14px;
+  min-height: 100px;
   resize: vertical;
-  margin-bottom: 20px;
+  margin-bottom: 16px;
   outline: none;
 }
 
@@ -1847,29 +1888,76 @@ html.light .topbar-icon-btn:hover {
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
+  gap: 12px;
 }
 
 .use-case-chips {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   flex-wrap: wrap;
 }
 
+.assistants-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 18px;
+}
+
+.assistants-header h2 {
+  font-size: 28px;
+  line-height: 1.1;
+  letter-spacing: -0.5px;
+  margin: 0;
+}
+
+.assistants-header-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+
+.assistants-suggestions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.assistants-suggestions span {
+  white-space: nowrap;
+}
+
+.assistants-suggestions button {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--teal);
+  cursor: pointer;
+  font-size: 12px;
+  text-decoration: underline;
+}
+
 .assistants-section h2 {
-  font-size: 56px;
-  line-height: 1;
-  letter-spacing: -1.4px;
+  font-size: 28px;
+  line-height: 1.1;
+  letter-spacing: -0.5px;
 }
 
 .assistants-search {
-  width: 280px;
+  width: min(280px, 100%);
   border: 1px solid var(--border);
   background: var(--bg-card);
-  border-radius: 8px;
+  border-radius: 10px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 0 12px;
+  gap: 10px;
+  padding: 0 14px;
   height: 36px;
   color: var(--text-secondary);
 }
@@ -1879,23 +1967,26 @@ html.light .topbar-icon-btn:hover {
   border: none;
   background: transparent;
   color: var(--text-primary);
-  font-size: 16px;
+  font-size: 14px;
   outline: none;
 }
 
 .assistants-grid {
   border-top: 1px dashed var(--border);
   padding-top: 18px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  gap: 24px;
 }
 
 .assistant-card {
   width: 100%;
-  max-width: 360px;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 18px;
+  border-radius: 14px;
+  padding: 16px;
   transition: box-shadow 0.2s, border-color 0.2s;
+  box-sizing: border-box;
 }
 .assistant-card:hover {
   border-color: var(--teal-dim);
@@ -1906,26 +1997,27 @@ html.light .topbar-icon-btn:hover {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 12px;
-  margin-bottom: 14px;
+  gap: 10px;
+  margin-bottom: 12px;
 }
 
 .assistant-card-head h3 {
-  font-size: 31px;
-  letter-spacing: -0.8px;
-  margin-bottom: 6px;
+  font-size: 20px;
+  letter-spacing: -0.3px;
+  margin-bottom: 4px;
 }
 
 .assistant-card-head p {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-secondary);
+  margin: 0;
 }
 
 .assistant-menu {
   border: none;
   background: transparent;
   color: var(--text-secondary);
-  font-size: 22px;
+  font-size: 20px;
   line-height: 1;
   padding: 0;
 }
@@ -1933,15 +2025,15 @@ html.light .topbar-icon-btn:hover {
 .assistant-metadata {
   border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
-  padding: 14px 0;
+  padding: 10px 0;
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 8px 16px;
-  margin-bottom: 14px;
+  gap: 8px 14px;
+  margin-bottom: 12px;
 }
 
 .assistant-metadata div {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-secondary);
 }
 
@@ -1957,17 +2049,18 @@ html.light .topbar-icon-btn:hover {
 }
 
 .assistant-id {
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-secondary);
   border: 1px solid var(--border);
   background: rgba(255, 255, 255, 0.02);
-  border-radius: 8px;
-  padding: 8px 10px;
+  border-radius: 10px;
+  padding: 6px 10px;
 }
 
 .assistant-card-footer .btn {
   flex: 1;
-  min-height: 36px;
+  min-height: 34px;
+  font-size: 13px;
 }
 
 .empty-state {

@@ -113,9 +113,9 @@ export default function Dashboard() {
       </div>
 
       <div className="assistants-section">
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
+        <div className="assistants-header">
           <h2>My Voice AI Assistants</h2>
-          <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '8px' }}>
+          <div className="assistants-header-actions">
             <div className="assistants-search">
               <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
               <input
@@ -125,21 +125,12 @@ export default function Dashboard() {
                 onChange={(e) => setSearchQuery(e.target.value)}
               />
             </div>
-            <div style={{ display: 'flex', gap: '8px' }}>
-              <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Suggested:</span>
+            <div className="assistants-suggestions">
+              <span>Suggested:</span>
               {['English', 'GPT-4', 'Moon', 'Support'].map(tag => (
                 <button 
                   key={tag}
                   onClick={() => setSearchQuery(tag)}
-                  style={{ 
-                    background: 'none', 
-                    border: 'none', 
-                    padding: 0, 
-                    fontSize: '11px', 
-                    color: 'var(--teal)', 
-                    cursor: 'pointer',
-                    textDecoration: 'underline'
-                  }}
                 >
                   {tag}
                 </button>

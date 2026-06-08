@@ -116,126 +116,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="dashboard-layout">
-      {/* Topbar */}
-      <div style={{ borderBottom: '1px solid var(--topbar-border)', position: 'fixed', top: 0, left: '68px', right: 0, zIndex: 100, height: '56px', overflow: 'visible', boxShadow: 'var(--shadow-topbar)' }}>
-        <div className="dashboard-topbar">
-          <div 
-            className="topbar-search" 
-            onClick={() => setIsCommandMenuOpen(true)}
-            style={{ cursor: 'pointer' }}
-          >
-            <Search size={16} />
-            <input 
-              type="text" 
-              placeholder="Search or jump to..." 
-              readOnly 
-              style={{ cursor: 'pointer' }}
-            />
-            <span>⌘ K</span>
-          </div>
-          <CommandMenu open={isCommandMenuOpen} setOpen={setIsCommandMenuOpen} />
-          <div className="topbar-actions">
-            {/* Bell */}
-            <button className="topbar-icon-btn" style={{ position: 'relative' }}>
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-                <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
-              </svg>
-              <span style={{ position: 'absolute', top: '6px', right: '6px', width: '7px', height: '7px', background: 'var(--error)', borderRadius: '50%', display: 'block', border: '1.5px solid var(--topbar-bg)' }}></span>
-            </button>
-
-            {/* Dark / Light mode toggle */}
-            <button className="topbar-icon-btn" onClick={toggleDarkMode} title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}>
-              {darkMode ? (
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-                </svg>
-              ) : (
-                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="5"/>
-                  <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
-                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-                  <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
-                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-                </svg>
-              )}
-            </button>
-
-            {/* Profile avatar + dropdown */}
-            <div ref={profileRef} style={{ position: 'relative', marginLeft: '2px' }}>
-              <div
-                className="topbar-avatar"
-                onClick={() => setProfileDropdownOpen(prev => !prev)}
-                style={{ cursor: 'pointer', userSelect: 'none' }}
-              >
-                {user.initials}
-              </div>
-
-              {profileDropdownOpen && (
-                <div style={{
-                  position: 'absolute',
-                  top: 'calc(100% + 12px)',
-                  right: 0,
-                  width: '264px',
-                  background: 'var(--dropdown-bg)',
-                  border: '1px solid var(--dropdown-border)',
-                  borderRadius: '14px',
-                  boxShadow: darkMode
-                    ? '0 16px 48px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04)'
-                    : '0 8px 32px rgba(15,23,42,0.14), 0 0 0 1px rgba(0,0,0,0.04)',
-                  zIndex: 9999,
-                  overflow: 'hidden',
-                }}>
-                  {/* User info header */}
-                  <div style={{ padding: '16px', borderBottom: '1px solid var(--dropdown-border)', display: 'flex', alignItems: 'center', gap: '12px', background: darkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)' }}>
-                    <div style={{ width: '38px', height: '38px', borderRadius: '50%', background: 'linear-gradient(135deg, var(--teal), #0cd4bc)', color: '#060c17', fontWeight: '800', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', flexShrink: 0, boxShadow: '0 0 0 2px var(--teal-light)' }}>
-                      {user.initials}
-                    </div>
-                    <div style={{ overflow: 'hidden', flex: 1 }}>
-                      <div style={{ fontWeight: '700', fontSize: '13.5px', color: 'var(--dropdown-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user.name}</div>
-                      <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '1px' }}>{user.email}</div>
-                      {user.plan && (
-                        <span style={{ marginTop: '5px', display: 'inline-block', fontSize: '9px', fontWeight: '800', padding: '2px 8px', background: 'var(--teal-light)', color: 'var(--teal)', borderRadius: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{user.plan}</span>
-                      )}
-                    </div>
-                  </div>
-
-                  <div style={{ padding: '6px 0', borderBottom: '1px solid var(--dropdown-border)' }}>
-                    {[
-                      { to: '/profile', label: 'Profile', icon: <><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></> },
-                      { to: '/settings', label: 'Settings', icon: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></> },
-                      { to: '/billing', label: 'Billing', icon: <><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></> },
-                    ].map(item => (
-                      <Link key={item.to} to={item.to} onClick={() => setProfileDropdownOpen(false)}
-                        style={{ display: 'flex', alignItems: 'center', padding: '9px 16px', textDecoration: 'none', color: 'var(--dropdown-text)', fontSize: '13.5px', fontWeight: '500', transition: 'background 0.15s' }}
-                        onMouseOver={e => (e.currentTarget.style.background = 'var(--dropdown-hover)')}
-                        onMouseOut={e => (e.currentTarget.style.background = 'transparent')}
-                      >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '12px', opacity: 0.6 }}>{item.icon}</svg>
-                        {item.label}
-                      </Link>
-                    ))}
-                  </div>
-
-                  <div style={{ padding: '6px 0' }}>
-                    <div
-                      onClick={() => { setProfileDropdownOpen(false); handleLogout(); }}
-                      style={{ display: 'flex', alignItems: 'center', padding: '9px 16px', cursor: 'pointer', color: 'var(--error)', fontSize: '13.5px', fontWeight: '500', transition: 'background 0.15s' }}
-                      onMouseOver={e => (e.currentTarget.style.background = 'var(--dropdown-hover)')}
-                      onMouseOut={e => (e.currentTarget.style.background = 'transparent')}
-                    >
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '12px', opacity: 0.8 }}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
-                      Log out
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-
-      {/* Sidebar */}
+      {/* Sidebar (moved before topbar so CSS sibling selectors can react) */}
       <aside className="sidebar">
         <Link to="/" style={{textDecoration: 'none'}}>
           <div className="sidebar-header">
@@ -396,7 +277,128 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </aside>
 
-      <main className="dashboard-main" style={{ marginTop: '56px', marginLeft: '68px' }}>
+      {/* Topbar */}
+      <div className="topbar-fixed">
+        <div className="dashboard-topbar">
+          <div 
+            className="topbar-search" 
+            onClick={() => setIsCommandMenuOpen(true)}
+            style={{ cursor: 'pointer' }}
+          >
+            <Search size={16} />
+            <input 
+              type="text" 
+              placeholder="Search or jump to..." 
+              readOnly 
+              style={{ cursor: 'pointer' }}
+            />
+            <span>⌘ K</span>
+          </div>
+          <CommandMenu open={isCommandMenuOpen} setOpen={setIsCommandMenuOpen} />
+          <div className="topbar-actions">
+            {/* Bell */}
+            <button className="topbar-icon-btn" style={{ position: 'relative' }}>
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
+                <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+              </svg>
+              <span style={{ position: 'absolute', top: '6px', right: '6px', width: '7px', height: '7px', background: 'var(--error)', borderRadius: '50%', display: 'block', border: '1.5px solid var(--topbar-bg)' }}></span>
+            </button>
+
+            {/* Dark / Light mode toggle */}
+            <button className="topbar-icon-btn" onClick={toggleDarkMode} title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}>
+              {darkMode ? (
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                </svg>
+              ) : (
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <circle cx="12" cy="12" r="5"/>
+                  <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
+                  <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
+                  <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
+                  <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
+                </svg>
+              )}
+            </button>
+
+            {/* Profile avatar + dropdown */}
+            <div ref={profileRef} style={{ position: 'relative', marginLeft: '2px' }}>
+              <div
+                className="topbar-avatar"
+                onClick={() => setProfileDropdownOpen(prev => !prev)}
+                style={{ cursor: 'pointer', userSelect: 'none' }}
+              >
+                {user.initials}
+              </div>
+
+              {profileDropdownOpen && (
+                <div style={{
+                  position: 'absolute',
+                  top: 'calc(100% + 12px)',
+                  right: 0,
+                  width: '264px',
+                  background: 'var(--dropdown-bg)',
+                  border: '1px solid var(--dropdown-border)',
+                  borderRadius: '14px',
+                  boxShadow: darkMode
+                    ? '0 16px 48px rgba(0,0,0,0.7), 0 0 0 1px rgba(255,255,255,0.04)'
+                    : '0 8px 32px rgba(15,23,42,0.14), 0 0 0 1px rgba(0,0,0,0.04)',
+                  zIndex: 9999,
+                  overflow: 'hidden',
+                }}>
+                  {/* User info header */}
+                  <div style={{ padding: '16px', borderBottom: '1px solid var(--dropdown-border)', display: 'flex', alignItems: 'center', gap: '12px', background: darkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)' }}>
+                    <div style={{ width: '38px', height: '38px', borderRadius: '50%', background: 'linear-gradient(135deg, var(--teal), #0cd4bc)', color: '#060c17', fontWeight: '800', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', flexShrink: 0, boxShadow: '0 0 0 2px var(--teal-light)' }}>
+                      {user.initials}
+                    </div>
+                    <div style={{ overflow: 'hidden', flex: 1 }}>
+                      <div style={{ fontWeight: '700', fontSize: '13.5px', color: 'var(--dropdown-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user.name}</div>
+                      <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '1px' }}>{user.email}</div>
+                      {user.plan && (
+                        <span style={{ marginTop: '5px', display: 'inline-block', fontSize: '9px', fontWeight: '800', padding: '2px 8px', background: 'var(--teal-light)', color: 'var(--teal)', borderRadius: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{user.plan}</span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div style={{ padding: '6px 0', borderBottom: '1px solid var(--dropdown-border)' }}>
+                    {[
+                      { to: '/profile', label: 'Profile', icon: <><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></> },
+                      { to: '/settings', label: 'Settings', icon: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></> },
+                      { to: '/billing', label: 'Billing', icon: <><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></> },
+                    ].map(item => (
+                      <Link key={item.to} to={item.to} onClick={() => setProfileDropdownOpen(false)}
+                        style={{ display: 'flex', alignItems: 'center', padding: '9px 16px', textDecoration: 'none', color: 'var(--dropdown-text)', fontSize: '13.5px', fontWeight: '500', transition: 'background 0.15s' }}
+                        onMouseOver={e => (e.currentTarget.style.background = 'var(--dropdown-hover)')}
+                        onMouseOut={e => (e.currentTarget.style.background = 'transparent')}
+                      >
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '12px', opacity: 0.6 }}>{item.icon}</svg>
+                        {item.label}
+                      </Link>
+                    ))}
+                  </div>
+
+                  <div style={{ padding: '6px 0' }}>
+                    <div
+                      onClick={() => { setProfileDropdownOpen(false); handleLogout(); }}
+                      style={{ display: 'flex', alignItems: 'center', padding: '9px 16px', cursor: 'pointer', color: 'var(--error)', fontSize: '13.5px', fontWeight: '500', transition: 'background 0.15s' }}
+                      onMouseOver={e => (e.currentTarget.style.background = 'var(--dropdown-hover)')}
+                      onMouseOut={e => (e.currentTarget.style.background = 'transparent')}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '12px', opacity: 0.8 }}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                      Log out
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      
+
+      <main className="dashboard-main">
         <div className="dashboard-content">
           {children}
         </div>

@@ -12,6 +12,7 @@ export const env = {
 
   DATABASE_URL: required('DATABASE_URL'),
   REDIS_URL: optional('REDIS_URL', ''),
+  USE_MOCK_AUTH: optional('USE_MOCK_AUTH', 'false'),
 
   JWT_ACCESS_SECRET: required('JWT_ACCESS_SECRET'),
   JWT_REFRESH_SECRET: required('JWT_REFRESH_SECRET'),
