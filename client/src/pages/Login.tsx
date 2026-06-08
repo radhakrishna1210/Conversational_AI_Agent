@@ -46,7 +46,7 @@ export default function Login() {
       }
 
       setStatus('success');
-      setTimeout(() => window.location.href = "/", 1500);
+      setTimeout(() => window.location.href = "/dashboard", 1500);
     } catch {
       setErrorMsg('Network error. Please check your connection.');
       setStatus('error');

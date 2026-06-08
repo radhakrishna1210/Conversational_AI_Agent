@@ -8,7 +8,7 @@ import { env } from '../config/env.js';
 
 // Fallback to mock service if database is unavailable
 const getAuthService = () => {
-  const useMock = env.USE_MOCK_AUTH === 'true' || env.DATABASE_URL?.includes('supabase') && process.env.DB_STATUS === 'unavailable';
+  const useMock = env.USE_MOCK_AUTH === 'true' || process.env.DB_STATUS === 'unavailable';
   return useMock ? mockAuthService : authService;
 };
 
@@ -61,7 +61,7 @@ export const refresh = async (req, res) => {
   } catch (err) {
     // Fallback
     if (service === authService && process.env.DB_STATUS === 'unavailable') {
-      const tokens = await mockAuthService.refreshTokens_fn(refreshToken);
+      const tokens = await mockAuthService.refreshUserToken(refreshToken);
       return res.json(tokens);
     }
     throw err;
