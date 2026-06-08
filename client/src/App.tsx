@@ -32,6 +32,7 @@ import Login from './pages/Login';
 import AuthCallback from './pages/AuthCallback';
 import EditAgent from './pages/EditAgent';
 import VoiceAssistant from './components/VoiceAssistant';
+import AdminPanel from './pages/AdminPanel';
 
 // Quick Wrapper for the new page
 function VoiceAssistantPage() {
@@ -113,6 +114,7 @@ function App() {
             <Route path="/voice_assistant" element={<VoiceAssistantPage />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/profile" element={<Settings />} />
+            <Route path="/admin" element={<AdminPanel />} />
           </Route>
         </Route>
       </Routes>

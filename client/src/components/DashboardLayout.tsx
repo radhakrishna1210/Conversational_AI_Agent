@@ -17,15 +17,22 @@ import {
   Key,
   Settings,
   LogOut,
-  Search
+  Search,
+  Shield
 } from "lucide-react";
 import { useTheme } from '../hooks/useTheme';
 import { CommandMenu } from './CommandMenu';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
+
+  // true = dark (default), false = light
+  const [darkMode, setDarkMode] = useState(true);
+  const [user, setUser] = useState({ name: 'User', email: '', initials: 'U', plan: '', role: '' });
+
   const { darkMode, toggleDarkMode } = useTheme();
   const [user, setUser] = useState({ name: 'User', email: '', initials: 'U', plan: '' });
+
   const profileRef = useRef<HTMLDivElement>(null);
   
   const location = useLocation();
@@ -52,20 +59,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     localStorage.removeItem('workspaceId');
     localStorage.removeItem('userName');
     localStorage.removeItem('userEmail');
+    localStorage.removeItem('userRole');
     navigate('/login');
   };
 
   useEffect(() => {
-    const buildUser = (name: string, email: string, plan = '') => {
+    const buildUser = (name: string, email: string, plan = '', role = '') => {
       const initials = name
         .split(' ')
         .map(n => n[0])
         .join('')
         .toUpperCase()
         .substring(0, 2) || 'U';
-      setUser({ name, email, initials, plan });
+      setUser({ name, email, initials, plan, role });
       localStorage.setItem('userName', name);
       localStorage.setItem('userEmail', email);
+      if (role) localStorage.setItem('userRole', role);
     };
 
     const fetchMe = async () => {
@@ -79,10 +88,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           const data = await res.json();
           const u = data.user;
           const name = u.name || u.email?.split('@')[0] || 'User';
+
+          buildUser(name, u.email || '', u.plan || '', u.role || '');
+
           buildUser(name, u.email || '', u.plan || '');
           if (u.workspaceId && !localStorage.getItem('workspaceId')) {
             localStorage.setItem('workspaceId', u.workspaceId);
           }
+
           return;
         }
       } catch (_) {}
@@ -93,17 +106,22 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         try {
           const payload = JSON.parse(atob(token2.split('.')[1]));
           const name = payload.name || payload.email?.split('@')[0] || 'User';
+
+          buildUser(name, payload.email || '', payload.plan || '', payload.role || '');
+
           buildUser(name, payload.email || '', payload.plan || '');
           if (payload.workspaceId && !localStorage.getItem('workspaceId')) {
             localStorage.setItem('workspaceId', payload.workspaceId);
           }
+
           return;
         } catch (_) {}
       }
       // Final fallback: localStorage cache
       const cachedName = localStorage.getItem('userName') || 'User';
       const cachedEmail = localStorage.getItem('userEmail') || '';
-      buildUser(cachedName, cachedEmail);
+      const cachedRole = localStorage.getItem('userRole') || '';
+      buildUser(cachedName, cachedEmail, '', cachedRole);
     };
 
     fetchMe();
@@ -246,6 +264,16 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
           <div className="sidebar-section">
             <div className="sidebar-category">ACCOUNT & BILLING</div>
+
+            {user.role === 'Admin' && (
+              <Link to="/admin">
+                <div className={`sidebar-item ${path === '/admin' ? 'active' : ''}`} style={{ position: 'relative' }}>
+                  <span className="sidebar-icon"><Shield size={16} /></span>
+                  <span className="sidebar-text">Admin Panel</span>
+                  <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', padding: '1px 6px', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, fontSize: 9, fontWeight: 800, color: '#f87171', letterSpacing: '0.3px' }}>ADMIN</span>
+                </div>
+              </Link>
+            )}
 
             <Link to="/billing">
               <div className={`sidebar-item ${path === '/billing' ? 'active' : ''}`}>

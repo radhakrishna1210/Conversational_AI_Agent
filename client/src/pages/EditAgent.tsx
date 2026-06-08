@@ -1,6 +1,11 @@
 import { useParams, useNavigate } from 'react-router-dom';
+
+import { useEffect, useState, useRef } from 'react';
+import { AgentConfig, getAgent, saveAgent } from '../lib/agentStore';
+
 import { useEffect, useState } from 'react';
 import { AgentConfig, getAgent, saveAgent, getDefaultFlowItems } from '../lib/agentStore';
+
 import { whapi } from '../lib/whapi';
 import { integrationsApi } from '../lib/integrationsApi';
 import { toast } from 'sonner';
@@ -160,6 +165,34 @@ export default function EditAgent() {
     }));
   };
   
+  // KB state
+  const [kbUrls, setKbUrls] = useState<string[]>([]);
+  const [kbUrlInput, setKbUrlInput] = useState('');
+  const [kbFiles, setKbFiles] = useState<File[]>([]);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const handleAddKbUrl = () => {
+    if (kbUrlInput.trim() && !kbUrls.includes(kbUrlInput.trim())) {
+      setKbUrls([...kbUrls, kbUrlInput.trim()]);
+      setKbUrlInput('');
+    }
+  };
+
+  const removeKbUrl = (url: string) => {
+    setKbUrls(kbUrls.filter(u => u !== url));
+  };
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files) {
+      const newFiles = Array.from(e.target.files);
+      setKbFiles([...kbFiles, ...newFiles]);
+    }
+  };
+
+  const removeKbFile = (index: number) => {
+    setKbFiles(kbFiles.filter((_, i) => i !== index));
+  };
+  
   // Chat test state
   const [showChatModal, setShowChatModal] = useState(false);
   const [chatMessages, setChatMessages] = useState<{ role: string, content: string }[]>([]);
@@ -273,7 +306,9 @@ export default function EditAgent() {
       ambientSound,
       dynamicEnabled,
       interruptibleEnabled,
-      postCallConfigs
+      postCallConfigs,
+      kbUrls,
+      kbFiles: kbFiles.map(f => f.name)
     };
 
     try {
@@ -1626,11 +1661,25 @@ export default function EditAgent() {
                 <div style={{ background: '#0b0b0b', border: '1px solid #2a2a2a', borderRadius: '16px', padding: '34px 30px 30px' }}>
                   <div style={{ fontSize: '18px', fontWeight: '700', color: '#fff', marginBottom: '10px' }}>Upload PDFs</div>
                   <div style={{ fontSize: '14px', color: '#c5c5c5', marginBottom: '16px' }}>Add PDF files to your assistant's knowledge base</div>
-                  <div style={{ border: '2px dashed #323232', borderRadius: '14px', minHeight: '168px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '18px' }}>
+                  <div 
+                    onClick={() => fileInputRef.current?.click()}
+                    style={{ border: '2px dashed #323232', borderRadius: '14px', minHeight: '168px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '18px', cursor: 'pointer' }}
+                  >
+                    <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".pdf" multiple style={{ display: 'none' }} />
                     <div style={{ width: '54px', height: '54px', borderRadius: '18px', background: '#062d2f', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#12c8d0', fontSize: '20px', marginBottom: '16px' }}>^</div>
                     <div style={{ fontSize: '17px', fontWeight: '700', color: '#fff', marginBottom: '10px' }}>Drag and drop a file here, or click to select</div>
                     <div style={{ fontSize: '13px', color: '#b7b7b7' }}>Supported formats: PDF (max 10MB)</div>
                   </div>
+                  {kbFiles.length > 0 && (
+                    <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {kbFiles.map((file, i) => (
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', background: '#111', padding: '8px 12px', borderRadius: '8px', border: '1px solid #222' }}>
+                          <span style={{ fontSize: '13px', color: '#fff' }}>{file.name}</span>
+                          <button onClick={(e) => { e.stopPropagation(); removeKbFile(i); }} style={{ background: 'none', border: 'none', color: '#ff6f6f', cursor: 'pointer', fontSize: '12px' }}>Remove</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
 
                 <div style={{ background: '#0b0b0b', border: '1px solid #2a2a2a', borderRadius: '16px', padding: '34px 30px 30px' }}>
@@ -1642,6 +1691,8 @@ export default function EditAgent() {
                   </div>
                   <input
                     type="text"
+                    value={kbUrlInput}
+                    onChange={(e) => setKbUrlInput(e.target.value)}
                     placeholder="https://example.com/"
                     style={{
                       width: '100%',
@@ -1656,9 +1707,19 @@ export default function EditAgent() {
                       marginBottom: '20px'
                     }}
                   />
-                  <button style={{ width: '100%', height: '46px', background: '#0f6f73', border: 'none', borderRadius: '10px', color: '#071416', fontSize: '15px', fontWeight: '700', cursor: 'pointer' }}>
+                  <button onClick={handleAddKbUrl} style={{ width: '100%', height: '46px', background: '#0f6f73', border: 'none', borderRadius: '10px', color: '#071416', fontSize: '15px', fontWeight: '700', cursor: 'pointer', marginBottom: kbUrls.length > 0 ? '16px' : '0' }}>
                     Add to Knowledge Base
                   </button>
+                  {kbUrls.length > 0 && (
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                      {kbUrls.map((url, i) => (
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', background: '#111', padding: '8px 12px', borderRadius: '8px', border: '1px solid #222' }}>
+                          <span style={{ fontSize: '13px', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{url}</span>
+                          <button onClick={() => removeKbUrl(url)} style={{ background: 'none', border: 'none', color: '#ff6f6f', cursor: 'pointer', fontSize: '12px' }}>Remove</button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1666,7 +1727,7 @@ export default function EditAgent() {
             <div style={{ background: '#281509', border: '1px solid #b65912', borderRadius: '14px', padding: '18px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '20px' }}>
               <div>
                 <div style={{ fontSize: '15px', fontWeight: '700', color: '#ffd95f', marginBottom: '6px' }}>Low Storage Space Warning</div>
-                <div style={{ fontSize: '14px', color: '#ffd066' }}>You only have 5.0 MB of knowledge base storage remaining. Consider upgrading your account to avoid upload restrictions.</div>
+                <div style={{ fontSize: '14px', color: '#ffd066' }}>You only have {Math.max(0, 5.0 - kbFiles.reduce((acc, file) => acc + file.size, 0) / (1024 * 1024)).toFixed(1)} MB of knowledge base storage remaining. Consider upgrading your account to avoid upload restrictions.</div>
               </div>
               <button style={{ padding: '10px 18px', background: '#ff6f6f', border: 'none', borderRadius: '10px', color: '#1f0d0d', fontSize: '14px', fontWeight: '700', cursor: 'pointer' }}>
                 Upgrade

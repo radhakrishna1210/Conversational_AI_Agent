@@ -91,11 +91,17 @@ export const refreshTokens = async (rawToken) => {
   await prisma.refreshToken.update({ where: { id: stored.id }, data: { revokedAt: new Date() } });
 
   const user = await prisma.user.findUnique({ where: { id: stored.userId } });
+
+  // Re-fetch the membership role so it isn't lost after a token refresh
+  const membership = await prisma.workspaceMember.findFirst({
+    where: { userId: user.id, workspaceId: stored.workspaceId ?? undefined },
+  });
+
   const payload = {
     userId: user.id,
     email: user.email,
     workspaceId: stored.workspaceId,
-    role: null,
+    role: membership?.role ?? null,
   };
 
   const accessToken = signAccessToken(payload);

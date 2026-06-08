@@ -17,6 +17,10 @@ model User {
   googleId     String?  @unique
   name         String
   avatarUrl    String?
+  banned       Boolean  @default(false)
+  bannedAt     DateTime?
+  bannedReason String?
+  planName     String   @default("Free")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
