@@ -168,6 +168,74 @@ export const logout = async (rawToken) => {
   tokenStore.delete(tokenHash);
 };
 
+// Google OAuth Login/Register
+export const loginOrRegisterWithGoogle = async ({ googleId, email, name, avatarUrl }) => {
+  // Check if user exists by googleId
+  let user = null;
+  for (const u of users.values()) {
+    if (u.googleId === googleId) {
+      user = u;
+      break;
+    }
+  }
+
+  // If not found by googleId, check by email
+  if (!user) {
+    user = users.get(email);
+  }
+
+  // If user doesn't exist, create new one
+  if (!user) {
+    const id = `user-${Date.now()}`;
+    const workspaceId = `ws-${Date.now()}`;
+
+    user = {
+      id,
+      email,
+      name,
+      googleId,
+      avatarUrl,
+      workspace: {
+        id: workspaceId,
+        name: `${name}'s Workspace`,
+        slug: name.toLowerCase().replace(/\s+/g, '-') + '-' + Date.now().toString(36),
+      },
+    };
+
+    users.set(email, user);
+    logger.info({ email }, 'New user created via Google OAuth');
+  } else {
+    // Update existing user with Google info
+    user.googleId = googleId;
+    if (avatarUrl) user.avatarUrl = avatarUrl;
+    logger.info({ email }, 'User logged in via Google OAuth');
+  }
+
+  const payload = {
+    userId: user.id,
+    email: user.email,
+    workspaceId: user.workspace?.id ?? null,
+    role: 'Admin',
+  };
+
+  const accessToken = signAccessToken(payload);
+  const rawRefresh = generateSecureToken();
+  const tokenHash = hashToken(rawRefresh);
+
+  tokenStore.set(tokenHash, {
+    userId: user.id,
+    workspaceId: user.workspace?.id ?? null,
+    expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+  });
+
+  return {
+    accessToken,
+    refreshToken: rawRefresh,
+    user: { id: user.id, name: user.name, email: user.email },
+    workspace: user.workspace ?? null,
+  };
+};
+
 // Invite (not implemented yet)
 export const acceptInvite = async () => {
   throw Object.assign(

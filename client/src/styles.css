@@ -2494,3 +2494,8 @@ html.light .topbar-icon-btn:hover {
   .create-actions { flex-direction: column; gap: 20px; align-items: stretch; }
   .plan-card { width: 100%; }
 }
+
+@keyframes slideUp {
+  from { opacity: 0; transform: translateY(20px); }
+  to { opacity: 1; transform: translateY(0); }
+}

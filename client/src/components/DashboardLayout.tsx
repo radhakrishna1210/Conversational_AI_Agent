@@ -27,11 +27,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
 
   // true = dark (default), false = light
-  const [darkMode, setDarkMode] = useState(true);
-  const [user, setUser] = useState({ name: 'User', email: '', initials: 'U', plan: '', role: '' });
-
   const { darkMode, toggleDarkMode } = useTheme();
-  const [user, setUser] = useState({ name: 'User', email: '', initials: 'U', plan: '' });
+  const [user, setUser] = useState({ name: 'User', email: '', initials: 'U', plan: '', role: '' });
 
   const profileRef = useRef<HTMLDivElement>(null);
   
