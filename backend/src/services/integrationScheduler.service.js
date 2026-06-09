@@ -4,6 +4,9 @@ import { processPendingSyncJobs, createSyncJob } from './integrations.service.js
 
 const AUTO_SYNC_MS = 60 * 1000;
 
+// Track if DB is reachable to avoid log spam
+let _dbAvailable = true;
+
 export const startIntegrationScheduler = () => {
   const tick = async () => {
     try {
@@ -14,6 +17,9 @@ export const startIntegrationScheduler = () => {
         include: { settings: true },
       });
 
+      // Restore DB availability flag on success
+      _dbAvailable = true;
+
       const now = Date.now();
       for (const integration of integrations) {
         const intervalMinutes = Number(integration.settings?.settingsJson?.syncIntervalMinutes ?? 30);
@@ -23,7 +29,11 @@ export const startIntegrationScheduler = () => {
         }
       }
     } catch (err) {
-      logger.warn({ err }, 'Integration scheduler tick failed');
+      // Only log on first DB failure to avoid log spam
+      if (_dbAvailable) {
+        logger.warn('Integration scheduler paused: database unreachable. Will retry automatically.');
+        _dbAvailable = false;
+      }
     }
   };
 

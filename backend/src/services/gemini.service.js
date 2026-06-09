@@ -42,6 +42,10 @@ class GeminiService {
   async initializeClient() {
     if (this.client) return;
 
+    if (!this.apiKey) {
+      throw new Error('GEMINI_API_KEY not configured');
+    }
+
     try {
       const { GoogleGenerativeAI } = await import("@google/generative-ai");
       this.client = new GoogleGenerativeAI(this.apiKey);

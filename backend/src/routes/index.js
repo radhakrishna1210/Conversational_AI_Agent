@@ -30,6 +30,7 @@ import integrationsPublicRoutes from './integrationsPublic.routes.js';
 import { getHealth as getGeminiHealth, getMetrics as getGeminiMetrics } from '../controllers/gemini.controller.js';
 import { getHealth as getOpenAIHealth, getMetrics as getOpenAIMetrics } from '../controllers/openai.controller.js';
 import { getHealth as getAzureHealth, getMetrics as getAzureMetrics } from '../controllers/azure.controller.js';
+import { generateAgentFlow } from '../controllers/llm.controller.js';
 
 const router = Router();
 
@@ -73,6 +74,9 @@ router.post('/assistant/chat', async (req, res) => {
     });
   }
 });
+
+// Public LLM — generate-flow needs no auth (only takes a name, returns AI config)
+router.post('/llm/generate-flow', generateAgentFlow);
 
 // Admin (authenticate + isAdmin enforced inside admin.routes.js)
 router.use('/admin', adminRoutes);

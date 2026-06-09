@@ -9,6 +9,7 @@ import {
   getModelsForProvider,
   getSupportedProviders,
   validateLLMConfig,
+  generateAgentFlow,
 } from "../controllers/llm.controller.js";
 
 const router = express.Router();
@@ -18,6 +19,12 @@ const router = express.Router();
  * POST /api/llm/generate
  */
 router.post("/generate", generateResponse);
+
+/**
+ * Generate Agent Conversational Flow
+ * POST /api/llm/generate-flow
+ */
+router.post("/generate-flow", generateAgentFlow);
 
 /**
  * Get Models for a Specific Provider
