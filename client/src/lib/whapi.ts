@@ -25,13 +25,11 @@ function getAuth() {
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const { token, workspaceId } = getAuth();
   const url = `${BASE}/workspaces/${workspaceId}${path}`;
-  const headers: Record<string, string> = {
-    ...(options.headers ?? {}),
-  };
-  if (token) headers.Authorization = `Bearer ${token}`;
+  const headers = new Headers(options.headers);
+  if (token) headers.set('Authorization', `Bearer ${token}`);
 
   if (!(options.body instanceof FormData)) {
-    headers['Content-Type'] = 'application/json';
+    headers.set('Content-Type', 'application/json');
   }
 
   const res = await safeFetch(url, {
