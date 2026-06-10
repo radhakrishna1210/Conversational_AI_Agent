@@ -26,6 +26,7 @@ import azureRoutes from './azure.routes.js';
 import agentRoutes from './agent.routes.js';
 import integrationsRoutes from './integrations.routes.js';
 import integrationsPublicRoutes from './integrationsPublic.routes.js';
+import contactSubmissionRoutes from './contactSubmission.routes.js';
 
 import { getHealth as getGeminiHealth, getMetrics as getGeminiMetrics } from '../controllers/gemini.controller.js';
 import { getHealth as getOpenAIHealth, getMetrics as getOpenAIMetrics } from '../controllers/openai.controller.js';
@@ -42,6 +43,7 @@ router.get('/config', (_req, res) => {
 router.use('/auth', authRoutes);
 router.use('/agents', agentRoutes);
 router.use('/integrations', integrationsPublicRoutes);
+router.use('/contact', contactSubmissionRoutes);
 
 // Public AI Assistant chat — no auth required, always works
 router.post('/assistant/chat', async (req, res) => {

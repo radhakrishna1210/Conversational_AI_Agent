@@ -51,7 +51,7 @@ function ScrollToTop() {
   return null;
 }
 
-function DefaultLayout({ children }: { children: React.ReactNode }) {
+function DefaultLayout({ children, showFooter = true }: { children: React.ReactNode; showFooter?: boolean }) {
   return (
     <>
       <AnnouncementBar />
@@ -59,7 +59,7 @@ function DefaultLayout({ children }: { children: React.ReactNode }) {
       <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
         <div style={{ flex: 1 }}>{children}</div>
       </div>
-      <Footer />
+      {showFooter && <Footer />}
     </>
   );
 }
@@ -87,7 +87,7 @@ function App() {
         <Route path="/" element={<DefaultLayout><Home /></DefaultLayout>} />
         <Route path="/pricing" element={<DefaultLayout><Pricing /></DefaultLayout>} />
         <Route path="/documentation" element={<DefaultLayout><Documentation /></DefaultLayout>} />
-        <Route path="/book-appointment" element={<DefaultLayout><BookAppointment /></DefaultLayout>} />
+        <Route path="/book-appointment" element={<DefaultLayout showFooter={false}><BookAppointment /></DefaultLayout>} />
         <Route path="/contact" element={<DefaultLayout><Contact /></DefaultLayout>} />
         <Route path="/docs" element={<DefaultLayout><Docs /></DefaultLayout>} />
         <Route path="/report-issue" element={<DefaultLayout><ReportIssue /></DefaultLayout>} />
