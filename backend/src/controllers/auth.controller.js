@@ -85,9 +85,13 @@ export const me = async (req, res) => {
 };
 
 export const googleRedirect = (req, res) => {
+  // Use GOOGLE_REDIRECT_URI from env if set, otherwise build from backend port directly
+  // (avoids issues when running behind Vite dev proxy which changes req.get('host'))
+  const redirectUri = env.GOOGLE_REDIRECT_URI ||
+    `${req.protocol}://localhost:${env.PORT}/api/v1/auth/google/callback`;
   const params = new URLSearchParams({
     client_id: env.GOOGLE_CLIENT_ID,
-    redirect_uri: `${req.protocol}://${req.get('host')}/api/v1/auth/google/callback`,
+    redirect_uri: redirectUri,
     response_type: 'code',
     scope: 'openid email profile',
     access_type: 'offline',
@@ -105,7 +109,8 @@ export const googleCallback = async (req, res) => {
   }
   if (!code) return res.redirect(`${env.CLIENT_URL}/login?error=no_code`);
 
-  const redirectUri = `${req.protocol}://${req.get('host')}/api/v1/auth/google/callback`;
+  const redirectUri = env.GOOGLE_REDIRECT_URI ||
+    `${req.protocol}://localhost:${env.PORT}/api/v1/auth/google/callback`;
 
   // Exchange code for tokens
   const tokenRes = await fetch('https://oauth2.googleapis.com/token', {

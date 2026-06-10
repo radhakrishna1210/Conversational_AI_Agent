@@ -58,7 +58,7 @@ router.post('/assistant/chat', async (req, res) => {
       message,
       { model: 'gemini-2.5-flash', temperature: 0.7 },
       {
-        systemPrompt: systemPrompt || "You are a helpful AI assistant representing the Whabridge Conversational Voice AI platform. Your job is to answer the user's questions about configuring their agent, setting up integrations (like N8N, Genesys, Twilio), setting up speech-to-text / text-to-speech, and configuring languages. Be concise, professional, and friendly.",
+        systemPrompt: systemPrompt || "You are a helpful AI assistant representing the OmniDimension Conversational Voice AI platform. Your job is to answer the user's questions about configuring their agent, setting up integrations (like N8N, Genesys, Twilio), setting up speech-to-text / text-to-speech, and configuring languages. Be concise, professional, and friendly.",
         maxTokens: 2000,
       }
     );

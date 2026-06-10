@@ -1,4 +1,4 @@
-import { BrowserRouter as Router, Routes, Route, useLocation, Outlet } from 'react-router-dom';
+import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, Outlet } from 'react-router-dom';
 import { useEffect } from 'react';
 
 // Layout Components
@@ -64,7 +64,13 @@ function DefaultLayout({ children }: { children: React.ReactNode }) {
   );
 }
 
-function ProtectedRoute() { return <Outlet />; }
+function ProtectedRoute() {
+  const token = localStorage.getItem('token');
+  if (!token) {
+    return <Navigate to="/login" replace />;
+  }
+  return <Outlet />;
+}
 
 function DashboardLayoutWrapper() {
   return (

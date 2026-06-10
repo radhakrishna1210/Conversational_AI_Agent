@@ -1,15 +1,13 @@
 import { useParams, useNavigate } from 'react-router-dom';
 
 import { useEffect, useState, useRef } from 'react';
-import { AgentConfig, getAgent, saveAgent } from '../lib/agentStore';
-
-import { useEffect, useState } from 'react';
 import { AgentConfig, getAgent, saveAgent, getDefaultFlowItems } from '../lib/agentStore';
 
 import { whapi } from '../lib/whapi';
 import { integrationsApi } from '../lib/integrationsApi';
 import { toast } from 'sonner';
 import ChatComponent from '../components/ChatComponent';
+import AIAssistantSidebar from '../components/AIAssistantSidebar';
 import { useTheme } from '../hooks/useTheme';
 
 
@@ -892,50 +890,7 @@ export default function EditAgent() {
         </div>
       )}
 
-      {/* Ask AI Modal */}
-      {showAskAIModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: '#1a1a1a', borderRadius: '12px', padding: '30px', maxWidth: '600px', width: '90%', maxHeight: '80vh', overflowY: 'auto', border: '1px solid #333' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h2 style={{ fontSize: '18px', fontWeight: '600', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>✨ Ask AI Assistant</h2>
-              <button onClick={() => setShowAskAIModal(false)} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '24px' }}>✕</button>
-            </div>
-            <p style={{ fontSize: '13px', color: '#999', marginBottom: '16px' }}>Ask AI to help you configure your agent "{agentName}". Get suggestions for prompts, flows, or settings.</p>
-            <div style={{ display: 'flex', gap: '10px', marginBottom: '20px' }}>
-              <input
-                type="text"
-                value={askAIInput}
-                onChange={e => setAskAIInput(e.target.value)}
-                onKeyDown={e => e.key === 'Enter' && handleAskAI()}
-                placeholder="e.g. Suggest a better welcome message for a support agent..."
-                style={{ flex: 1, background: '#0f0f0f', border: '1px solid #333', borderRadius: '8px', padding: '12px 14px', color: '#fff', fontSize: '13px', outline: 'none' }}
-              />
-              <button
-                onClick={handleAskAI}
-                disabled={isAskAILoading || !askAIInput.trim()}
-                style={{ padding: '12px 20px', background: '#ff9800', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', opacity: (isAskAILoading || !askAIInput.trim()) ? 0.6 : 1 }}
-              >{isAskAILoading ? '⏳ Thinking...' : '✨ Ask'}</button>
-            </div>
-            {askAIResponse && (
-              <div style={{ background: '#0f0f0f', border: '1px solid #333', borderRadius: '8px', padding: '16px', fontSize: '13px', lineHeight: '1.6', color: '#ddd', whiteSpace: 'pre-wrap' }}>
-                <div style={{ fontSize: '11px', color: '#00bcd4', fontWeight: '600', marginBottom: '8px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>AI Response</div>
-                {askAIResponse}
-              </div>
-            )}
-            <div style={{ display: 'flex', gap: '8px', marginTop: '16px', flexWrap: 'wrap' }}>
-              {['Suggest a welcome message', 'Improve my flow', 'Add error handling', 'Make it more natural'].map(suggestion => (
-                <button
-                  key={suggestion}
-                  onClick={() => { setAskAIInput(suggestion); }}
-                  style={{ padding: '6px 12px', background: '#0f0f0f', border: '1px solid #333', borderRadius: '20px', color: '#aaa', fontSize: '11px', cursor: 'pointer' }}
-                  onMouseEnter={e => { e.currentTarget.style.borderColor = '#00bcd4'; e.currentTarget.style.color = '#fff'; }}
-                  onMouseLeave={e => { e.currentTarget.style.borderColor = '#333'; e.currentTarget.style.color = '#aaa'; }}
-                >{suggestion}</button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
+
 
       {/* Web Call Modal */}
       {showWebCallModal && (
@@ -1142,13 +1097,16 @@ export default function EditAgent() {
 
       </div>
 
-      {agentNotFound && (
-        <div style={{ padding: '40px', background: '#1a1a1a', border: '1px solid #333', borderRadius: '12px', margin: '20px 30px', color: '#fff' }}>
-          <h2 style={{ margin: 0, fontSize: '18px' }}>Agent not found</h2>
-          <p style={{ color: '#999', marginTop: '10px' }}>The assistant you are trying to edit does not exist or has been removed. Return to the dashboard to select a different assistant.</p>
-          <button onClick={() => navigate('/dashboard')} style={{ marginTop: '16px', padding: '10px 18px', background: '#00bcd4', color: '#000', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Back to Dashboard</button>
-        </div>
-      )}
+      <div style={{ display: 'flex', flex: 1, height: 'calc(100vh - 73px)' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ flex: 1, overflowY: 'auto' }}>
+            {agentNotFound && (
+              <div style={{ padding: '40px', background: '#1a1a1a', border: '1px solid #333', borderRadius: '12px', margin: '20px 30px', color: '#fff' }}>
+                <h2 style={{ margin: 0, fontSize: '18px' }}>Agent not found</h2>
+                <p style={{ color: '#999', marginTop: '10px' }}>The assistant you are trying to edit does not exist or has been removed. Return to the dashboard to select a different assistant.</p>
+                <button onClick={() => navigate('/dashboard')} style={{ marginTop: '16px', padding: '10px 18px', background: '#00bcd4', color: '#000', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Back to Dashboard</button>
+              </div>
+            )}
 
       {/* Tabs */}
       <div style={{ display: 'flex', borderBottom: '1px solid #1a1a1a', background: '#0a0a0a', padding: '0 24px', gap: '24px', overflowX: 'auto', alignItems: 'center' }}>
@@ -2398,6 +2356,14 @@ export default function EditAgent() {
         )}
       </div>
       )}
+          </div>
+        </div>
+
+        {/* Right Sidebar (AI Assistant) */}
+        {showAskAIModal && (
+          <AIAssistantSidebar onClose={() => setShowAskAIModal(false)} />
+        )}
+      </div>
 
       {/* Chat Modal */}
       {showChatModal && (
