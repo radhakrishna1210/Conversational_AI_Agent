@@ -36,8 +36,26 @@ export const buildMultilingualPrompt = (userMessage, selectedLanguages = ['Engli
   const detectedLanguage = detectLanguage(userMessage);
   const languageList = selectedLanguages.join(', ');
 
+  const welcomeMessage = agentContext.welcomeMessage || 'You are a helpful assistant.';
+  const flowItems = agentContext.flowItems || [];
+
+  let enabledFlowText = '';
+  if (Array.isArray(flowItems)) {
+    enabledFlowText = flowItems
+      .filter(f => f && f.enabled)
+      .map(f => `${f.title}\n${f.body || ''}`)
+      .join('\n\n');
+  }
+
+  let systemPrompt = welcomeMessage;
+  if (enabledFlowText) {
+    systemPrompt += `\n\nFlow:\n${enabledFlowText}`;
+  }
+
+  systemPrompt += `\n\nYou are a conversational AI agent. Speak in a helpful and user-focused tone. Keep your responses brief. Supported languages: ${languageList}. Please respond in the language the user is speaking (detected language: ${detectedLanguage}).`;
+
   return {
-    system: "You are a helpful mathematical assistant.",
+    system: systemPrompt,
     userMessage: userMessage,
     detectedLanguage,
   };

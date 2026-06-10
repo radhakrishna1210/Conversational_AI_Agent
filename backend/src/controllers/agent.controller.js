@@ -149,6 +149,11 @@ export const chat = async (req, res) => {
       }
     }
 
+    let flowItems = [];
+    if (agent && agent.flowItems) {
+      flowItems = safeJson(agent.flowItems, []);
+    }
+
     const agentContext = {
       name: agent?.name || 'AI Assistant',
       welcomeMessage: agent?.welcomeMessage || welcomeMessage || 'Hello!',
@@ -156,11 +161,11 @@ export const chat = async (req, res) => {
       voice: agent?.voice || 'Google',
       transcription: agent?.transcription || 'Azure',
       languages: selectedLanguages,
-      flowItems: agent?.flowItems ? safeJson(agent.flowItems) : null,
+      flowItems,
     };
 
     logger.debug(
-      { agentId, messageLength: message.length, languages: selectedLanguages },
+      { agentId, messageLength: message.length, languages: selectedLanguages, hasFlow: flowItems.length > 0 },
       'Chat request received'
     );
 

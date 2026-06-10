@@ -43,8 +43,36 @@ export default function Dashboard() {
     setCreating(true);
     
     const name = prompt.trim();
-    const welcomeMsg = getDefaultWelcomeMessage(name);
-    const defaultFlow = getDefaultFlowItems(name);
+    let welcomeMsg = '';
+    let defaultFlow: any[] = [];
+
+    // Attempt to generate flow dynamically from LLM backend (public endpoint — no auth needed)
+    try {
+      const genRes = await fetch('/api/v1/llm/generate-flow', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+      if (genRes.ok) {
+        const generated = await genRes.json();
+        if (generated && generated.welcomeMessage && Array.isArray(generated.flowItems)) {
+          welcomeMsg = generated.welcomeMessage;
+          defaultFlow = generated.flowItems;
+        }
+      } else {
+        console.warn('generate-flow returned non-OK status:', genRes.status);
+      }
+    } catch (genErr) {
+      console.warn('Failed to dynamically generate conversational flow, falling back to templates', genErr);
+    }
+
+    // Fallbacks if LLM generation failed or returned incomplete data
+    if (!welcomeMsg) {
+      welcomeMsg = getDefaultWelcomeMessage(name);
+    }
+    if (!defaultFlow || defaultFlow.length === 0) {
+      defaultFlow = getDefaultFlowItems(name);
+    }
 
     try {
       const newAgent = await whapi.post<AgentConfig>('/agents', { 
@@ -61,8 +89,36 @@ export default function Dashboard() {
       setTimeout(() => setSuccess(false), 2000);
     } catch (err) {
       console.error('Failed to create agent on backend', err);
-      // Fallback to local
-      const localAgent = createAgent(name);
+      // Fallback to local storage using the generated settings
+      const localId = String(Date.now());
+      const nowStr = new Date().toISOString();
+      const localAgent: AgentConfig = {
+        id: localId,
+        name,
+        language: 'English (India)',
+        llm: 'GPT-4.1-Mini',
+        voice: 'Google - Aoede (female)',
+        kbFiles: 0,
+        search: 'Off',
+        postCall: 'None',
+        integrations: 'None',
+        welcomeMessage: welcomeMsg,
+        selectedLanguages: ['English (Indian)'],
+        flowItems: defaultFlow,
+        maxDuration: 30,
+        silenceTimeout: 5,
+        dynamicEnabled: true,
+        interruptibleEnabled: true,
+        aiModel: 'GPT-4.1-Mini',
+        transcription: 'Azure',
+        createdAt: nowStr,
+        updatedAt: nowStr
+      };
+
+      const agentsList = loadAgents();
+      agentsList.unshift(localAgent);
+      localStorage.setItem('voice_ai_agents_v1', JSON.stringify(agentsList));
+
       setAgents(prev => [localAgent, ...prev]);
       setPrompt('');
       setSuccess(true);
