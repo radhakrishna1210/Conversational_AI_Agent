@@ -562,3 +562,18 @@ model CustomApiConfig {
 
   @@index([workspaceId, name])
 }
+
+model ContactSubmission {
+  id                String   @id @default(cuid())
+  name              String
+  email             String
+  phone             String
+  monthlyCallVolume String
+  helpTopic         String
+  useCase           String
+  referralSource    String?
+  createdAt         DateTime @default(now())
+
+  @@index([email])
+  @@index([createdAt])
+}

@@ -23,6 +23,7 @@ import {
 export default function Navbar() {
   const { darkMode, toggleDarkMode } = useTheme();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [contactDropdownOpen, setContactDropdownOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const location = useLocation();
 
@@ -167,8 +168,50 @@ export default function Navbar() {
 
         <li><Link to="/documentation" className={`nav-link ${isActive('/documentation')}`}>Documentation</Link></li>
         <li><Link to="/pricing" className={`nav-link ${isActive('/pricing')}`}>Pricing</Link></li>
-        <li><Link to="/contact" className={`nav-link ${isActive('/contact')}`}>Contact Us</Link></li>
-        <li><Link to="/book-appointment" className={`nav-link ${isActive('/book-appointment')}`}>Book an Appointment</Link></li>
+        <li
+          className="nav-dropdown"
+          onMouseEnter={() => setContactDropdownOpen(true)}
+          onMouseLeave={() => setContactDropdownOpen(false)}
+        >
+          <Link
+            to="/contact"
+            className={`nav-link ${isActive('/contact') ? 'active' : ''}`}
+            style={isActive('/contact') ? { fontWeight: 700 } : undefined}
+          >
+            Contact Us
+            <svg width="12" height="12" viewBox="0 0 12 12">
+              <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
+            </svg>
+          </Link>
+
+          {contactDropdownOpen && (
+            <div className="contact-nav-dropdown">
+              <Link to="/contact" className="contact-nav-dropdown-item">
+                <span className="contact-nav-dropdown-icon">📧</span>
+                <div>
+                  <div className="contact-nav-dropdown-title">General inquiry</div>
+                  <div className="contact-nav-dropdown-sub">Questions, feedback, anything else</div>
+                </div>
+              </Link>
+              <Link to="/book-appointment" className="contact-nav-dropdown-item">
+                <span className="contact-nav-dropdown-icon">📅</span>
+                <div>
+                  <div className="contact-nav-dropdown-title">Book a demo</div>
+                  <div className="contact-nav-dropdown-sub">1:1 walkthrough with our team</div>
+                </div>
+              </Link>
+            </div>
+          )}
+        </li>
+        <li>
+          <Link
+            to="/book-appointment"
+            className={`nav-link ${isActive('/book-appointment') ? 'active' : ''}`}
+            style={isActive('/book-appointment') ? { fontWeight: 700 } : undefined}
+          >
+            Book a Demo
+          </Link>
+        </li>
       </ul>
 
       <div className="navbar-actions" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
