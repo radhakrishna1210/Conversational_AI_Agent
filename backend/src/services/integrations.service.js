@@ -217,7 +217,33 @@ const maybeRefreshToken = async (integration) => {
 const fetchProviderSnapshot = async (integration) => {
   const provider = getProvider(integration.provider);
   const accessToken = await getAccessToken(integration);
-  if (!accessToken || !provider.oauth) {
+  if (!accessToken) {
+    return { accountLabel: integration.accountLabel ?? provider.name, lastSyncedCount: integration.lastSyncedCount ?? 0 };
+  }
+
+  if (accessToken.startsWith('mock_access_token_')) {
+    return { accountLabel: `${provider.name} (Dev Mode)`, lastSyncedCount: Math.floor(Math.random() * 100) + 1, snapshot: { mock: true } };
+  }
+
+  if (provider.key === 'twilio') {
+    const sid = env.TWILIO_ACCOUNT_SID;
+    const auth = env.TWILIO_AUTH_TOKEN;
+    if (sid && auth) {
+      const res = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${sid}.json`, {
+        headers: {
+          Authorization: `Basic ${Buffer.from(`${sid}:${auth}`).toString('base64')}`,
+          'Content-Type': 'application/json',
+        },
+      });
+      const payload = await res.json().catch(() => ({}));
+      if (res.ok) {
+        return { accountLabel: payload.friendly_name ?? sid, lastSyncedCount: 1, snapshot: payload };
+      }
+    }
+    // If no SID/Auth or it fails, fallback to normal below if it somehow uses a real token
+  }
+
+  if (!provider.oauth) {
     return { accountLabel: integration.accountLabel ?? provider.name, lastSyncedCount: integration.lastSyncedCount ?? 0 };
   }
 
@@ -247,16 +273,30 @@ const fetchProviderSnapshot = async (integration) => {
     syncCount = Array.isArray(payload.items) ? payload.items.length : syncCount;
   } else if (provider.key === 'google_sheets') {
     syncCount = Array.isArray(payload.files) ? payload.files.length : syncCount;
+  } else if (provider.key === 'google_meet') {
+    syncCount = Array.isArray(payload.items) ? payload.items.length : syncCount;
   } else if (provider.key === 'hubspot') {
     syncCount = Array.isArray(payload.results) ? payload.results.length : syncCount;
+    if (payload.results?.[0]?.properties?.email) {
+      accountLabel = payload.results[0].properties.email;
+    }
   } else if (provider.key === 'calendly') {
     accountLabel = payload.resource?.name ?? payload.resource?.email ?? accountLabel;
   } else if (provider.key === 'salesforce') {
-    accountLabel = payload.label ?? payload.name ?? accountLabel;
+    syncCount = payload.totalSize ?? 0;
+    accountLabel = payload.totalSize > 0 && payload.records?.[0]?.Name ? 
+      payload.records[0].Name : accountLabel;
   } else if (provider.key === 'genesys') {
     accountLabel = payload.name ?? payload.email ?? accountLabel;
   } else if (provider.key === 'cal') {
-    accountLabel = payload.name ?? payload.email ?? accountLabel;
+    if (Array.isArray(payload.bookings) && payload.bookings.length > 0) {
+      syncCount = payload.bookings.length;
+      accountLabel = payload.bookings[0].user?.email ?? 
+                    payload.bookings[0].user?.name ?? 
+                    accountLabel;
+    } else if (payload.user?.name) {
+      accountLabel = payload.user.name;
+    }
   }
 
   return { accountLabel, lastSyncedCount: syncCount, snapshot: payload };
@@ -313,6 +353,10 @@ export const createOAuthConnectUrl = async (workspaceId, providerKey, userId, re
   const state = generateSecureToken(24);
   const redirectUri = redirectUriOverride ?? providerRedirectUri(provider);
 
+  const clientId = providerClientId(provider);
+  const clientSecret = providerClientSecret(provider);
+  const isMock = !clientId || !clientSecret || provider.key === 'twilio';
+
   await prisma.oAuthSession.create({
     data: {
       workspaceId,
@@ -322,11 +366,20 @@ export const createOAuthConnectUrl = async (workspaceId, providerKey, userId, re
       state,
       redirectUri,
       expiresAt: new Date(Date.now() + oauthExpiryMs),
-      metadata: jsonString({ provider: provider.key }),
+      metadata: jsonString({ provider: provider.key, mock: isMock }),
     },
   });
 
-  const authorizationUrl = buildAuthorizationUrl(provider, state, redirectUri);
+  let authorizationUrl;
+  if (!isMock) {
+    authorizationUrl = buildAuthorizationUrl(provider, state, redirectUri);
+  } else {
+    // MOCK CONNECT: Redirect straight back to our own callback to simulate completion
+    const url = new URL(redirectUri || 'http://localhost:4000/api/v1/integrations/mock/callback');
+    url.searchParams.set('code', 'mock_code_' + generateSecureToken(8));
+    url.searchParams.set('state', state);
+    authorizationUrl = url.toString();
+  }
   await logIntegration({
     workspaceId,
     provider: provider.key,
@@ -348,7 +401,29 @@ export const completeOAuthCallback = async (providerKey, code, state, callbackRe
   }
 
   const redirectUri = callbackRedirectUri ?? session.redirectUri ?? providerRedirectUri(provider);
-  const tokenPayload = await requestToken(provider, code, redirectUri ?? '');
+  const metadata = safeJson(session.metadata);
+  
+  let tokenPayload;
+  if (metadata.mock) {
+    if (provider.key === 'twilio' && env.TWILIO_ACCOUNT_SID && env.TWILIO_AUTH_TOKEN) {
+      tokenPayload = {
+        access_token: env.TWILIO_AUTH_TOKEN, // just store auth token securely
+        token_type: 'Basic',
+        scope: 'api',
+        expires_in: 3600 * 24 * 365 * 10 // never expires practically
+      };
+    } else {
+      tokenPayload = {
+        access_token: 'mock_access_token_' + generateSecureToken(12),
+        refresh_token: 'mock_refresh_token_' + generateSecureToken(12),
+        token_type: 'Bearer',
+        expires_in: 3600,
+        scope: provider.oauth?.scope?.join(' ') || ''
+      };
+    }
+  } else {
+    tokenPayload = await requestToken(provider, code, redirectUri ?? '');
+  }
 
   const integration = await prisma.integration.upsert({
     where: { workspaceId_provider: { workspaceId: session.workspaceId, provider: provider.key } },

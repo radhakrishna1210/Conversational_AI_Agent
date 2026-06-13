@@ -1,4 +1,5 @@
 import * as service from '../services/integrations.service.js';
+import { INTEGRATION_PROVIDERS } from '../constants/integrations.js';
 
 export const getDashboard = async (req, res) => {
   const data = await service.getIntegrationDashboard(req.params.workspaceId);
@@ -16,9 +17,12 @@ export const getIntegration = async (req, res) => {
 };
 
 export const connect = async (req, res) => {
-  // Always prefer the backend's own host for the callback to match what is usually registered in Google Console
   const dynamicCallbackUrl = `${req.protocol}://${req.get('host')}/api/v1/integrations/${req.params.provider}/callback`;
-  const finalRedirectUri = process.env.GOOGLE_REDIRECT_URI || dynamicCallbackUrl;
+  
+  // Get provider config to determine correct redirect URI env var
+  const provider = INTEGRATION_PROVIDERS[req.params.provider];
+  const redirectUriEnv = provider?.oauth?.redirectUriEnv;
+  const finalRedirectUri = (redirectUriEnv && process.env[redirectUriEnv]) || dynamicCallbackUrl;
   
   const result = await service.createOAuthConnectUrl(req.params.workspaceId, req.params.provider, req.user?.userId ?? req.user?.id, finalRedirectUri);
   res.json(result);
