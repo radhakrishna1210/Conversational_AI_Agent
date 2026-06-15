@@ -12,7 +12,7 @@ export const INTEGRATION_PROVIDERS = {
       redirectUriEnv: 'CAL_REDIRECT_URI',
     },
     apiBaseUrlEnv: 'CAL_API_BASE_URL',
-    syncEndpoint: '/v2/me',
+    syncEndpoint: '/v2/me/bookings?orderBy=-createdAt&limit=50',
   },
   calendly: {
     key: 'calendly',
@@ -48,7 +48,7 @@ export const INTEGRATION_PROVIDERS = {
       redirectUriEnv: 'SALESFORCE_REDIRECT_URI',
     },
     apiBaseUrlEnv: 'SALESFORCE_INSTANCE_URL',
-    syncEndpoint: '/services/data/v60.0/sobjects/Lead/describe',
+    syncEndpoint: '/services/data/v60.0/query?q=SELECT%20Id,%20Name,%20Email%20FROM%20Lead%20LIMIT%20100',
   },
   google_calendar: {
     key: 'google_calendar',
@@ -57,7 +57,7 @@ export const INTEGRATION_PROVIDERS = {
     oauth: {
       authorizationUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
       tokenUrl: 'https://oauth2.googleapis.com/token',
-      scope: ['https://www.googleapis.com/auth/calendar', 'https://www.googleapis.com/auth/userinfo.email', 'offline_access'],
+      scope: ['https://www.googleapis.com/auth/calendar', 'https://www.googleapis.com/auth/userinfo.email'],
       clientIdEnv: 'GOOGLE_CLIENT_ID',
       clientSecretEnv: 'GOOGLE_CLIENT_SECRET',
       redirectUriEnv: 'GOOGLE_REDIRECT_URI',
@@ -73,7 +73,7 @@ export const INTEGRATION_PROVIDERS = {
     oauth: {
       authorizationUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
       tokenUrl: 'https://oauth2.googleapis.com/token',
-      scope: ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.readonly', 'offline_access'],
+      scope: ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.readonly'],
       clientIdEnv: 'GOOGLE_CLIENT_ID',
       clientSecretEnv: 'GOOGLE_CLIENT_SECRET',
       redirectUriEnv: 'GOOGLE_REDIRECT_URI',
@@ -111,7 +111,7 @@ export const INTEGRATION_PROVIDERS = {
       redirectUriEnv: 'HUBSPOT_REDIRECT_URI',
     },
     apiBaseUrlEnv: 'HUBSPOT_API_BASE_URL',
-    syncEndpoint: '/crm/v3/objects/contacts?limit=1',
+    syncEndpoint: '/crm/v3/objects/contacts?limit=50&properties=email,firstname,lastname',
   },
   genesys: {
     key: 'genesys',
@@ -150,14 +150,14 @@ export const INTEGRATION_PROVIDERS = {
     oauth: {
       authorizationUrl: 'https://accounts.google.com/o/oauth2/v2/auth',
       tokenUrl: 'https://oauth2.googleapis.com/token',
-      scope: ['https://www.googleapis.com/auth/meetings', 'https://www.googleapis.com/auth/userinfo.email', 'offline_access'],
+      scope: ['https://www.googleapis.com/auth/calendar', 'https://www.googleapis.com/auth/userinfo.email'],
       clientIdEnv: 'GOOGLE_CLIENT_ID',
       clientSecretEnv: 'GOOGLE_CLIENT_SECRET',
       redirectUriEnv: 'GOOGLE_REDIRECT_URI',
       extraParams: { access_type: 'offline', prompt: 'consent' },
     },
     apiBaseUrlEnv: 'GOOGLE_API_BASE_URL',
-    syncEndpoint: '/v2/spaces',
+    syncEndpoint: '/calendar/v3/users/me/calendarList',
   },
 };
 
