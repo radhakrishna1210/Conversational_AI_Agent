@@ -10,9 +10,18 @@ interface CampaignTopBarProps {
   onNameChange: (name: string) => void;
   canLaunch: boolean;
   onLaunch: () => void;
+  canSaveDraft: boolean;
+  onSaveDraft: () => void;
 }
 
-const CampaignTopBar = ({ campaignName, onNameChange, canLaunch, onLaunch }: CampaignTopBarProps) => {
+const CampaignTopBar = ({
+  campaignName,
+  onNameChange,
+  canLaunch,
+  onLaunch,
+  canSaveDraft,
+  onSaveDraft,
+}: CampaignTopBarProps) => {
   const navigate = useNavigate();
 
   return (
@@ -33,7 +42,13 @@ const CampaignTopBar = ({ campaignName, onNameChange, canLaunch, onLaunch }: Cam
           </Badge>
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" className="border-primary/30 text-primary hover:bg-primary/10">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!canSaveDraft}
+            onClick={onSaveDraft}
+            className="border-primary/30 text-primary hover:bg-primary/10 disabled:opacity-40"
+          >
             <Save className="w-3 h-3 mr-1" /> Save as Draft
           </Button>
           <Button

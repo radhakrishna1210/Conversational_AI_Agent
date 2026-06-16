@@ -3,64 +3,8 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
-}
-
-// ─── Enums ────────────────────────────────────────────────────────────────────
-
-enum Role {
-  Admin
-  Agent
-  Viewer
-}
-
-enum TemplateStatus {
-  APPROVED
-  PENDING
-  REJECTED
-}
-
-enum TemplateCategory {
-  MARKETING
-  UTILITY
-  AUTHENTICATION
-}
-
-enum CampaignStatus {
-  DRAFT
-  SCHEDULED
-  RUNNING
-  COMPLETED
-  CANCELLED
-  FAILED
-}
-
-enum MessageDirection {
-  INBOUND
-  OUTBOUND
-}
-
-enum MessageType {
-  TEXT
-  TEMPLATE
-  IMAGE
-  DOCUMENT
-  AUDIO
-  VIDEO
-  STICKER
-}
-
-enum ConvStatus {
-  OPEN
-  RESOLVED
-  PENDING
-}
-
-enum NumberStatus {
-  AVAILABLE
-  ASSIGNED
-  BANNED
+  provider = "sqlite"
+  url      = "file:./dev.db"
 }
 
 // ─── Models ───────────────────────────────────────────────────────────────────
@@ -116,7 +60,7 @@ model WorkspaceMember {
   id          String    @id @default(cuid())
   userId      String
   workspaceId String
-  role        Role      @default(Agent)
+  role        String    @default("Agent")
   joinedAt    DateTime  @default(now())
 
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -141,7 +85,7 @@ model WorkspaceInvite {
   id          String    @id @default(cuid())
   workspaceId String
   email       String
-  role        Role      @default(Agent)
+  role        String    @default("Agent")
   token       String    @unique
   expiresAt   DateTime
   acceptedAt  DateTime?
@@ -196,7 +140,7 @@ model WebhookConfig {
   workspaceId      String    @unique
   url              String
   secret           String
-  subscribedEvents String[]
+  subscribedEvents String
   isActive         Boolean   @default(true)
   lastPingAt       DateTime?
   lastPingStatus   Int?
@@ -210,13 +154,13 @@ model Template {
   workspaceId      String
   metaTemplateId   String?
   name             String
-  category         TemplateCategory @default(MARKETING)
+  category         String           @default("MARKETING")
   language         String           @default("en")
   bodyText         String
   headerText       String?
   footerText       String?
-  buttons          Json?
-  status           TemplateStatus   @default(PENDING)
+  buttons          String?
+  status           String           @default("PENDING")
   rejectionReason  String?
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
@@ -234,8 +178,8 @@ model Contact {
   phoneNumber  String
   name         String?
   email        String?
-  tags         String[]
-  customFields Json?
+  tags         String
+  customFields String?
   optedOut     Boolean   @default(false)
   optedOutAt   DateTime?
   createdAt    DateTime  @default(now())
@@ -254,8 +198,8 @@ model Campaign {
   name              String
   templateId        String
   whatsappNumberId  String
-  variableMapping   Json?
-  status            CampaignStatus @default(DRAFT)
+  variableMapping   String?
+  status            String         @default("DRAFT")
   scheduledAt       DateTime?
   launchedAt        DateTime?
   completedAt       DateTime?
@@ -296,7 +240,7 @@ model Conversation {
   contactId        String
   whatsappNumberId String
   assignedAgentId  String?
-  status           ConvStatus @default(OPEN)
+  status           String     @default("OPEN")
   label            String?
   botEnabled       Boolean    @default(true)
   sessionExpiresAt DateTime?
@@ -317,13 +261,13 @@ model Message {
   conversationId String
   workspaceId    String
   metaMessageId  String?          @unique
-  direction      MessageDirection
-  type           MessageType      @default(TEXT)
+  direction      String
+  type           String           @default("TEXT")
   body           String?
   mediaUrl       String?
   mediaCaption   String?
   templateId     String?
-  templateVars   Json?
+  templateVars   String?
   status         String           @default("sent")
   senderUserId   String?
   sentAt         DateTime         @default(now())
@@ -354,7 +298,7 @@ model KeywordTrigger {
 model AutomationFlow {
   id          String    @id @default(cuid())
   workspaceId String    @unique
-  flowJson    Json      @default("{}")
+  flowJson    String    @default("{}")
   updatedAt   DateTime  @updatedAt
 
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -364,7 +308,7 @@ model WorkspaceSettings {
   id                   String    @id @default(cuid())
   workspaceId          String    @unique
   timezone             String    @default("UTC")
-  businessHoursJson    Json?
+  businessHoursJson    String?
   notifyOnNewConv      Boolean   @default(true)
   notifyOnOptOut       Boolean   @default(true)
   notifyOnCampaignEnd  Boolean   @default(true)
@@ -396,7 +340,7 @@ model NumberPool {
   wabaId        String
   accessToken   String
   displayName   String?
-  status        NumberStatus @default(AVAILABLE)
+  status        String       @default("AVAILABLE")
   assignedTo    String?      @unique
   registeredAt  DateTime     @default(now())
   createdAt     DateTime     @default(now())

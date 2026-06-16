@@ -6,55 +6,109 @@ const prisma = new PrismaClient();
 async function main() {
   console.log('Seeding database...');
 
-  // Admin user
-  const passwordHash = await bcrypt.hash('password123', 12);
-  const user = await prisma.user.upsert({
-    where: { email: 'admin@demo.com' },
-    update: {},
-    create: { name: 'Demo Admin', email: 'admin@demo.com', passwordHash },
-  });
+  const usersData = [
+    { id: 'user-demo', name: 'Demo Admin', email: 'admin@demo.com', password: 'password123' },
+    { id: '1', name: 'Test User', email: 'test@example.com', password: 'password123' },
+    { id: '2', name: 'Admin User', email: 'admin@example.com', password: 'admin123' },
+  ];
 
-  // Workspace
-  const workspace = await prisma.workspace.upsert({
-    where: { slug: 'demo-workspace' },
-    update: {},
-    create: {
-      name: 'Demo Workspace',
-      slug: 'demo-workspace',
-      planName: 'Pro',
-      members: { create: { userId: user.id, role: 'Admin' } },
-      settings: { create: {} },
-    },
-  });
+  const workspacesData = [
+    { id: 'demo-workspace', name: 'Demo Workspace', slug: 'demo-workspace', userId: 'user-demo' },
+    { id: 'ws-1', name: "Test User's Workspace", slug: 'test-user', userId: '1' },
+    { id: 'ws-2', name: "Admin User's Workspace", slug: 'admin-user', userId: '2' },
+  ];
 
-  // Sample template
-  await prisma.template.upsert({
-    where: { workspaceId_name_language: { workspaceId: workspace.id, name: 'order_confirmation', language: 'en' } },
-    update: {},
-    create: {
-      workspaceId: workspace.id,
-      name: 'order_confirmation',
-      category: 'UTILITY',
-      language: 'en',
-      bodyText: 'Hello {{1}}, your order #{{2}} has been confirmed.',
-      status: 'APPROVED',
-    },
-  });
+  // Seed Users
+  for (const u of usersData) {
+    const passwordHash = await bcrypt.hash(u.password, 12);
+    await prisma.user.upsert({
+      where: { email: u.email },
+      update: { name: u.name, passwordHash },
+      create: { id: u.id, name: u.name, email: u.email, passwordHash },
+    });
+  }
 
-  // Sample invoice
-  await prisma.invoice.create({
-    data: {
-      workspaceId: workspace.id,
-      planName: 'Pro Plan',
-      amountCents: 349900,
-      currency: 'INR',
-      status: 'Paid',
-      invoiceDate: new Date('2026-03-01'),
-    },
-  });
+  // Seed Workspaces and their relationships
+  for (const w of workspacesData) {
+    const ws = await prisma.workspace.upsert({
+      where: { id: w.id },
+      update: { name: w.name, slug: w.slug },
+      create: {
+        id: w.id,
+        name: w.name,
+        slug: w.slug,
+        planName: 'Pro',
+        settings: { create: {} },
+      },
+    });
 
-  console.log(`Seeded workspace: ${workspace.id}`);
-  console.log('Login: admin@demo.com / password123');
+    // Membership
+    await prisma.workspaceMember.upsert({
+      where: { userId_workspaceId: { userId: w.userId, workspaceId: w.id } },
+      update: { role: 'Admin' },
+      create: { userId: w.userId, workspaceId: w.id, role: 'Admin' },
+    });
+
+    // Sample template
+    await prisma.template.upsert({
+      where: { workspaceId_name_language: { workspaceId: w.id, name: 'order_confirmation', language: 'en' } },
+      update: {},
+      create: {
+        workspaceId: w.id,
+        name: 'order_confirmation',
+        category: 'UTILITY',
+        language: 'en',
+        bodyText: 'Hello {{1}}, your order #{{2}} has been confirmed.',
+        status: 'APPROVED',
+      },
+    });
+
+    // WhatsApp Number seed
+    await prisma.whatsappNumber.upsert({
+      where: { workspaceId_phoneNumber: { workspaceId: w.id, phoneNumber: '+1234567890' } },
+      update: {},
+      create: {
+        workspaceId: w.id,
+        phoneNumber: '+1234567890',
+        displayName: 'Demo Support',
+        status: 'Approved',
+        wabaId: 'waba-123456',
+        accessToken: 'token-123456',
+        category: 'Support',
+      },
+    });
+
+    // Contacts seed
+    await prisma.contact.upsert({
+      where: { workspaceId_phoneNumber: { workspaceId: w.id, phoneNumber: '+919876543210' } },
+      update: {},
+      create: {
+        workspaceId: w.id,
+        phoneNumber: '+919876543210',
+        name: 'John Doe',
+        email: 'john@example.com',
+        tags: JSON.stringify(['VIP', 'Lead']),
+      },
+    });
+
+    await prisma.contact.upsert({
+      where: { workspaceId_phoneNumber: { workspaceId: w.id, phoneNumber: '+919876543211' } },
+      update: {},
+      create: {
+        workspaceId: w.id,
+        phoneNumber: '+919876543211',
+        name: 'Jane Smith',
+        email: 'jane@example.com',
+        tags: JSON.stringify(['Customer']),
+      },
+    });
+  }
+
+  console.log('Seeding completed successfully.');
+  console.log('Available Logins:');
+  console.log(' - admin@demo.com / password123 (demo-workspace)');
+  console.log(' - test@example.com / password123 (ws-1)');
+  console.log(' - admin@example.com / admin123 (ws-2)');
 }
 
 main()

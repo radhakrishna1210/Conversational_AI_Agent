@@ -42,10 +42,20 @@ const deliveryPct = (c: Campaign) => {
   return Math.round((c.delivered / c.sent) * 100);
 };
 
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
+import { toast } from "sonner";
+
 const WHCampaigns = () => {
   const [search, setSearch] = useState("");
+  const [selectedCampaignId, setSelectedCampaignId] = useState<string | null>(null);
+  const [viewDialogOpen, setViewDialogOpen] = useState(false);
+  const [loadingStats, setLoadingStats] = useState(false);
+  const [stats, setStats] = useState<{
+    campaign: Campaign & { whatsappNumber?: { phoneNumber: string } };
+    breakdown: { status: string; _count: { status: number } }[];
+  } | null>(null);
 
-  const { data, isLoading } = useQuery<Campaign[] | CampaignsResponse>({
+  const { data, isLoading, refetch } = useQuery<Campaign[] | CampaignsResponse>({
     queryKey: ["campaigns"],
     queryFn: () => whapi.get<Campaign[] | CampaignsResponse>("/campaigns"),
   });
@@ -55,6 +65,21 @@ const WHCampaigns = () => {
   const filtered = campaigns.filter((c) =>
     !search || c.name.toLowerCase().includes(search.toLowerCase())
   );
+
+  const handleViewCampaign = async (id: string) => {
+    setSelectedCampaignId(id);
+    setViewDialogOpen(true);
+    setLoadingStats(true);
+    setStats(null);
+    try {
+      const data = await whapi.get<any>(`/campaigns/${id}/stats`);
+      setStats(data);
+    } catch (err) {
+      toast.error("Failed to load campaign statistics.");
+    } finally {
+      setLoadingStats(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -98,12 +123,13 @@ const WHCampaigns = () => {
                 <TableHead className="text-muted-foreground text-right">Read</TableHead>
                 <TableHead className="text-muted-foreground text-right">Failed</TableHead>
                 <TableHead className="text-muted-foreground">Created</TableHead>
+                <TableHead className="text-muted-foreground text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {filtered.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
+                  <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
                     {campaigns.length === 0 ? "No campaigns yet. Create your first one!" : "No campaigns match your search."}
                   </TableCell>
                 </TableRow>
@@ -124,6 +150,16 @@ const WHCampaigns = () => {
                     <TableCell className="text-right text-muted-foreground">{c.sent > 0 ? `${Math.round((c.read / c.sent) * 100)}%` : "—"}</TableCell>
                     <TableCell className="text-right text-muted-foreground">{(c.failed ?? 0).toLocaleString()}</TableCell>
                     <TableCell className="text-muted-foreground text-sm">{new Date(c.createdAt).toLocaleDateString()}</TableCell>
+                    <TableCell className="text-right">
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => handleViewCampaign(c.id)}
+                        className="text-primary hover:text-primary hover:bg-primary/10 border border-primary/20"
+                      >
+                        View
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 );
               })}
@@ -131,6 +167,121 @@ const WHCampaigns = () => {
           </Table>
         </Card>
       )}
+
+      {/* Campaign Stats Modal */}
+      <Dialog open={viewDialogOpen} onOpenChange={setViewDialogOpen}>
+        <DialogContent className="max-w-xl bg-card border-border/50 text-foreground">
+          <DialogHeader>
+            <DialogTitle className="font-display text-xl font-bold flex items-center gap-2">
+              <span>Campaign Metrics</span>
+              {stats?.campaign?.status && (
+                <Badge className={statusColor[stats.campaign.status] ?? "bg-muted text-muted-foreground"}>
+                  {stats.campaign.status}
+                </Badge>
+              )}
+            </DialogTitle>
+            <DialogDescription className="text-muted-foreground">
+              Detailed transmission and read statistics for this campaign.
+            </DialogDescription>
+          </DialogHeader>
+
+          {loadingStats ? (
+            <div className="flex flex-col items-center justify-center py-12 gap-3 text-muted-foreground">
+              <Loader2 className="w-8 h-8 animate-spin text-primary" />
+              <p className="text-sm">Fetching metrics from database...</p>
+            </div>
+          ) : stats ? (
+            <div className="space-y-6">
+              {/* Info panel */}
+              <div className="grid grid-cols-2 gap-4 p-4 rounded-xl bg-muted/20 border border-border/50 text-sm">
+                <div>
+                  <p className="text-xs text-muted-foreground">Campaign Name</p>
+                  <p className="font-semibold">{stats.campaign.name}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Template Name</p>
+                  <p className="font-semibold">{stats.campaign.template?.name ?? "—"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Send From Number</p>
+                  <p className="font-semibold">{stats.campaign.whatsappNumber?.phoneNumber ?? "—"}</p>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground">Created At</p>
+                  <p className="font-semibold">{new Date(stats.campaign.createdAt).toLocaleString()}</p>
+                </div>
+              </div>
+
+              {/* Stat grid */}
+              <div className="grid grid-cols-4 gap-3">
+                <div className="p-3 rounded-lg bg-muted/30 border border-border/50 text-center">
+                  <p className="text-2xl font-bold text-foreground">{stats.campaign.totalContacts}</p>
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider mt-1">Total</p>
+                </div>
+                <div className="p-3 rounded-lg bg-muted/30 border border-border/50 text-center">
+                  <p className="text-2xl font-bold text-primary">{stats.campaign.sent}</p>
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider mt-1">Sent</p>
+                </div>
+                <div className="p-3 rounded-lg bg-muted/30 border border-border/50 text-center">
+                  <p className="text-2xl font-bold text-info">{stats.campaign.delivered}</p>
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider mt-1">Delivered</p>
+                </div>
+                <div className="p-3 rounded-lg bg-muted/30 border border-border/50 text-center">
+                  <p className="text-2xl font-bold text-destructive">{stats.campaign.failed}</p>
+                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider mt-1">Failed</p>
+                </div>
+              </div>
+
+              {/* Progress bars */}
+              <div className="space-y-3">
+                <div>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-muted-foreground">Delivery Rate</span>
+                    <span className="font-semibold text-foreground">
+                      {stats.campaign.sent > 0 ? `${Math.round((stats.campaign.delivered / stats.campaign.sent) * 100)}%` : "0%"}
+                    </span>
+                  </div>
+                  <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-info"
+                      style={{
+                        width: stats.campaign.sent > 0 ? `${(stats.campaign.delivered / stats.campaign.sent) * 100}%` : "0%"
+                      }}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <div className="flex justify-between text-xs mb-1">
+                    <span className="text-muted-foreground">Read Rate</span>
+                    <span className="font-semibold text-foreground">
+                      {stats.campaign.sent > 0 ? `${Math.round((stats.campaign.read / stats.campaign.sent) * 100)}%` : "0%"}
+                    </span>
+                  </div>
+                  <div className="h-1.5 w-full bg-muted rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-primary"
+                      style={{
+                        width: stats.campaign.sent > 0 ? `${(stats.campaign.read / stats.campaign.sent) * 100}%` : "0%"
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          ) : (
+            <div className="text-center py-8 text-muted-foreground text-sm">
+              Failed to load metrics.
+            </div>
+          )}
+
+          <div className="flex justify-end pt-4 border-t border-border/50">
+            <Button onClick={() => setViewDialogOpen(false)} variant="outline" className="border-border/50 text-foreground">
+              Close
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 };

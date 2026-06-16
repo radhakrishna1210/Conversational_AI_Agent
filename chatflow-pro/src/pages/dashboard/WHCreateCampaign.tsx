@@ -113,6 +113,39 @@ const WHCreateCampaign = () => {
     launchMutation.mutate();
   }, [canLaunch, launchMutation]);
 
+  const saveDraftMutation = useMutation({
+    mutationFn: async () => {
+      const whatsappNumberId = selectedNumberId;
+      if (!whatsappNumberId) throw new Error("No WhatsApp number selected");
+      if (!selectedTemplateId) throw new Error("No template selected");
+      // 1. Create campaign
+      const campaign = await whapi.post<{ id: string }>("/campaigns", {
+        name: campaignName,
+        templateId: selectedTemplateId,
+        whatsappNumberId,
+      });
+      // 2. Add recipients if selected
+      if (selectedContactIds.size > 0) {
+        await whapi.post(`/campaigns/${campaign.id}/recipients`, {
+          contactIds: Array.from(selectedContactIds),
+        });
+      }
+      return campaign;
+    },
+    onSuccess: () => {
+      toast.success("Campaign saved as draft successfully!");
+      navigate("/dashboard/campaigns");
+    },
+    onError: (err: Error) => toast.error(err.message),
+  });
+
+  const handleSaveDraft = useCallback(() => {
+    if (!campaignName || !selectedNumberId || !selectedTemplateId) return;
+    saveDraftMutation.mutate();
+  }, [campaignName, selectedNumberId, selectedTemplateId, saveDraftMutation]);
+
+  const canSaveDraft = !!(campaignName && selectedNumberId && selectedTemplateId);
+
   const toggleContact = (id: string) => {
     setSelectedContactIds((prev) => {
       const next = new Set(prev);
@@ -147,6 +180,8 @@ const WHCreateCampaign = () => {
         onNameChange={setCampaignName}
         canLaunch={canLaunch}
         onLaunch={handleLaunch}
+        canSaveDraft={canSaveDraft}
+        onSaveDraft={handleSaveDraft}
       />
 
       <div className="grid lg:grid-cols-[1fr,360px] gap-6 max-w-[1440px] mx-auto">
