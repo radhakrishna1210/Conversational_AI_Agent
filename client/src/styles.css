@@ -2499,3 +2499,43 @@ html.light .topbar-icon-btn:hover {
   from { opacity: 0; transform: translateY(20px); }
   to { opacity: 1; transform: translateY(0); }
 }
+
+/* ── react-phone-number-input overrides ── */
+.PhoneInput {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+.PhoneInputInput {
+  flex: 1;
+  min-width: 0;
+  background: transparent !important;
+  border: none !important;
+  outline: none !important;
+  color: white !important;
+  font-size: 14px;
+}
+.PhoneInputCountry {
+  display: flex;
+  align-items: center;
+  margin-right: 12px;
+}
+
+.PhoneInputCountrySelect {
+  background-color: transparent;
+  color: white;
+}
+.PhoneInputCountrySelect option {
+  background-color: #0e1015;
+  color: white;
+}
+
+/* Fix browser autofill background in dark mode */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus,
+input:-webkit-autofill:active {
+  -webkit-box-shadow: 0 0 0 30px #000000 inset !important;
+  -webkit-text-fill-color: white !important;
+  transition: background-color 5000s ease-in-out 0s;
+}

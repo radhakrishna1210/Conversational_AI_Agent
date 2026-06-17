@@ -1,5 +1,6 @@
 import prisma from '../config/prisma.js';
 import * as sarvamService from '../services/sarvam.service.js';
+import { geminiService } from '../services/gemini.service.js';
 import logger from '../lib/logger.js';
 import fetch from 'node-fetch';
 
@@ -169,24 +170,33 @@ export const chat = async (req, res) => {
       'Chat request received'
     );
 
-    // Generate response using Sarvam AI
-    const response = await sarvamService.generateResponse(
+    const systemPrompt = `You are a helpful multilingual assistant. 
+Agent context: ${agentContext.welcomeMessage}
+Important: You must detect the language of the user's message and respond in the same language. 
+Ensure your response aligns with one of the following requested languages if possible: ${selectedLanguages.join(', ')}.`;
+
+    // Generate response using Gemini
+    const response = await geminiService.generateResponse({
       message,
-      selectedLanguages,
-      agentContext
-    );
+      model: 'gemini-2.5-flash',
+      systemPrompt: systemPrompt
+    });
+
+    if (!response.success) {
+      throw new Error(response.error || 'Gemini API failed to generate response');
+    }
 
     logger.debug(
-      { agentId, replyLength: response.reply.length, detectedLanguage: response.detectedLanguage },
+      { agentId, replyLength: response.message ? response.message.length : 0 },
       'Chat response generated'
     );
 
     res.json({
-      reply: response.reply,
-      detectedLanguage: response.detectedLanguage,
+      reply: response.message,
+      detectedLanguage: 'Auto-detected by Gemini',
       model: response.model,
-      tokensUsed: response.tokensUsed,
-      timestamp: new Date().toISOString(),
+      tokensUsed: 0,
+      timestamp: response.timestamp,
     });
   } catch (err) {
     logger.error({ agentId, error: err.message }, 'Chat error');
