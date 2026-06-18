@@ -175,3 +175,32 @@ export function fromSarvamVoice(raw) {
     }),
   };
 }
+
+/**
+ * Normalise a Cartesia voice entry into VoiceDTO.
+ * @param {Object} raw – voice object from Cartesia GET /voices
+ * @returns {VoiceDTO}
+ */
+export function fromCartesiaVoice(raw) {
+  let gender = null;
+  if (raw.gender === 'feminine' || raw.gender === 'female') gender = 'female';
+  else if (raw.gender === 'masculine' || raw.gender === 'male') gender = 'male';
+  else if (raw.gender) gender = raw.gender.toLowerCase();
+
+  return {
+    providerVoiceId: raw.id,
+    name: raw.name || 'Unknown Voice',
+    language: raw.language || 'en',
+    accent: null,
+    gender,
+    category: raw.is_public ? 'premade' : 'custom',
+    metadata: JSON.stringify({
+      originalGender: raw.gender,
+      description: raw.description,
+      country: raw.country,
+      is_owner: raw.is_owner,
+      is_public: raw.is_public,
+      created_at: raw.created_at,
+    }),
+  };
+}

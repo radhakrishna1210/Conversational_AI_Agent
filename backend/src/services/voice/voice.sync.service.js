@@ -12,12 +12,14 @@ import prisma from '../../config/prisma.js';
 import * as googleProvider from './providers/google.provider.js';
 import * as elevenLabsProvider from './providers/elevenlabs.provider.js';
 import * as sarvamProvider from './providers/sarvam.provider.js';
+import * as cartesiaProvider from './providers/cartesia.provider.js';
 
 // Map provider display names → provider module
 const PROVIDERS = {
   Google: googleProvider,
   ElevenLabs: elevenLabsProvider,
   Sarvam: sarvamProvider,
+  Cartesia: cartesiaProvider,
 };
 
 /**

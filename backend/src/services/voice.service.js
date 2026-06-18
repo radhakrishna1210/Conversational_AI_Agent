@@ -9,6 +9,7 @@ import { Readable } from 'stream';
 import * as googleProvider from './voice/providers/google.provider.js';
 import * as elevenLabsProvider from './voice/providers/elevenlabs.provider.js';
 import * as sarvamProvider from './voice/providers/sarvam.provider.js';
+import * as cartesiaProvider from './voice/providers/cartesia.provider.js';
 export { syncVoices } from './voice/voice.sync.service.js';
 
 const DEFAULT_PREVIEW_TEXT =
@@ -59,20 +60,23 @@ export const getVoice = async (id) =>
  * Returns real results from each provider's lightweight healthCheck().
  */
 export const getProviderStatus = async () => {
-  const [googleResult, elevenLabsResult, sarvamResult] = await Promise.allSettled([
+  const [googleResult, elevenLabsResult, sarvamResult, cartesiaResult] = await Promise.allSettled([
     googleProvider.healthCheck(),
     elevenLabsProvider.healthCheck(),
     sarvamProvider.healthCheck(),
+    cartesiaProvider.healthCheck(),
   ]);
 
   return {
     google: googleResult.status === 'fulfilled' ? googleResult.value?.healthy : false,
     elevenlabs: elevenLabsResult.status === 'fulfilled' ? elevenLabsResult.value?.healthy : false,
     sarvam: sarvamResult.status === 'fulfilled' ? sarvamResult.value?.healthy : false,
+    cartesia: cartesiaResult.status === 'fulfilled' ? cartesiaResult.value?.healthy : false,
     details: {
       google: googleResult.status === 'fulfilled' ? googleResult.value : { healthy: false, error: googleResult.reason?.message },
       elevenlabs: elevenLabsResult.status === 'fulfilled' ? elevenLabsResult.value : { healthy: false, error: elevenLabsResult.reason?.message },
       sarvam: sarvamResult.status === 'fulfilled' ? sarvamResult.value : { healthy: false, error: sarvamResult.reason?.message },
+      cartesia: cartesiaResult.status === 'fulfilled' ? cartesiaResult.value : { healthy: false, error: cartesiaResult.reason?.message },
     },
   };
 };
@@ -102,6 +106,8 @@ export const streamVoicePreview = async (voiceId, text = DEFAULT_PREVIEW_TEXT) =
     const meta = JSON.parse(voice.metadata || '{}');
     const langCode = meta.language_code || 'en-IN';
     audioBuffer = await sarvamProvider.previewVoice(voice.providerVoiceId, text, langCode);
+  } else if (providerName === 'Cartesia') {
+    audioBuffer = await cartesiaProvider.previewVoice(voice.providerVoiceId, text);
   } else {
     throw new Error(`TTS not implemented for provider: ${providerName}`);
   }

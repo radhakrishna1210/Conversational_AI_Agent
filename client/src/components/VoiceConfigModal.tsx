@@ -53,7 +53,7 @@ interface VoiceConfigModalProps {
 
 const API_BASE = '/api/v1';
 const LIMIT = 20;
-const PROVIDERS = ['All', 'Google', 'ElevenLabs', 'Sarvam'];
+const PROVIDERS = ['All', 'Google', 'ElevenLabs', 'Sarvam', 'Cartesia'];
 const GENDER_OPTIONS = ['All', 'MALE', 'FEMALE', 'NEUTRAL'];
 const DEFAULT_PREVIEW_TEXT = 'Hello, thank you for calling. How can I assist you today?';
 
