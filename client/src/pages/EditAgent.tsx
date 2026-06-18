@@ -8,6 +8,7 @@ import { integrationsApi } from '../lib/integrationsApi';
 import { toast } from 'sonner';
 import ChatComponent from '../components/ChatComponent';
 import AIAssistantSidebar from '../components/AIAssistantSidebar';
+import VoiceConfigModal from '../components/VoiceConfigModal';
 import { useTheme } from '../hooks/useTheme';
 
 
@@ -124,6 +125,7 @@ export default function EditAgent() {
   // Modal states
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [showVoiceModal, setShowVoiceModal] = useState(false);
+  const [selectedVoiceId, setSelectedVoiceId] = useState<string | null>(null);
   
   // Call Configuration states
   const [expandedConfigSection, setExpandedConfigSection] = useState<string | null>(null);
@@ -356,9 +358,10 @@ export default function EditAgent() {
     );
   };
 
-  const handleVoiceSelect = (voiceName: string) => {
-    const provider = voiceProvider.charAt(0).toUpperCase() + voiceProvider.slice(1);
-    setVoice(`${provider} - ${voiceName}`);
+  const handleVoiceSelect = (v: { id: string; name: string; provider: string | null }) => {
+    const displayName = `${v.provider ?? 'Unknown'} - ${v.name}`;
+    setVoice(displayName);
+    setSelectedVoiceId(v.id);
     setShowVoiceModal(false);
   };
 
@@ -859,59 +862,14 @@ Flow:
         </div>
       )}
 
-      {/* Voice Configuration Modal */}
-      {showVoiceModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: '#1a1a1a', borderRadius: '8px', padding: '30px', maxWidth: '900px', width: '90%', maxHeight: '80vh', overflowY: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h2 style={{ fontSize: '18px', fontWeight: '600', margin: 0 }}>Voice Configuration</h2>
-              <button onClick={() => setShowVoiceModal(false)} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '24px' }}>X</button>
-            </div>
-            <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', overflowX: 'auto', paddingBottom: '8px' }}>
-              {Object.keys(VOICES_BY_PROVIDER).map(provider => (
-                <button
-                  key={provider}
-                  onClick={() => setVoiceProvider(provider)}
-                  style={{
-                    padding: '8px 16px',
-                    background: voiceProvider === provider ? '#00bcd4' : '#0f0f0f',
-                    color: voiceProvider === provider ? '#000' : '#fff',
-                    border: voiceProvider === provider ? 'none' : '1px solid #333',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                    fontSize: '12px',
-                    fontWeight: '500',
-                    whiteSpace: 'nowrap'
-                  }}
-                >
-                  {provider.charAt(0).toUpperCase() + provider.slice(1)}
-                </button>
-              ))}
-            </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px', marginBottom: '20px' }}>
-              {VOICES_BY_PROVIDER[voiceProvider as keyof typeof VOICES_BY_PROVIDER].map(v => (
-                <div key={v.id} onClick={() => handleVoiceSelect(v.name)} style={{ background: '#0f0f0f', border: voice.includes(v.name) ? '2px solid #00bcd4' : '1px solid #333', borderRadius: '8px', padding: '16px', cursor: 'pointer' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                    <div>
-                      <div style={{ fontSize: '13px', fontWeight: '500' }}>{v.name}</div>
-                      <div style={{ fontSize: '11px', color: '#999' }}>{voiceProvider.charAt(0).toUpperCase() + voiceProvider.slice(1)}</div>
-                    </div>
-                    <button style={{ background: 'none', border: 'none', color: '#00bcd4', cursor: 'pointer', fontSize: '18px' }}>{'>'}</button>
-                  </div>
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                    {v.accents.map(accent => (
-                      <span key={accent} style={{ fontSize: '11px', background: '#1a1a1a', padding: '4px 8px', borderRadius: '4px', color: '#999' }}>{accent}</span>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowVoiceModal(false)} style={{ padding: '10px 20px', background: 'transparent', border: '1px solid #333', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>Cancel</button>
-              <button onClick={() => setShowVoiceModal(false)} style={{ padding: '10px 20px', background: '#00bcd4', color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>Done</button>
-            </div>
-          </div>
-        </div>
+      {/* Voice Configuration Modal – real data from backend API */}
+      {showVoiceModal && agentId && (
+        <VoiceConfigModal
+          agentId={agentId}
+          currentVoiceId={selectedVoiceId}
+          onClose={() => setShowVoiceModal(false)}
+          onSaved={handleVoiceSelect}
+        />
       )}
 
       {/* AI Model Configuration Modal */}
