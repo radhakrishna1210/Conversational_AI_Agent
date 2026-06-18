@@ -65,16 +65,16 @@ export const HeroSection = () => (
           transition={{ duration: 0.6, delay: 0.3 }}
           className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-12"
         >
-          <Link to="/dashboard">
-            <Button size="lg" className="bg-gradient-primary text-primary-foreground font-semibold shadow-glow hover:opacity-90 transition-all h-12 px-8 text-base">
+          <Link to="/dashboard" className="inline-flex">
+            <button className="bg-gradient-primary text-primary-foreground font-semibold shadow-glow hover:opacity-90 transition-all h-12 px-8 text-base inline-flex items-center justify-center gap-2 rounded-md">
               Start Free — No Card Required
               <ArrowRight className="ml-2 w-4 h-4" />
-            </Button>
+            </button>
           </Link>
-          <Button size="lg" variant="outline" className="border-border/50 text-foreground hover:bg-secondary h-12 px-8 text-base">
+          <button className="border border-border/50 text-foreground hover:bg-secondary h-12 px-8 text-base inline-flex items-center justify-center gap-2 rounded-md bg-background transition-colors">
             <Play className="mr-2 w-4 h-4" />
             Watch Demo
-          </Button>
+          </button>
         </motion.div>
 
         <motion.div

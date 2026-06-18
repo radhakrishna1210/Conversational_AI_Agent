@@ -1,4 +1,45 @@
+import { useEffect, useState } from 'react';
+import { whapi } from '../lib/whapi';
+import { loadAgents } from '../lib/agentStore';
+
+interface Overview {
+  totalAssistants?: number;
+}
+
 export default function Analytics() {
+  const [overview, setOverview] = useState<Overview>();
+  const [loadingOverview, setLoadingOverview] = useState(true);
+  const [overviewError, setOverviewError] = useState<string | null>(null);
+  const [localFallbackCount, setLocalFallbackCount] = useState(0);
+
+  const totalAssistantsCount = overview?.totalAssistants != null
+    ? overview.totalAssistants + 1
+    : Math.max(1, localFallbackCount);
+
+  useEffect(() => {
+    let mounted = true;
+
+    async function loadOverview() {
+      try {
+        const data = await whapi.get<Overview>('/analytics/overview');
+        if (!mounted) return;
+        setOverview(data);
+      } catch (error) {
+        if (!mounted) return;
+        setOverviewError(error instanceof Error ? error.message : String(error));
+      } finally {
+        if (!mounted) return;
+        setLoadingOverview(false);
+      }
+    }
+
+    loadOverview();
+    setLocalFallbackCount(loadAgents().filter(agent => /^\d+$/.test(agent.id)).length);
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
   return (
     <>
       <div style={{ marginBottom: '32px' }}>
@@ -139,7 +180,12 @@ export default function Analytics() {
             <span style={{ color: 'white', fontSize: '13px', fontWeight: 600 }}>Total Assistants</span>
             <span style={{ color: 'var(--teal)', fontSize: '16px' }}>👥</span>
           </div>
-          <div style={{ fontSize: '24px', fontWeight: 700, color: 'white' }}>0</div>
+          <div style={{ fontSize: '24px', fontWeight: 700, color: 'white' }}>
+            {loadingOverview ? 'Loading...' : totalAssistantsCount.toString()}
+          </div>
+          {overviewError ? (
+            <div style={{ marginTop: '8px', color: '#ff6b6b', fontSize: '12px' }}>Error loading assistant count</div>
+          ) : null}
         </div>
 
       </div>

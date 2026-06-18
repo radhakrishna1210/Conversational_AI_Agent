@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AgentConfig, createAgent, loadAgents, getDefaultFlowItems, getDefaultWelcomeMessage } from '../lib/agentStore';
+import { AgentConfig, deleteAgent, loadAgents, saveAgents, getDefaultFlowItems, getDefaultWelcomeMessage } from '../lib/agentStore';
 import { whapi } from '../lib/whapi';
 
 
@@ -10,6 +10,7 @@ export default function Dashboard() {
   const [success, setSuccess] = useState(false);
   const [agents, setAgents] = useState<AgentConfig[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const navigate = useNavigate();
 
   const hardcodedAssistant = {
@@ -24,11 +25,34 @@ export default function Dashboard() {
     id: '131000',
   };
 
+  const normalizeAgent = (agent: Partial<AgentConfig> & { aiModel?: string; languages?: any; flowItems?: any[]; }) : AgentConfig => ({
+    id: agent.id ?? String(Date.now()),
+    name: agent.name ?? 'New Assistant',
+    language: agent.language ?? 'English (India)',
+    llm: agent.aiModel ?? agent.llm ?? 'GPT-4.1-Mini',
+    voice: agent.voice ?? 'Google - Aoede (female)',
+    kbFiles: agent.kbFiles ?? 0,
+    search: agent.search ?? 'Off',
+    postCall: agent.postCall ?? 'None',
+    integrations: agent.integrations ?? 'None',
+    welcomeMessage: agent.welcomeMessage ?? getDefaultWelcomeMessage(agent.name ?? 'Assistant'),
+    selectedLanguages: Array.isArray(agent.selectedLanguages) ? agent.selectedLanguages : ['English (Indian)'],
+    flowItems: Array.isArray(agent.flowItems) ? agent.flowItems : getDefaultFlowItems(agent.name ?? 'Assistant'),
+    maxDuration: agent.maxDuration ?? 30,
+    silenceTimeout: agent.silenceTimeout ?? 5,
+    dynamicEnabled: typeof agent.dynamicEnabled === 'boolean' ? agent.dynamicEnabled : true,
+    interruptibleEnabled: typeof agent.interruptibleEnabled === 'boolean' ? agent.interruptibleEnabled : true,
+    aiModel: agent.aiModel ?? agent.llm ?? 'GPT-4.1-Mini',
+    transcription: agent.transcription ?? 'Azure',
+    createdAt: agent.createdAt ?? new Date().toISOString(),
+    updatedAt: agent.updatedAt ?? new Date().toISOString(),
+  });
+
   useEffect(() => {
     const fetchAgents = async () => {
       try {
         const backendAgents = await whapi.get<AgentConfig[]>('/agents');
-        setAgents(backendAgents);
+        setAgents(backendAgents.map(normalizeAgent));
       } catch (err) {
         console.error('Failed to fetch agents from backend', err);
         setAgents(loadAgents());
@@ -83,7 +107,7 @@ export default function Dashboard() {
         voice: 'Google - Aoede (female)',
       });
       
-      setAgents(prev => [newAgent, ...prev]);
+      setAgents(prev => [normalizeAgent(newAgent), ...prev]);
       setPrompt('');
       setSuccess(true);
       setTimeout(() => setSuccess(false), 2000);
@@ -130,6 +154,28 @@ export default function Dashboard() {
 
 
   const setTemplate = (template: string) => setPrompt(template);
+
+  const isLocalAgent = (agent: AgentConfig) => /^\d+$/.test(agent.id);
+
+  const handleDelete = async (assistant: AgentConfig) => {
+    const confirmed = window.confirm(`Delete assistant "${assistant.name}"?`);
+    if (!confirmed) return;
+
+    const remainingAgents = agents.filter((agent) => agent.id !== assistant.id);
+    setAgents(remainingAgents);
+    saveAgents(remainingAgents);
+    setOpenMenuId(null);
+
+    if (!isLocalAgent(assistant)) {
+      try {
+        await whapi.del(`/agents/${assistant.id}`);
+      } catch (err) {
+        console.warn('Failed to delete backend agent, removed locally anyway', err);
+      }
+    } else {
+      deleteAgent(assistant.id);
+    }
+  };
 
   const filteredAgents = agents.filter(agent =>
     agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -207,7 +253,48 @@ export default function Dashboard() {
                 <h3>{hardcodedAssistant.name}</h3>
                 <p>{hardcodedAssistant.language}</p>
               </div>
-              <button className="assistant-menu" aria-label="Assistant actions">⋮</button>
+              <div style={{ position: 'relative' }}>
+                <button
+                  className="assistant-menu"
+                  aria-label="Assistant actions"
+                  title="Built-in assistant"
+                  type="button"
+                  onClick={() => setOpenMenuId(openMenuId === hardcodedAssistant.id ? null : hardcodedAssistant.id)}
+                >
+                  ⋮
+                </button>
+                {openMenuId === hardcodedAssistant.id && (
+                  <div
+                    style={{
+                      position: 'absolute',
+                      right: 0,
+                      top: 'calc(100% + 8px)',
+                      zIndex: 20,
+                      minWidth: '180px',
+                      background: 'rgba(15, 23, 42, 0.98)',
+                      border: '1px solid rgba(148, 163, 184, 0.2)',
+                      borderRadius: '12px',
+                      boxShadow: '0 12px 30px rgba(15, 23, 42, 0.45)',
+                    }}
+                  >
+                    <button
+                      style={{
+                        width: '100%',
+                        padding: '10px 14px',
+                        textAlign: 'left',
+                        color: '#94a3b8',
+                        background: 'transparent',
+                        border: 'none',
+                        cursor: 'default',
+                        fontSize: '13px',
+                      }}
+                      type="button"
+                    >
+                      Delete not available for built-in assistant
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="assistant-metadata">
@@ -232,7 +319,46 @@ export default function Dashboard() {
                     <h3>{assistant.name}</h3>
                     <p>{assistant.language}</p>
                   </div>
-                  <button className="assistant-menu" aria-label="Assistant actions">⋮</button>
+                  <div style={{ position: 'relative' }}>
+                    <button
+                      className="assistant-menu"
+                      aria-label="Assistant actions"
+                      onClick={() => setOpenMenuId(openMenuId === assistant.id ? null : assistant.id)}
+                    >
+                      ⋮
+                    </button>
+                    {openMenuId === assistant.id && (
+                      <div
+                        style={{
+                          position: 'absolute',
+                          right: 0,
+                          top: 'calc(100% + 8px)',
+                          zIndex: 20,
+                          minWidth: '140px',
+                          background: 'rgba(15, 23, 42, 0.98)',
+                          border: '1px solid rgba(148, 163, 184, 0.2)',
+                          borderRadius: '12px',
+                          boxShadow: '0 12px 30px rgba(15, 23, 42, 0.45)',
+                        }}
+                      >
+                        <button
+                          style={{
+                            width: '100%',
+                            padding: '10px 14px',
+                            textAlign: 'left',
+                            color: '#f87171',
+                            background: 'transparent',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontSize: '13px',
+                          }}
+                          onClick={() => handleDelete(assistant)}
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="assistant-metadata">

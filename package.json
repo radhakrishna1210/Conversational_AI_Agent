@@ -1,0 +1,21 @@
+{
+  "name": "conversational-ai",
+  "version": "1.0.0",
+  "description": "Conversational AI with WhatsApp Integration",
+  "private": true,
+  "scripts": {
+    "dev": "npm run dev:all",
+    "dev:all": "concurrently \"npm run dev:backend\" \"npm run dev:client\"",
+    "dev:backend": "cd backend && npm run dev",
+    "dev:client": "cd client && npm run dev",
+    "dev:chatflow": "cd chatflow-pro && npm run dev",
+    "install:all": "npm install && cd backend && npm install && cd ../client && npm install && cd ../chatflow-pro && npm install",
+    "build": "npm run build:backend && npm run build:client",
+    "build:backend": "cd backend && npm run build",
+    "build:client": "cd client && npm run build",
+    "build:chatflow": "cd chatflow-pro && npm run build"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}

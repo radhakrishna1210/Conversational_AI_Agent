@@ -25,11 +25,11 @@ export const CTASection = () => (
           Join thousands of businesses that switched from Wati and Interakt to get better features at a fraction of the cost.
         </p>
         <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-          <Link to="/dashboard">
-            <Button size="lg" className="bg-gradient-primary text-primary-foreground font-semibold shadow-glow hover:opacity-90 h-14 px-10 text-base">
+          <Link to="/dashboard" className="inline-flex">
+            <button className="bg-gradient-primary text-primary-foreground font-semibold shadow-glow hover:opacity-90 h-14 px-10 text-base inline-flex items-center justify-center gap-2 rounded-md">
               Start Your Free Trial
               <ArrowRight className="ml-2 w-5 h-5" />
-            </Button>
+            </button>
           </Link>
         </div>
         <p className="text-xs text-muted-foreground mt-4">14-day free trial · No credit card required · Setup in 5 minutes</p>

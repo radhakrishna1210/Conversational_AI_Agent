@@ -1,12 +1,13 @@
-import prisma from '../config/prisma.js';
+﻿import prisma from '../config/prisma.js';
 import { CAMPAIGN_PERF_LIST_LIMIT } from '../constants/limits.js';
 
 export const getOverviewMetrics = async (workspaceId) => {
-  const [totalMessages, totalCampaigns, totalContacts, optOuts] = await prisma.$transaction([
+  const [totalMessages, totalCampaigns, totalContacts, optOuts, totalAssistants] = await prisma.$transaction([
     prisma.message.count({ where: { workspaceId } }),
     prisma.campaign.count({ where: { workspaceId } }),
     prisma.contact.count({ where: { workspaceId } }),
     prisma.contact.count({ where: { workspaceId, optedOut: true } }),
+    prisma.agent.count({ where: { workspaceId } }), // Live assistant database collection
   ]);
 
   const delivered = await prisma.message.count({ where: { workspaceId, status: 'delivered' } });
@@ -17,6 +18,7 @@ export const getOverviewMetrics = async (workspaceId) => {
     totalCampaigns,
     totalContacts,
     optOuts,
+    totalAssistants,
     deliveryRate: sent > 0 ? ((delivered / sent) * 100).toFixed(1) : '0',
     optOutRate: totalContacts > 0 ? ((optOuts / totalContacts) * 100).toFixed(1) : '0',
   };

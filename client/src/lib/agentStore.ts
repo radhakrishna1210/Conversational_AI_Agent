@@ -127,6 +127,11 @@ export function saveAgent(agent: AgentConfig) {
   return updatedAgent;
 }
 
+export function deleteAgent(agentId: string) {
+  const agents = loadAgents().filter(agent => agent.id !== agentId);
+  saveAgents(agents);
+}
+
 export function getDefaultWelcomeMessage(agentName: string): string {
   const nameLower = agentName.toLowerCase();
   if (nameLower.includes('moon') || nameLower.includes('space') || nameLower.includes('astronomy') || nameLower.includes('luna')) {

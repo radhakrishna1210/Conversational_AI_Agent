@@ -1,10 +1,11 @@
+import { useState, useMemo, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Progress } from "@/components/ui/progress";
-import { BarChart3, TrendingUp, TrendingDown, Download, MessageSquare, Ban, Users, Loader2 } from "lucide-react";
+import { BarChart3, TrendingUp, Download, MessageSquare, Bot, Users, Loader2, Calendar } from "lucide-react";
 import { whapi } from "@/lib/whapi";
 
 interface Overview {
@@ -14,6 +15,7 @@ interface Overview {
   optOuts: number;
   deliveryRate: string;
   optOutRate: string;
+  totalAssistants: number;
 }
 
 interface DeliveryDay {
@@ -42,30 +44,45 @@ interface AgentPerf {
 const barColor = (rate: number) => rate > 97 ? "bg-primary" : rate > 93 ? "bg-warning" : "bg-destructive";
 
 const WHAnalytics = () => {
+  const [timePeriod, setTimePeriod] = useState<7 | 30 | 90>(7);
+  const [lastClicked, setLastClicked] = useState<string>('');
+
+  // Calculate date range based on time period
+  const dateRange = useMemo(() => {
+    const today = new Date(); // use actual current date
+    const end = new Date(today);
+    const start = new Date(today);
+
+    start.setDate(end.getDate() - timePeriod);
+
+    const formatDate = (d: Date) => d.toISOString().split('T')[0];
+    return { start: formatDate(start), end: formatDate(end) };
+  }, [timePeriod]);
+  
   const { data: overview, isLoading: loadingOverview } = useQuery<Overview>({
-    queryKey: ["analytics", "overview"],
-    queryFn: () => whapi.get<Overview>("/analytics/overview"),
+    queryKey: ["analytics", "overview", timePeriod],
+    queryFn: () => whapi.get<Overview>(`/analytics/overview?start=${dateRange.start}&end=${dateRange.end}`),
   });
 
   const { data: deliveryData = [], isLoading: loadingDelivery } = useQuery<DeliveryDay[]>({
-    queryKey: ["analytics", "delivery"],
-    queryFn: () => whapi.get<DeliveryDay[]>("/analytics/delivery"),
+    queryKey: ["analytics", "delivery", timePeriod],
+    queryFn: () => whapi.get<DeliveryDay[]>(`/analytics/delivery?start=${dateRange.start}&end=${dateRange.end}`),
   });
 
   const { data: campaigns = [], isLoading: loadingCampaigns } = useQuery<CampaignPerf[]>({
-    queryKey: ["analytics", "campaigns"],
-    queryFn: () => whapi.get<CampaignPerf[]>("/analytics/campaigns"),
+    queryKey: ["analytics", "campaigns", timePeriod],
+    queryFn: () => whapi.get<CampaignPerf[]>(`/analytics/campaigns?start=${dateRange.start}&end=${dateRange.end}`),
   });
 
   const { data: agents = [], isLoading: loadingAgents } = useQuery<AgentPerf[]>({
-    queryKey: ["analytics", "agents"],
-    queryFn: () => whapi.get<AgentPerf[]>("/analytics/agents"),
+    queryKey: ["analytics", "agents", timePeriod],
+    queryFn: () => whapi.get<AgentPerf[]>(`/analytics/agents?start=${dateRange.start}&end=${dateRange.end}`),
   });
 
   const kpis = [
     { label: "Messages Sent", value: overview?.totalMessages?.toLocaleString() ?? "—", up: true, icon: MessageSquare },
     { label: "Delivery Rate", value: overview ? `${overview.deliveryRate}%` : "—", up: true, icon: BarChart3 },
-    { label: "Opt-out Rate", value: overview ? `${overview.optOutRate}%` : "—", up: false, icon: Ban },
+    { label: "Total Assistants", value: overview?.totalAssistants?.toString() ?? "0", up: true, icon: Bot },
     { label: "Total Contacts", value: overview?.totalContacts?.toLocaleString() ?? "—", up: true, icon: Users },
   ];
 
@@ -74,11 +91,98 @@ const WHAnalytics = () => {
     return d.toLocaleDateString(undefined, { weekday: "short" });
   };
 
+  const formatDateDisplay = (dateStr: string) => {
+    const d = new Date(dateStr);
+    return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  };
+
+  const handlePeriodChange = (days: 7 | 30 | 90) => {
+    // debug log to help verify clicks in browser console
+    // eslint-disable-next-line no-console
+    console.log("WHAnalytics: period clicked", days);
+    setTimePeriod(days);
+    setLastClicked(`${days} days @ ${new Date().toLocaleTimeString()}`);
+  };
+
+  useEffect(() => {
+    // eslint-disable-next-line no-console
+    console.log('WHAnalytics mounted', { timePeriod });
+    return () => {
+      // eslint-disable-next-line no-console
+      console.log('WHAnalytics unmounted');
+    };
+  }, []);
+
   return (
-    <div className="space-y-6">
-      <div>
-        <h1 className="font-display text-2xl font-bold text-foreground">Analytics</h1>
-        <p className="text-sm text-muted-foreground">Track performance and optimize your campaigns</p>
+    <div
+      className="space-y-6"
+      onClickCapture={() => {
+        // eslint-disable-next-line no-console
+        console.debug('WHAnalytics: root onClickCapture');
+      }}
+      onPointerDown={() => {
+        // eslint-disable-next-line no-console
+        console.debug('WHAnalytics: root onPointerDown');
+      }}
+    >
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        <div>
+          <h1 className="font-display text-2xl font-bold text-foreground">Analytics</h1>
+          <p className="text-sm text-muted-foreground">Track performance and optimize your campaigns</p>
+        </div>
+        
+        {/* Time Period Selector */}
+        <div className="relative z-50 flex items-center gap-3 bg-secondary p-2 rounded-lg pointer-events-auto" data-testid="time-selector">
+          <button
+            type="button"
+            onPointerDown={() => console.debug('WHAnalytics: btn-7 pointerDown')}
+            onClick={() => handlePeriodChange(7)}
+            className={`px-4 py-2 rounded text-sm font-medium cursor-pointer transition-all ${
+              timePeriod === 7
+                ? "bg-primary text-primary-foreground"
+                : "bg-transparent text-foreground hover:bg-primary/20"
+            }`}
+            data-testid="btn-7"
+          >
+            Last 7 Days
+          </button>
+          <button
+            type="button"
+            onPointerDown={() => console.debug('WHAnalytics: btn-30 pointerDown')}
+            onClick={() => handlePeriodChange(30)}
+            className={`px-4 py-2 rounded text-sm font-medium cursor-pointer transition-all ${
+              timePeriod === 30
+                ? "bg-primary text-primary-foreground"
+                : "bg-transparent text-foreground hover:bg-primary/20"
+            }`}
+            data-testid="btn-30"
+          >
+            Last 30 Days
+          </button>
+          <button
+            type="button"
+            onPointerDown={() => console.debug('WHAnalytics: btn-90 pointerDown')}
+            onClick={() => handlePeriodChange(90)}
+            className={`px-4 py-2 rounded text-sm font-medium cursor-pointer transition-all ${
+              timePeriod === 90
+                ? "bg-primary text-primary-foreground"
+                : "bg-transparent text-foreground hover:bg-primary/20"
+            }`}
+            data-testid="btn-90"
+          >
+            Last 90 Days
+          </button>
+          <div className="border-l border-border ml-2 pl-2" />
+          <div className="flex items-center gap-2 ml-2">
+            <Calendar className="w-4 h-4 text-primary" />
+            <span className="text-sm font-medium text-foreground">
+              {formatDateDisplay(dateRange.start)} - {formatDateDisplay(dateRange.end)}
+            </span>
+            {lastClicked && (
+              <span className="ml-4 text-xs text-muted-foreground">Last click: {lastClicked}</span>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* KPI Cards */}
@@ -91,8 +195,8 @@ const WHAnalytics = () => {
                 {loadingOverview ? (
                   <Loader2 className="w-3 h-3 animate-spin text-muted-foreground" />
                 ) : (
-                  <span className={`text-xs flex items-center gap-0.5 ${k.up ? "text-primary" : "text-destructive"}`}>
-                    {k.up ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
+                  <span className="text-xs flex items-center gap-0.5 text-primary">
+                    <TrendingUp className="w-3 h-3" />
                   </span>
                 )}
               </div>
@@ -106,7 +210,9 @@ const WHAnalytics = () => {
       {/* Delivery Rate Chart */}
       <Card className="bg-card border-border/50">
         <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="font-display text-base">7-Day Message Delivery Rate</CardTitle>
+          <CardTitle className="font-display text-base">
+            Message Delivery Rate (Last {timePeriod} Days)
+          </CardTitle>
           <Button variant="outline" size="sm" className="border-border/50 text-muted-foreground"><Download className="w-3 h-3 mr-1" /> CSV</Button>
         </CardHeader>
         <CardContent>

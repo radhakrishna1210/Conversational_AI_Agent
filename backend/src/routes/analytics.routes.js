@@ -3,8 +3,8 @@ import * as ctrl from '../controllers/analytics.controller.js';
 
 const router = Router({ mergeParams: true });
 
-router.get('/overview', ctrl.getOverview);
-router.get('/delivery', ctrl.getDeliveryChart);
+router.get('/overview', ctrl.getOverviewMetrics);
+router.get('/delivery', ctrl.getDeliveryRateLast7Days);
 router.get('/campaigns', ctrl.getCampaignPerformance);
 router.get('/agents', ctrl.getAgentPerformance);
 
