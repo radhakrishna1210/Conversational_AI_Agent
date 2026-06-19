@@ -23,6 +23,8 @@ import azureRoutes from './azure.routes.js';
 import agentRoutes from './agent.routes.js';
 import integrationsRoutes from './integrations.routes.js';
 import integrationsPublicRoutes from './integrationsPublic.routes.js';
+import voiceCloneRoutes from './voiceClone.routes.js';
+
 
 import { getHealth as getGeminiHealth, getMetrics as getGeminiMetrics } from '../controllers/gemini.controller.js';
 import { getHealth as getOpenAIHealth, getMetrics as getOpenAIMetrics } from '../controllers/openai.controller.js';
@@ -68,6 +70,8 @@ ws.use('/openai', openaiRoutes);
 ws.use('/azure', azureRoutes);
 ws.use('/agents', agentRoutes);
 ws.use('/integrations', integrationsRoutes);
+ws.use('/voice-clones', voiceCloneRoutes);
+
 
 
 router.use('/workspaces/:workspaceId', ws);

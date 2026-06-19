@@ -31,6 +31,16 @@ interface PostCallConfig {
   extractedVariables: ExtractedVariable[];
 }
 
+interface VoiceClone {
+  id: string;
+  name: string;
+  voiceId: string;
+  provider: string;
+  gender: string;
+  language: string;
+  status: string;
+}
+
 const LANGUAGES_LIST = [
   'English (American)', 'English (British)', 'English (Indian)', 'English (Australian)',
   'Hindi', 'Bengali', 'Gujarati', 'Tamil', 'Spanish', 'French', 'German', 'Mandarin',
@@ -53,7 +63,8 @@ const VOICES_BY_PROVIDER = {
   cartesia: [
     { id: 'dante', name: 'Dante', gender: 'male', accents: ['smooth', 'natural'] },
     { id: 'ivy', name: 'Ivy', gender: 'female', accents: ['smooth', 'natural'] }
-  ]
+  ],
+  cloned: []
 };
 
 const AI_MODELS = ['GPT-4.1-Mini', 'GPT-4-Turbo', 'Claude-3-Opus', 'Gemini-Pro', 'Llama-2-70B'];
@@ -115,6 +126,7 @@ export default function EditAgent() {
 
   const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
   const [voice, setVoice] = useState('Google - Aoede (female)');
+  const [voiceCloneId, setVoiceCloneId] = useState<string | null>(null);
   const [aiModel, setAiModel] = useState('GPT-4.1-Mini');
   const [transcription, setTranscription] = useState('Azure');
 
@@ -144,6 +156,7 @@ export default function EditAgent() {
   const [isSttLanguageDropdownOpen, setIsSttLanguageDropdownOpen] = useState(false);
   
   const [voiceProvider, setVoiceProvider] = useState('google');
+  const [clonedVoices, setClonedVoices] = useState<VoiceClone[]>([]);
   const [agentName, setAgentName] = useState('Moon Information Agent');
   const [agentNotFound, setAgentNotFound] = useState(false);
   const [postCallConfigs, setPostCallConfigs] = useState<PostCallConfig[]>([createDefaultPostCallConfig()]);
@@ -172,6 +185,11 @@ export default function EditAgent() {
   useEffect(() => {
     if (!agentId) return;
     
+    // Fetch custom cloned voices
+    whapi.get<any[]>('/voice-clones')
+      .then(data => setClonedVoices(data || []))
+      .catch(err => console.error('Failed to fetch cloned voices', err));
+
     const fetchAgent = async () => {
       try {
         const agent = await whapi.get<AgentConfig>(`/agents/${agentId}`);
@@ -181,6 +199,7 @@ export default function EditAgent() {
           setWelcomeMessage(agent.welcomeMessage);
           setSelectedLanguages(((agent as any).languages ?? agent.selectedLanguages) || ['English (Indian)']);
           setVoice(agent.voice || 'Google - Aoede (female)');
+          setVoiceCloneId((agent as any).voiceCloneId || null);
           setAiModel(agent.aiModel || 'GPT-4.1-Mini');
           setTranscription(agent.transcription || 'Azure');
           setMaxDuration(agent.maxDuration ?? 30);
@@ -199,12 +218,15 @@ export default function EditAgent() {
             { id: '2', title: 'General Moon Facts Flow', enabled: true }
           ]);
           setPostCallConfigs(savedPostCallConfigs?.length ? savedPostCallConfigs : [createDefaultPostCallConfig()]);
+          
           if (agent.voice?.toLowerCase().startsWith('google')) {
             setVoiceProvider('google');
           } else if (agent.voice?.toLowerCase().startsWith('eleven')) {
             setVoiceProvider('elevenlabs');
           } else if (agent.voice?.toLowerCase().startsWith('cartesia')) {
             setVoiceProvider('cartesia');
+          } else if ((agent as any).voiceCloneId || agent.voice?.toLowerCase().includes('(cloned)')) {
+            setVoiceProvider('cloned');
           }
           return;
         }
@@ -218,11 +240,11 @@ export default function EditAgent() {
         setAgentNotFound(true);
         return;
       }
-      // ... (existing set state logic)
       setAgentName(localAgent.name);
       setWelcomeMessage(localAgent.welcomeMessage);
       setSelectedLanguages(localAgent.selectedLanguages || ['English (Indian)']);
       setVoice(localAgent.voice || 'Google - Aoede (female)');
+      setVoiceCloneId((localAgent as any).voiceCloneId || null);
       setAiModel(localAgent.aiModel || 'GPT-4.1-Mini');
       setTranscription(localAgent.transcription || 'Azure');
       setMaxSilenceBeforeHangup((localAgent as any).maxSilenceBeforeHangup ?? 15);
@@ -233,6 +255,16 @@ export default function EditAgent() {
       setSpeakingRate((localAgent as any).speakingRate ?? 1.0);
       setAmbientSound((localAgent as any).ambientSound ?? 'None');
       setPostCallConfigs((localAgent as any).postCallConfigs?.length ? (localAgent as any).postCallConfigs : [createDefaultPostCallConfig()]);
+      
+      if (localAgent.voice?.toLowerCase().startsWith('google')) {
+        setVoiceProvider('google');
+      } else if (localAgent.voice?.toLowerCase().startsWith('eleven')) {
+        setVoiceProvider('elevenlabs');
+      } else if (localAgent.voice?.toLowerCase().startsWith('cartesia')) {
+        setVoiceProvider('cartesia');
+      } else if ((localAgent as any).voiceCloneId || localAgent.voice?.toLowerCase().includes('(cloned)')) {
+        setVoiceProvider('cloned');
+      }
     };
 
     fetchAgent();
@@ -242,11 +274,16 @@ export default function EditAgent() {
   // Save changes to backend and local storage
   const handleSave = async () => {
     setIsSaving(true);
+    const selectedVoiceProvider = voiceCloneId
+      ? 'cloned'
+      : voice.split(' - ')[0]?.toLowerCase() || voiceProvider;
     const agentData = {
       name: agentName,
       welcomeMessage,
       aiModel,
       voice,
+      voiceCloneId,
+      voiceProvider: selectedVoiceProvider,
       transcription,
       languages: selectedLanguages,
       flowItems,
@@ -305,6 +342,14 @@ export default function EditAgent() {
   const handleVoiceSelect = (voiceName: string) => {
     const provider = voiceProvider.charAt(0).toUpperCase() + voiceProvider.slice(1);
     setVoice(`${provider} - ${voiceName}`);
+    setVoiceCloneId(null);
+    setShowVoiceModal(false);
+  };
+
+  const handleCloneVoiceSelect = (clone: VoiceClone) => {
+    setVoice(`Cloned - ${clone.name} (${clone.provider}: ${clone.voiceId})`);
+    setVoiceCloneId(clone.id);
+    setVoiceProvider('cloned');
     setShowVoiceModal(false);
   };
 
@@ -537,24 +582,51 @@ export default function EditAgent() {
                 </button>
               ))}
             </div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px', marginBottom: '20px' }}>
-              {VOICES_BY_PROVIDER[voiceProvider as keyof typeof VOICES_BY_PROVIDER].map(v => (
-                <div key={v.id} onClick={() => handleVoiceSelect(v.name)} style={{ background: '#0f0f0f', border: voice.includes(v.name) ? '2px solid #00bcd4' : '1px solid #333', borderRadius: '8px', padding: '16px', cursor: 'pointer' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
-                    <div>
-                      <div style={{ fontSize: '13px', fontWeight: '500' }}>{v.name}</div>
-                      <div style={{ fontSize: '11px', color: '#999' }}>{voiceProvider.charAt(0).toUpperCase() + voiceProvider.slice(1)}</div>
-                    </div>
-                    <button style={{ background: 'none', border: 'none', color: '#00bcd4', cursor: 'pointer', fontSize: '18px' }}>{'>'}</button>
-                  </div>
-                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                    {v.accents.map(accent => (
-                      <span key={accent} style={{ fontSize: '11px', background: '#1a1a1a', padding: '4px 8px', borderRadius: '4px', color: '#999' }}>{accent}</span>
-                    ))}
-                  </div>
+            {voiceProvider === 'cloned' ? (
+              clonedVoices.length === 0 ? (
+                <div style={{ border: '1px solid #333', borderRadius: '8px', padding: '28px', color: '#999', fontSize: '13px', marginBottom: '20px', textAlign: 'center' }}>
+                  No cloned voices are ready in this workspace yet.
                 </div>
-              ))}
-            </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px', marginBottom: '20px' }}>
+                  {clonedVoices.filter(clone => clone.status === 'ready').map(clone => (
+                    <div key={clone.id} onClick={() => handleCloneVoiceSelect(clone)} style={{ background: '#0f0f0f', border: voiceCloneId === clone.id ? '2px solid #00bcd4' : '1px solid #333', borderRadius: '8px', padding: '16px', cursor: 'pointer' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                        <div>
+                          <div style={{ fontSize: '13px', fontWeight: '500' }}>{clone.name}</div>
+                          <div style={{ fontSize: '11px', color: '#999' }}>{clone.provider} cloned voice</div>
+                        </div>
+                        <button style={{ background: 'none', border: 'none', color: '#00bcd4', cursor: 'pointer', fontSize: '18px' }}>{'>'}</button>
+                      </div>
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                        {[clone.gender, clone.language, clone.voiceId].filter(Boolean).map(item => (
+                          <span key={item} style={{ fontSize: '11px', background: '#1a1a1a', padding: '4px 8px', borderRadius: '4px', color: '#999' }}>{item}</span>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )
+            ) : (
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '16px', marginBottom: '20px' }}>
+                {VOICES_BY_PROVIDER[voiceProvider as keyof typeof VOICES_BY_PROVIDER].map(v => (
+                  <div key={v.id} onClick={() => handleVoiceSelect(v.name)} style={{ background: '#0f0f0f', border: voice.includes(v.name) ? '2px solid #00bcd4' : '1px solid #333', borderRadius: '8px', padding: '16px', cursor: 'pointer' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '8px' }}>
+                      <div>
+                        <div style={{ fontSize: '13px', fontWeight: '500' }}>{v.name}</div>
+                        <div style={{ fontSize: '11px', color: '#999' }}>{voiceProvider.charAt(0).toUpperCase() + voiceProvider.slice(1)}</div>
+                      </div>
+                      <button style={{ background: 'none', border: 'none', color: '#00bcd4', cursor: 'pointer', fontSize: '18px' }}>{'>'}</button>
+                    </div>
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                      {v.accents.map(accent => (
+                        <span key={accent} style={{ fontSize: '11px', background: '#1a1a1a', padding: '4px 8px', borderRadius: '4px', color: '#999' }}>{accent}</span>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
               <button onClick={() => setShowVoiceModal(false)} style={{ padding: '10px 20px', background: 'transparent', border: '1px solid #333', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>Cancel</button>
               <button onClick={() => setShowVoiceModal(false)} style={{ padding: '10px 20px', background: '#00bcd4', color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>Done</button>
