@@ -730,10 +730,10 @@ The goal is to accurately test real-world agent behavior before deployment.
 
 # Current Agent Configuration
 
-Welcome Message: \${welcomeMessage}
+Welcome Message: ${welcomeMessage}
 
 Flow:
-\${flowItems.filter(f => f.enabled).map(f => f.title).join('\\n')}\`;
+${flowItems.filter(f => f.enabled).map(f => f.title).join('\n')}`;
 
       const response = await whapi.post<{ message: string }>('/llm/generate', {
         agentId,
@@ -2641,7 +2641,14 @@ Flow:
 
         {/* Right Sidebar (AI Assistant) */}
         {showAskAIModal && (
-          <AIAssistantSidebar onClose={() => setShowAskAIModal(false)} />
+          <AIAssistantSidebar 
+            onClose={() => setShowAskAIModal(false)} 
+            input={askAIInput}
+            setInput={setAskAIInput}
+            response={askAIResponse}
+            isLoading={isAskAILoading}
+            onSubmit={handleAskAI}
+          />
         )}
       </div>
 
