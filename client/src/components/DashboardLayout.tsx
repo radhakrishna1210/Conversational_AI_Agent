@@ -22,16 +22,18 @@ import {
 } from "lucide-react";
 import { useTheme } from '../hooks/useTheme';
 import { CommandMenu } from './CommandMenu';
+import { NotificationPanel } from '@/components/notifications/NotificationPanel';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
 
-  // true = dark (default), false = light
   const { darkMode, toggleDarkMode } = useTheme();
   const [user, setUser] = useState({ name: 'User', email: '', initials: 'U', plan: '', role: '' });
 
   const profileRef = useRef<HTMLDivElement>(null);
-  
+
   const location = useLocation();
   const navigate = useNavigate();
   const path = location.pathname;
@@ -97,7 +99,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         }
       } catch (_) {}
 
-      // Fallback: decode JWT locally
       const token2 = localStorage.getItem('token');
       if (token2) {
         try {
@@ -114,7 +115,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           return;
         } catch (_) {}
       }
-      // Final fallback: localStorage cache
+
       const cachedName = localStorage.getItem('userName') || 'User';
       const cachedEmail = localStorage.getItem('userEmail') || '';
       const cachedRole = localStorage.getItem('userRole') || '';
@@ -124,7 +125,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     fetchMe();
   }, []);
 
-  // Close dropdown when clicking outside
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    const workspaceId = localStorage.getItem('workspaceId');
+    if (!token || !workspaceId) return;
+
+    fetch(`/api/v1/workspaces/${workspaceId}/notifications/unread-count`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.count != null) setUnreadCount(data.count);
+      })
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
@@ -137,7 +152,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="dashboard-layout">
-      {/* Sidebar (moved before topbar so CSS sibling selectors can react) */}
       <aside className="sidebar">
         <Link to="/" style={{textDecoration: 'none'}}>
           <div className="sidebar-header">
@@ -308,35 +322,63 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </aside>
 
-      {/* Topbar */}
       <div className="topbar-fixed">
         <div className="dashboard-topbar">
-          <div 
-            className="topbar-search" 
+          <div
+            className="topbar-search"
             onClick={() => setIsCommandMenuOpen(true)}
             style={{ cursor: 'pointer' }}
           >
             <Search size={16} />
-            <input 
-              type="text" 
-              placeholder="Search or jump to..." 
-              readOnly 
+            <input
+              type="text"
+              placeholder="Search or jump to..."
+              readOnly
               style={{ cursor: 'pointer' }}
             />
             <span>⌘ K</span>
           </div>
           <CommandMenu open={isCommandMenuOpen} setOpen={setIsCommandMenuOpen} />
           <div className="topbar-actions">
-            {/* Bell */}
-            <button className="topbar-icon-btn" style={{ position: 'relative' }}>
+            <button
+              type="button"
+              className="topbar-icon-btn"
+              style={{ position: 'relative' }}
+              onClick={() => setNotifOpen((v) => !v)}
+              aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ''}`}
+              aria-expanded={notifOpen}
+              aria-haspopup="dialog"
+            >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
                 <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
               </svg>
-              <span style={{ position: 'absolute', top: '6px', right: '6px', width: '7px', height: '7px', background: 'var(--error)', borderRadius: '50%', display: 'block', border: '1.5px solid var(--topbar-bg)' }}></span>
+              {unreadCount > 0 && (
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: '4px',
+                    right: '4px',
+                    minWidth: '16px',
+                    height: '16px',
+                    padding: '0 4px',
+                    background: 'var(--teal)',
+                    color: '#060c17',
+                    borderRadius: '999px',
+                    fontSize: '10px',
+                    fontWeight: 800,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    lineHeight: 1,
+                    border: '1.5px solid var(--topbar-bg)',
+                  }}
+                >
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
             </button>
 
-            {/* Dark / Light mode toggle */}
             <button className="topbar-icon-btn" onClick={toggleDarkMode} title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}>
               {darkMode ? (
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -353,7 +395,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               )}
             </button>
 
-            {/* Profile avatar + dropdown */}
             <div ref={profileRef} style={{ position: 'relative', marginLeft: '2px' }}>
               <div
                 className="topbar-avatar"
@@ -378,7 +419,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   zIndex: 9999,
                   overflow: 'hidden',
                 }}>
-                  {/* User info header */}
                   <div style={{ padding: '16px', borderBottom: '1px solid var(--dropdown-border)', display: 'flex', alignItems: 'center', gap: '12px', background: darkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)' }}>
                     <div style={{ width: '38px', height: '38px', borderRadius: '50%', background: 'linear-gradient(135deg, var(--teal), #0cd4bc)', color: '#060c17', fontWeight: '800', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', flexShrink: 0, boxShadow: '0 0 0 2px var(--teal-light)' }}>
                       {user.initials}
@@ -427,13 +467,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </div>
 
-      
-
       <main className="dashboard-main">
         <div className="dashboard-content">
           {children}
         </div>
       </main>
+
+      <NotificationPanel
+        open={notifOpen}
+        onClose={() => setNotifOpen(false)}
+        onUnreadCountChange={setUnreadCount}
+      />
     </div>
   );
 }

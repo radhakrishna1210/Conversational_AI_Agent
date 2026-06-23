@@ -17,6 +17,7 @@ import Docs from './pages/Docs';
 import ReportIssue from './pages/ReportIssue';
 import Dashboard from './pages/Dashboard';
 import BulkCallCreate from './pages/BulkCallCreate';
+
 import CloneVoice from './pages/CloneVoice';
 import Files from './pages/Files';
 import Integrations from './pages/Integrations';
@@ -33,6 +34,7 @@ import AuthCallback from './pages/AuthCallback';
 import EditAgent from './pages/EditAgent';
 import VoiceAssistant from './components/VoiceAssistant';
 import AdminPanel from './pages/AdminPanel';
+import NotificationArchive from './pages/NotificationArchive';
 
 // Quick Wrapper for the new page
 function VoiceAssistantPage() {
@@ -106,6 +108,7 @@ function App() {
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/bulk_call" element={<BulkCallCreate />} />
             <Route path="/bulk_call/create" element={<BulkCallCreate />} />
+            <Route path="/notifications/archive" element={<NotificationArchive />} />
             <Route path="/clone_voice" element={<CloneVoice />} />
             <Route path="/files" element={<Files />} />
             <Route path="/integrations" element={<Integrations />} />
