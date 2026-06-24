@@ -491,10 +491,88 @@ Provide 4 to 8 logical, structured conversational steps (flow items) that cover 
   }
 };
 
+export const enhancePrompt = async (req, res) => {
+  const { prompt } = req.body;
+
+  if (!prompt || typeof prompt !== "string") {
+    return res.status(400).json({
+      error: "Prompt is required",
+    });
+  }
+
+  const provider = process.env.DEFAULT_LLM_PROVIDER || "gemini";
+  const model = process.env.DEFAULT_LLM_MODEL || "gemini-2.5-flash";
+
+  let llmProvider;
+
+  try {
+    llmProvider = getLLMProviderWithFallback(provider);
+
+    const systemPrompt = `
+You are an expert Voice AI Agent Designer.
+
+Convert short user ideas into professional voice AI agent descriptions.
+
+Rules:
+- Expand the user's prompt professionally.
+- Write 1-2 concise paragraphs.
+- Describe the role of the voice AI agent.
+- Explain what calls it handles.
+- Mention common responsibilities.
+- Start with "Inbound Voice AI Agent:".
+- Do not use markdown.
+- Do not use bullet points.
+- Output only the enhanced prompt.
+`;
+
+    const aiPrompt = `
+User Prompt:
+${prompt}
+
+Generate a professional voice AI agent description.
+`;
+
+ const response = await llmProvider.generateResponse(
+  aiPrompt,
+  {
+    model,
+    temperature: 0.3,
+  },
+  {
+    systemPrompt,
+    maxTokens: 1000,
+  }
+);
+
+console.log("GEMINI RESPONSE:", response);
+res.json({
+  enhancedPrompt:
+    typeof response === "string"
+      ? response
+      : response.message,
+});
+
+//     const enhancedPrompt = `Inbound Voice AI Agent:
+
+// You are a virtual assistant for ${prompt}. Your primary role is to receive incoming phone calls, answer customer questions, provide accurate information, assist users with their requests, and guide callers to the appropriate resources when necessary. Be prepared to handle common inquiries, solve problems efficiently, and ensure a professional and helpful experience throughout every interaction.`;
+
+//     res.json({
+//       enhancedPrompt,
+//     });
+  } catch (error) {
+    logger.error("Error enhancing prompt", error);
+
+    res.status(500).json({
+      error: "Failed to enhance prompt",
+    });
+  }
+};
+
 export default {
   generateResponse,
   getModelsForProvider,
   getSupportedProviders,
   validateLLMConfig,
   generateAgentFlow,
+    enhancePrompt,
 };
