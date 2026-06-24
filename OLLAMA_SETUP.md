@@ -136,3 +136,10 @@ Then update `ollama.service.js` to use it.
 4. Add knowledge base context to the prompt
 5. Add conversation history
 6. Deploy Ollama to cloud (or use managed LLM API like Together.ai)
+ 
+int count = 0;
+for(int i = 0;i<n;i++){
+   if(nums[i]>=nums[i+1]){
+      count ++;
+   }
+}
