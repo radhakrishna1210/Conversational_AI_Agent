@@ -121,8 +121,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           const name = u.name || u.email?.split('@')[0] || 'User';
 
           buildUser(name, u.email || '', u.plan || '', u.role || '');
-
-          buildUser(name, u.email || '', u.plan || '');
           if (u.workspaceId && !localStorage.getItem('workspaceId')) {
             localStorage.setItem('workspaceId', u.workspaceId);
           }
@@ -138,8 +136,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           const name = payload.name || payload.email?.split('@')[0] || 'User';
 
           buildUser(name, payload.email || '', payload.plan || '', payload.role || '');
-
-          buildUser(name, payload.email || '', payload.plan || '');
           if (payload.workspaceId && !localStorage.getItem('workspaceId')) {
             localStorage.setItem('workspaceId', payload.workspaceId);
           }
