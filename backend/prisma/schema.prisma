@@ -68,6 +68,7 @@ model Workspace {
   syncJobs         SyncJob[]
   integrationSettings IntegrationSetting[]
   customApiConfigs CustomApiConfig[]
+  notifications    Notification[]
 }
 
 model WorkspaceMember {
@@ -561,4 +562,21 @@ model CustomApiConfig {
   workspace       Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, name])
+}
+
+model Notification {
+  id          String    @id @default(cuid())
+  workspaceId String
+  title       String
+  message     String
+  type        String    @default("INFO")   // INFO | SUCCESS | WARNING | ERROR | CAMPAIGN | MESSAGE | SYSTEM
+  read        Boolean   @default(false)
+  details     String?
+  actionText  String?
+  actionLink  String?
+  createdAt   DateTime  @default(now())
+
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, read, createdAt])
 }

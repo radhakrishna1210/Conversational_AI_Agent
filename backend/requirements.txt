@@ -5,6 +5,7 @@ python-multipart
 kokoro
 numpy<2.0.0
 soundfile
-TTS
 faster-whisper
 librosa
+torch
+
