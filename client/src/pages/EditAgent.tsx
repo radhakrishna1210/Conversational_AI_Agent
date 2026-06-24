@@ -1,8 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom';
-
 import { useEffect, useState, useRef } from 'react';
 import { AgentConfig, getAgent, saveAgent, getDefaultFlowItems } from '../lib/agentStore';
-
 import { whapi } from '../lib/whapi';
 import { integrationsApi } from '../lib/integrationsApi';
 import { toast } from 'sonner';
