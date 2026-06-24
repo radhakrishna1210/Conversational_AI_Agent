@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AgentConfig, createAgent, loadAgents, getDefaultFlowItems, getDefaultWelcomeMessage } from '../lib/agentStore';
 import { whapi } from '../lib/whapi';
@@ -10,7 +10,70 @@ export default function Dashboard() {
   const [success, setSuccess] = useState(false);
   const [agents, setAgents] = useState<AgentConfig[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
+  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const navigate = useNavigate();
+
+  useEffect(() => {
+    const handleClickOutside = () => {
+      setOpenDropdownId(null);
+    };
+    document.addEventListener('click', handleClickOutside);
+    return () => document.removeEventListener('click', handleClickOutside);
+  }, []);
+
+  const handleMenuClick = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    setOpenDropdownId(openDropdownId === id ? null : id);
+  };
+
+  const handleCopyAssistant = async (e: React.MouseEvent, assistant: AgentConfig) => {
+    e.stopPropagation();
+    setOpenDropdownId(null);
+    const newName = `${assistant.name} (Copy)`;
+    try {
+      const newAgentDetails = {
+        name: newName,
+        welcomeMessage: assistant.welcomeMessage || '',
+        flowItems: assistant.flowItems || [],
+        aiModel: assistant.aiModel || 'GPT-4.1-Mini',
+        voice: assistant.voice || 'Google - Aoede (female)',
+      };
+      const newAgent = await whapi.post<AgentConfig>('/agents', newAgentDetails);
+      setAgents(prev => [newAgent, ...prev]);
+    } catch (err) {
+      console.error('Failed to copy agent on backend', err);
+      // Fallback
+      const localId = String(Date.now());
+      const nowStr = new Date().toISOString();
+      const localAgent: AgentConfig = {
+        ...assistant,
+        id: localId,
+        name: newName,
+        createdAt: nowStr,
+        updatedAt: nowStr
+      };
+      const agentsList = loadAgents();
+      agentsList.unshift(localAgent);
+      localStorage.setItem('voice_ai_agents_v1', JSON.stringify(agentsList));
+      setAgents(prev => [localAgent, ...prev]);
+    }
+  };
+
+  const handleDeleteAssistant = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    setOpenDropdownId(null);
+    if (!window.confirm('Are you sure you want to delete this assistant?')) return;
+    try {
+      await whapi.delete(`/agents/${id}`);
+      setAgents(prev => prev.filter(a => a.id !== id));
+    } catch (err) {
+      console.error('Failed to delete on backend', err);
+      // Fallback local
+      const agentsList = loadAgents().filter(a => a.id !== id);
+      localStorage.setItem('voice_ai_agents_v1', JSON.stringify(agentsList));
+      setAgents(prev => prev.filter(a => a.id !== id));
+    }
+  };
 
   const hardcodedAssistant = {
     name: 'Outbound Lead Qualification Agent',
@@ -207,7 +270,35 @@ export default function Dashboard() {
                 <h3>{hardcodedAssistant.name}</h3>
                 <p>{hardcodedAssistant.language}</p>
               </div>
-              <button className="assistant-menu" aria-label="Assistant actions">⋮</button>
+              <div style={{ position: 'relative' }}>
+                <button 
+                  className="assistant-menu" 
+                  aria-label="Assistant actions"
+                  onClick={(e) => handleMenuClick(e, hardcodedAssistant.id)}
+                >
+                  ⋮
+                </button>
+                {openDropdownId === hardcodedAssistant.id && (
+                  <div className="assistant-menu-dropdown">
+                    <button onClick={(e) => handleCopyAssistant(e, hardcodedAssistant as any)}>
+                      <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                      </svg>
+                      Copy Assistant
+                    </button>
+                    <button className="delete-btn" onClick={(e) => handleDeleteAssistant(e, hardcodedAssistant.id)}>
+                      <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <polyline points="3 6 5 6 21 6"></polyline>
+                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                        <line x1="10" y1="11" x2="10" y2="17"></line>
+                        <line x1="14" y1="11" x2="14" y2="17"></line>
+                      </svg>
+                      Delete Assistant
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
 
             <div className="assistant-metadata">
@@ -232,7 +323,35 @@ export default function Dashboard() {
                     <h3>{assistant.name}</h3>
                     <p>{assistant.language}</p>
                   </div>
-                  <button className="assistant-menu" aria-label="Assistant actions">⋮</button>
+                  <div style={{ position: 'relative' }}>
+                    <button 
+                      className="assistant-menu" 
+                      aria-label="Assistant actions"
+                      onClick={(e) => handleMenuClick(e, assistant.id)}
+                    >
+                      ⋮
+                    </button>
+                    {openDropdownId === assistant.id && (
+                      <div className="assistant-menu-dropdown">
+                        <button onClick={(e) => handleCopyAssistant(e, assistant)}>
+                          <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                          </svg>
+                          Copy Assistant
+                        </button>
+                        <button className="delete-btn" onClick={(e) => handleDeleteAssistant(e, assistant.id)}>
+                          <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                            <line x1="10" y1="11" x2="10" y2="17"></line>
+                            <line x1="14" y1="11" x2="14" y2="17"></line>
+                          </svg>
+                          Delete Assistant
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </div>
 
                 <div className="assistant-metadata">
