@@ -39,6 +39,18 @@ import VoiceAssistant from './components/VoiceAssistant';
 import AdminPanel from './pages/AdminPanel';
 import NotificationArchive from './pages/NotificationArchive';
 
+import SolutionUseCasePage from './pages/solutions/SolutionUseCasePage';
+import { solutionUseCases } from './pages/solutions/useCaseContent';
+
+import { Toaster } from './components/ui/sonner';
+import { ThemeProvider } from './hooks/useTheme';
+
+DDimport SolutionUseCasePage from './pages/solutions/SolutionUseCasePage';
+import { solutionUseCases } from './pages/solutions/useCaseContent';
+
+import { Toaster } from './components/ui/sonner';
+import { ThemeProvider } from './hooks/useTheme';
+
 import RealEstate from "./pages/RealEstate";
 import Insurance from "./pages/Insurance";
 import Healthcare from "./pages/Healthcare";
@@ -89,8 +101,7 @@ function DashboardLayoutWrapper() {
   );
 }
 
-import { Toaster } from './components/ui/sonner';
-import { ThemeProvider } from './hooks/useTheme';
+
 
 function App() {
   return (
@@ -110,7 +121,45 @@ function App() {
         <Route path="/integrations/salesforce" element={<DefaultLayout><SalesforcePage /></DefaultLayout>} />
         <Route path="/integrations/custom-api" element={<DefaultLayout><CustomApi /></DefaultLayout>} />
         <Route path="/integrations/SIPTrunking" element={<DefaultLayout><Vonage /></DefaultLayout>} />
-        <Route path="/signup" element={<SignUp />} />
+        {/* Solution Use Cases */}
+<Route
+  path="/solutions/use-cases/collections"
+  element={
+    <DefaultLayout>
+      <SolutionUseCasePage content={solutionUseCases.collections} />
+    </DefaultLayout>
+  }
+/>
+
+<Route
+  path="/solutions/use-cases/negotiation"
+  element={
+    <DefaultLayout>
+      <SolutionUseCasePage content={solutionUseCases.negotiation} />
+    </DefaultLayout>
+  }
+/>
+
+<Route
+  path="/solutions/use-cases/customer-support"
+  element={
+    <DefaultLayout>
+      <SolutionUseCasePage content={solutionUseCases.customerSupport} />
+    </DefaultLayout>
+  }
+/>
+
+<Route
+  path="/solutions/use-cases/appointments"
+  element={
+    <DefaultLayout>
+      <SolutionUseCasePage content={solutionUseCases.appointments} />
+    </DefaultLayout>
+  }
+/>
+
+<Route path="/signup" element={<SignUp />} />
+        
         <Route path="/login" element={<Login />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
         {/* Protected dashboard routes */}
