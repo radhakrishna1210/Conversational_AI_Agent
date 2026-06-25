@@ -60,11 +60,9 @@ function QuickStartCard({
   headingId: string;
   compact?: boolean;
 }) {
-  const isCollections = content.slug === 'collections';
-
   return (
     <div
-      className={`solution-template-panel ${isCollections ? 'solution-template-panel-collections' : ''} ${
+      className={`solution-template-panel solution-template-panel-collections ${
         compact ? 'solution-template-panel-hero' : ''
       }`}
     >
@@ -76,7 +74,7 @@ function QuickStartCard({
 
       <div className="solution-template-content">
         {content.templatePrompt && <div className="solution-template-prompt">{content.templatePrompt}</div>}
-        {isCollections && <div className="solution-template-label">Quick Start Templates:</div>}
+        <div className="solution-template-label">Quick Start Templates:</div>
         <div className="solution-template-grid">
           {content.templates.map((template) => (
             <div className="solution-template-chip" key={template}>
@@ -96,10 +94,9 @@ function QuickStartCard({
 
 function SolutionHero({ content }: { content: SolutionUseCaseContent }) {
   const headingId = `solution-${content.slug}-title`;
-  const isCollections = content.slug === 'collections';
 
   return (
-    <section className={`solution-hero ${isCollections ? 'solution-hero-collections' : ''}`} aria-labelledby={headingId}>
+    <section className="solution-hero solution-hero-collections" aria-labelledby={headingId}>
       <div className="container">
         <div className="solution-hero-grid">
           <div className="solution-hero-copy">
@@ -107,62 +104,20 @@ function SolutionHero({ content }: { content: SolutionUseCaseContent }) {
             <h1 id={headingId}>{content.title}</h1>
             <p>{content.description}</p>
 
-            {!isCollections && (
-              <div className="solution-actions">
-                <Link to="/dashboard" className="btn btn-primary btn-lg">
-                  {content.cta.primaryLabel}
-                  <ArrowRight size={18} aria-hidden="true" />
-                </Link>
-                <Link to="/book-appointment" className="btn btn-secondary btn-lg">
-                  {content.cta.secondaryLabel}
-                </Link>
-              </div>
-            )}
-
-            {isCollections && (
-              <div className="solution-hero-bullets" aria-label={`${content.title} benefits`}>
-                {content.benefits.map((benefit) => (
-                  <div className="solution-hero-bullet" key={benefit.title}>
-                    <span className="solution-hero-bullet-mark" aria-hidden="true" />
-                    <p>
-                      <strong>{benefit.title}</strong> - {benefit.description}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {isCollections ? (
-            <QuickStartCard content={content} headingId={`solution-${content.slug}-templates`} compact />
-          ) : (
-            <div className="solution-benefits" aria-label={`${content.title} benefits`}>
+            <div className="solution-hero-bullets" aria-label={`${content.title} benefits`}>
               {content.benefits.map((benefit) => (
-                <div className="solution-benefit-card" key={benefit.title}>
-                  <div className="solution-icon">
-                    <SolutionIcon icon={benefit.icon} />
-                  </div>
-                  <div>
-                    <h3>{benefit.title}</h3>
-                    <p>{benefit.description}</p>
-                  </div>
+                <div className="solution-hero-bullet" key={benefit.title}>
+                  <span className="solution-hero-bullet-mark" aria-hidden="true" />
+                  <p>
+                    <strong>{benefit.title}</strong> - {benefit.description}
+                  </p>
                 </div>
               ))}
             </div>
-          )}
+          </div>
+
+          <QuickStartCard content={content} headingId={`solution-${content.slug}-templates`} compact />
         </div>
-      </div>
-    </section>
-  );
-}
-
-function QuickStartTemplates({ content }: { content: SolutionUseCaseContent }) {
-  const headingId = `solution-${content.slug}-templates`;
-
-  return (
-    <section className="solution-section" aria-labelledby={headingId}>
-      <div className="container">
-        <QuickStartCard content={content} headingId={headingId} />
       </div>
     </section>
   );
@@ -283,12 +238,9 @@ function SolutionCTA({ content }: { content: SolutionUseCaseContent }) {
 }
 
 export default function SolutionUseCasePage({ content }: { content: SolutionUseCaseContent }) {
-  const isCollections = content.slug === 'collections';
-
   return (
     <main className="solution-page">
       <SolutionHero content={content} />
-      {!isCollections && <QuickStartTemplates content={content} />}
       <SolutionFeatureGrid content={content} />
       <SolutionFAQ content={content} />
       <SolutionCTA content={content} />

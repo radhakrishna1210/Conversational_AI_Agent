@@ -136,25 +136,25 @@ export default function Navbar() {
               <div>
                 <div className="dropdown-col-title">Use Cases</div>
 
-                <a href="#" className="dropdown-item">
+                <Link to="/dashboard" className="dropdown-item">
                   <span className="item-icon"><Phone size={16} /></span>Lead Generation
-                </a>
+                </Link>
 
-                <a href="#" className="dropdown-item">
+                <Link to="/solutions/use-cases/collections" className="dropdown-item">
                   <span className="item-icon"><Calendar size={16} /></span>Collections
-                </a>
+                </Link>
 
-                <a href="#" className="dropdown-item">
+                <Link to="/solutions/use-cases/negotiation" className="dropdown-item">
                   <span className="item-icon"><MessageCircle size={16} /></span>Negotiation
-                </a>
+                </Link>
 
-                <a href="#" className="dropdown-item">
+                <Link to="/solutions/use-cases/customer-support" className="dropdown-item">
                   <span className="item-icon"><Headphones size={16} /></span>Customer Support
-                </a>
+                </Link>
 
-                <a href="#" className="dropdown-item">
+                <Link to="/solutions/use-cases/appointments" className="dropdown-item">
                   <span className="item-icon"><Calendar size={16} /></span>Appointments
-                </a>
+                </Link>
               </div>
 
               {/* Integrations */}

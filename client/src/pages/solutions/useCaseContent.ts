@@ -146,53 +146,64 @@
       eyebrow: 'Negotiation Voice AI Solutions',
       title: 'Automate Customer Negotiations',
       description:
-        'Use AI voice assistants to handle structured negotiations, respond to objections, and guide conversations toward clear next steps.',
+        'Automate structured negotiation calls with AI. Handle objections, offer approved terms, and move customers toward clear next steps.',
       benefits: [
         {
           title: 'Objection Handling',
-          description: 'Respond to common objections with consistent, approved talking points.',
+          description: 'Respond to common objections with consistent, approved language.',
           icon: 'message-circle',
         },
         {
-          title: 'Structured Offers',
-          description: 'Present eligible offers, concessions, or terms based on your rules.',
+          title: 'Offer Guardrails',
+          description: 'Present discounts, plans, or terms only when they match your rules.',
           icon: 'scale',
         },
         {
           title: 'Outcome Tracking',
-          description: 'Capture accepted terms, declined offers, and follow-up needs automatically.',
+          description: 'Capture accepted terms, declined offers, and follow-up actions automatically.',
           icon: 'check-circle',
         },
       ],
-      templates: ['Payment Plan Negotiator', 'Sales Objection Handler', 'Renewal Save Agent', 'Settlement Follow-Up'],
+      templatePrompt:
+        'Example: Create an AI agent that negotiates payment plans and settlement options with customers, handles objections politely, follows approved offer rules, escalates exceptions, and records the final outcome...',
+      templates: [
+        'Payment Plan Negotiator',
+        'Sales Objection Handler',
+        'Renewal Save Agent',
+        'Settlement Follow-Up',
+      ],
+      featureHeading: 'Built for consistent negotiation workflows',
+      featureDescription: 'Keep customer conversations structured, compliant, and outcome-focused.',
       features: [
         {
-          title: 'Guided Conversation Flows',
+          title: 'Guided Negotiation Flows',
           description:
-            'Keep negotiations on track with structured prompts, compliant language, and clear escalation paths for sensitive moments.',
+            'Your assistant keeps negotiations on track with structured prompts, approved language, and clear escalation paths for sensitive moments.',
           points: ['Approved scripts', 'Fallback handling', 'Escalation triggers', 'Tone controls'],
           icon: 'messages',
         },
         {
           title: 'Rule-Based Offer Logic',
           description:
-            'Configure what the assistant can offer, when it can offer it, and which customer responses require human review.',
+            'Configure what the assistant can offer, when it can offer it, and which customer responses need human review.',
           points: ['Offer guardrails', 'Eligibility checks', 'Term capture', 'Human handoff'],
           icon: 'scale',
         },
         {
           title: 'Negotiation Insights',
           description:
-            'Review objections, accepted terms, and conversion patterns to improve scripts and business outcomes over time.',
+            'Review objections, accepted terms, declined offers, and conversion patterns to improve scripts and outcomes over time.',
           points: ['Objection trends', 'Accepted terms', 'Call summaries', 'Performance reporting'],
           icon: 'bar-chart',
         },
       ],
+      faqHeading: 'Frequently Asked Questions',
+      faqDescription: 'Common questions about negotiation AI',
       faqs: [
         {
-          question: 'What types of negotiations can a voice assistant handle?',
+          question: 'How can OmniDimension help with customer negotiations?',
           answer:
-            'It can handle structured conversations such as payment plans, renewals, discounts, save offers, and follow-up terms within rules you define.',
+            'You can create a voice assistant that handles structured negotiations, presents approved options, responds to common objections, and documents the outcome for your team.',
         },
         {
           question: 'Can I control what offers the assistant is allowed to make?',
@@ -202,7 +213,7 @@
         {
           question: 'What happens when a customer asks for something unusual?',
           answer:
-            'The assistant can ask clarifying questions, capture the request, and escalate the conversation to your team when it falls outside approved rules.',
+            'The assistant can ask clarifying questions, capture the request, and escalate the call to your team when it falls outside approved rules.',
         },
         {
           question: 'Can I review negotiation outcomes?',
@@ -211,9 +222,9 @@
         },
       ],
       cta: {
-        title: 'Turn repeat negotiations into a reliable workflow',
+        title: 'Turn repeat negotiations into a reliable voice workflow',
         description:
-          'Create a voice assistant that keeps conversations consistent, captures terms clearly, and knows when to escalate.',
+          'Launch a negotiation assistant that keeps conversations consistent, captures terms clearly, and knows when to escalate.',
         primaryLabel: 'Create Free Agent',
         secondaryLabel: 'Book a Demo',
       },
@@ -223,7 +234,7 @@
       eyebrow: 'Customer Support Voice AI Solutions',
       title: 'Scale Customer Support With Voice AI',
       description:
-        'Resolve common questions, collect context, and route complex issues to the right team with always-on AI phone support.',
+        'Automate customer support calls with AI. Resolve common questions, collect context, and route complex issues to the right team.',
       benefits: [
         {
           title: '24/7 Coverage',
@@ -232,7 +243,7 @@
         },
         {
           title: 'Fast Issue Triage',
-          description: 'Collect customer context and classify requests before escalation.',
+          description: 'Collect caller context and classify requests before escalation.',
           icon: 'life-buoy',
         },
         {
@@ -241,35 +252,46 @@
           icon: 'user-check',
         },
       ],
-      templates: ['Support FAQ Agent', 'Order Status Assistant', 'Technical Triage Agent', 'Escalation Intake Agent'],
+      templatePrompt:
+        'Example: Create an AI agent that answers customer support calls, resolves common FAQs, checks order or account status, gathers issue details, escalates priority cases, and sends a summary to the support team...',
+      templates: [
+        'Support FAQ Agent',
+        'Order Status Assistant',
+        'Technical Triage Agent',
+        'Escalation Intake Agent',
+      ],
+      featureHeading: 'Built for always-on support operations',
+      featureDescription: 'Resolve routine calls faster while giving your team cleaner context.',
       features: [
         {
           title: 'Instant FAQ Resolution',
           description:
-            'Give customers fast answers to common questions using your knowledge base, policy docs, and support scripts.',
+            'Your assistant gives customers fast answers to common questions using your knowledge base, policy docs, and support scripts.',
           points: ['Knowledge base answers', 'Policy guidance', 'Consistent responses', 'Lower wait times'],
           icon: 'sparkles',
         },
         {
           title: 'Issue Triage and Routing',
           description:
-            'Gather issue details, identify urgency, and route customers to the right team or workflow with clean context.',
+            'Gather issue details, identify urgency, and route customers to the right team or workflow with clean call context.',
           points: ['Intent capture', 'Priority detection', 'Smart routing', 'Case summaries'],
           icon: 'life-buoy',
         },
         {
           title: 'Support Analytics',
           description:
-            'Track common questions, escalation reasons, call outcomes, and customer sentiment to improve support operations.',
+            'Track common questions, escalation reasons, call outcomes, and customer sentiment to improve support operations over time.',
           points: ['Topic trends', 'Resolution rates', 'Sentiment signals', 'Team insights'],
           icon: 'bar-chart',
         },
       ],
+      faqHeading: 'Frequently Asked Questions',
+      faqDescription: 'Common questions about customer support AI',
       faqs: [
         {
-          question: 'Can the assistant answer customer support questions?',
+          question: 'How can OmniDimension help with customer support?',
           answer:
-            'Yes. You can train it on FAQs, policies, product information, and support workflows so it can answer common questions consistently.',
+            'You can create a voice assistant that answers routine questions, collects issue details, summarizes calls, and routes complex requests to your team.',
         },
         {
           question: 'Can it transfer customers to a human agent?',
@@ -279,7 +301,7 @@
         {
           question: 'Can it create support tickets?',
           answer:
-            'The assistant can collect issue details and send structured summaries into your support workflow through integrations or API connections.',
+            'The assistant can collect issue details and send structured summaries into your support workflow through integrations or API connections you configure.',
         },
         {
           question: 'How does it help during high-volume periods?',
@@ -290,7 +312,7 @@
       cta: {
         title: 'Give every caller a faster first response',
         description:
-          'Launch a support assistant that resolves routine questions, captures context, and keeps your team focused on complex work.',
+          'Launch a support assistant that resolves routine questions, captures context, and keeps your team focused on higher-priority cases.',
         primaryLabel: 'Create Free Agent',
         secondaryLabel: 'Book a Demo',
       },
@@ -300,15 +322,15 @@
       eyebrow: 'Appointments Voice AI Solutions',
       title: 'Automate Appointment Scheduling',
       description:
-        'Let customers book, confirm, reschedule, and receive reminders through natural AI voice conversations.',
+        'Automate appointment booking with AI. Let customers schedule, confirm, reschedule, and receive reminders through natural voice conversations.',
       benefits: [
         {
           title: 'Calendar Booking',
-          description: 'Schedule appointments directly into your connected calendar workflow.',
+          description: 'Schedule appointments directly through your connected calendar workflow.',
           icon: 'calendar',
         },
         {
-          title: 'Reminders and Confirmations',
+          title: 'Confirmations and Reminders',
           description: 'Reduce no-shows with automated confirmations and timely reminders.',
           icon: 'bell',
         },
@@ -318,35 +340,46 @@
           icon: 'refresh',
         },
       ],
-      templates: ['Clinic Appointment Booker', 'Demo Scheduling Agent', 'Salon Booking Assistant', 'Service Reminder Agent'],
+      templatePrompt:
+        'Example: Create an AI agent that answers appointment calls, checks availability, books time slots, confirms customer details, sends reminders, handles rescheduling, and updates the calendar automatically...',
+      templates: [
+        'Clinic Appointment Booker',
+        'Demo Scheduling Agent',
+        'Salon Booking Assistant',
+        'Service Reminder Agent',
+      ],
+      featureHeading: 'Built for scheduling teams and service workflows',
+      featureDescription: 'Keep calendars organized while reducing manual back-and-forth.',
       features: [
         {
           title: 'Automated Booking',
           description:
-            'Collect customer details, find suitable times, and guide callers through booking without manual coordination.',
+            'Your assistant collects customer details, finds suitable times, and guides callers through booking without manual coordination.',
           points: ['Availability checks', 'Customer details', 'Calendar sync', 'Booking confirmation'],
           icon: 'calendar-check',
         },
         {
           title: 'No-Show Reduction',
           description:
-            'Send reminders, confirm attendance, and follow up with customers who need to reschedule.',
+            'Send reminders, confirm attendance, and follow up with customers who need to reschedule before the appointment.',
           points: ['Call reminders', 'Confirmations', 'Reschedule prompts', 'Attendance tracking'],
           icon: 'clock',
         },
         {
           title: 'Operational Visibility',
           description:
-            'Track booked appointments, missed calls, reschedules, and common scheduling requests from one workflow.',
+            'Track booked appointments, missed calls, reschedules, and common scheduling requests from one voice workflow.',
           points: ['Booking logs', 'Missed-call recovery', 'Reschedule history', 'Volume insights'],
           icon: 'bar-chart',
         },
       ],
+      faqHeading: 'Frequently Asked Questions',
+      faqDescription: 'Common questions about appointment AI',
       faqs: [
         {
-          question: 'Can the assistant book appointments automatically?',
+          question: 'How can OmniDimension help with appointment scheduling?',
           answer:
-            'Yes. It can collect caller details, check available times through your workflow, and confirm appointments during the call.',
+            'You can create a voice assistant that collects caller details, checks available times through your workflow, and confirms appointments during the call.',
         },
         {
           question: 'Can it handle rescheduling?',
@@ -356,7 +389,7 @@
         {
           question: 'Can it send reminders?',
           answer:
-            'Yes. You can use the assistant for confirmation calls, reminder calls, and follow-ups for missed or upcoming appointments.',
+            'Yes. You can use the assistant for confirmation calls, reminder calls, and follow-ups for missed, changed, or upcoming appointments.',
         },
         {
           question: 'Which businesses can use appointment automation?',
@@ -367,7 +400,7 @@
       cta: {
         title: 'Keep your calendar full without manual scheduling',
         description:
-          'Create an appointment assistant that books, confirms, and reschedules calls while your team stays focused.',
+          'Launch an appointment assistant that books, confirms, and reschedules calls while your team stays focused.',
         primaryLabel: 'Create Free Agent',
         secondaryLabel: 'Book a Demo',
       },
