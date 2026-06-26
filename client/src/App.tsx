@@ -15,9 +15,12 @@ import BookAppointment from './pages/BookAppointment';
 import Contact from './pages/Contact';
 import Docs from './pages/Docs';
 import ReportIssue from './pages/ReportIssue';
+import CalCom from './pages/CalCom';
+import SalesforcePage from './pages/Salesforce';
+import CustomApi from './pages/CustomApi';
 import Dashboard from './pages/Dashboard';
 import BulkCallCreate from './pages/BulkCallCreate';
-
+import Vonage from "./pages/SIPTrunking";
 import CloneVoice from './pages/CloneVoice';
 import Files from './pages/Files';
 import Integrations from './pages/Integrations';
@@ -99,6 +102,10 @@ function App() {
         <Route path="/contact" element={<DefaultLayout><Contact /></DefaultLayout>} />
         <Route path="/docs" element={<DefaultLayout><Docs /></DefaultLayout>} />
         <Route path="/report-issue" element={<DefaultLayout><ReportIssue /></DefaultLayout>} />
+        <Route path="/integrations/cal-com" element={<DefaultLayout><CalCom /></DefaultLayout>} />
+        <Route path="/integrations/salesforce" element={<DefaultLayout><SalesforcePage /></DefaultLayout>} />
+        <Route path="/integrations/custom-api" element={<DefaultLayout><CustomApi /></DefaultLayout>} />
+        <Route path="/integrations/SIPTrunking" element={<DefaultLayout><Vonage /></DefaultLayout>} />
         <Route path="/signup" element={<SignUp />} />
         <Route path="/login" element={<Login />} />
         <Route path="/auth/callback" element={<AuthCallback />} />

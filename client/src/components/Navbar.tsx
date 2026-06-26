@@ -128,37 +128,37 @@ export default function Navbar() {
               <div>
                 <div className="dropdown-col-title">Popular Integrations</div>
 
-                <a href="#" className="dropdown-item">
+                <Link to="/integrations/custom-api" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
                   <span className="item-icon"><Settings size={16} /></span>
                   <div>
                     <div>Custom API</div>
                     <div className="dropdown-item-sub">Connect any external API</div>
                   </div>
-                </a>
+                </Link>
 
-                <a href="#" className="dropdown-item">
+                 <Link to="/integrations/SIPTrunking" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
                   <span className="item-icon"><Radio size={16} /></span>
                   <div>
                     <div>SIP Trunking</div>
                     <div className="dropdown-item-sub">Connect to any telephony system</div>
                   </div>
-                </a>
+                </Link>
 
-                <a href="#" className="dropdown-item">
+                <Link to="/integrations/cal-com" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
                   <span className="item-icon"><Calendar size={16} /></span>
                   <div>
                     <div>Cal.com</div>
                     <div className="dropdown-item-sub">Appointment scheduling</div>
                   </div>
-                </a>
+                </Link>
 
-                <a href="#" className="dropdown-item">
+                <Link to="/integrations/salesforce" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
                   <span className="item-icon"><Cloud size={16} /></span>
                   <div>
                     <div>Salesforce</div>
-                    <div className="dropdown-item-sub">CRM sync & automation</div>
+                    <div className="dropdown-item-sub">CRM sync &amp; automation</div>
                   </div>
-                </a>
+                </Link>
               </div>
 
             </div>
