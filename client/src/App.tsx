@@ -36,6 +36,10 @@ import VoiceAssistant from './components/VoiceAssistant';
 import AdminPanel from './pages/AdminPanel';
 import NotificationArchive from './pages/NotificationArchive';
 
+import RealEstate from "./pages/RealEstate";
+import Insurance from "./pages/Insurance";
+import Healthcare from "./pages/Healthcare";
+import Restaurants from "./pages/Restaurants";
 // Quick Wrapper for the new page
 function VoiceAssistantPage() {
   return (
@@ -125,6 +129,41 @@ function App() {
             <Route path="/admin" element={<AdminPanel />} />
           </Route>
         </Route>
+       <Route
+  path="/solutions/verticals/real-estate"
+  element={
+    <DefaultLayout>
+      <RealEstate />
+    </DefaultLayout>
+  }
+/>
+
+<Route
+  path="/solutions/verticals/insurance"
+  element={
+    <DefaultLayout>
+      <Insurance />
+    </DefaultLayout>
+  }
+/>
+
+<Route
+  path="/solutions/verticals/healthcare"
+  element={
+    <DefaultLayout>
+      <Healthcare />
+    </DefaultLayout>
+  }
+/>
+
+<Route
+  path="/solutions/verticals/restaurants"
+  element={
+    <DefaultLayout>
+      <Restaurants />
+    </DefaultLayout>
+  }
+/>
       </Routes>
       </Router>
     </ThemeProvider>
