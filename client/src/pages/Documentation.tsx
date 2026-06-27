@@ -1,5 +1,4 @@
 import { Link } from 'react-router-dom';
-import AnnouncementBar from '../components/AnnouncementBar';
 
 export default function Documentation() {
   const docCards = [
@@ -13,8 +12,6 @@ export default function Documentation() {
 
   return (
     <>
-      <AnnouncementBar />
-      
       <div className="container">
         <div className="breadcrumb">
           <Link to="/">Home</Link>

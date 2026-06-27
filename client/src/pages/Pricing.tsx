@@ -1,14 +1,11 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import AnnouncementBar from '../components/AnnouncementBar';
 
 export default function Pricing() {
   const [activeTab, setActiveTab] = useState('Plans');
 
   return (
     <>
-      <AnnouncementBar />
-      
       <div className="page-hero">
         <div className="container">
           <h1 style={{color:'var(--teal)'}}>Pricing</h1>
