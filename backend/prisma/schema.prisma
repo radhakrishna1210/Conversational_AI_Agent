@@ -580,3 +580,38 @@ model Notification {
 
   @@index([workspaceId, read, createdAt])
 }
+
+model ContactSubmission {
+  id           String   @id @default(cuid())
+  name         String
+  email        String
+  phone        String
+  callVolume   String
+  helpWith     String
+  useCase      String
+  heardAbout   String?
+  createdAt    DateTime @default(now())
+}
+
+model AppointmentBooking {
+  id           String   @id @default(cuid())
+  name         String
+  email        String
+  phone        String
+  projectType  String
+  role         String
+  reason       String
+  callVolume   String
+  userType     String
+  industry     String
+  useCase      String
+  createdAt    DateTime @default(now())
+}
+
+model ReportIssue {
+  id            String   @id @default(cuid())
+  issueTitle    String
+  description   String
+  screenshotUrl String?
+  createdAt     DateTime @default(now())
+}

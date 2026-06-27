@@ -4,6 +4,8 @@ import { Check } from 'lucide-react';
 import PhoneInput from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
 
+const BASE = '/api/v1';
+
 export default function Contact() {
   const [formData, setFormData] = useState({
     name: '',
@@ -15,6 +17,8 @@ export default function Contact() {
     heardAbout: ''
   });
   const [emailError, setEmailError] = useState('');
+  const [submitError, setSubmitError] = useState('');
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const validateEmail = (email: string) => {
     if (!email) return true;
@@ -27,34 +31,51 @@ export default function Contact() {
   const [rootElement, setRootElement] = useState<HTMLElement | null>(null);
 
   useEffect(() => {
-    // Required for Calendly popup to be mounted properly
     setRootElement(document.getElementById('root') as HTMLElement);
   }, []);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setSubmitError('');
+
     if (!validateEmail(formData.email)) {
       setEmailError('Please use a business email address.');
       return;
     }
-    // In a real app, send data to backend here.
-    if (formData.helpWith === 'appointment') {
-      setStatus('calendly');
-    } else {
-      setStatus('success');
+
+    setIsSubmitting(true);
+    try {
+      const res = await fetch(`${BASE}/contact-form`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(formData),
+      });
+
+      if (!res.ok) {
+        const errBody = await res.json().catch(() => ({}));
+        throw new Error(errBody.error || 'Failed to submit. Please try again.');
+      }
+
+      if (formData.helpWith === 'appointment') {
+        setStatus('calendly');
+      } else {
+        setStatus('success');
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : 'Something went wrong. Please try again.';
+      setSubmitError(message);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const handleCalendlyClose = () => {
-    // Transition to success screen after Calendly modal closes
     setStatus('success');
   };
 
-  // Listen to Calendly event (scheduled)
-  // Calendly passes events via postMessage
   useEffect(() => {
     const handleMessage = (e: MessageEvent) => {
-      if (e.origin === "https://calendly.com" && e.data?.event === 'calendly.event_scheduled') {
+      if (e.origin === 'https://calendly.com' && e.data?.event === 'calendly.event_scheduled') {
         setStatus('success');
       }
     };
@@ -236,16 +257,22 @@ export default function Contact() {
               </select>
             </div>
 
+            {submitError && (
+              <p className="text-sm text-red-500">{submitError}</p>
+            )}
+
             <div className="pt-4 pb-2">
                <p className="text-[#888] text-sm mb-6">
                  This site is protected by reCAPTCHA and the Google <a href="#" className="text-[var(--teal)]">Privacy Policy</a> and <a href="#" className="text-[var(--teal)]">Terms of Service</a> apply.
                </p>
               <button
                 type="submit"
+                disabled={isSubmitting}
+                className="rounded-lg px-6 py-3 text-sm font-semibold text-black transition disabled:opacity-60 disabled:cursor-not-allowed"
                 className="contact-submit-btn rounded-lg px-6 py-3 text-sm font-semibold text-black transition"
                 style={{ backgroundColor: 'var(--teal)' }}
               >
-                Submit Request
+                {isSubmitting ? 'Submitting...' : 'Submit Request'}
               </button>
             </div>
 

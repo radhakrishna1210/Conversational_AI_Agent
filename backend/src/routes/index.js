@@ -27,6 +27,9 @@ import agentRoutes from './agent.routes.js';
 import integrationsRoutes from './integrations.routes.js';
 import integrationsPublicRoutes from './integrationsPublic.routes.js';
 import notificationRoutes from './notification.routes.js';
+import contactFormRoutes from './contactForm.routes.js';
+import appointmentRoutes from './appointment.routes.js';
+import reportIssueRoutes from './reportIssue.routes.js';
 
 import { getHealth as getGeminiHealth, getMetrics as getGeminiMetrics } from '../controllers/gemini.controller.js';
 import { getHealth as getOpenAIHealth, getMetrics as getOpenAIMetrics } from '../controllers/openai.controller.js';
@@ -42,6 +45,9 @@ router.get('/config', (_req, res) => {
 
 // Public
 router.use('/auth', authRoutes);
+router.use('/contact-form', contactFormRoutes);
+router.use('/appointments', appointmentRoutes);
+router.use('/report-issue', reportIssueRoutes);
 router.use('/agents', agentRoutes);
 router.use('/integrations', integrationsPublicRoutes);
 
