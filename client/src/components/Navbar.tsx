@@ -67,37 +67,70 @@ export default function Navbar() {
             <div className="dropdown-menu" style={{display: 'flex'}}>
 
               {/* Industry */}
-              <div>
-                <div className="dropdown-col-title">Industry Verticals</div>
+<div>
+  <div className="dropdown-col-title">Industry Verticals</div>
 
-                <a href="#" className="dropdown-item">
-                  <span className="item-icon"><Home size={16} /></span>Real Estate
-                </a>
+  <Link
+    to="/solutions/verticals/real-estate"
+    className="dropdown-item"
+  >
+    <span className="item-icon">
+      <Home size={16} />
+    </span>
+    Real Estate
+  </Link>
 
-                <a href="#" className="dropdown-item">
-                  <span className="item-icon"><Shield size={16} /></span>Insurance
-                </a>
+  <Link
+    to="/solutions/verticals/insurance"
+    className="dropdown-item"
+  >
+    <span className="item-icon">
+      <Shield size={16} />
+    </span>
+    Insurance
+  </Link>
 
-                <a href="#" className="dropdown-item">
-                  <span className="item-icon"><Stethoscope size={16} /></span>Healthcare
-                </a>
+  <Link
+    to="/solutions/verticals/healthcare"
+    className="dropdown-item"
+  >
+    <span className="item-icon">
+      <Stethoscope size={16} />
+    </span>
+    Healthcare
+  </Link>
 
-                <a href="#" className="dropdown-item">
-                  <span className="item-icon"><Utensils size={16} /></span>Restaurants
-                </a>
+  <Link
+    to="/solutions/verticals/restaurants"
+    className="dropdown-item"
+  >
+    <span className="item-icon">
+      <Utensils size={16} />
+    </span>
+    Restaurants
+  </Link>
 
-                <a href="#" className="dropdown-item">
-                  <span className="item-icon"><TrendingUp size={16} /></span>Finance
-                </a>
+  <a href="#" className="dropdown-item">
+    <span className="item-icon">
+      <TrendingUp size={16} />
+    </span>
+    Finance
+  </a>
 
-                <a href="#" className="dropdown-item">
-                  <span className="item-icon"><GraduationCap size={16} /></span>Education
-                </a>
+  <a href="#" className="dropdown-item">
+    <span className="item-icon">
+      <GraduationCap size={16} />
+    </span>
+    Education
+  </a>
 
-                <a href="#" className="dropdown-item">
-                  <span className="item-icon"><ShoppingCart size={16} /></span>E-commerce
-                </a>
-              </div>
+  <a href="#" className="dropdown-item">
+    <span className="item-icon">
+      <ShoppingCart size={16} />
+    </span>
+    E-commerce
+  </a>
+</div>
 
               {/* Use Cases */}
               <div>

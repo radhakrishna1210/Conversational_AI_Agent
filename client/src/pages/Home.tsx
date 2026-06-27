@@ -184,7 +184,7 @@ export default function Home() {
             <p style={{ color: 'var(--text-secondary)', fontSize: '18px', margin: 0 }}>Powerful features to build, deploy, and scale your Voice AI assistants</p>
           </div>
 
-          <div className="features-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px' }}>
+          <div className="features-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "24px" }}>
             <div className="core-feature-card animate-me">
               <div className="core-feature-icon-wrapper">
                 <Languages size={24} />
@@ -241,7 +241,7 @@ export default function Home() {
           </div>
 
           {/* Steps Horizontal List */}
-          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '16px', marginBottom: '32px' }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "16px" }}>
             {howItWorksData.map((step, idx) => {
                const isActive = activeStep === idx;
                return (
@@ -280,7 +280,7 @@ export default function Home() {
             <h3 style={{ fontSize: '24px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '8px' }}>{howItWorksData[activeStep].paneTitle}</h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: '15px', marginBottom: '40px' }}>{howItWorksData[activeStep].paneDesc}</p>
 
-            <div style={{ display: 'grid', gridTemplateColumns: `repeat(${howItWorksData[activeStep].features.length}, 1fr)`, gap: '24px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit , minmax(280px, 1fr))`, gap: '24px' }}>
               {howItWorksData[activeStep].features.map((feat, fidx) => (
                 <div key={fidx} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>

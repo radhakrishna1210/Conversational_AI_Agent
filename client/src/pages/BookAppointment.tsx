@@ -204,6 +204,12 @@ export default function BookAppointment() {
                 type="submit"
                 className="btn btn-primary btn-lg"
                 disabled={status === 'submitting'}
+            <div className="booking-submit-row" style={{display:'flex', justifyContent:'flex-end', marginTop:'28px'}}>
+              <button 
+                type="submit" 
+                className="btn btn-primary btn-lg" 
+                disabled={status !== 'idle'}
+                style={{ background: status === 'success' ? '#22c55e' : '' }}
               >
                 {status === 'submitting' ? 'Booking...' : 'Book Appointment'}
               </button>
