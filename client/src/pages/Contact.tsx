@@ -110,7 +110,7 @@ export default function Contact() {
           <p className="mt-4 text-[#888] text-lg">Thank you for taking the time to contact us. We look forward to connecting with you soon.</p>
         </div>
 
-        <div className="rounded-2xl p-8" style={{ background: '#0e1015', border: '1px solid rgba(255,255,255,0.05)' }}>
+        <div className="contact-form-card rounded-2xl p-8" style={{ background: '#0e1015', border: '1px solid rgba(255,255,255,0.05)' }}>
           <form className="space-y-6" onSubmit={handleSubmit}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Name */}
@@ -242,7 +242,7 @@ export default function Contact() {
                </p>
               <button
                 type="submit"
-                className="rounded-lg px-6 py-3 text-sm font-semibold text-black transition"
+                className="contact-submit-btn rounded-lg px-6 py-3 text-sm font-semibold text-black transition"
                 style={{ backgroundColor: 'var(--teal)' }}
               >
                 Submit Request
