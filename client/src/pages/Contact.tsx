@@ -265,15 +265,14 @@ export default function Contact() {
                <p className="text-[#888] text-sm mb-6">
                  This site is protected by reCAPTCHA and the Google <a href="#" className="text-[var(--teal)]">Privacy Policy</a> and <a href="#" className="text-[var(--teal)]">Terms of Service</a> apply.
                </p>
-              <button
-                type="submit"
-                disabled={isSubmitting}
-                className="rounded-lg px-6 py-3 text-sm font-semibold text-black transition disabled:opacity-60 disabled:cursor-not-allowed"
-                className="contact-submit-btn rounded-lg px-6 py-3 text-sm font-semibold text-black transition"
-                style={{ backgroundColor: 'var(--teal)' }}
-              >
-                {isSubmitting ? 'Submitting...' : 'Submit Request'}
-              </button>
+                <button
+                        type="submit"
+                        disabled={isSubmitting}
+                        className="contact-submit-btn rounded-lg px-6 py-3 text-sm font-semibold text-black transition disabled:opacity-60 disabled:cursor-not-allowed"
+                        style={{ backgroundColor: 'var(--teal)' }}
+                      >
+                        {isSubmitting ? 'Submitting...' : 'Submit Request'}
+                </button>
             </div>
 
           </form>

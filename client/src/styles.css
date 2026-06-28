@@ -2668,8 +2668,8 @@ html.light .topbar-icon-btn:hover {
 .check-no {
   color: var(--text-muted);
 }
-
 /* ── Documentation Page Specific ── */
+
 .breadcrumb {
   display: flex;
   gap: 8px;
@@ -2906,7 +2906,6 @@ html.light .topbar-icon-btn:hover {
   .navbar-nav { display: none; }
   .create-actions { flex-direction: column; gap: 20px; align-items: stretch; }
   .plan-card { width: 100%; }
-<<<<<<< HEAD
 
   /* ── Documentation page – mobile responsive ── */
   .doc-hero {
@@ -3170,7 +3169,7 @@ html.light .topbar-icon-btn:hover {
   .contact-submit-btn {
     width: 100%;
     text-align: center;
-=======
+  }
   .solution-hero { padding: 64px 0 48px; }
   .solution-hero-grid,
   .solution-template-panel,
@@ -3222,7 +3221,6 @@ html.light .topbar-icon-btn:hover {
   }
   .solution-faq-answer {
     padding: 0 20px 20px;
->>>>>>> fa65dba (Add reusable solution use case framework)
   }
 }
 

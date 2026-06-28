@@ -199,11 +199,7 @@ export default function BookAppointment() {
               <a href="#">Privacy Policy</a> and <a href="#">Terms of Service</a> apply.
             </p>
 
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '28px' }}>
-              <button
-                type="submit"
-                className="btn btn-primary btn-lg"
-                disabled={status === 'submitting'}
+            
             <div className="booking-submit-row" style={{display:'flex', justifyContent:'flex-end', marginTop:'28px'}}>
               <button 
                 type="submit" 
