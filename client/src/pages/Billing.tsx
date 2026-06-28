@@ -1,7 +1,7 @@
 export default function Billing() {
   return (
     <>
-      <div style={{ marginBottom: '32px' }}>
+      <div className="billing-page-header" style={{ marginBottom: '32px' }}>
         <h1 style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-0.5px', marginBottom: '6px' }}>Balance & Plans</h1>
         <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
           View your balance and choose right plan
@@ -9,8 +9,8 @@ export default function Billing() {
       </div>
 
       {/* Top Stats Cards */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px', marginBottom: '48px' }}>
-        <div style={{ 
+      <div className="billing-stats-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '24px', marginBottom: '48px' }}>
+        <div className="billing-stat-card" style={{ 
           border: '1px solid rgba(0, 212, 200, 0.3)', 
           borderRadius: '8px', 
           padding: '24px', 
@@ -20,11 +20,11 @@ export default function Billing() {
           <h4 style={{ color: 'var(--text-secondary)', fontSize: '12px', fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
             ✨ Active Plan
           </h4>
-          <div style={{ fontSize: '24px', fontWeight: 700, color: 'var(--teal)', marginBottom: '8px' }}>Free</div>
+          <div className="stat-value" style={{ fontSize: '24px', fontWeight: 700, color: 'var(--teal)', marginBottom: '8px' }}>Free</div>
           <div style={{ color: 'var(--text-muted)', fontSize: '11px' }}>Voice AI Cost : ~ $ 0.114 / min</div>
         </div>
 
-        <div style={{ 
+        <div className="billing-stat-card" style={{ 
           border: '1px solid rgba(0, 212, 200, 0.3)', 
           borderRadius: '8px', 
           padding: '24px', 
@@ -34,11 +34,11 @@ export default function Billing() {
           <h4 style={{ color: 'var(--text-secondary)', fontSize: '12px', fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
             💲 Current Balance
           </h4>
-          <div style={{ fontSize: '24px', fontWeight: 700, color: 'var(--teal)', marginBottom: '8px' }}>$ 1.200</div>
+          <div className="stat-value" style={{ fontSize: '24px', fontWeight: 700, color: 'var(--teal)', marginBottom: '8px' }}>$ 1.200</div>
           <div style={{ color: 'var(--text-muted)', fontSize: '11px' }}>~ 10.45 Minutes left</div>
         </div>
 
-        <div style={{ 
+        <div className="billing-stat-card" style={{ 
           border: '1px solid rgba(0, 212, 200, 0.3)', 
           borderRadius: '8px', 
           padding: '24px', 
@@ -48,13 +48,13 @@ export default function Billing() {
           <h4 style={{ color: 'var(--text-secondary)', fontSize: '12px', fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
             🗂️ KB usage
           </h4>
-          <div style={{ fontSize: '24px', fontWeight: 700, color: 'var(--teal)', marginBottom: '8px' }}>0 used / 5 MB</div>
+          <div className="stat-value" style={{ fontSize: '24px', fontWeight: 700, color: 'var(--teal)', marginBottom: '8px' }}>0 used / 5 MB</div>
         </div>
       </div>
 
       {/* Voice AI Pricing Section */}
-      <div style={{ position: 'relative', marginBottom: '48px' }}>
-        <div style={{ textAlign: 'center', marginBottom: '32px' }}>
+      <div className="billing-pricing-section" style={{ position: 'relative', marginBottom: '48px' }}>
+        <div className="billing-pricing-header" style={{ textAlign: 'center', marginBottom: '32px' }}>
           <h2 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '12px', color: 'white' }}>Voice AI Pricing</h2>
           <span style={{ 
             background: 'rgba(255,255,255,0.1)', 
@@ -66,7 +66,7 @@ export default function Billing() {
           }}>Billed monthly</span>
         </div>
 
-        <button style={{
+        <button className="billing-topup-btn" style={{
           position: 'absolute',
           top: '0',
           right: '0',
@@ -82,7 +82,7 @@ export default function Billing() {
           + Top Up Credits. (UPI Available)
         </button>
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '16px', marginBottom: '24px' }}>
+        <div className="billing-pricing-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '16px', marginBottom: '24px' }}>
           {/* Plan 1 */}
           <PricingCard 
             name="Starter" 
@@ -117,8 +117,8 @@ export default function Billing() {
           {/* Plan 5 (Enterprise) */}
           <div style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '24px', display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.02)' }}>
             <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-              <div style={{ fontSize: '14px', fontWeight: 700, marginBottom: '8px', color: 'white' }}>Enterprise</div>
-              <div style={{ fontSize: '24px', fontWeight: 800, color: 'white' }}>Custom <span style={{ fontSize: '12px', fontWeight: 500, color: 'var(--text-muted)' }}>pricing</span></div>
+              <div className="plan-name" style={{ fontSize: '14px', fontWeight: 700, marginBottom: '8px', color: 'white' }}>Enterprise</div>
+              <div className="plan-price" style={{ fontSize: '24px', fontWeight: 800, color: 'white' }}>Custom <span style={{ fontSize: '12px', fontWeight: 500, color: 'var(--text-muted)' }}>pricing</span></div>
               <div style={{ fontSize: '11px', color: 'var(--teal)', marginTop: '8px' }}>(As low as $0.05/min or ₹4.0/min)</div>
             </div>
             <p style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', marginBottom: '24px', lineHeight: 1.5, flexGrow: 1 }}>
@@ -135,7 +135,7 @@ export default function Billing() {
         </div>
 
         {/* Flexible Model Selection Banner */}
-        <div style={{ 
+        <div className="billing-model-banner" style={{ 
           border: '1px solid rgba(0, 212, 200, 0.3)', 
           borderRadius: '8px', 
           padding: '16px 24px', 
@@ -167,12 +167,13 @@ export default function Billing() {
       </div>
 
       {/* Chatbot Pricing */}
-      <div style={{ marginBottom: '48px' }}>
+      <div className="billing-chatbot-section" style={{ marginBottom: '48px' }}>
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
           <h2 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '8px', color: 'white' }}>Chatbot Pricing</h2>
           <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Simple per-message pricing for all plans</p>
         </div>
         
+        <div className="billing-table-wrapper">
         <div style={{ 
           display: 'grid', 
           gridTemplateColumns: 'minmax(120px, auto) repeat(5, 1fr)', 
@@ -194,16 +195,18 @@ export default function Billing() {
           <div style={{ padding: '24px', borderRight: '1px solid var(--border)', textAlign: 'center', color: 'white', fontSize: '12px' }}>$ 0.005 / message</div>
           <div style={{ padding: '24px', textAlign: 'center', color: 'white', fontSize: '12px' }}>custom</div>
         </div>
+        </div>
       </div>
 
       {/* Features Table */}
-      <div style={{ marginBottom: '48px' }}>
+      <div className="billing-features-section" style={{ marginBottom: '48px' }}>
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
           <h2 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '8px', color: 'white' }}>Features</h2>
           <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Compare features across all plans</p>
         </div>
 
-        <div style={{ 
+        <div className="billing-table-wrapper">
+        <div className="billing-features-table" style={{ 
           display: 'grid', 
           gridTemplateColumns: 'minmax(200px, 1.5fr) repeat(5, 1fr)', 
           border: '1px solid var(--border)', 
@@ -235,10 +238,11 @@ export default function Billing() {
           <FeatureRow name="API access" vals={['v', 'v', 'v', 'v', 'v']} noBorder />
 
         </div>
+        </div>
       </div>
 
       {/* Additional Information */}
-      <div style={{ 
+      <div className="billing-additional-info" style={{ 
         border: '1px solid var(--border)', 
         borderRadius: '8px', 
         padding: '24px', 
@@ -249,6 +253,149 @@ export default function Billing() {
           <strong>Token Limit:</strong> Agent prompts should be under 3,500 tokens for optimal performance.<br/>
           <strong>Telephony Fees:</strong> Additional fees apply for calls from OmniDimension numbers.
         </div>
+
+
+      {/* ════════════════════════════════════════════
+          RESPONSIVE STYLES
+         ════════════════════════════════════════════ */}
+      <style>{`
+        /* ── Tablet (769px - 1024px) ── */
+        @media (max-width: 1024px) {
+          /* Stats cards: 2 columns on tablet */
+          .billing-stats-grid {
+            grid-template-columns: repeat(2, 1fr) !important;
+          }
+          /* Pricing cards: 3 columns on tablet */
+          .billing-pricing-grid {
+            grid-template-columns: repeat(3, 1fr) !important;
+          }
+          /* Tables: allow horizontal scroll */
+          .billing-table-wrapper {
+            overflow-x: auto;
+            -webkit-overflow-scrolling: touch;
+          }
+          .billing-table-wrapper > div {
+            min-width: 700px;
+          }
+        }
+
+        /* ── Mobile (max-width: 768px) ── */
+        @media (max-width: 768px) {
+          /* Page header */
+          .billing-page-header h1 {
+            font-size: 22px !important;
+          }
+          .billing-page-header p {
+            font-size: 13px !important;
+          }
+
+          /* Stats cards: single column, full width */
+          .billing-stats-grid {
+            grid-template-columns: 1fr !important;
+            gap: 12px !important;
+            margin-bottom: 32px !important;
+          }
+          .billing-stat-card {
+            padding: 16px !important;
+          }
+          .billing-stat-card h4 {
+            font-size: 11px !important;
+          }
+          .billing-stat-card .stat-value {
+            font-size: 20px !important;
+          }
+
+          /* Voice AI Pricing section */
+          .billing-pricing-section {
+            margin-bottom: 32px !important;
+          }
+          .billing-pricing-section h2 {
+            font-size: 20px !important;
+          }
+          /* Top Up button: move below heading, not absolute */
+          .billing-topup-btn {
+            position: static !important;
+            margin: 16px auto 0 !important;
+            display: block !important;
+            width: fit-content !important;
+          }
+          .billing-pricing-header {
+            margin-bottom: 16px !important;
+          }
+
+          /* Pricing cards: single column */
+          .billing-pricing-grid {
+            grid-template-columns: 1fr !important;
+            gap: 16px !important;
+          }
+          .billing-pricing-card {
+            padding: 20px !important;
+          }
+          .billing-pricing-card .plan-name {
+            font-size: 13px !important;
+          }
+          .billing-pricing-card .plan-price {
+            font-size: 24px !important;
+          }
+
+          /* Flexible Model Banner */
+          .billing-model-banner {
+            flex-direction: column !important;
+            gap: 12px !important;
+            text-align: center !important;
+            padding: 16px !important;
+          }
+          .billing-model-banner > div {
+            flex-direction: column !important;
+            text-align: center !important;
+          }
+
+          /* Chatbot Pricing */
+          .billing-chatbot-section h2 {
+            font-size: 20px !important;
+          }
+          .billing-table-wrapper {
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch;
+            border-radius: 8px;
+          }
+          .billing-table-wrapper > div {
+            min-width: 600px;
+          }
+
+          /* Features table */
+          .billing-features-section h2 {
+            font-size: 20px !important;
+          }
+          .billing-features-table {
+            min-width: 700px;
+          }
+
+          /* Additional Info */
+          .billing-additional-info {
+            padding: 16px !important;
+          }
+          .billing-additional-info h4 {
+            font-size: 12px !important;
+          }
+        }
+
+        /* ── Extra small mobile (max-width: 480px) ── */
+        @media (max-width: 480px) {
+          .billing-stats-grid {
+            gap: 10px !important;
+          }
+          .billing-stat-card {
+            padding: 14px !important;
+          }
+          .billing-pricing-card {
+            padding: 16px !important;
+          }
+          .billing-pricing-card .plan-price {
+            font-size: 22px !important;
+          }
+        }
+      `}</style>
       </div>
 
     </>
@@ -258,7 +405,7 @@ export default function Billing() {
 // Helper components to keep the main file cleaner
 function PricingCard({ name, price, oldPrice, badge, desc, cost, mins, extra, kb, highlight }: any) {
   return (
-    <div style={{ 
+    <div className="billing-pricing-card" style={{ 
       border: highlight ? '1px solid var(--teal)' : '1px solid var(--border)', 
       borderRadius: '8px', 
       padding: '24px', 
@@ -268,7 +415,7 @@ function PricingCard({ name, price, oldPrice, badge, desc, cost, mins, extra, kb
       position: 'relative'
     }}>
       <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-        <div style={{ fontSize: '14px', fontWeight: 700, marginBottom: '8px', color: 'white' }}>{name}</div>
+        <div className="plan-name" style={{ fontSize: '14px', fontWeight: 700, marginBottom: '8px', color: 'white' }}>{name}</div>
         
         {badge && (
           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
@@ -277,7 +424,7 @@ function PricingCard({ name, price, oldPrice, badge, desc, cost, mins, extra, kb
           </div>
         )}
 
-        <div style={{ fontSize: '28px', fontWeight: 800, color: 'white' }}>
+        <div className="plan-price" style={{ fontSize: '28px', fontWeight: 800, color: 'white' }}>
           <span style={{ fontSize: '20px', verticalAlign: 'top' }}>$ </span>{price} <span style={{ fontSize: '12px', fontWeight: 500, color: 'var(--text-muted)' }}>/month</span>
         </div>
       </div>
