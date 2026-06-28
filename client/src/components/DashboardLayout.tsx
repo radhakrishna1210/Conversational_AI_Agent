@@ -28,6 +28,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const [notifOpen, setNotifOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const { darkMode, toggleDarkMode } = useTheme();
   const [user, setUser] = useState({ name: 'User', email: '', initials: 'U', plan: '', role: '' });
@@ -50,6 +51,37 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     document.addEventListener("keydown", down);
     return () => document.removeEventListener("keydown", down);
   }, []);
+
+  // Close sidebar when clicking outside on mobile
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      const sidebar = document.getElementById('layout-sidebar');
+      const hamburger = document.getElementById('hamburger-btn');
+      if (
+        sidebarOpen &&
+        sidebar &&
+        hamburger &&
+        !sidebar.contains(e.target as Node) &&
+        !hamburger.contains(e.target as Node)
+      ) {
+        setSidebarOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [sidebarOpen]);
+
+  // Lock body scroll when mobile sidebar is open
+  useEffect(() => {
+    if (sidebarOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [sidebarOpen]);
 
   const handleLogout = () => {
     sessionStorage.setItem('loggedOut', '1');
@@ -152,7 +184,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="dashboard-layout">
-      <aside className="sidebar">
+      {/* ── Mobile sidebar overlay (mobile only) ── */}
+      {sidebarOpen && (
+        <div
+          className="sidebar-overlay"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      <aside id="layout-sidebar" className={`sidebar ${sidebarOpen ? "open" : ""}`}>
         <Link to="/" style={{textDecoration: 'none'}}>
           <div className="sidebar-header">
             <div className="sidebar-logo-icon">O</div>
@@ -324,6 +364,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
       <div className="topbar-fixed">
         <div className="dashboard-topbar">
+          {/* Hamburger — visible on mobile only, toggles the layout sidebar */}
+          <button
+            id="hamburger-btn"
+            className="omni-hamburger"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            aria-label="Toggle sidebar"
+            aria-expanded={sidebarOpen}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="3" y1="6" x2="21" y2="6" />
+              <line x1="3" y1="12" x2="21" y2="12" />
+              <line x1="3" y1="18" x2="21" y2="18" />
+            </svg>
+          </button>
           <div
             className="topbar-search"
             onClick={() => setIsCommandMenuOpen(true)}
@@ -478,6 +532,95 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         onClose={() => setNotifOpen(false)}
         onUnreadCountChange={setUnreadCount}
       />
+
+      {/* ── Mobile sidebar styles injected here so they live with the layout ── */}
+      <style>{`
+        /* Hamburger: hidden on desktop, shown on mobile */
+        .omni-hamburger {
+          display: none;
+          align-items: center;
+          justify-content: center;
+          width: 36px;
+          height: 36px;
+          background: transparent;
+          border: none;
+          border-radius: 8px;
+          cursor: pointer;
+          color: var(--text-primary, #e2e8f0);
+          flex-shrink: 0;
+          transition: background 0.2s;
+        }
+        .omni-hamburger:hover {
+          background: var(--sidebar-hover, rgba(255,255,255,0.06));
+        }
+
+        /* Mobile sidebar overlay */
+        .sidebar-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.6);
+          z-index: 998;
+          animation: overlayFadeIn 0.2s ease;
+        }
+        @keyframes overlayFadeIn {
+          from { opacity: 0; }
+          to   { opacity: 1; }
+        }
+
+        @media (max-width: 768px) {
+          /* Show hamburger on mobile */
+          .omni-hamburger {
+            display: flex;
+          }
+
+          /* On mobile the sidebar is off-screen by default, slides in when .open */
+          .sidebar {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            height: 100vh !important;
+            z-index: 999 !important;
+            transform: translateX(-100%) !important;
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+            /* width is already set by your existing sidebar styles */
+          }
+          .sidebar.open {
+            transform: translateX(0) !important;
+          }
+
+          /* Prevent the main area from being pushed on mobile */
+          .dashboard-main {
+            margin-left: 0 !important;
+          }
+
+          /* Topbar: make sure it spans full width on mobile */
+          .topbar-fixed {
+            left: 0 !important;
+          }
+
+          /* Shrink search bar on mobile to give hamburger room */
+          .topbar-search {
+            flex: 1;
+            min-width: 0;
+          }
+          .topbar-search input {
+            min-width: 0;
+          }
+          .topbar-search span {
+            display: none;
+          }
+        }
+
+        @media (min-width: 769px) {
+          /* On desktop, hide overlay and keep sidebar always visible */
+          .sidebar-overlay {
+            display: none !important;
+          }
+          .omni-hamburger {
+            display: none !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }

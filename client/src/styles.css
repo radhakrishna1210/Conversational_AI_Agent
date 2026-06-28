@@ -2900,7 +2900,7 @@ html.light .topbar-icon-btn:hover {
   .hero-title { font-size: 40px; }
   .form-grid-2 { grid-template-columns: 1fr; gap: 16px; }
   .dashboard-layout { grid-template-columns: 1fr; }
-  .sidebar { display: none; }
+  /* .sidebar { display: none; }  REMOVED - sidebar now visible on mobile */
   .dashboard-main { margin-left: 0; }
   .trusted-logos { gap: 20px; }
   .navbar-nav { display: none; }
@@ -3868,34 +3868,135 @@ html:not(.light) .notification-panel-footer {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
 
-/* =========================
-   RESPONSIVE
-========================= */
+/* ===========================
+   MOBILE SIDEBAR
+   =========================== */
 
-@media (max-width: 1000px) {
-  .archive-grid {
-    grid-template-columns: 1fr;
-  }
-
-  .archive-top-row {
-    flex-direction: column;
-    gap: 18px;
-  }
-
-  .archive-content {
-    padding: 30px 20px;
-  }
+/* Hamburger: hidden on desktop, shown on mobile */
+.omni-hamburger {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  color: var(--text-primary, #e2e8f0);
+  flex-shrink: 0;
+  transition: background 0.2s;
+  z-index: 9999;
 }
-.archive-badge {
-  background: #1ccfc3;
-  color: #000;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 5px 10px;
-  border-radius: 6px;
+.omni-hamburger:hover {
+  background: var(--sidebar-hover, rgba(255,255,255,0.06));
 }
 
-.announcement-badge {
-  background: #f59e0b;
-  color: #fff;
+/* Mobile sidebar overlay */
+.sidebar-overlay {
+  display: none; /* hidden by default */
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  z-index: 998;
+}
+
+/* ============================================
+   MOBILE BREAKPOINT (max-width: 768px)
+   ============================================ */
+@media (max-width: 768px) {
+
+  /* ── Show hamburger on mobile ── */
+  .omni-hamburger {
+    display: flex !important;
+  }
+
+  /* ── Sidebar: fixed, off-screen by default ── */
+  .sidebar {
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 270px;
+    height: 100vh !important;
+    background: var(--sidebar-bg, #060c17);
+    overflow-y: auto;
+    overflow-x: hidden;
+    transform: translateX(-100%) !important;
+    transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    z-index: 999 !important;
+    box-shadow: 0 0 25px rgba(0,0,0,0.45);
+    display: flex !important;
+    flex-direction: column !important;
+  }
+
+  /* ── Sidebar OPEN state ── */
+  .sidebar.open {
+    transform: translateX(0) !important;
+  }
+
+  /* ── Overlay: shown when sidebar is open ── */
+  .sidebar-overlay {
+    display: block;
+    animation: overlayFadeIn 0.2s ease;
+  }
+
+  @keyframes overlayFadeIn {
+    from { opacity: 0; }
+    to   { opacity: 1; }
+  }
+
+  /* ── Topbar: full width on mobile ── */
+  .topbar-fixed {
+    left: 0 !important;
+    width: 100% !important;
+  }
+
+  .dashboard-topbar {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 12px 16px;
+  }
+
+  .topbar-search {
+    flex: 1;
+    min-width: 0;
+  }
+  .topbar-search input {
+    min-width: 0;
+  }
+  .topbar-search span {
+    display: none; /* hide ⌘K on mobile */
+  }
+
+  /* ── Main content: no margin on mobile ── */
+  .dashboard-main {
+    margin-left: 0 !important;
+    width: 100% !important;
+  }
+
+  /* ── Force sidebar content visible on mobile (hover not available on touch) ── */
+  .sidebar .sidebar-logo-text,
+  .sidebar .sidebar-text,
+  .sidebar .sidebar-category,
+  .sidebar .badge-new {
+    opacity: 1 !important;
+    transition: none !important;
+  }
+  .sidebar .sidebar-category {
+    padding-left: 20px !important;
+  }
+}
+
+/* ============================================
+   DESKTOP BREAKPOINT (min-width: 769px)
+   ============================================ */
+@media (min-width: 769px) {
+  /* Hide overlay and hamburger on desktop */
+  .sidebar-overlay {
+    display: none !important;
+  }
+  .omni-hamburger {
+    display: none !important;
+  }
 }
