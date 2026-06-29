@@ -84,7 +84,7 @@ if (data.enhancedPrompt) {
   const handleCreate = async () => {
     if (!prompt.trim()) return;
     setCreating(true);
-    
+
     const name = prompt.trim();
     let welcomeMsg = '';
     let defaultFlow: any[] = [];
@@ -125,7 +125,7 @@ if (data.enhancedPrompt) {
         aiModel: 'GPT-4.1-Mini',
         voice: 'Google - Aoede (female)',
       });
-      
+
       setAgents(prev => [newAgent, ...prev]);
       setPrompt('');
       setSuccess(true);
@@ -181,8 +181,7 @@ if (data.enhancedPrompt) {
   );
 
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-
-  const useCases = {
+const useCases = {
   "Lead Generation": [
     { name: "Cold Calling Leads", 
       prompt: `Create a voice AI agent for outbound lead generation campaigns targeting potential business customers.
@@ -1220,174 +1219,150 @@ Goals:
 - Improve learning engagement
 - Build interest in space science` }
   ]
-};
+};;
 
   return (
     <>
-      <div style={{ marginBottom: '32px' }}>
-        <h1 style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-0.5px', marginBottom: '6px' }}>Voice AI Assistants</h1>
-        <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Create and manage your voice AI assistants</p>
-      </div>
-
-      <div className="create-assistant-box">
-        <h3>Create a new voice AI assistant</h3>
-        <p>Describe the type of voice AI assistant you want to create</p>
-        <textarea
-          className="create-textarea"
-          placeholder="Describe your voice AI assistant..."
-          value={prompt}
-          onChange={(e) => setPrompt(e.target.value)}
-        />
-        <div className="create-actions">
-          <div>
-            <p style={{ fontSize: '12px', color: 'var(--text-muted)', marginBottom: '10px' }}>Choose from Use Case Categories:</p>
-           <div className="use-case-chips">
-
-  {!selectedCategory &&
-    Object.keys(useCases).map((category) => (
-      <button
-        key={category}
-        className="chip"
-        onClick={() => setSelectedCategory(category)}
-      >
-        {category}
-      </button>
-    ))
-  }
-
-</div>
-
-{selectedCategory && (
-  <div style={{ marginTop: "16px" }}>
-
-    <h4
-  onClick={() => setSelectedCategory(null)}
-  style={{
-    cursor: "pointer",
-    color: "#14b8a6",
-    marginBottom: "12px"
-  }}
->
-  {selectedCategory}
-</h4>
-
-    <div className="use-case-chips">
-      {useCases[selectedCategory].map((item) => (
-        <button
-          key={item.name}
-          className="chip"
-          onClick={() => setPrompt(item.prompt)}
-        >
-          {item.name}
-        </button>
-      ))}
-    </div>
-
-  </div>
-)}
-          </div>
-          <div
-  style={{
-    display: "flex",
-    gap: "10px",
-  }}
->
-  <button
-    className="btn"
-    onClick={handleEnhance}
-    disabled={enhancing || !prompt.trim()}
-  >
-    {enhancing
-      ? "Enhancing..."
-      : "✨ Enhance Prompt"}
-  </button>
-
-  <button
-    className="btn btn-primary"
-    style={{
-      flexShrink: 0,
-      background: success ? "#22c55e" : "",
-    }}
-    onClick={handleCreate}
-    disabled={
-      creating ||
-      success ||
-      !prompt.trim()
-    }
-  >
-    {creating
-      ? "Creating..."
-      : success
-      ? "✓ Created!"
-      : "Create Voice AI Assistant"}
-  </button>
-</div>
-        </div>
-      </div>
-
-      <div className="assistants-section">
-        <div className="assistants-header">
-          <h2>My Voice AI Assistants</h2>
-          <div className="assistants-header-actions">
-            <div className="assistants-search">
-              <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-              <input
-                type="text"
-                placeholder="Search assistants..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-              />
-            </div>
-            <div className="assistants-suggestions">
-              <span>Suggested:</span>
-              {['English', 'GPT-4', 'Moon', 'Support'].map(tag => (
-                <button 
-                  key={tag}
-                  onClick={() => setSearchQuery(tag)}
-                >
-                  {tag}
-                </button>
-              ))}
-            </div>
-          </div>
+      {/* ════════════════════════════════════════════
+          MAIN DASHBOARD CONTENT
+         ════════════════════════════════════════════ */}
+      <div className="omni-dashboard">
+        {/* Page Header */}
+        <div className="omni-page-header">
+          <h1>Voice AI Assistants</h1>
+          <p>Create and manage your voice AI assistants</p>
         </div>
 
-        <div className="assistants-grid">
-          <article className="assistant-card">
-            <div className="assistant-card-head">
-              <div>
-                <h3>{hardcodedAssistant.name}</h3>
-                <p>{hardcodedAssistant.language}</p>
+        {/* Create Agent Card */}
+        <div className="omni-create-card">
+          <div className="omni-create-card-header">
+            <h3>Create a new voice AI assistant</h3>
+            <p>Describe the type of voice AI assistant you want to create</p>
+          </div>
+          <textarea
+            className="omni-create-textarea"
+            placeholder="Describe your voice AI assistant's purpose, personality, and how it should handle"
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+          />
+          <div className="omni-create-footer">
+            <div className="omni-templates-section">
+              <p className="omni-templates-label">Choose from Use Case Categories:</p>
+              <div className="omni-use-case-chips">
+                {!selectedCategory &&
+                  Object.keys(useCases).map((category) => (
+                    <button
+                      key={category}
+                      className="omni-chip"
+                      onClick={() => setSelectedCategory(category)}
+                    >
+                      {category}
+                    </button>
+                  ))
+                }
               </div>
-              <button className="assistant-menu" aria-label="Assistant actions">⋮</button>
+              {selectedCategory && (
+                <div style={{ marginTop: "16px" }}>
+                  <h4
+                    onClick={() => setSelectedCategory(null)}
+                    className="omni-category-back"
+                  >
+                    ← {selectedCategory}
+                  </h4>
+                  <div className="omni-use-case-chips">
+                    {useCases[selectedCategory].map((item) => (
+                      <button
+                        key={item.name}
+                        className="omni-chip"
+                        onClick={() => setPrompt(item.prompt)}
+                      >
+                        {item.name}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
-
-            <div className="assistant-metadata">
-              <div><span>LLM:</span> <strong>{hardcodedAssistant.llm}</strong></div>
-              <div><span>Voice:</span> <strong>{hardcodedAssistant.voice}</strong></div>
-              <div><span>KB Files:</span> <strong>{hardcodedAssistant.kbFiles}</strong></div>
-              <div><span>Search:</span> <strong>{hardcodedAssistant.search}</strong></div>
-              <div><span>Post-call (1):</span> <strong>{hardcodedAssistant.postCall}</strong></div>
-              <div><span>Integrations (0):</span> <strong>{hardcodedAssistant.integrations}</strong></div>
+            <div className="omni-create-actions">
+              <button
+                className="omni-btn omni-btn-secondary"
+                onClick={handleEnhance}
+                disabled={enhancing || !prompt.trim()}
+              >
+                {enhancing ? "Enhancing..." : "✨ Enhance Prompt"}
+              </button>
+              <button
+                className="omni-btn omni-btn-primary"
+                style={{ background: success ? "#10b981" : "" }}
+                onClick={handleCreate}
+                disabled={creating || success || !prompt.trim()}
+              >
+                {creating ? "Creating..." : success ? "✓ Created!" : "Create Voice AI Assistant"}
+              </button>
             </div>
+          </div>
+        </div>
 
-            <div className="assistant-card-footer">
-              <span className="assistant-id">ID: #{hardcodedAssistant.id}</span>
-              <button className="btn btn-primary" onClick={() => navigate(`/agent/${hardcodedAssistant.id}`)}>Edit Agent</button>
+        {/* Assistants Section */}
+        <div className="omni-assistants-section">
+          <div className="omni-assistants-header">
+            <h2>My Voice AI Assistants</h2>
+            <div className="omni-assistants-header-actions">
+              <div className="omni-search-box">
+                <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                <input
+                  type="text"
+                  placeholder="Search assistants..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                />
+              </div>
+              <div className="omni-suggestions">
+                <span>Suggested:</span>
+                {['English', 'GPT-4', 'Moon', 'Support'].map(tag => (
+                  <button key={tag} onClick={() => setSearchQuery(tag)}>
+                    {tag}
+                  </button>
+                ))}
+              </div>
             </div>
-          </article>
+          </div>
 
-          {filteredAgents.length > 0 && filteredAgents.map((assistant) => (
-              <article key={assistant.id} className="assistant-card">
-                <div className="assistant-card-head">
+          <div className="omni-assistants-grid">
+            {/* Hardcoded Assistant */}
+            <article className="omni-card">
+              <div className="omni-card-head">
+                <div>
+                  <h3>{hardcodedAssistant.name}</h3>
+                  <p>{hardcodedAssistant.language}</p>
+                </div>
+                <button className="omni-card-menu" aria-label="Assistant actions">⋮</button>
+              </div>
+              <div className="omni-card-meta">
+                <div><span>LLM:</span> <strong>{hardcodedAssistant.llm}</strong></div>
+                <div><span>Voice:</span> <strong>{hardcodedAssistant.voice}</strong></div>
+                <div><span>KB Files:</span> <strong>{hardcodedAssistant.kbFiles}</strong></div>
+                <div><span>Search:</span> <strong>{hardcodedAssistant.search}</strong></div>
+                <div><span>Post-call (1):</span> <strong>{hardcodedAssistant.postCall}</strong></div>
+                <div><span>Integrations (0):</span> <strong>{hardcodedAssistant.integrations}</strong></div>
+              </div>
+              <div className="omni-card-footer">
+                <span className="omni-card-id">ID: #{hardcodedAssistant.id}</span>
+                <button className="omni-btn omni-btn-primary" onClick={() => navigate(`/agent/${hardcodedAssistant.id}`)}>Edit Agent</button>
+              </div>
+            </article>
+
+            {/* Dynamic Agents */}
+            {filteredAgents.length > 0 && filteredAgents.map((assistant) => (
+              <article key={assistant.id} className="omni-card">
+                <div className="omni-card-head">
                   <div>
                     <h3>{assistant.name}</h3>
                     <p>{assistant.language}</p>
                   </div>
-                  <button className="assistant-menu" aria-label="Assistant actions">⋮</button>
+                  <button className="omni-card-menu" aria-label="Assistant actions">⋮</button>
                 </div>
-
-                <div className="assistant-metadata">
+                <div className="omni-card-meta">
                   <div><span>LLM:</span> <strong>{assistant.llm}</strong></div>
                   <div><span>Voice:</span> <strong>{assistant.voice}</strong></div>
                   <div><span>KB Files:</span> <strong>{assistant.kbFiles}</strong></div>
@@ -1395,20 +1370,456 @@ Goals:
                   <div><span>Post-call:</span> <strong>{assistant.postCall}</strong></div>
                   <div><span>Integrations:</span> <strong>{assistant.integrations}</strong></div>
                 </div>
-
-                <div className="assistant-card-footer">
-                  <span className="assistant-id">ID: {assistant.id}</span>
-                  <button
-                    className="btn btn-primary"
-                    onClick={() => navigate(`/agent/${assistant.id}`)}
-                  >
-                    Edit Agent
-                  </button>
+                <div className="omni-card-footer">
+                  <span className="omni-card-id">ID: {assistant.id}</span>
+                  <button className="omni-btn omni-btn-primary" onClick={() => navigate(`/agent/${assistant.id}`)}>Edit Agent</button>
                 </div>
               </article>
             ))}
+          </div>
         </div>
       </div>
+
+      {/* ════════════════════════════════════════════
+          STYLES
+         ════════════════════════════════════════════ */}
+      <style>{`
+        /* ── Base ── */
+        .omni-dashboard {
+          max-width: 1200px;
+          margin: 0 auto;
+          padding: 32px 24px;
+          color: #e2e8f0;
+        }
+
+        /* ── Page Header ── */
+        .omni-page-header {
+          margin-bottom: 32px;
+        }
+        .omni-page-header h1 {
+          font-size: 28px;
+          font-weight: 800;
+          letter-spacing: -0.5px;
+          margin-bottom: 6px;
+          color: #f8fafc;
+        }
+        .omni-page-header p {
+          color: #94a3b8;
+          font-size: 14px;
+          margin: 0;
+        }
+
+        /* ── Create Card ── */
+        .omni-create-card {
+          background: #1e293b;
+          border: 1px solid #334155;
+          border-radius: 16px;
+          padding: 28px;
+          margin-bottom: 32px;
+        }
+        .omni-create-card-header h3 {
+          font-size: 16px;
+          font-weight: 600;
+          color: #f8fafc;
+          margin: 0 0 6px;
+        }
+        .omni-create-card-header p {
+          font-size: 13px;
+          color: #94a3b8;
+          margin: 0 0 18px;
+        }
+        .omni-create-textarea {
+          width: 100%;
+          min-height: 140px;
+          background: #0f172a;
+          border: 1px solid #334155;
+          border-radius: 12px;
+          padding: 16px;
+          color: #e2e8f0;
+          font-size: 14px;
+          line-height: 1.6;
+          resize: vertical;
+          outline: none;
+          transition: border-color 0.2s, box-shadow 0.2s;
+          margin-bottom: 20px;
+          box-sizing: border-box;
+        }
+        .omni-create-textarea::placeholder {
+          color: #64748b;
+        }
+        .omni-create-textarea:focus {
+          border-color: #14b8a6;
+          box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.12);
+        }
+
+        .omni-create-footer {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-end;
+          flex-wrap: wrap;
+          gap: 20px;
+        }
+
+        .omni-templates-section {
+          flex: 1;
+          min-width: 280px;
+        }
+        .omni-templates-label {
+          font-size: 12px;
+          color: #64748b;
+          margin-bottom: 10px;
+        }
+        .omni-use-case-chips {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 8px;
+        }
+        .omni-chip {
+          background: #0f172a;
+          border: 1px solid #334155;
+          border-radius: 20px;
+          padding: 6px 14px;
+          font-size: 12px;
+          color: #94a3b8;
+          cursor: pointer;
+          transition: all 0.2s;
+          white-space: nowrap;
+        }
+        .omni-chip:hover {
+          border-color: #14b8a6;
+          color: #14b8a6;
+          background: rgba(20, 184, 166, 0.08);
+        }
+        .omni-category-back {
+          cursor: pointer;
+          color: #14b8a6;
+          margin-bottom: 12px;
+          font-size: 14px;
+          font-weight: 500;
+        }
+
+        .omni-create-actions {
+          display: flex;
+          gap: 10px;
+          flex-shrink: 0;
+        }
+
+        /* ── Buttons ── */
+        .omni-btn {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          gap: 6px;
+          padding: 10px 20px;
+          border-radius: 10px;
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+          border: none;
+          transition: all 0.2s;
+          white-space: nowrap;
+        }
+        .omni-btn:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        .omni-btn-primary {
+          background: #14b8a6;
+          color: #0f172a;
+        }
+        .omni-btn-primary:hover:not(:disabled) {
+          background: #0d9488;
+        }
+        .omni-btn-secondary {
+          background: #1e293b;
+          color: #e2e8f0;
+          border: 1px solid #334155;
+        }
+        .omni-btn-secondary:hover:not(:disabled) {
+          border-color: #14b8a6;
+          color: #14b8a6;
+        }
+
+        /* ── Assistants Section ── */
+        .omni-assistants-section {
+          margin-top: 8px;
+        }
+        .omni-assistants-header {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          margin-bottom: 20px;
+          flex-wrap: wrap;
+          gap: 12px;
+        }
+        .omni-assistants-header h2 {
+          font-size: 18px;
+          font-weight: 700;
+          color: #f8fafc;
+          margin: 0;
+        }
+        .omni-assistants-header-actions {
+          display: flex;
+          align-items: center;
+          gap: 16px;
+          flex-wrap: wrap;
+        }
+        .omni-search-box {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          background: #1e293b;
+          border: 1px solid #334155;
+          border-radius: 10px;
+          padding: 8px 14px;
+          min-width: 220px;
+        }
+        .omni-search-box svg {
+          color: #64748b;
+          flex-shrink: 0;
+        }
+        .omni-search-box input {
+          background: transparent;
+          border: none;
+          outline: none;
+          color: #e2e8f0;
+          font-size: 13px;
+          width: 100%;
+        }
+        .omni-search-box input::placeholder {
+          color: #64748b;
+        }
+        .omni-suggestions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 12px;
+          color: #64748b;
+        }
+        .omni-suggestions button {
+          background: #1e293b;
+          border: 1px solid #334155;
+          border-radius: 6px;
+          padding: 4px 10px;
+          font-size: 12px;
+          color: #94a3b8;
+          cursor: pointer;
+          transition: all 0.2s;
+        }
+        .omni-suggestions button:hover {
+          border-color: #14b8a6;
+          color: #14b8a6;
+        }
+
+        /* ── Cards Grid ── */
+        .omni-assistants-grid {
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+          gap: 20px;
+        }
+        .omni-card {
+          background: #1e293b;
+          border: 1px solid #334155;
+          border-radius: 14px;
+          padding: 20px;
+          display: flex;
+          flex-direction: column;
+          transition: border-color 0.2s, box-shadow 0.2s;
+        }
+        .omni-card:hover {
+          border-color: #475569;
+          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
+        }
+        .omni-card-head {
+          display: flex;
+          justify-content: space-between;
+          align-items: flex-start;
+          margin-bottom: 16px;
+        }
+        .omni-card-head h3 {
+          font-size: 14px;
+          font-weight: 600;
+          color: #f8fafc;
+          margin: 0 0 4px;
+          line-height: 1.4;
+        }
+        .omni-card-head p {
+          font-size: 12px;
+          color: #64748b;
+          margin: 0;
+        }
+        .omni-card-menu {
+          background: transparent;
+          border: none;
+          color: #64748b;
+          font-size: 18px;
+          cursor: pointer;
+          padding: 4px;
+          border-radius: 6px;
+          line-height: 1;
+        }
+        .omni-card-menu:hover {
+          background: #334155;
+          color: #e2e8f0;
+        }
+        .omni-card-meta {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          gap: 10px 16px;
+          margin-bottom: 18px;
+          flex: 1;
+        }
+        .omni-card-meta div {
+          font-size: 12px;
+          color: #94a3b8;
+        }
+        .omni-card-meta span {
+          color: #64748b;
+        }
+        .omni-card-meta strong {
+          color: #e2e8f0;
+          font-weight: 500;
+        }
+        .omni-card-footer {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding-top: 14px;
+          border-top: 1px solid #334155;
+        }
+        .omni-card-id {
+          font-size: 11px;
+          color: #475569;
+          font-family: monospace;
+        }
+
+        /* ════════════════════════════════════════ */
+        /* RESPONSIVE: TABLET & MOBILE              */
+        /* ════════════════════════════════════════ */
+
+        @media (max-width: 768px) {
+          .omni-dashboard {
+            padding: 16px;
+          }
+          .omni-page-header h1 {
+            font-size: 22px;
+          }
+          /* Create card - teal border on mobile */
+          .omni-create-card {
+            padding: 18px;
+            border-radius: 12px;
+            border: 1px solid #14b8a6;
+            background: #0f172a;
+          }
+          .omni-create-card-header h3 {
+            color: #14b8a6;
+            font-size: 15px;
+          }
+          .omni-create-textarea {
+            min-height: 120px;
+            font-size: 14px;
+            background: #1e293b;
+            border-color: #334155;
+          }
+          .omni-create-footer {
+            flex-direction: column;
+            align-items: stretch;
+            gap: 16px;
+          }
+          .omni-create-actions {
+            flex-direction: column;
+            width: 100%;
+          }
+          .omni-create-actions .omni-btn {
+            width: 100%;
+          }
+          /* Hide enhance button on mobile */
+          .omni-create-actions .omni-btn-secondary {
+            display: none;
+          }
+          .omni-create-actions .omni-btn-primary {
+            width: 100%;
+            padding: 14px 20px;
+            font-size: 14px;
+          }
+          /* Use case chips */
+          .omni-use-case-chips {
+            gap: 8px;
+          }
+          .omni-chip {
+            font-size: 12px;
+            padding: 8px 14px;
+            background: #1e293b;
+            border-color: #334155;
+            color: #e2e8f0;
+            border-radius: 8px;
+          }
+          /* Assistants section */
+          .omni-assistants-section {
+            margin-top: 24px;
+          }
+          .omni-assistants-header {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 12px;
+          }
+          .omni-assistants-header h2 {
+            font-size: 18px;
+          }
+          .omni-assistants-header-actions {
+            width: 100%;
+          }
+          .omni-search-box {
+            width: 100%;
+            min-width: unset;
+          }
+          .omni-suggestions {
+            flex-wrap: wrap;
+            gap: 6px;
+          }
+          /* Assistants grid - single column on mobile */
+          .omni-assistants-grid {
+            grid-template-columns: 1fr;
+            gap: 14px;
+          }
+          .omni-card {
+            padding: 16px;
+            background: #1e293b;
+            border: 1px solid #334155;
+          }
+          .omni-card-head h3 {
+            font-size: 14px;
+          }
+          .omni-card-meta {
+            grid-template-columns: 1fr 1fr;
+            gap: 8px 12px;
+            font-size: 12px;
+          }
+          .omni-card-footer {
+            flex-direction: column;
+            gap: 10px;
+            align-items: stretch;
+          }
+          .omni-card-footer .omni-btn {
+            width: 100%;
+          }
+        }
+
+        @media (max-width: 480px) {
+          .omni-dashboard {
+            padding: 12px;
+          }
+          .omni-create-card {
+            padding: 14px;
+          }
+          .omni-card-meta {
+            grid-template-columns: 1fr;
+          }
+          .omni-suggestions span {
+            display: none;
+          }
+        }
+      `}</style>
     </>
   );
 }
