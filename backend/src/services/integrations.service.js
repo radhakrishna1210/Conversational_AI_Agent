@@ -343,10 +343,31 @@ export const getIntegrationLogs = async (workspaceId, providerKey = null) => {
 
 export const createOAuthConnectUrl = async (workspaceId, providerKey, userId, redirectUriOverride = null) => {
   const provider = getProvider(providerKey);
+
+  // Webhook-based providers (Make, Zapier, n8n, GHL, Custom API) — no OAuth flow
   if (!provider.oauth) {
-    const error = new Error('This integration does not use OAuth');
-    error.statusCode = 400;
-    throw error;
+    const integration = await upsertIntegrationRow(workspaceId, providerKey);
+    // Mark as connected with mock token so it shows as connected
+    await prisma.integration.update({
+      where: { id: integration.id },
+      data: { status: 'connected', connected: true, lastSyncAt: new Date() },
+    });
+    await logIntegration({
+      workspaceId,
+      provider: provider.key,
+      integrationId: integration.id,
+      event: 'webhook_connect_requested',
+      message: `${provider.name} webhook integration enabled`,
+    });
+    // Return a settings URL so frontend opens settings modal instead
+    return {
+      authorizationUrl: null,
+      requiresWebhookConfig: true,
+      provider: serializeIntegration(await prisma.integration.findUniqueOrThrow({
+        where: { id: integration.id },
+        include: { token: true, settings: true, logs: { orderBy: { createdAt: 'desc' }, take: 5 } },
+      })),
+    };
   }
 
   const integration = await upsertIntegrationRow(workspaceId, providerKey);
