@@ -6,6 +6,7 @@ import { whapi } from '../lib/whapi';
 
 export default function Dashboard() {
   const [prompt, setPrompt] = useState('');
+const [agentTitle, setAgentTitle] = useState('');
   const [creating, setCreating] = useState(false);
   const [enhancing, setEnhancing] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -38,6 +39,58 @@ export default function Dashboard() {
     fetchAgents();
   }, []);
 
+
+  const extractAgentTitle = (text: string) => {
+  let title = text
+    .replace(/^create\s+(a\s+)?voice\s+ai\s+agent\s+for\s+/i, "")
+    .replace(/^create\s+(an?\s+)?ai\s+agent\s+for\s+/i, "")
+    .replace(/^create\s+(a\s+)?voice\s+ai\s+assistant\s+for\s+/i, "")
+    .replace(/^create\s+/i, "")
+    .trim();
+
+  title = title
+    .split(" ")
+    .map(
+      word =>
+        word.charAt(0).toUpperCase() +
+        word.slice(1).toLowerCase()
+    )
+    .join(" ");
+
+  if (!title.toLowerCase().includes("agent")) {
+    title += " Agent";
+  }
+
+  return title;
+};
+
+const generateAgentName = (text: string) => {
+  let title = text
+    .replace(/^create\s+(a\s+)?voice\s+ai\s+agent\s+for\s+/i, "")
+    .replace(/^create\s+(an?\s+)?ai\s+agent\s+for\s+/i, "")
+    .replace(/^create\s+(a\s+)?voice\s+ai\s+assistant\s+for\s+/i, "")
+    .replace(/^create\s+/i, "")
+    .trim();
+
+  title = title
+    .replace(/\bassistance\b/gi, "")
+    .replace(/\bassistant\b/gi, "")
+    .replace(/\bagent\b/gi, "")
+    .trim();
+
+  title = title
+    .split(" ")
+    .filter(Boolean)
+    .map(
+      word =>
+        word.charAt(0).toUpperCase() +
+        word.slice(1).toLowerCase()
+    )
+    .join(" ");
+
+  return title ? `${title} Agent` : "Voice AI Agent";
+};
+
   const handleEnhance = async () => {
   if (!prompt.trim()) return;
 
@@ -68,11 +121,18 @@ console.log("enhancedPrompt:", data.enhancedPrompt);
 console.log("Type:", typeof data.enhancedPrompt);
 
 if (data.enhancedPrompt) {
-  setPrompt(
+  const enhancedText =
     typeof data.enhancedPrompt === "string"
       ? data.enhancedPrompt
-      : data.enhancedPrompt.message || ""
-  );
+      : data.enhancedPrompt.message || "";
+
+  setPrompt(enhancedText);
+
+// Do NOT derive title from enhanced response.
+// Keep existing title if selected from use case.
+if (!agentTitle) {
+setAgentTitle(generateAgentName(prompt));
+}
 }
   } catch (err) {
     console.error(err);
@@ -81,14 +141,18 @@ if (data.enhancedPrompt) {
   }
 };
 
+
+
   const handleCreate = async () => {
     if (!prompt.trim()) return;
     setCreating(true);
 
-    const name = prompt.trim();
-    let welcomeMsg = '';
-    let defaultFlow: any[] = [];
+   const name =
+  agentTitle ||
+  generateAgentName(prompt);
 
+let welcomeMsg = '';
+let defaultFlow: any[] = [];
     // Attempt to generate flow dynamically from LLM backend (public endpoint — no auth needed)
     try {
       const genRes = await fetch('/api/v1/llm/generate-flow', {
@@ -128,7 +192,8 @@ if (data.enhancedPrompt) {
 
       setAgents(prev => [newAgent, ...prev]);
       setPrompt('');
-      setSuccess(true);
+setAgentTitle('');
+setSuccess(true);
       setTimeout(() => setSuccess(false), 2000);
     } catch (err) {
       console.error('Failed to create agent on backend', err);
@@ -164,7 +229,8 @@ if (data.enhancedPrompt) {
 
       setAgents(prev => [localAgent, ...prev]);
       setPrompt('');
-      setSuccess(true);
+setAgentTitle('');
+setSuccess(true);
       setTimeout(() => setSuccess(false), 2000);
     } finally {
       setCreating(false);
@@ -1274,7 +1340,10 @@ Goals:
                       <button
                         key={item.name}
                         className="omni-chip"
-                        onClick={() => setPrompt(item.prompt)}
+                        onClick={() => {
+  setPrompt(item.prompt);
+  setAgentTitle(item.name);
+}}
                       >
                         {item.name}
                       </button>
@@ -1357,7 +1426,12 @@ Goals:
               <article key={assistant.id} className="omni-card">
                 <div className="omni-card-head">
                   <div>
-                    <h3>{assistant.name}</h3>
+                   <h3>
+  {assistant.name
+    .replace(/^Inbound Voice AI Agent:\s*/i, "")
+    .replace(/^Create a voice AI agent for\s*/i, "")
+    .substring(0, 40)}
+</h3>
                     <p>{assistant.language}</p>
                   </div>
                   <button className="omni-card-menu" aria-label="Assistant actions">⋮</button>
@@ -1637,12 +1711,17 @@ Goals:
           margin-bottom: 16px;
         }
         .omni-card-head h3 {
-          font-size: 14px;
-          font-weight: 600;
-          color: #f8fafc;
-          margin: 0 0 4px;
-          line-height: 1.4;
-        }
+  font-size: 14px;
+  font-weight: 600;
+  color: #f8fafc;
+  margin: 0 0 4px;
+  line-height: 1.4;
+
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
         .omni-card-head p {
           font-size: 12px;
           color: #64748b;
@@ -1823,3 +1902,4 @@ Goals:
     </>
   );
 }
+
