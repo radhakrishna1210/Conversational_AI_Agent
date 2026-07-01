@@ -20,6 +20,31 @@ const EMPTY: FormData = {
   reason: '', callVolume: '', userType: '', industry: '', useCase: '',
 };
 
+const validateName = (name: string) =>
+  /^[A-Za-z ]{2,50}$/.test(name.trim());
+
+const validateBusinessEmail = (email: string) => {
+  const genericDomains = [
+    'gmail.com',
+    'yahoo.com',
+    'hotmail.com',
+    'outlook.com',
+    'aol.com',
+    'icloud.com',
+    'protonmail.com'
+  ];
+
+  const domain = email.split('@')[1]?.toLowerCase();
+
+  return domain && !genericDomains.includes(domain);
+};
+
+const validatePhone = (phone: string) =>
+  /^\+?[1-9]\d{9,14}$/.test(phone.trim());
+
+const validateIndustry = (industry: string) =>
+  /^[A-Za-z &-]{3,50}$/.test(industry.trim());
+
 export default function BookAppointment() {
   const [form, setForm] = useState<FormData>(EMPTY);
   const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
@@ -32,6 +57,75 @@ export default function BookAppointment() {
     e.preventDefault();
     setStatus('submitting');
     setErrorMsg('');
+    if (!validateName(form.name)) {
+  setErrorMsg(
+    'Name should contain only letters and spaces.'
+  );
+  setStatus('error');
+  return;
+}
+
+if (!validateBusinessEmail(form.email)) {
+  setErrorMsg(
+    'Please use a business/work email address.'
+  );
+  setStatus('error');
+  return;
+}
+
+if (!validatePhone(form.phone)) {
+  setErrorMsg(
+    'Please enter a valid phone number.'
+  );
+  setStatus('error');
+  return;
+}
+
+if (!form.projectType) {
+  setErrorMsg('Please select a project type.');
+  setStatus('error');
+  return;
+}
+
+if (!form.role) {
+  setErrorMsg('Please select your role.');
+  setStatus('error');
+  return;
+}
+
+if (!form.reason) {
+  setErrorMsg('Please select a reason.');
+  setStatus('error');
+  return;
+}
+
+if (!form.callVolume) {
+  setErrorMsg('Please select call volume.');
+  setStatus('error');
+  return;
+}
+
+if (!form.userType) {
+  setErrorMsg('Please select user type.');
+  setStatus('error');
+  return;
+}
+
+if (!validateIndustry(form.industry)) {
+  setErrorMsg(
+    'Please enter a valid industry.'
+  );
+  setStatus('error');
+  return;
+}
+
+if (form.useCase.trim().length < 20) {
+  setErrorMsg(
+    'Use case must contain at least 20 characters.'
+  );
+  setStatus('error');
+  return;
+}
 
     try {
       const res = await fetch(`${BASE}/appointments`, {
@@ -98,7 +192,16 @@ export default function BookAppointment() {
             <div className="form-grid-2">
               <div className="form-group">
                 <label className="form-label">Name <span className="required">*</span></label>
-                <input type="text" className="form-input" placeholder="John Smith" required value={form.name} onChange={set('name')} />
+                <input type="text" className="form-input" placeholder="John Smith" required value={form.name} onChange={(e) => {
+  const value = e.target.value;
+
+  if (/^[A-Za-z ]*$/.test(value)) {
+    setForm((prev) => ({
+      ...prev,
+      name: value,
+    }));
+  }
+}} />
               </div>
               <div className="form-group">
                 <label className="form-label">
@@ -111,7 +214,24 @@ export default function BookAppointment() {
 
             <div className="form-group">
               <label className="form-label">Phone Number <span className="required">*</span></label>
-              <input type="tel" className="form-input" placeholder="+917887654321" required value={form.phone} onChange={set('phone')} />
+              <input
+  type="tel"
+  className="form-input"
+  placeholder="+919876543210"
+  required
+  maxLength={15}
+  value={form.phone}
+  onChange={(e) => {
+    const value = e.target.value;
+
+    if (/^[0-9+]*$/.test(value)) {
+      setForm((prev) => ({
+        ...prev,
+        phone: value,
+      }));
+    }
+  }}
+/>
             </div>
 
             <div className="form-grid-2">
@@ -182,7 +302,16 @@ export default function BookAppointment() {
 
             <div className="form-group">
               <label className="form-label">Industry <span className="required">*</span></label>
-              <input type="text" className="form-input" placeholder="e.g., healthcare, finance, etc." required value={form.industry} onChange={set('industry')} />
+              <input type="text" className="form-input" placeholder="e.g., healthcare, finance, etc." required value={form.industry} onChange={(e) => {
+  const value = e.target.value;
+
+  if (/^[A-Za-z &-]*$/.test(value)) {
+    setForm((prev) => ({
+      ...prev,
+      industry: value,
+    }));
+  }
+}} />
             </div>
 
             <div className="form-group">

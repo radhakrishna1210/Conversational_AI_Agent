@@ -15,6 +15,35 @@ export default function ReportIssue() {
     const form = e.currentTarget;
     const issueTitle = (form.elements.namedItem('issueTitle') as HTMLInputElement).value.trim();
     const description = (form.elements.namedItem('description') as HTMLTextAreaElement).value.trim();
+    
+     
+    if (!issueTitle) {
+  setErrorMsg('Issue title is required.');
+  setStatus('error');
+  return;
+}
+
+if (issueTitle.length < 5) {
+  setErrorMsg(
+    'Issue title must be at least 5 characters long.'
+  );
+  setStatus('error');
+  return;
+}
+
+if (!description) {
+  setErrorMsg('Description is required.');
+  setStatus('error');
+  return;
+}
+
+if (description.length < 20) {
+  setErrorMsg(
+    'Please provide a detailed description (minimum 20 characters).'
+  );
+  setStatus('error');
+  return;
+}
 
     try {
       const res = await fetch(`${API_BASE}/report-issue`, {

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { PopupModal } from 'react-calendly';
 import { Check } from 'lucide-react';
-import PhoneInput from 'react-phone-number-input';
+import PhoneInput, { isValidPhoneNumber } from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
 
 const BASE = '/api/v1';
@@ -26,6 +26,9 @@ export default function Contact() {
     const domain = email.split('@')[1];
     return !genericDomains.includes(domain?.toLowerCase());
   };
+  const validateName = (name: string) => {
+  return /^[A-Za-z ]{2,50}$/.test(name.trim());
+};
 
   const [status, setStatus] = useState<'idle' | 'calendly' | 'success'>('idle');
   const [rootElement, setRootElement] = useState<HTMLElement | null>(null);
@@ -37,6 +40,26 @@ export default function Contact() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setSubmitError('');
+    if (!validateName(formData.name)) {
+  setSubmitError(
+    'Please enter a valid name using letters only.'
+  );
+  return;
+}
+
+if (!formData.phone || !isValidPhoneNumber(formData.phone)) {
+  setSubmitError(
+    'Please enter a valid phone number.'
+  );
+  return;
+}
+
+if (formData.useCase.trim().length < 10) {
+  setSubmitError(
+    'Please provide a more detailed use case.'
+  );
+  return;
+}
 
     if (!validateEmail(formData.email)) {
       setEmailError('Please use a business email address.');
@@ -141,7 +164,16 @@ export default function Contact() {
                   type="text"
                   required
                   value={formData.name}
-                  onChange={(e) => setFormData({...formData, name: e.target.value})}
+                 onChange={(e) => {
+  const value = e.target.value;
+
+  if (/^[A-Za-z ]*$/.test(value)) {
+    setFormData({
+      ...formData,
+      name: value,
+    });
+  }
+}}
                   className="block w-full rounded-lg bg-[#000000] px-4 py-3 text-sm text-white focus:outline-none"
                   style={{ border: '1px solid rgba(255,255,255,0.1)' }}
                   placeholder="John Smith"
