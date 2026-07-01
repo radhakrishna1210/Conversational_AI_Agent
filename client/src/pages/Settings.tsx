@@ -6,6 +6,18 @@ export default function Settings() {
   const [passwords, setPasswords] = useState({ current: '', new: '', confirm: '' });
   const [timezone, setTimezone] = useState('New York (GMT-5)');
 
+  const validateName = (name: string) => {
+  return /^[A-Za-z ]{2,50}$/.test(name.trim());
+};
+
+const validateEmail = (email: string) => {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+};
+
+const validatePhone = (phone: string) => {
+  return /^\+?[1-9]\d{9,14}$/.test(phone.trim());
+};
+
   useEffect(() => {
     const name = localStorage.getItem('userName') || '';
     const email = localStorage.getItem('userEmail') || '';
@@ -13,10 +25,33 @@ export default function Settings() {
   }, []);
 
   const handleSavePersonal = () => {
-    if (!user.name || !user.email) {
-      toast.error('Please fill in name and email');
-      return;
-    }
+   if (!validateName(user.name)) {
+  toast.error(
+    'Name should contain only letters and spaces.'
+  );
+  return;
+}
+
+if (!validateEmail(user.email)) {
+  toast.error(
+    'Please enter a valid email address.'
+  );
+  return;
+}
+
+if (!user.phone) {
+  toast.error(
+    'Phone number is required.'
+  );
+  return;
+}
+
+if (!validatePhone(user.phone)) {
+  toast.error(
+    'Please enter a valid phone number.'
+  );
+  return;
+}
     // Simulate API call
     toast.success('Personal information updated successfully!');
     localStorage.setItem('userName', user.name);
@@ -32,6 +67,21 @@ export default function Settings() {
       toast.error('New passwords do not match');
       return;
     }
+    if (passwords.new.length < 8) {
+  toast.error(
+    'Password must be at least 8 characters long.'
+  );
+  return;
+}
+
+if (
+  !/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(passwords.new)
+) {
+  toast.error(
+    'Password must contain uppercase, lowercase and a number.'
+  );
+  return;
+}
     // Simulate API call
     toast.success('Password changed successfully!');
     setPasswords({ current: '', new: '', confirm: '' });
@@ -73,7 +123,16 @@ export default function Settings() {
                 type="text" 
                 className="form-input" 
                 value={user.name} 
-                onChange={(e) => setUser({...user, name: e.target.value})}
+              onChange={(e) => {
+  const value = e.target.value;
+
+  if (/^[A-Za-z ]*$/.test(value)) {
+    setUser({
+      ...user,
+      name: value,
+    });
+  }
+}}
                 style={{ width: '100%', background: 'rgba(0,0,0,0.2)' }} 
               />
             </div>
@@ -94,7 +153,16 @@ export default function Settings() {
                 className="form-input" 
                 placeholder="Your phone number" 
                 value={user.phone}
-                onChange={(e) => setUser({...user, phone: e.target.value})}
+                onChange={(e) => {
+  const value = e.target.value;
+
+  if (/^[0-9+]*$/.test(value)) {
+    setUser({
+      ...user,
+      phone: value,
+    });
+  }
+}}
                 style={{ width: '100%', background: 'rgba(0,0,0,0.2)' }} 
               />
             </div>
