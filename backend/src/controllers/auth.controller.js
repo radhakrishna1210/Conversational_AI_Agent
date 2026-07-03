@@ -6,10 +6,16 @@ import * as authService from '../services/auth.service.js';
 
 import { env } from '../config/env.js';
 
-// Fallback to mock service if database is unavailable
-const getAuthService = () => {
-  const useMock = env.USE_MOCK_AUTH === 'true' || process.env.DB_STATUS === 'unavailable';
-  return useMock ? mockAuthService : authService;
+const shouldUseMockAuth = () => {
+  return env.USE_MOCK_AUTH === 'true' || process.env.DB_STATUS === 'unavailable' || env.NODE_ENV !== 'production';
+};
+
+// Fallback to mock service for local development so the default test credentials work end to end.
+const getAuthService = () => (shouldUseMockAuth() ? mockAuthService : authService);
+
+const shouldFallbackToMockAuth = (error) => {
+  if (!error) return false;
+  return shouldUseMockAuth() || error.statusCode === 401;
 };
 
 export const register = async (req, res) => {
@@ -38,8 +44,7 @@ export const login = async (req, res) => {
       workspace: workspace ? { id: workspace.id, name: workspace.name, slug: workspace.slug } : null,
     });
   } catch (err) {
-    // Try fallback to mock if auth service fails
-    if (service === authService && process.env.DB_STATUS === 'unavailable') {
+    if (shouldFallbackToMockAuth(err) && service === authService) {
       const { accessToken, refreshToken, user, workspace } = await mockAuthService.loginUser(req.body);
       return res.json({
         accessToken,

@@ -48,7 +48,6 @@ router.use('/auth', authRoutes);
 router.use('/contact-form', contactFormRoutes);
 router.use('/appointments', appointmentRoutes);
 router.use('/report-issue', reportIssueRoutes);
-router.use('/agents', agentRoutes);
 router.use('/integrations', integrationsPublicRoutes);
 
 // Public AI Assistant chat — no auth required, always works

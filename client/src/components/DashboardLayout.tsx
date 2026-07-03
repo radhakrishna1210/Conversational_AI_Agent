@@ -120,30 +120,32 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           const u = data.user;
           const name = u.name || u.email?.split('@')[0] || 'User';
 
-          buildUser(name, u.email || '', u.plan || '', u.role || '');
+          // Extract role from JWT token payload since /auth/me doesn't return it directly
+          let role = u.role || '';
+          try {
+            const payload = JSON.parse(atob(token.split('.')[1]));
+            if (!role && payload.role) role = payload.role;
+          } catch (_) {}
 
-          buildUser(name, u.email || '', u.plan || '');
+          buildUser(name, u.email || '', u.plan || '', role);
+
           if (u.workspaceId && !localStorage.getItem('workspaceId')) {
             localStorage.setItem('workspaceId', u.workspaceId);
           }
-
           return;
         }
       } catch (_) {}
 
+      // Fallback: decode JWT directly
       const token2 = localStorage.getItem('token');
       if (token2) {
         try {
           const payload = JSON.parse(atob(token2.split('.')[1]));
           const name = payload.name || payload.email?.split('@')[0] || 'User';
-
           buildUser(name, payload.email || '', payload.plan || '', payload.role || '');
-
-          buildUser(name, payload.email || '', payload.plan || '');
           if (payload.workspaceId && !localStorage.getItem('workspaceId')) {
             localStorage.setItem('workspaceId', payload.workspaceId);
           }
-
           return;
         } catch (_) {}
       }
@@ -282,10 +284,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </div>
             </Link>
 
-            <div className="sidebar-item">
-              <span className="sidebar-icon"><MessageCircle size={16} /></span>
-              <span className="sidebar-text">WhaBridge</span>
-            </div>
+            <Link to="/whatsapp">
+              <div className={`sidebar-item ${path === '/whatsapp' ? 'active' : ''}`}>
+                <span className="sidebar-icon"><MessageCircle size={16} /></span>
+                <span className="sidebar-text">WhaBridge</span>
+              </div>
+            </Link>
           </div>
 
           <div className="sidebar-section">

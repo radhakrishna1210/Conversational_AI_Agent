@@ -29,7 +29,11 @@ export default function Dashboard() {
     const fetchAgents = async () => {
       try {
         const backendAgents = await whapi.get<AgentConfig[]>('/agents');
-        setAgents(backendAgents);
+        if (Array.isArray(backendAgents)) {
+          setAgents(backendAgents);
+        } else {
+          setAgents(loadAgents());
+        }
       } catch (err) {
         console.error('Failed to fetch agents from backend', err);
         setAgents(loadAgents());
@@ -38,48 +42,29 @@ export default function Dashboard() {
     fetchAgents();
   }, []);
 
+  const [enhanceError, setEnhanceError] = useState('');
+
   const handleEnhance = async () => {
-  if (!prompt.trim()) return;
-
-  try {
-    setEnhancing(true);
-
-    const response = await fetch(
-      "/api/v1/llm/enhance-prompt",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          prompt,
-        }),
+    if (!prompt.trim()) return;
+    setEnhanceError('');
+    try {
+      setEnhancing(true);
+      const response = await fetch('/api/v1/llm/enhance-prompt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ prompt }),
+      });
+      if (!response.ok) throw new Error('Enhance failed — please try again');
+      const data = await response.json();
+      if (data.enhancedPrompt) {
+        setPrompt(typeof data.enhancedPrompt === 'string' ? data.enhancedPrompt : data.enhancedPrompt.message || '');
       }
-    );
-
-    if (!response.ok) {
-      throw new Error("Enhance failed");
+    } catch (err) {
+      setEnhanceError(err instanceof Error ? err.message : 'Enhancement failed');
+    } finally {
+      setEnhancing(false);
     }
-
-  const data = await response.json();
-
-console.log("Enhance Response:", data);
-console.log("enhancedPrompt:", data.enhancedPrompt);
-console.log("Type:", typeof data.enhancedPrompt);
-
-if (data.enhancedPrompt) {
-  setPrompt(
-    typeof data.enhancedPrompt === "string"
-      ? data.enhancedPrompt
-      : data.enhancedPrompt.message || ""
-  );
-}
-  } catch (err) {
-    console.error(err);
-  } finally {
-    setEnhancing(false);
-  }
-};
+  };
 
   const handleCreate = async () => {
     if (!prompt.trim()) return;
@@ -1284,6 +1269,9 @@ Goals:
               )}
             </div>
             <div className="omni-create-actions">
+              {enhanceError && (
+                <p style={{ color: '#f87171', fontSize: '12px', margin: '0 0 8px' }}>⚠️ {enhanceError}</p>
+              )}
               <button
                 className="omni-btn omni-btn-secondary"
                 onClick={handleEnhance}
@@ -1329,31 +1317,14 @@ Goals:
           </div>
 
           <div className="omni-assistants-grid">
-            {/* Hardcoded Assistant */}
-            <article className="omni-card">
-              <div className="omni-card-head">
-                <div>
-                  <h3>{hardcodedAssistant.name}</h3>
-                  <p>{hardcodedAssistant.language}</p>
-                </div>
-                <button className="omni-card-menu" aria-label="Assistant actions">⋮</button>
+            {/* Dynamic Agents only — no hardcoded demo card */}
+            {filteredAgents.length === 0 ? (
+              <div style={{ gridColumn: '1/-1', padding: '48px', textAlign: 'center', color: '#64748b', background: '#1e293b', border: '1px dashed #334155', borderRadius: '14px' }}>
+                <div style={{ fontSize: '40px', marginBottom: '12px' }}>🤖</div>
+                <p style={{ fontSize: '15px', marginBottom: '6px', color: '#94a3b8' }}>No assistants yet</p>
+                <p style={{ fontSize: '13px' }}>Describe your use case above and click <strong style={{ color: '#14b8a6' }}>Create Voice AI Assistant</strong></p>
               </div>
-              <div className="omni-card-meta">
-                <div><span>LLM:</span> <strong>{hardcodedAssistant.llm}</strong></div>
-                <div><span>Voice:</span> <strong>{hardcodedAssistant.voice}</strong></div>
-                <div><span>KB Files:</span> <strong>{hardcodedAssistant.kbFiles}</strong></div>
-                <div><span>Search:</span> <strong>{hardcodedAssistant.search}</strong></div>
-                <div><span>Post-call (1):</span> <strong>{hardcodedAssistant.postCall}</strong></div>
-                <div><span>Integrations (0):</span> <strong>{hardcodedAssistant.integrations}</strong></div>
-              </div>
-              <div className="omni-card-footer">
-                <span className="omni-card-id">ID: #{hardcodedAssistant.id}</span>
-                <button className="omni-btn omni-btn-primary" onClick={() => navigate(`/agent/${hardcodedAssistant.id}`)}>Edit Agent</button>
-              </div>
-            </article>
-
-            {/* Dynamic Agents */}
-            {filteredAgents.length > 0 && filteredAgents.map((assistant) => (
+            ) : filteredAgents.map((assistant) => (
               <article key={assistant.id} className="omni-card">
                 <div className="omni-card-head">
                   <div>
