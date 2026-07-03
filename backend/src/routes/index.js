@@ -23,6 +23,7 @@ import llmRoutes from './llm.routes.js';
 import geminiRoutes from './gemini.routes.js';
 import openaiRoutes from './openai.routes.js';
 import azureRoutes from './azure.routes.js';
+import voiceRoutes from './voice.routes.js';
 import agentRoutes from './agent.routes.js';
 import integrationsRoutes from './integrations.routes.js';
 import integrationsPublicRoutes from './integrationsPublic.routes.js';
@@ -49,6 +50,8 @@ router.use('/contact-form', contactFormRoutes);
 router.use('/appointments', appointmentRoutes);
 router.use('/report-issue', reportIssueRoutes);
 router.use('/agents', agentRoutes);
+router.use('/voices', voiceRoutes);
+router.use('/voice', voiceRoutes);
 router.use('/integrations', integrationsPublicRoutes);
 
 // Public AI Assistant chat — no auth required, always works
