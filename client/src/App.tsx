@@ -19,8 +19,12 @@ import Finance from './pages/Finance';
 import Education from './pages/Education';
 import Ecommerce from './pages/Ecommerce';
 import LeadGeneration from './pages/LeadGeneration';
+import CalCom from './pages/CalCom';
+import SalesforcePage from './pages/Salesforce';
+import CustomApi from './pages/CustomApi';
 import Dashboard from './pages/Dashboard';
 import BulkCallCreate from './pages/BulkCallCreate';
+import Vonage from "./pages/SIPTrunking";
 import CloneVoice from './pages/CloneVoice';
 import Files from './pages/Files';
 import Integrations from './pages/Integrations';
@@ -37,7 +41,20 @@ import AuthCallback from './pages/AuthCallback';
 import EditAgent from './pages/EditAgent';
 import VoiceAssistant from './components/VoiceAssistant';
 import AdminPanel from './pages/AdminPanel';
+import NotificationArchive from './pages/NotificationArchive';
 
+import SolutionUseCasePage from './pages/solutions/SolutionUseCasePage';
+import { solutionUseCases } from './pages/solutions/useCaseContent';
+
+import { Toaster } from './components/ui/sonner';
+import { ThemeProvider } from './hooks/useTheme';
+
+
+
+import RealEstate from "./pages/RealEstate";
+import Insurance from "./pages/Insurance";
+import Healthcare from "./pages/Healthcare";
+import Restaurants from "./pages/Restaurants";
 // Quick Wrapper for the new page
 function VoiceAssistantPage() {
   return (
@@ -84,8 +101,7 @@ function DashboardLayoutWrapper() {
   );
 }
 
-import { Toaster } from './components/ui/sonner';
-import { ThemeProvider } from './hooks/useTheme';
+
 
 function App() {
   return (
@@ -105,7 +121,49 @@ function App() {
         <Route path="/solutions/verticals/education" element={<Education />} />
         <Route path="/solutions/verticals/ecommerce" element={<Ecommerce />} />
         <Route path="/solutions/use-cases/lead-generation" element={<LeadGeneration />} />
-        <Route path="/signup" element={<SignUp />} />
+        <Route path="/integrations/cal-com" element={<DefaultLayout><CalCom /></DefaultLayout>} />
+        <Route path="/integrations/salesforce" element={<DefaultLayout><SalesforcePage /></DefaultLayout>} />
+        <Route path="/integrations/custom-api" element={<DefaultLayout><CustomApi /></DefaultLayout>} />
+        <Route path="/integrations/SIPTrunking" element={<DefaultLayout><Vonage /></DefaultLayout>} />
+        {/* Solution Use Cases */}
+<Route
+  path="/solutions/use-cases/collections"
+  element={
+    <DefaultLayout>
+      <SolutionUseCasePage content={solutionUseCases.collections} />
+    </DefaultLayout>
+  }
+/>
+
+<Route
+  path="/solutions/use-cases/negotiation"
+  element={
+    <DefaultLayout>
+      <SolutionUseCasePage content={solutionUseCases.negotiation} />
+    </DefaultLayout>
+  }
+/>
+
+<Route
+  path="/solutions/use-cases/customer-support"
+  element={
+    <DefaultLayout>
+      <SolutionUseCasePage content={solutionUseCases.customerSupport} />
+    </DefaultLayout>
+  }
+/>
+
+<Route
+  path="/solutions/use-cases/appointments"
+  element={
+    <DefaultLayout>
+      <SolutionUseCasePage content={solutionUseCases.appointments} />
+    </DefaultLayout>
+  }
+/>
+
+<Route path="/signup" element={<SignUp />} />
+        
         <Route path="/login" element={<Login />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
         {/* Protected dashboard routes */}
@@ -114,6 +172,7 @@ function App() {
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/bulk_call" element={<BulkCallCreate />} />
             <Route path="/bulk_call/create" element={<BulkCallCreate />} />
+            <Route path="/notifications/archive" element={<NotificationArchive />} />
             <Route path="/clone_voice" element={<CloneVoice />} />
             <Route path="/files" element={<Files />} />
             <Route path="/integrations" element={<Integrations />} />
@@ -130,6 +189,41 @@ function App() {
             <Route path="/admin" element={<AdminPanel />} />
           </Route>
         </Route>
+       <Route
+  path="/solutions/verticals/real-estate"
+  element={
+    <DefaultLayout>
+      <RealEstate />
+    </DefaultLayout>
+  }
+/>
+
+<Route
+  path="/solutions/verticals/insurance"
+  element={
+    <DefaultLayout>
+      <Insurance />
+    </DefaultLayout>
+  }
+/>
+
+<Route
+  path="/solutions/verticals/healthcare"
+  element={
+    <DefaultLayout>
+      <Healthcare />
+    </DefaultLayout>
+  }
+/>
+
+<Route
+  path="/solutions/verticals/restaurants"
+  element={
+    <DefaultLayout>
+      <Restaurants />
+    </DefaultLayout>
+  }
+/>
       </Routes>
       </Router>
     </ThemeProvider>

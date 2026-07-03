@@ -1,19 +1,16 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import AnnouncementBar from '../components/AnnouncementBar';
 
 export default function Pricing() {
   const [activeTab, setActiveTab] = useState('Plans');
 
   return (
     <>
-      <AnnouncementBar />
-      
       <div className="page-hero">
         <div className="container">
           <h1 style={{color:'var(--teal)'}}>Pricing</h1>
           <p>Choose the perfect plan for your business. Start free, scale as you grow, and only pay for what you use.</p>
-          <div style={{display:'flex', alignItems:'center', gap:'20px', justifyContent:'center', marginTop:'16px', fontSize:'13px', color:'var(--text-secondary)'}}>
+          <div className="pricing-perks" style={{display:'flex', alignItems:'center', gap:'20px', justifyContent:'center', marginTop:'16px', fontSize:'13px', color:'var(--text-secondary)'}}>
             <span>✓ No setup fees</span>
             <span>✓ Cancel anytime</span>
           </div>

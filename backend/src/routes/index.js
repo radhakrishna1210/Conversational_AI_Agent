@@ -26,11 +26,15 @@ import azureRoutes from './azure.routes.js';
 import agentRoutes from './agent.routes.js';
 import integrationsRoutes from './integrations.routes.js';
 import integrationsPublicRoutes from './integrationsPublic.routes.js';
+import notificationRoutes from './notification.routes.js';
+import contactFormRoutes from './contactForm.routes.js';
+import appointmentRoutes from './appointment.routes.js';
+import reportIssueRoutes from './reportIssue.routes.js';
 
 import { getHealth as getGeminiHealth, getMetrics as getGeminiMetrics } from '../controllers/gemini.controller.js';
 import { getHealth as getOpenAIHealth, getMetrics as getOpenAIMetrics } from '../controllers/openai.controller.js';
 import { getHealth as getAzureHealth, getMetrics as getAzureMetrics } from '../controllers/azure.controller.js';
-import { generateAgentFlow } from '../controllers/llm.controller.js';
+import { generateAgentFlow , enhancePrompt} from '../controllers/llm.controller.js';
 
 const router = Router();
 
@@ -41,6 +45,9 @@ router.get('/config', (_req, res) => {
 
 // Public
 router.use('/auth', authRoutes);
+router.use('/contact-form', contactFormRoutes);
+router.use('/appointments', appointmentRoutes);
+router.use('/report-issue', reportIssueRoutes);
 router.use('/agents', agentRoutes);
 router.use('/integrations', integrationsPublicRoutes);
 
@@ -77,6 +84,7 @@ router.post('/assistant/chat', async (req, res) => {
 
 // Public LLM — generate-flow needs no auth (only takes a name, returns AI config)
 router.post('/llm/generate-flow', generateAgentFlow);
+router.post('/llm/enhance-prompt', enhancePrompt);
 
 // Admin (authenticate + isAdmin enforced inside admin.routes.js)
 router.use('/admin', adminRoutes);
@@ -106,6 +114,7 @@ ws.use('/openai', openaiRoutes);
 ws.use('/azure', azureRoutes);
 ws.use('/agents', agentRoutes);
 ws.use('/integrations', integrationsRoutes);
+ws.use('/notifications', notificationRoutes);
 
 
 router.use('/workspaces/:workspaceId', ws);

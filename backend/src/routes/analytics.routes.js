@@ -1,11 +1,40 @@
 import { Router } from 'express';
-import * as ctrl from '../controllers/analytics.controller.js';
+import {
+  getOverview,
+  getDeliveryChart,
+  getCampaignPerformance,
+  getAgentPerformance,
+  getChatbotOverview,
+  getCallOverview,
+  getCallTimeSeries,
+  getCallOutcomes,
+  getSentimentDistribution,
+  getHourlyHeatmap,
+  getCallLogs,
+  getAssistantPerformance,
+  getAssistantsList,
+} from '../controllers/analytics.controller.js';
 
-const router = Router({ mergeParams: true });
+const router = Router();
 
-router.get('/overview', ctrl.getOverview);
-router.get('/delivery', ctrl.getDeliveryChart);
-router.get('/campaigns', ctrl.getCampaignPerformance);
-router.get('/agents', ctrl.getAgentPerformance);
+// ─── WhatsApp / Chatbot routes ────────────────────────────────────────────────
+router.get('/overview',            getOverview);
+router.get('/delivery-chart',      getDeliveryChart);
+router.get('/delivery',            getDeliveryChart);        // alias used by frontend
+router.get('/campaign-performance', getCampaignPerformance);
+router.get('/campaigns',           getCampaignPerformance);  // alias used by frontend
+router.get('/agent-performance',   getAgentPerformance);
+router.get('/agents',              getAgentPerformance);     // alias used by frontend
+router.get('/chatbot/overview',    getChatbotOverview);
+
+// ─── Voice / Call routes ──────────────────────────────────────────────────────
+router.get('/calls/overview',        getCallOverview);
+router.get('/calls/timeseries',      getCallTimeSeries);
+router.get('/calls/outcomes',        getCallOutcomes);
+router.get('/calls/sentiment',       getSentimentDistribution);
+router.get('/calls/heatmap',         getHourlyHeatmap);
+router.get('/calls/logs',            getCallLogs);
+router.get('/calls/assistants',      getAssistantPerformance);
+router.get('/calls/assistants-list', getAssistantsList);
 
 export default router;

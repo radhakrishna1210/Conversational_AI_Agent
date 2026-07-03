@@ -6,6 +6,7 @@ export default function Login() {
   const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
   const [showPass, setShowPass] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -54,36 +55,51 @@ export default function Login() {
   };
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', background: 'var(--bg-primary)' }}>
+    <div className="login-page">
 
-      {/* Left Panel — Branding */}
-      <div style={{
-        width: '45%',
-        background: 'linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-primary) 100%)',
-        borderRight: '1px solid var(--border)',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'space-between',
-        padding: '48px',
-        position: 'relative',
-        overflow: 'hidden'
-      }}>
+      {/* ===== Mobile Top Navbar (visible only on mobile) ===== */}
+      <div className="login-mobile-navbar">
+        <Link to="/" className="login-logo-link">
+          <div className="login-logo-icon">O</div>
+          <span className="login-logo-text">OMNI<span style={{ color: 'var(--teal)', fontStyle: 'italic' }}>D</span>IMENSION</span>
+        </Link>
+        <button
+          className="login-hamburger"
+          onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+          aria-label="Toggle menu"
+        >
+          <span className="login-hamburger-line" />
+          <span className="login-hamburger-line" />
+          <span className="login-hamburger-line" />
+        </button>
+      </div>
+
+      {/* Mobile dropdown menu */}
+      {mobileMenuOpen && (
+        <div className="login-mobile-menu">
+          <Link to="/" onClick={() => setMobileMenuOpen(false)}>Home</Link>
+          <Link to="/signup" onClick={() => setMobileMenuOpen(false)}>Sign Up</Link>
+        </div>
+      )}
+
+      {/* ===== Left Panel — Branding (desktop only) ===== */}
+      <div className="login-left-panel">
         {/* Background glow effects */}
-        <div style={{ position: 'absolute', top: '-80px', left: '-80px', width: '400px', height: '400px', background: 'radial-gradient(circle, rgba(0,212,200,0.05) 0%, transparent 70%)', pointerEvents: 'none' }} />
-        <div style={{ position: 'absolute', bottom: '-100px', right: '-60px', width: '350px', height: '350px', background: 'radial-gradient(circle, rgba(99,102,241,0.03) 0%, transparent 70%)', pointerEvents: 'none' }} />
+        <div className="login-glow login-glow--tl" />
+        <div className="login-glow login-glow--br" />
 
         {/* Logo */}
-        <Link to="/" style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '12px' }}>
-          <div style={{ width: '40px', height: '40px', background: 'var(--teal)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: '18px', color: 'var(--bg-primary)' }}>O</div>
-          <span style={{ fontWeight: 800, fontSize: '18px', color: 'var(--text-primary)', letterSpacing: '-0.5px' }}>OMNI<span style={{ color: 'var(--teal)', fontStyle: 'italic' }}>D</span>IMENSION</span>
+        <Link to="/" className="login-logo-link">
+          <div className="login-logo-icon">O</div>
+          <span className="login-logo-text">OMNI<span style={{ color: 'var(--teal)', fontStyle: 'italic' }}>D</span>IMENSION</span>
         </Link>
 
         {/* Quote / Welcome back */}
         <div>
-          <h2 style={{ fontSize: '28px', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1.3, marginBottom: '16px' }}>
+          <h2 className="login-welcome-heading">
             Welcome back 👋
           </h2>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '16px', lineHeight: 1.6, marginBottom: '40px' }}>
+          <p className="login-welcome-subtext">
             Sign in to manage your voice AI assistants, monitor call logs, and scale your operations.
           </p>
 
@@ -93,58 +109,45 @@ export default function Login() {
             { icon: '🔌', label: 'Access integrations & API keys' },
             { icon: '💳', label: 'Track usage & billing' },
           ].map((f) => (
-            <div key={f.label} style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
+            <div key={f.label} className="login-feature-row">
               <span style={{ fontSize: '18px' }}>{f.icon}</span>
-              <span style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>{f.label}</span>
+              <span className="login-feature-label">{f.label}</span>
             </div>
           ))}
         </div>
 
         {/* Social proof */}
-        <div style={{ borderTop: '1px solid var(--border)', paddingTop: '24px' }}>
-          <p style={{ color: 'var(--text-secondary)', opacity: 0.7, fontSize: '13px', marginBottom: '12px' }}>Trusted by teams at</p>
-          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+        <div className="login-social-proof login-social-proof--desktop">
+          <p className="login-social-proof-label">Trusted by teams at</p>
+          <div className="login-badges">
             {['OpenAI', 'Salesforce', 'Twilio', 'HubSpot'].map(b => (
-              <span key={b} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', padding: '4px 12px', borderRadius: '20px', fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>{b}</span>
+              <span key={b} className="login-badge">{b}</span>
             ))}
           </div>
         </div>
       </div>
 
-      {/* Right Panel — Form */}
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 40px' }}>
-        <div style={{ width: '100%', maxWidth: '400px' }}>
+      {/* ===== Right Panel — Form ===== */}
+      <div className="login-right-panel">
+        <div className="login-form-container">
 
-          <div style={{ marginBottom: '32px' }}>
-            <h1 style={{ fontSize: '26px', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.5px', marginBottom: '8px' }}>Sign in to your account</h1>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
+          <div className="login-heading-block">
+            <h1 className="login-form-heading">
+              <span className="login-heading-desktop">Sign in to your account</span>
+              <span className="login-heading-mobile">Login</span>
+            </h1>
+            <p className="login-form-subtext login-subtext-desktop">
               Don't have an account?{' '}
-              <Link to="/signup" style={{ color: 'var(--teal)', fontWeight: 600, textDecoration: 'none' }}>Create one free →</Link>
+              <Link to="/signup" className="login-link-teal">Create one free →</Link>
             </p>
           </div>
 
           {/* Google Sign In */}
           <button
             type="button"
-            style={{
-              width: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '10px',
-              padding: '11px 16px',
-              background: 'var(--bg-card)',
-              border: '1px solid var(--border)',
-              borderRadius: '8px',
-              color: 'var(--text-primary)',
-              fontSize: '14px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              marginBottom: '24px',
-              transition: 'background 0.2s',
-            }}
+            className="login-google-btn"
             onMouseOver={e => (e.currentTarget.style.background = 'var(--bg-secondary)')}
-            onMouseOut={e => (e.currentTarget.style.background = 'var(--bg-card)')}
+            onMouseOut={e => (e.currentTarget.style.background = '')}
             onClick={() => { window.location.href = '/api/v1/auth/google'; }}
           >
             <svg width="18" height="18" viewBox="0 0 24 24">
@@ -157,60 +160,62 @@ export default function Login() {
           </button>
 
           {/* Divider */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
-            <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
-            <span style={{ color: 'var(--text-secondary)', opacity: 0.8, fontSize: '12px', fontWeight: 500 }}>or sign in with email</span>
-            <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
+          <div className="login-divider">
+            <div className="login-divider-line" />
+            <span className="login-divider-text">
+              <span className="login-divider-desktop">or sign in with email</span>
+              <span className="login-divider-mobile">OR</span>
+            </span>
+            <div className="login-divider-line" />
           </div>
 
           {/* Form */}
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <form onSubmit={handleSubmit} className="login-form">
 
             {errorMsg && (
-              <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', padding: '12px 16px', color: '#ef4444', fontSize: '13px' }}>
+              <div className="login-alert login-alert--error">
                 ⚠️ {errorMsg}
               </div>
             )}
 
             {status === 'success' && (
-              <div style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: '8px', padding: '12px 16px', color: '#22c55e', fontSize: '13px' }}>
+              <div className="login-alert login-alert--success">
                 ✓ Login successful! Redirecting...
               </div>
             )}
 
             <div>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>Email</label>
+              <label className="login-label">Email</label>
               <input
                 type="email"
                 name="email"
-                className="form-input"
+                className="form-input login-input"
                 placeholder="john@company.com"
                 value={form.email}
                 onChange={handleChange}
                 required
-                style={{ width: '100%', background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
               />
             </div>
 
             <div>
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '8px' }}>
-                <label style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)' }}>Password</label>
-                <a href="#" style={{ fontSize: '12px', color: 'var(--teal)', textDecoration: 'none' }}>Forgot password?</a>
+              <div className="login-password-header">
+                <label className="login-label" style={{ marginBottom: 0 }}>Password</label>
+                <a href="#" className="login-forgot-link">Forgot password?</a>
               </div>
               <div style={{ position: 'relative' }}>
                 <input
                   type={showPass ? 'text' : 'password'}
                   name="password"
-                  className="form-input"
+                  className="form-input login-input"
                   placeholder="Enter your password"
                   value={form.password}
                   onChange={handleChange}
                   required
-                  style={{ width: '100%', background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)', paddingRight: '44px' }}
+                  style={{ paddingRight: '44px' }}
                 />
                 <button
                   type="button"
-                  style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '16px', padding: 0 }}
+                  className="login-toggle-pass"
                   onClick={() => setShowPass(!showPass)}
                 >
                   {showPass ? '🙈' : '👁️'}
@@ -220,14 +225,19 @@ export default function Login() {
 
             <button
               type="submit"
-              className="btn btn-primary"
+              className="btn btn-primary login-submit-btn"
               disabled={status === 'submitting' || status === 'success'}
-              style={{ width: '100%', padding: '13px', fontSize: '15px', fontWeight: 700, background: status === 'success' ? '#22c55e' : undefined, color: 'var(--bg-primary)' }}
+              style={{ background: status === 'success' ? '#22c55e' : undefined, color: 'var(--bg-primary)' }}
             >
-              {(status === 'idle' || status === 'error') && 'Sign In →'}
+              {(status === 'idle' || status === 'error') && (
+                <>
+                  <span className="login-btn-text-desktop">Sign In →</span>
+                  <span className="login-btn-text-mobile">Login</span>
+                </>
+              )}
               {status === 'submitting' && (
                 <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                  <span style={{ display: 'inline-block', width: '14px', height: '14px', border: '2px solid rgba(0,0,0,0.3)', borderTopColor: '#0a0a0a', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
+                  <span className="login-spinner" />
                   Signing in...
                 </span>
               )}
@@ -235,10 +245,543 @@ export default function Login() {
             </button>
           </form>
 
+          {/* "Don't have an account?" — visible on mobile below the form */}
+          <p className="login-form-subtext login-subtext-mobile">
+            Don't have an account?{' '}
+            <Link to="/signup" className="login-link-teal">Create Account</Link>
+          </p>
+
+          {/* Mobile trust badges (shown below form on mobile) */}
+          <div className="login-social-proof login-social-proof--mobile">
+            <p className="login-trust-heading">TRUSTED BY LEADING COMPANIES</p>
+            <div className="login-badges login-badges--mobile">
+              {['OpenAI', 'Salesforce', 'Twilio', 'HubSpot'].map(b => (
+                <span key={b} className="login-badge">{b}</span>
+              ))}
+            </div>
+            <p className="login-trust-more">and 100+ more</p>
+          </div>
+
+          {/* Mobile Footer */}
+          <div className="login-mobile-footer">
+            <a href="#" className="login-footer-link">Terms</a>
+            <span className="login-footer-sep">|</span>
+            <a href="#" className="login-footer-link">Privacy Policy</a>
+          </div>
+
         </div>
       </div>
 
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      <style>{`
+        /* ===== Login Page Responsive Styles ===== */
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        .login-page {
+          min-height: 100vh;
+          display: flex;
+          background: var(--bg-primary);
+        }
+
+        /* ===== Mobile Navbar ===== */
+        .login-mobile-navbar {
+          display: none; /* Hidden on desktop */
+        }
+
+        .login-hamburger {
+          display: flex;
+          flex-direction: column;
+          gap: 5px;
+          background: none;
+          border: none;
+          cursor: pointer;
+          padding: 6px;
+        }
+        .login-hamburger-line {
+          display: block;
+          width: 22px;
+          height: 2px;
+          background: var(--text-primary);
+          border-radius: 2px;
+          transition: all 0.3s;
+        }
+
+        .login-mobile-menu {
+          display: none; /* Hidden on desktop */
+        }
+
+        /* --- Left Panel --- */
+        .login-left-panel {
+          width: 45%;
+          background: linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-primary) 100%);
+          border-right: 1px solid var(--border);
+          display: flex;
+          flex-direction: column;
+          justify-content: space-between;
+          padding: 48px;
+          position: relative;
+          overflow: hidden;
+        }
+
+        .login-glow {
+          position: absolute;
+          pointer-events: none;
+          border-radius: 50%;
+        }
+        .login-glow--tl {
+          top: -80px; left: -80px; width: 400px; height: 400px;
+          background: radial-gradient(circle, rgba(0,212,200,0.05) 0%, transparent 70%);
+        }
+        .login-glow--br {
+          bottom: -100px; right: -60px; width: 350px; height: 350px;
+          background: radial-gradient(circle, rgba(99,102,241,0.03) 0%, transparent 70%);
+        }
+
+        /* Logo */
+        .login-logo-link {
+          text-decoration: none;
+          display: inline-flex;
+          align-items: center;
+          gap: 12px;
+        }
+        .login-logo-icon {
+          width: 40px; height: 40px;
+          background: var(--teal);
+          border-radius: 10px;
+          display: flex; align-items: center; justify-content: center;
+          font-weight: 900; font-size: 18px;
+          color: var(--bg-primary);
+          flex-shrink: 0;
+        }
+        .login-logo-text {
+          font-weight: 800; font-size: 18px;
+          color: var(--text-primary);
+          letter-spacing: -0.5px;
+        }
+
+        /* Welcome Section */
+        .login-welcome-heading {
+          font-size: 28px; font-weight: 800;
+          color: var(--text-primary);
+          line-height: 1.3;
+          margin-bottom: 16px;
+        }
+        .login-welcome-subtext {
+          color: var(--text-secondary);
+          font-size: 16px; line-height: 1.6;
+          margin-bottom: 40px;
+        }
+
+        .login-feature-row {
+          display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
+        }
+        .login-feature-label {
+          color: var(--text-secondary); font-size: 14px;
+        }
+
+        /* Social Proof */
+        .login-social-proof {
+          border-top: 1px solid var(--border);
+          padding-top: 24px;
+        }
+        .login-social-proof-label {
+          color: var(--text-secondary); opacity: 0.7;
+          font-size: 13px; margin-bottom: 12px;
+        }
+        .login-badges {
+          display: flex; gap: 16px; flex-wrap: wrap;
+        }
+        .login-badge {
+          background: var(--bg-card);
+          border: 1px solid var(--border);
+          padding: 4px 12px;
+          border-radius: 20px;
+          font-size: 12px;
+          color: var(--text-secondary);
+          font-weight: 600;
+        }
+
+        /* Desktop-only social proof */
+        .login-social-proof--desktop {
+          display: block;
+        }
+        /* Mobile-only social proof */
+        .login-social-proof--mobile {
+          display: none;
+          border-top: none;
+          text-align: center;
+          padding-top: 0;
+          margin-top: 40px;
+        }
+        .login-trust-heading {
+          font-size: 11px;
+          font-weight: 600;
+          letter-spacing: 1.5px;
+          color: var(--text-secondary);
+          opacity: 0.6;
+          margin-bottom: 16px;
+          text-transform: uppercase;
+        }
+        .login-badges--mobile {
+          justify-content: center;
+        }
+        .login-trust-more {
+          color: var(--text-secondary);
+          opacity: 0.5;
+          font-size: 12px;
+          margin-top: 12px;
+        }
+
+        /* --- Right Panel --- */
+        .login-right-panel {
+          flex: 1;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          padding: 48px 40px;
+        }
+        .login-form-container {
+          width: 100%;
+          max-width: 400px;
+        }
+
+        .login-heading-block {
+          margin-bottom: 32px;
+        }
+
+        .login-form-heading {
+          font-size: 26px; font-weight: 800;
+          color: var(--text-primary);
+          letter-spacing: -0.5px;
+          margin-bottom: 8px;
+        }
+        .login-heading-mobile { display: none; }
+        .login-heading-desktop { display: inline; }
+
+        .login-form-subtext {
+          color: var(--text-secondary); font-size: 14px;
+        }
+        .login-link-teal {
+          color: var(--teal); font-weight: 600; text-decoration: none;
+        }
+        .login-link-teal:hover {
+          text-decoration: underline;
+        }
+        .login-subtext-mobile {
+          display: none;
+        }
+
+        /* Google Button */
+        .login-google-btn {
+          width: 100%;
+          display: flex; align-items: center; justify-content: center;
+          gap: 10px;
+          padding: 11px 16px;
+          background: var(--bg-card);
+          border: 1px solid var(--border);
+          border-radius: 8px;
+          color: var(--text-primary);
+          font-size: 14px; font-weight: 600;
+          cursor: pointer;
+          margin-bottom: 24px;
+          transition: background 0.2s;
+        }
+
+        /* Divider */
+        .login-divider {
+          display: flex; align-items: center; gap: 12px; margin-bottom: 24px;
+        }
+        .login-divider-line {
+          flex: 1; height: 1px; background: var(--border);
+        }
+        .login-divider-text {
+          color: var(--text-secondary); opacity: 0.8;
+          font-size: 12px; font-weight: 500;
+          white-space: nowrap;
+        }
+        .login-divider-mobile { display: none; }
+        .login-divider-desktop { display: inline; }
+
+        /* Form */
+        .login-form {
+          display: flex; flex-direction: column; gap: 16px;
+        }
+        .login-label {
+          display: block; font-size: 13px; font-weight: 600;
+          color: var(--text-primary); margin-bottom: 8px;
+        }
+        .login-input {
+          width: 100%;
+          background: var(--bg-card);
+          color: var(--text-primary);
+          border: 1px solid var(--border);
+          box-sizing: border-box;
+        }
+
+        .login-password-header {
+          display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;
+        }
+        .login-forgot-link {
+          font-size: 12px; color: var(--teal); text-decoration: none;
+        }
+        .login-toggle-pass {
+          position: absolute; right: 12px; top: 50%;
+          transform: translateY(-50%);
+          background: none; border: none;
+          color: var(--text-secondary);
+          cursor: pointer; font-size: 16px; padding: 0;
+        }
+
+        .login-submit-btn {
+          width: 100%;
+          padding: 13px;
+          font-size: 15px;
+          font-weight: 700;
+        }
+        .login-btn-text-mobile { display: none; }
+        .login-btn-text-desktop { display: inline; }
+
+        .login-spinner {
+          display: inline-block;
+          width: 14px; height: 14px;
+          border: 2px solid rgba(0,0,0,0.3);
+          border-top-color: #0a0a0a;
+          border-radius: 50%;
+          animation: spin 0.7s linear infinite;
+        }
+
+        .login-alert {
+          border-radius: 8px;
+          padding: 12px 16px;
+          font-size: 13px;
+        }
+        .login-alert--error {
+          background: rgba(239,68,68,0.1);
+          border: 1px solid rgba(239,68,68,0.3);
+          color: #ef4444;
+        }
+        .login-alert--success {
+          background: rgba(34,197,94,0.1);
+          border: 1px solid rgba(34,197,94,0.3);
+          color: #22c55e;
+        }
+
+        /* Mobile Footer — hidden on desktop */
+        .login-mobile-footer {
+          display: none;
+        }
+        .login-footer-link {
+          color: var(--text-secondary);
+          opacity: 0.6;
+          text-decoration: none;
+          font-size: 13px;
+          transition: opacity 0.2s;
+        }
+        .login-footer-link:hover {
+          opacity: 1;
+        }
+        .login-footer-sep {
+          color: var(--text-secondary);
+          opacity: 0.3;
+          margin: 0 8px;
+        }
+
+        /* ===== RESPONSIVE BREAKPOINTS ===== */
+
+        /* Tablet landscape / small desktop */
+        @media (max-width: 1024px) {
+          .login-left-panel {
+            width: 40%;
+            padding: 36px;
+          }
+          .login-welcome-heading {
+            font-size: 24px;
+          }
+          .login-welcome-subtext {
+            font-size: 14px;
+            margin-bottom: 28px;
+          }
+          .login-right-panel {
+            padding: 36px 32px;
+          }
+        }
+
+        /* Tablet portrait & Mobile */
+        @media (max-width: 768px) {
+          .login-page {
+            flex-direction: column;
+            min-height: 100vh;
+          }
+
+          /* Show the mobile navbar */
+          .login-mobile-navbar {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 16px 20px;
+            background: var(--bg-primary);
+            border-bottom: 1px solid var(--border);
+            position: sticky;
+            top: 0;
+            z-index: 100;
+          }
+
+          .login-mobile-menu {
+            display: flex;
+            flex-direction: column;
+            background: var(--bg-secondary);
+            border-bottom: 1px solid var(--border);
+            padding: 8px 20px;
+            gap: 0;
+          }
+          .login-mobile-menu a {
+            color: var(--text-primary);
+            text-decoration: none;
+            padding: 12px 0;
+            font-size: 14px;
+            font-weight: 500;
+            border-bottom: 1px solid var(--border);
+          }
+          .login-mobile-menu a:last-child {
+            border-bottom: none;
+          }
+
+          /* Hide the left branding panel */
+          .login-left-panel {
+            display: none;
+          }
+
+          /* Adjust right panel */
+          .login-right-panel {
+            padding: 24px 20px 32px;
+            min-height: auto;
+            flex: 1;
+            align-items: center;
+            justify-content: flex-start;
+          }
+
+          .login-form-container {
+            max-width: 400px;
+            width: 100%;
+            margin: 0 auto;
+          }
+
+          /* Switch headings */
+          .login-heading-desktop { display: none; }
+          .login-heading-mobile { display: inline; }
+
+          .login-form-heading {
+            font-size: 24px;
+            margin-bottom: 4px;
+            text-align: left;
+          }
+
+          /* Hide desktop subtext, show mobile version */
+          .login-subtext-desktop { display: none; }
+          .login-subtext-mobile {
+            display: block;
+            text-align: center;
+            margin-top: 14px;
+          }
+
+          .login-heading-block {
+            margin-bottom: 16px;
+            text-align: left;
+          }
+
+          /* Switch divider text */
+          .login-divider-desktop { display: none; }
+          .login-divider-mobile { display: inline; }
+          .login-divider-text {
+            font-size: 13px;
+            font-weight: 600;
+            opacity: 0.6;
+          }
+
+          /* Switch button text */
+          .login-btn-text-desktop { display: none; }
+          .login-btn-text-mobile { display: inline; }
+
+          .login-submit-btn {
+            padding: 14px;
+            font-size: 16px;
+            border-radius: 10px;
+          }
+
+          .login-form {
+            gap: 12px;
+          }
+
+          .login-divider {
+            margin-bottom: 16px;
+          }
+
+          .login-google-btn {
+            border-radius: 10px;
+            padding: 12px 16px;
+            margin-bottom: 16px;
+            background: var(--bg-card);
+          }
+
+          /* Show mobile trust section */
+          .login-social-proof--desktop { display: none; }
+          .login-social-proof--mobile {
+            display: block;
+            margin-top: 28px;
+          }
+
+          /* Show mobile footer — pinned to bottom */
+          .login-mobile-footer {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            margin-top: auto;
+            padding-top: 32px;
+            padding-bottom: 16px;
+          }
+
+          .login-form-container {
+            display: flex;
+            flex-direction: column;
+            min-height: calc(100vh - 60px);
+          }
+        }
+
+        /* Small Mobile */
+        @media (max-width: 480px) {
+          .login-mobile-navbar {
+            padding: 14px 16px;
+          }
+
+          .login-right-panel {
+            padding: 20px 16px 24px;
+          }
+
+          .login-form-container {
+            max-width: 100%;
+          }
+
+          .login-form-heading {
+            font-size: 22px;
+          }
+
+          .login-google-btn {
+            font-size: 13px;
+          }
+
+          .login-logo-icon {
+            width: 34px; height: 34px; font-size: 15px;
+          }
+          .login-logo-text {
+            font-size: 16px;
+          }
+
+          .login-badge {
+            padding: 3px 10px;
+            font-size: 11px;
+          }
+        }
+      `}</style>
     </div>
   );
 }

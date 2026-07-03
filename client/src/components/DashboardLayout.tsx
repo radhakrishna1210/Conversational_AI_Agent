@@ -22,16 +22,19 @@ import {
 } from "lucide-react";
 import { useTheme } from '../hooks/useTheme';
 import { CommandMenu } from './CommandMenu';
+import { NotificationPanel } from '@/components/notifications/NotificationPanel';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
+  const [notifOpen, setNotifOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  // true = dark (default), false = light
   const { darkMode, toggleDarkMode } = useTheme();
   const [user, setUser] = useState({ name: 'User', email: '', initials: 'U', plan: '', role: '' });
 
   const profileRef = useRef<HTMLDivElement>(null);
-  
+
   const location = useLocation();
   const navigate = useNavigate();
   const path = location.pathname;
@@ -48,6 +51,37 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     document.addEventListener("keydown", down);
     return () => document.removeEventListener("keydown", down);
   }, []);
+
+  // Close sidebar when clicking outside on mobile
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      const sidebar = document.getElementById('layout-sidebar');
+      const hamburger = document.getElementById('hamburger-btn');
+      if (
+        sidebarOpen &&
+        sidebar &&
+        hamburger &&
+        !sidebar.contains(e.target as Node) &&
+        !hamburger.contains(e.target as Node)
+      ) {
+        setSidebarOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [sidebarOpen]);
+
+  // Lock body scroll when mobile sidebar is open
+  useEffect(() => {
+    if (sidebarOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [sidebarOpen]);
 
   const handleLogout = () => {
     sessionStorage.setItem('loggedOut', '1');
@@ -97,7 +131,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         }
       } catch (_) {}
 
-      // Fallback: decode JWT locally
       const token2 = localStorage.getItem('token');
       if (token2) {
         try {
@@ -114,7 +147,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           return;
         } catch (_) {}
       }
-      // Final fallback: localStorage cache
+
       const cachedName = localStorage.getItem('userName') || 'User';
       const cachedEmail = localStorage.getItem('userEmail') || '';
       const cachedRole = localStorage.getItem('userRole') || '';
@@ -124,7 +157,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     fetchMe();
   }, []);
 
-  // Close dropdown when clicking outside
+  useEffect(() => {
+    const token = localStorage.getItem('token');
+    const workspaceId = localStorage.getItem('workspaceId');
+    if (!token || !workspaceId) return;
+
+    fetch(`/api/v1/workspaces/${workspaceId}/notifications/unread-count`, {
+      headers: { Authorization: `Bearer ${token}` },
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (data?.count != null) setUnreadCount(data.count);
+      })
+      .catch(() => {});
+  }, []);
+
   useEffect(() => {
     const handler = (e: MouseEvent) => {
       if (profileRef.current && !profileRef.current.contains(e.target as Node)) {
@@ -137,8 +184,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="dashboard-layout">
-      {/* Sidebar (moved before topbar so CSS sibling selectors can react) */}
-      <aside className="sidebar">
+      {/* ── Mobile sidebar overlay (mobile only) ── */}
+      {sidebarOpen && (
+        <div
+          className="sidebar-overlay"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      <aside id="layout-sidebar" className={`sidebar ${sidebarOpen ? "open" : ""}`}>
         <Link to="/" style={{textDecoration: 'none'}}>
           <div className="sidebar-header">
             <div className="sidebar-logo-icon">O</div>
@@ -308,35 +362,77 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </aside>
 
-      {/* Topbar */}
       <div className="topbar-fixed">
         <div className="dashboard-topbar">
-          <div 
-            className="topbar-search" 
+          {/* Hamburger — visible on mobile only, toggles the layout sidebar */}
+          <button
+            id="hamburger-btn"
+            className="omni-hamburger"
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            aria-label="Toggle sidebar"
+            aria-expanded={sidebarOpen}
+          >
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <line x1="3" y1="6" x2="21" y2="6" />
+              <line x1="3" y1="12" x2="21" y2="12" />
+              <line x1="3" y1="18" x2="21" y2="18" />
+            </svg>
+          </button>
+          <div
+            className="topbar-search"
             onClick={() => setIsCommandMenuOpen(true)}
             style={{ cursor: 'pointer' }}
           >
             <Search size={16} />
-            <input 
-              type="text" 
-              placeholder="Search or jump to..." 
-              readOnly 
+            <input
+              type="text"
+              placeholder="Search or jump to..."
+              readOnly
               style={{ cursor: 'pointer' }}
             />
             <span>⌘ K</span>
           </div>
           <CommandMenu open={isCommandMenuOpen} setOpen={setIsCommandMenuOpen} />
           <div className="topbar-actions">
-            {/* Bell */}
-            <button className="topbar-icon-btn" style={{ position: 'relative' }}>
+            <button
+              type="button"
+              className="topbar-icon-btn"
+              style={{ position: 'relative' }}
+              onClick={() => setNotifOpen((v) => !v)}
+              aria-label={`Notifications${unreadCount > 0 ? `, ${unreadCount} unread` : ''}`}
+              aria-expanded={notifOpen}
+              aria-haspopup="dialog"
+            >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
                 <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
                 <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
               </svg>
-              <span style={{ position: 'absolute', top: '6px', right: '6px', width: '7px', height: '7px', background: 'var(--error)', borderRadius: '50%', display: 'block', border: '1.5px solid var(--topbar-bg)' }}></span>
+              {unreadCount > 0 && (
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: '4px',
+                    right: '4px',
+                    minWidth: '16px',
+                    height: '16px',
+                    padding: '0 4px',
+                    background: 'var(--teal)',
+                    color: '#060c17',
+                    borderRadius: '999px',
+                    fontSize: '10px',
+                    fontWeight: 800,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    lineHeight: 1,
+                    border: '1.5px solid var(--topbar-bg)',
+                  }}
+                >
+                  {unreadCount > 99 ? '99+' : unreadCount}
+                </span>
+              )}
             </button>
 
-            {/* Dark / Light mode toggle */}
             <button className="topbar-icon-btn" onClick={toggleDarkMode} title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}>
               {darkMode ? (
                 <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
@@ -353,7 +449,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               )}
             </button>
 
-            {/* Profile avatar + dropdown */}
             <div ref={profileRef} style={{ position: 'relative', marginLeft: '2px' }}>
               <div
                 className="topbar-avatar"
@@ -378,7 +473,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   zIndex: 9999,
                   overflow: 'hidden',
                 }}>
-                  {/* User info header */}
                   <div style={{ padding: '16px', borderBottom: '1px solid var(--dropdown-border)', display: 'flex', alignItems: 'center', gap: '12px', background: darkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)' }}>
                     <div style={{ width: '38px', height: '38px', borderRadius: '50%', background: 'linear-gradient(135deg, var(--teal), #0cd4bc)', color: '#060c17', fontWeight: '800', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', flexShrink: 0, boxShadow: '0 0 0 2px var(--teal-light)' }}>
                       {user.initials}
@@ -427,13 +521,106 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </div>
 
-      
-
       <main className="dashboard-main">
         <div className="dashboard-content">
           {children}
         </div>
       </main>
+
+      <NotificationPanel
+        open={notifOpen}
+        onClose={() => setNotifOpen(false)}
+        onUnreadCountChange={setUnreadCount}
+      />
+
+      {/* ── Mobile sidebar styles injected here so they live with the layout ── */}
+      <style>{`
+        /* Hamburger: hidden on desktop, shown on mobile */
+        .omni-hamburger {
+          display: none;
+          align-items: center;
+          justify-content: center;
+          width: 36px;
+          height: 36px;
+          background: transparent;
+          border: none;
+          border-radius: 8px;
+          cursor: pointer;
+          color: var(--text-primary, #e2e8f0);
+          flex-shrink: 0;
+          transition: background 0.2s;
+        }
+        .omni-hamburger:hover {
+          background: var(--sidebar-hover, rgba(255,255,255,0.06));
+        }
+
+        /* Mobile sidebar overlay */
+        .sidebar-overlay {
+          position: fixed;
+          inset: 0;
+          background: rgba(0, 0, 0, 0.6);
+          z-index: 998;
+          animation: overlayFadeIn 0.2s ease;
+        }
+        @keyframes overlayFadeIn {
+          from { opacity: 0; }
+          to   { opacity: 1; }
+        }
+
+        @media (max-width: 768px) {
+          /* Show hamburger on mobile */
+          .omni-hamburger {
+            display: flex;
+          }
+
+          /* On mobile the sidebar is off-screen by default, slides in when .open */
+          .sidebar {
+            position: fixed !important;
+            top: 0 !important;
+            left: 0 !important;
+            height: 100vh !important;
+            z-index: 999 !important;
+            transform: translateX(-100%) !important;
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1) !important;
+            /* width is already set by your existing sidebar styles */
+          }
+          .sidebar.open {
+            transform: translateX(0) !important;
+          }
+
+          /* Prevent the main area from being pushed on mobile */
+          .dashboard-main {
+            margin-left: 0 !important;
+          }
+
+          /* Topbar: make sure it spans full width on mobile */
+          .topbar-fixed {
+            left: 0 !important;
+          }
+
+          /* Shrink search bar on mobile to give hamburger room */
+          .topbar-search {
+            flex: 1;
+            min-width: 0;
+          }
+          .topbar-search input {
+            min-width: 0;
+          }
+          .topbar-search span {
+            display: none;
+          }
+        }
+
+        @media (min-width: 769px) {
+          /* On desktop, hide overlay and keep sidebar always visible */
+          .sidebar-overlay {
+            display: none !important;
+          }
+          .omni-hamburger {
+            display: none !important;
+          }
+        }
+      `}</style>
     </div>
   );
 }

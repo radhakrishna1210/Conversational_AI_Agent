@@ -10,6 +10,7 @@ import {
   getSupportedProviders,
   validateLLMConfig,
   generateAgentFlow,
+    enhancePrompt,
 } from "../controllers/llm.controller.js";
 
 const router = express.Router();
@@ -25,6 +26,8 @@ router.post("/generate", generateResponse);
  * POST /api/llm/generate-flow
  */
 router.post("/generate-flow", generateAgentFlow);
+
+router.post("/enhance-prompt", enhancePrompt);
 
 /**
  * Get Models for a Specific Provider
