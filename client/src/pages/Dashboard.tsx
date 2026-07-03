@@ -1487,38 +1487,6 @@ Goals:
                 ))}
               </div>
             </div>
-          </div>
-
-          <div className="omni-assistants-grid">
-            {/* Hardcoded Assistant */}
-            <article className="omni-card">
-              <div className="omni-card-head">
-                <div>
-                  <h3>{hardcodedAssistant.name}</h3>
-                  <p>{hardcodedAssistant.language}</p>
-                </div>
-                <button className="omni-card-menu" aria-label="Assistant actions">⋮</button>
-              </div>
-              <div className="omni-card-meta">
-                <div><span>LLM:</span> <strong>{hardcodedAssistant.llm}</strong></div>
-                <div><span>Voice:</span> <strong>{hardcodedAssistant.voice}</strong></div>
-                <div><span>KB Files:</span> <strong>{hardcodedAssistant.kbFiles}</strong></div>
-                <div><span>Search:</span> <strong>{hardcodedAssistant.search}</strong></div>
-                <div><span>Post-call (1):</span> <strong>{hardcodedAssistant.postCall}</strong></div>
-                <div><span>Integrations (0):</span> <strong>{hardcodedAssistant.integrations}</strong></div>
-              </div>
-              <div className="omni-card-footer">
-                <span className="omni-card-id">ID: #{hardcodedAssistant.id}</span>
-                <button className="omni-btn omni-btn-primary" onClick={() => navigate(`/agent/${hardcodedAssistant.id}`)}>Edit Agent</button>
-              </div>
-            </article>
-
-            {/* Dynamic Agents */}
-            {filteredAgents.length > 0 && filteredAgents.map((assistant) => (
-              <article key={assistant.id} className="omni-card">
-                <div className="omni-card-head">
-                  <div>
-                   <h3>
   {assistant.name
     .replace(/^Inbound Voice AI Agent:\s*/i, "")
     .replace(/^Create a voice AI agent for\s*/i, "")
