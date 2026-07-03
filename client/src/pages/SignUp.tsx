@@ -11,19 +11,44 @@ export default function SignUp() {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
+   
+  const validateName = (name: string) =>
+  /^[A-Za-z ]{2,50}$/.test(name.trim());
 
+const validateEmail = (email: string) =>
+  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+
+const validatePassword = (password: string) =>
+  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/.test(password);
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
 
-    if (form.password.length < 8) {
-      setErrorMsg('Password must be at least 8 characters.');
-      return;
-    }
-    if (form.password !== form.confirm) {
-      setErrorMsg('Passwords do not match.');
-      return;
-    }
+   if (!validateName(form.name)) {
+  setErrorMsg(
+    'Full Name should contain only letters and spaces.'
+  );
+  return;
+}
+
+if (!validateEmail(form.email)) {
+  setErrorMsg(
+    'Please enter a valid email address.'
+  );
+  return;
+}
+
+if (!validatePassword(form.password)) {
+  setErrorMsg(
+    'Password must be at least 8 characters and include uppercase, lowercase, number, and special character.'
+  );
+  return;
+}
+
+if (form.password !== form.confirm) {
+  setErrorMsg('Passwords do not match.');
+  return;
+}
 
     setStatus('submitting');
     // Simulate API call

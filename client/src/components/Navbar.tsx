@@ -110,33 +110,24 @@ export default function Navbar() {
     Restaurants
   </Link>
 
-  <a href="#" className="dropdown-item">
-    <span className="item-icon">
-      <TrendingUp size={16} />
-    </span>
-    Finance
-  </a>
+  <Link to="/solutions/verticals/finance" className="dropdown-item">
+    <span className="item-icon"><TrendingUp size={16} /></span>Finance
+  </Link>
 
-  <a href="#" className="dropdown-item">
-    <span className="item-icon">
-      <GraduationCap size={16} />
-    </span>
-    Education
-  </a>
+  <Link to="/solutions/verticals/education" className="dropdown-item">
+    <span className="item-icon"><GraduationCap size={16} /></span>Education
+  </Link>
 
-  <a href="#" className="dropdown-item">
-    <span className="item-icon">
-      <ShoppingCart size={16} />
-    </span>
-    E-commerce
-  </a>
+  <Link to="/solutions/verticals/ecommerce" className="dropdown-item">
+    <span className="item-icon"><ShoppingCart size={16} /></span>E-commerce
+  </Link>
 </div>
 
               {/* Use Cases */}
               <div>
                 <div className="dropdown-col-title">Use Cases</div>
 
-                <Link to="/dashboard" className="dropdown-item">
+                <Link to="/solutions/use-cases/lead-generation" className="dropdown-item">
                   <span className="item-icon"><Phone size={16} /></span>Lead Generation
                 </Link>
 
