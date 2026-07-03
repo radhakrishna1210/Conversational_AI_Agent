@@ -15,6 +15,10 @@ import BookAppointment from './pages/BookAppointment';
 import Contact from './pages/Contact';
 import Docs from './pages/Docs';
 import ReportIssue from './pages/ReportIssue';
+import Finance from './pages/Finance';
+import Education from './pages/Education';
+import Ecommerce from './pages/Ecommerce';
+import LeadGeneration from './pages/LeadGeneration';
 import Dashboard from './pages/Dashboard';
 import BulkCallCreate from './pages/BulkCallCreate';
 import CloneVoice from './pages/CloneVoice';
@@ -97,6 +101,10 @@ function App() {
         <Route path="/contact" element={<DefaultLayout><Contact /></DefaultLayout>} />
         <Route path="/docs" element={<DefaultLayout><Docs /></DefaultLayout>} />
         <Route path="/report-issue" element={<DefaultLayout><ReportIssue /></DefaultLayout>} />
+        <Route path="/solutions/verticals/finance" element={<Finance />} />
+        <Route path="/solutions/verticals/education" element={<Education />} />
+        <Route path="/solutions/verticals/ecommerce" element={<Ecommerce />} />
+        <Route path="/solutions/use-cases/lead-generation" element={<LeadGeneration />} />
         <Route path="/signup" element={<SignUp />} />
         <Route path="/login" element={<Login />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
