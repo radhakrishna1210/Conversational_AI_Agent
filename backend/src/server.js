@@ -1,7 +1,13 @@
 import './config/env.js';
+console.log("=================================");
+console.log("OPENAI_API_KEY:", process.env.OPENAI_API_KEY);
+console.log("DATABASE_URL:", process.env.DATABASE_URL ? "Loaded" : "Missing");
+console.log("=================================");
 import { mkdirSync } from 'fs';
 import app from './app.js';
 import { env } from './config/env.js';
+console.log("OPENAI KEY EXISTS:", !!process.env.OPENAI_API_KEY);
+console.log("OPENAI KEY PREFIX:", process.env.OPENAI_API_KEY?.substring(0, 10));
 import prisma from './config/prisma.js';
 import logger from './lib/logger.js';
 import { SSE_KEEPALIVE_INTERVAL_MS, SHUTDOWN_GRACE_PERIOD_MS } from './constants/limits.js';

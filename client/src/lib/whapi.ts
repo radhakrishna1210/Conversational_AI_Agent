@@ -3,11 +3,12 @@ const BASE = '/api/v1';
 function getAuth() {
   const token = localStorage.getItem('token') ?? '';
   let workspaceId = localStorage.getItem('workspaceId') ?? '';
-  
+
   if (workspaceId === 'undefined' || workspaceId === 'null') {
     workspaceId = '';
+    localStorage.removeItem('workspaceId');
   }
-  
+
   // Auto-recover workspaceId from token if it's missing in localStorage
   if (!workspaceId && token) {
     try {
@@ -24,9 +25,15 @@ function getAuth() {
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const { token, workspaceId } = getAuth();
+  if (!workspaceId) {
+    throw new Error('Missing workspaceId. Please sign in again to reestablish your workspace context.');
+  }
+
   const url = `${BASE}/workspaces/${workspaceId}${path}`;
   const headers: Record<string, string> = {
-    ...(options.headers ?? {}),
+    ...(options.headers instanceof Headers
+      ? Object.fromEntries(options.headers.entries())
+      : (options.headers as Record<string, string> | undefined) ?? {}),
   };
   if (token) headers.Authorization = `Bearer ${token}`;
 

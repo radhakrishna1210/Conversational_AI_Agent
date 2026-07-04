@@ -14,7 +14,7 @@ interface ChatProps {
   welcomeMessage?: string;
 }
 
-export default function ChatComponent({ agentId, selectedLanguages, welcomeMessage }: ChatProps) {
+export default function ChatComponent({ selectedLanguages, welcomeMessage }: ChatProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [loading, setLoading] = useState(false);
@@ -73,13 +73,18 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
         headers['Authorization'] = `Bearer ${token}`;
       }
 
-      const response = await fetch(`/api/v1/agents/${agentId}/chat`, {
+      const response = await fetch('/api/v1/assistant/chat', {
         method: 'POST',
         headers,
         body: JSON.stringify({
           message: trimmedInput,
-          selectedLanguages,
-          welcomeMessage,
+          history: messages
+            .filter((msg) => msg.type === 'user' || msg.type === 'assistant')
+            .map((msg) => ({
+              role: msg.type === 'user' ? 'user' : 'assistant',
+              content: msg.text,
+            })),
+          systemPrompt: welcomeMessage || 'You are a helpful conversational AI assistant.',
         }),
       });
 
@@ -106,7 +111,7 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
       const assistantMessage: Message = {
         id: Date.now().toString() + '_ai',
         type: 'assistant',
-        text: data.reply,
+        text: data.message || data.reply || 'No response received.',
         language: data.detectedLanguage,
         timestamp: new Date(),
       };

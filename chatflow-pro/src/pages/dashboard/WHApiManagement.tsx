@@ -31,6 +31,7 @@ const webhookEvents = [
 
 const WHApiManagement = () => {
   const [showKeys, setShowKeys] = useState<Record<string, boolean>>({});
+  const [keyCache, setKeyCache] = useState<Record<string, string>>({}); // Store rawKey for show/hide
   const [newKeyName, setNewKeyName] = useState("");
   const [testPhone, setTestPhone] = useState("");
   const [testTemplate, setTestTemplate] = useState("");
@@ -47,10 +48,11 @@ const WHApiManagement = () => {
     onSuccess: (key) => {
       queryClient.invalidateQueries({ queryKey: ["api-keys"] });
       setNewKeyName("");
-      toast.success(`New API key created. Copy it now — it won't be shown again.`);
-      // Show raw key temporarily
+      // Store the rawKey so it can be shown/hidden
       if (key.rawKey) {
+        setKeyCache((p) => ({ ...p, [key.id]: key.rawKey! }));
         setShowKeys((p) => ({ ...p, [key.id]: true }));
+        toast.success(`New API key created. Copy it now — it won't be shown again.`);
       }
     },
     onError: (err: Error) => toast.error(err.message),
@@ -102,8 +104,8 @@ const WHApiManagement = () => {
             <div key={k.id} className="flex items-center gap-3 p-4 rounded-lg border border-border/50 bg-muted/30">
               <div className="flex-1 min-w-0">
                 <p className="text-xs text-muted-foreground font-medium mb-1">{k.name} · <span className="text-primary">{k.environment}</span></p>
-                <code className="text-sm text-foreground font-mono">
-                  {showKeys[k.id] && k.rawKey ? k.rawKey : `${k.keyPrefix}••••••••••••••••`}
+                <code className="text-sm text-foreground font-mono select-all">
+                  {showKeys[k.id] && keyCache[k.id] ? keyCache[k.id] : "••••••••••••••••••••••••"}
                 </code>
               </div>
               <Button
@@ -112,8 +114,8 @@ const WHApiManagement = () => {
               >
                 {showKeys[k.id] ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
               </Button>
-              {k.rawKey && (
-                <Button variant="ghost" size="icon" className="text-muted-foreground flex-shrink-0" onClick={() => copyToClipboard(k.rawKey!)}>
+              {keyCache[k.id] && (
+                <Button variant="ghost" size="icon" className="text-muted-foreground flex-shrink-0" onClick={() => copyToClipboard(keyCache[k.id])}>
                   <Copy className="w-4 h-4" />
                 </Button>
               )}
