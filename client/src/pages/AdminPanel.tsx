@@ -4,7 +4,7 @@ import {
   Search, Filter, Plus, Trash2, UserCheck, UserX,
   PowerOff, RotateCcw, Globe, ChevronDown, X, Check,
   AlertCircle, Shield, Ban, ChevronLeft, ChevronRight,
-  Eye, CreditCard, MoreVertical
+  Eye, CreditCard, MoreVertical, Bug
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -1132,15 +1132,164 @@ function UserManagementTab() {
   );
 }
 
+// ─── Report Issues Tab ────────────────────────────────────────────────────────
+
+interface ReportIssue {
+  id: string;
+  issueTitle: string;
+  description: string;
+  screenshotUrl: string | null;
+  createdAt: string;
+}
+
+function ReportIssuesTab() {
+  const [issues, setIssues] = useState<ReportIssue[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      const token = localStorage.getItem('token');
+      const res = await fetch('/api/v1/report-issue', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) throw new Error('Failed to load issues');
+      const data = await res.json();
+      setIssues(data);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to load');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const filtered = issues.filter(
+    (i) =>
+      i.issueTitle.toLowerCase().includes(search.toLowerCase()) ||
+      i.description.toLowerCase().includes(search.toLowerCase())
+  );
+
+  return (
+    <div>
+      {/* Toolbar */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 20, alignItems: 'center' }}>
+        <div style={{ position: 'relative', flex: 1, maxWidth: 380 }}>
+          <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#555' }} />
+          <input
+            type="text"
+            placeholder="Search issues..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ width: '100%', padding: '9px 14px 9px 34px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, color: 'white', fontSize: 13, boxSizing: 'border-box' }}
+          />
+        </div>
+        <button
+          onClick={load}
+          style={{ padding: '8px 16px', background: 'transparent', border: '1px solid var(--border)', borderRadius: 7, color: 'var(--text-secondary)', cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}
+        >
+          <RefreshCw size={13} /> Refresh
+        </button>
+        <span style={{ marginLeft: 'auto', fontSize: 13, color: 'var(--text-secondary)' }}>
+          {filtered.length} {filtered.length === 1 ? 'issue' : 'issues'}
+        </span>
+      </div>
+
+      {/* States */}
+      {loading && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: 'var(--text-secondary)', gap: 10 }}>
+          <RefreshCw size={18} style={{ animation: 'spin 1s linear infinite' }} /> Loading issues...
+        </div>
+      )}
+
+      {error && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#f87171', padding: 20, background: 'rgba(239,68,68,0.08)', borderRadius: 10, border: '1px solid rgba(239,68,68,0.2)', marginBottom: 16 }}>
+          <AlertCircle size={16} /> {error}
+          <button onClick={load} style={{ marginLeft: 'auto', padding: '5px 12px', background: 'transparent', border: '1px solid #f87171', borderRadius: 6, color: '#f87171', cursor: 'pointer', fontSize: 12 }}>Retry</button>
+        </div>
+      )}
+
+      {!loading && !error && filtered.length === 0 && (
+        <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--text-secondary)', background: 'var(--bg-card)', borderRadius: 10, border: '1px solid var(--border)' }}>
+          <Bug size={32} style={{ marginBottom: 12, opacity: 0.4 }} />
+          <div style={{ fontSize: 15, fontWeight: 600 }}>No issues reported yet</div>
+          <div style={{ fontSize: 13, marginTop: 4 }}>Submissions from the Report Issue form will appear here.</div>
+        </div>
+      )}
+
+      {/* Issues list */}
+      {!loading && filtered.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {filtered.map((issue) => (
+            <div
+              key={issue.id}
+              style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden', transition: 'border-color 0.15s', borderLeft: '3px solid #f59e0b' }}
+            >
+              {/* Header row */}
+              <div
+                onClick={() => setExpanded(expanded === issue.id ? null : issue.id)}
+                style={{ display: 'flex', alignItems: 'center', padding: '14px 20px', cursor: 'pointer', gap: 12 }}
+              >
+                <Bug size={15} style={{ color: '#f59e0b', flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {issue.issueTitle}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
+                    Reported {new Date(issue.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </div>
+                </div>
+                <ChevronDown
+                  size={14}
+                  style={{ color: '#555', transition: 'transform 0.2s', transform: expanded === issue.id ? 'rotate(180deg)' : 'rotate(0deg)', flexShrink: 0 }}
+                />
+              </div>
+
+              {/* Expanded description */}
+              {expanded === issue.id && (
+                <div style={{ padding: '0 20px 18px', borderTop: '1px solid var(--border)' }}>
+                  <div style={{ paddingTop: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.5px', marginBottom: 6, textTransform: 'uppercase' }}>Description</div>
+                    <div style={{ fontSize: 13, color: 'var(--text-primary, white)', lineHeight: 1.7, background: 'rgba(255,255,255,0.03)', padding: '12px 14px', borderRadius: 7, border: '1px solid rgba(255,255,255,0.06)', whiteSpace: 'pre-wrap' }}>
+                      {issue.description}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', gap: 16, marginTop: 14 }}>
+                    <div>
+                      <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600 }}>ID: </span>
+                      <span style={{ fontSize: 11, color: '#555', fontFamily: 'monospace' }}>{issue.id}</span>
+                    </div>
+                    {issue.screenshotUrl && (
+                      <a href={issue.screenshotUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: '#0eb39e' }}>
+                        View Screenshot →
+                      </a>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ─── Main AdminPanel Page ─────────────────────────────────────────────────────
 
 export default function AdminPanel() {
-  const [tab, setTab] = useState<'analytics' | 'numbers' | 'users'>('analytics');
+  const [tab, setTab] = useState<'analytics' | 'numbers' | 'users' | 'issues'>('analytics');
 
   const tabs = [
     { id: 'analytics' as const, label: 'Analytics', icon: <BarChart3 size={15} /> },
     { id: 'users' as const, label: 'User Management', icon: <Users size={15} /> },
     { id: 'numbers' as const, label: 'Number Pools', icon: <Phone size={15} /> },
+    { id: 'issues' as const, label: 'Report Issues', icon: <Bug size={15} /> },
   ];
 
   return (
@@ -1193,6 +1342,7 @@ export default function AdminPanel() {
       {tab === 'analytics' && <AnalyticsTab />}
       {tab === 'numbers' && <NumberPoolTab />}
       {tab === 'users' && <UserManagementTab />}
+      {tab === 'issues' && <ReportIssuesTab />}
     </>
   );
 }

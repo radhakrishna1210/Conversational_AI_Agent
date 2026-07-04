@@ -1,15 +1,70 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
+
+const API_BASE = import.meta.env.VITE_API_URL ?? '/api/v1';
 
 export default function ReportIssue() {
-  const [status, setStatus] = useState<'idle' | 'submitting' | 'success'>('idle');
+  const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
+  const [errorMsg, setErrorMsg] = useState('');
+  const formRef = useRef<HTMLFormElement>(null);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setStatus('submitting');
-    setTimeout(() => {
+    setErrorMsg('');
+
+    const form = e.currentTarget;
+    const issueTitle = (form.elements.namedItem('issueTitle') as HTMLInputElement).value.trim();
+    const description = (form.elements.namedItem('description') as HTMLTextAreaElement).value.trim();
+    
+     
+    if (!issueTitle) {
+  setErrorMsg('Issue title is required.');
+  setStatus('error');
+  return;
+}
+
+if (issueTitle.length < 5) {
+  setErrorMsg(
+    'Issue title must be at least 5 characters long.'
+  );
+  setStatus('error');
+  return;
+}
+
+if (!description) {
+  setErrorMsg('Description is required.');
+  setStatus('error');
+  return;
+}
+
+if (description.length < 20) {
+  setErrorMsg(
+    'Please provide a detailed description (minimum 20 characters).'
+  );
+  setStatus('error');
+  return;
+}
+
+    try {
+      const res = await fetch(`${API_BASE}/report-issue`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ issueTitle, description }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        throw new Error(data.error || 'Submission failed');
+      }
+
       setStatus('success');
-      setTimeout(() => setStatus('idle'), 2500);
-    }, 1000);
+      formRef.current?.reset();
+      setTimeout(() => setStatus('idle'), 3000);
+    } catch (err: unknown) {
+      setErrorMsg(err instanceof Error ? err.message : 'Something went wrong. Please try again.');
+      setStatus('error');
+    }
   };
 
   return (
@@ -23,7 +78,7 @@ export default function ReportIssue() {
 
       <div className="container" style={{ paddingBottom: '80px' }}>
         <div className="form-card">
-          <form onSubmit={handleSubmit}>
+          <form ref={formRef} onSubmit={handleSubmit}>
             <div className="form-group">
               <label htmlFor="issueTitle" className="form-label">Issue Title</label>
               <input
@@ -57,19 +112,30 @@ export default function ReportIssue() {
                 accept="image/*"
                 className="form-input"
               />
+              <p className="form-note" style={{ marginTop: '6px' }}>
+                Screenshot upload coming soon — for now please describe what you saw.
+              </p>
             </div>
 
             <div style={{ marginTop: '28px' }}>
-              <button type="submit" className="btn btn-primary" disabled={status !== 'idle'}>
-                {status === 'idle' && 'Submit Issue'}
-                {status === 'submitting' && 'Submitting...'}
-                {status === 'success' && 'Submitted'}
+              <button
+                type="submit"
+                className="btn btn-primary"
+                disabled={status === 'submitting'}
+              >
+                {status === 'submitting' ? 'Submitting…' : 'Submit Issue'}
               </button>
             </div>
 
             {status === 'success' && (
               <p className="form-note" style={{ marginTop: '24px', color: 'var(--success)' }}>
-                Thank you — your issue has been submitted.
+                Thank you — your issue has been submitted successfully.
+              </p>
+            )}
+
+            {status === 'error' && (
+              <p className="form-note" style={{ marginTop: '24px', color: 'var(--danger, #e53e3e)' }}>
+                {errorMsg}
               </p>
             )}
           </form>

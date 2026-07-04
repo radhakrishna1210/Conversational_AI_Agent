@@ -110,88 +110,79 @@ export default function Navbar() {
     Restaurants
   </Link>
 
-  <a href="#" className="dropdown-item">
-    <span className="item-icon">
-      <TrendingUp size={16} />
-    </span>
-    Finance
-  </a>
+  <Link to="/solutions/verticals/finance" className="dropdown-item">
+    <span className="item-icon"><TrendingUp size={16} /></span>Finance
+  </Link>
 
-  <a href="#" className="dropdown-item">
-    <span className="item-icon">
-      <GraduationCap size={16} />
-    </span>
-    Education
-  </a>
+  <Link to="/solutions/verticals/education" className="dropdown-item">
+    <span className="item-icon"><GraduationCap size={16} /></span>Education
+  </Link>
 
-  <a href="#" className="dropdown-item">
-    <span className="item-icon">
-      <ShoppingCart size={16} />
-    </span>
-    E-commerce
-  </a>
+  <Link to="/solutions/verticals/ecommerce" className="dropdown-item">
+    <span className="item-icon"><ShoppingCart size={16} /></span>E-commerce
+  </Link>
 </div>
 
               {/* Use Cases */}
               <div>
                 <div className="dropdown-col-title">Use Cases</div>
 
-                <a href="#" className="dropdown-item">
+                <Link to="/solutions/use-cases/lead-generation" className="dropdown-item">
                   <span className="item-icon"><Phone size={16} /></span>Lead Generation
-                </a>
+                </Link>
 
-                <a href="#" className="dropdown-item">
+                <Link to="/solutions/use-cases/collections" className="dropdown-item">
                   <span className="item-icon"><Calendar size={16} /></span>Collections
-                </a>
+                </Link>
 
-                <a href="#" className="dropdown-item">
+                <Link to="/solutions/use-cases/negotiation" className="dropdown-item">
                   <span className="item-icon"><MessageCircle size={16} /></span>Negotiation
-                </a>
+                </Link>
 
-                <a href="#" className="dropdown-item">
+                <Link to="/solutions/use-cases/customer-support" className="dropdown-item">
                   <span className="item-icon"><Headphones size={16} /></span>Customer Support
-                </a>
+                </Link>
 
-                <a href="#" className="dropdown-item">
+                <Link to="/solutions/use-cases/appointments" className="dropdown-item">
                   <span className="item-icon"><Calendar size={16} /></span>Appointments
-                </a>
+                </Link>
               </div>
 
               {/* Integrations */}
               <div>
                 <div className="dropdown-col-title">Popular Integrations</div>
 
-                <a href="#" className="dropdown-item">
+                <Link to="/integrations/custom-api" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
                   <span className="item-icon"><Settings size={16} /></span>
                   <div>
                     <div>Custom API</div>
                     <div className="dropdown-item-sub">Connect any external API</div>
                   </div>
-                </a>
+                </Link>
 
-                <a href="#" className="dropdown-item">
+                 <Link to="/integrations/SIPTrunking" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
                   <span className="item-icon"><Radio size={16} /></span>
                   <div>
                     <div>SIP Trunking</div>
                     <div className="dropdown-item-sub">Connect to any telephony system</div>
                   </div>
-                </a>
+                </Link>
 
-                <a href="#" className="dropdown-item">
+                <Link to="/integrations/cal-com" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
                   <span className="item-icon"><Calendar size={16} /></span>
                   <div>
                     <div>Cal.com</div>
                     <div className="dropdown-item-sub">Appointment scheduling</div>
                   </div>
-                </a>
+                </Link>
 
-                <a href="#" className="dropdown-item">
+                <Link to="/integrations/salesforce" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
                   <span className="item-icon"><Cloud size={16} /></span>
                   <div>
                     <div>Salesforce</div>
-                    <div className="dropdown-item-sub">CRM sync & automation</div>
+                    <div className="dropdown-item-sub">CRM sync &amp; automation</div>
                   </div>
-                </a>
+                </Link>
               </div>
 
             </div>
