@@ -18,6 +18,14 @@ CREATE TABLE IF NOT EXISTS "Notification" (
 CREATE INDEX IF NOT EXISTS "Notification_workspaceId_read_createdAt_idx"
     ON "Notification"("workspaceId", "read", "createdAt");
 
--- AddForeignKey
-ALTER TABLE "Notification" ADD CONSTRAINT "Notification_workspaceId_fkey"
-    FOREIGN KEY ("workspaceId") REFERENCES "Workspace"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+-- AddForeignKey (only if it doesn't already exist)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'Notification_workspaceId_fkey'
+  ) THEN
+    ALTER TABLE "Notification"
+      ADD CONSTRAINT "Notification_workspaceId_fkey"
+      FOREIGN KEY ("workspaceId") REFERENCES "Workspace"("id") ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END $$;
