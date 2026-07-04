@@ -1473,8 +1473,6 @@ Goals:
                   </button>
                 ))}
               </div>
-            </div>
-<<<<<<< HEAD
           </div>
 
           <div className="omni-assistants-grid">
@@ -1490,13 +1488,6 @@ Goals:
                 <div className="omni-card-head">
                   <div>
                     <h3>{assistant.name}</h3>
-=======
-  {assistant.name
-    .replace(/^Inbound Voice AI Agent:\s*/i, "")
-    .replace(/^Create a voice AI agent for\s*/i, "")
-    .substring(0, 40)}
-</h3>
->>>>>>> origin/main
                     <p>{assistant.language}</p>
                   </div>
                   <div style={{ position: 'relative' }}>
