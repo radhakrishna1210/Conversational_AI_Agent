@@ -12,4 +12,9 @@ router.put('/:agentId', ctrl.updateAgent);
 router.delete('/:agentId', ctrl.deleteAgent);
 router.post('/:agentId/chat', ctrl.chat);
 
+// ─── Agent voice assignment ───────────────────────────────────────────────────
+import * as voiceCtrl from '../controllers/voice.controller.js';
+router.get('/:agentId/voice', voiceCtrl.getVoiceForAgent);
+router.put('/:agentId/voice', voiceCtrl.setVoice);
+
 export default router;
