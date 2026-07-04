@@ -1388,9 +1388,9 @@ Goals:
                         key={item.name}
                         className="omni-chip"
                         onClick={() => {
-  setPrompt(item.prompt);
-  setAgentTitle(item.name);
-}}
+                          setPrompt(item.prompt);
+                          setAgentTitle(item.name);
+                        }}
                       >
                         {item.name}
                       </button>
@@ -1473,6 +1473,7 @@ Goals:
                   </button>
                 ))}
               </div>
+            </div>
           </div>
 
           <div className="omni-assistants-grid">
@@ -1487,7 +1488,10 @@ Goals:
               <article key={assistant.id} className="omni-card">
                 <div className="omni-card-head">
                   <div>
-                    <h3>{assistant.name}</h3>
+                    <h3>{assistant.name
+                      .replace(/^Inbound Voice AI Agent:\s*/i, "")
+                      .replace(/^Create a voice AI agent for\s*/i, "")
+                      .substring(0, 40)}</h3>
                     <p>{assistant.language}</p>
                   </div>
                   <div style={{ position: 'relative' }}>
@@ -1519,7 +1523,6 @@ Goals:
                       </div>
                     )}
                   </div>
-                </div>
                 <div className="omni-card-meta">
                   <div><span>LLM:</span> <strong>{assistant.llm}</strong></div>
                   <div><span>Voice:</span> <strong>{assistant.voice}</strong></div>
@@ -1795,17 +1798,16 @@ Goals:
           margin-bottom: 16px;
         }
         .omni-card-head h3 {
-  font-size: 14px;
-  font-weight: 600;
-  color: #f8fafc;
-  margin: 0 0 4px;
-  line-height: 1.4;
-
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
+          font-size: 14px;
+          font-weight: 600;
+          color: #f8fafc;
+          margin: 0 0 4px;
+          line-height: 1.4;
+          display: -webkit-box;
+          -webkit-line-clamp: 2;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
         .omni-card-head p {
           font-size: 12px;
           color: #64748b;
