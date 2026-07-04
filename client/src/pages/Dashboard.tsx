@@ -6,7 +6,7 @@ import { whapi } from '../lib/whapi';
 
 export default function Dashboard() {
   const [prompt, setPrompt] = useState('');
-const [agentTitle, setAgentTitle] = useState('');
+  const [agentTitle, setAgentTitle] = useState('');
   const [creating, setCreating] = useState(false);
   const [enhancing, setEnhancing] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -104,105 +104,105 @@ const [agentTitle, setAgentTitle] = useState('');
 
 
   const extractAgentTitle = (text: string) => {
-  let title = text
-    .replace(/^create\s+(a\s+)?voice\s+ai\s+agent\s+for\s+/i, "")
-    .replace(/^create\s+(an?\s+)?ai\s+agent\s+for\s+/i, "")
-    .replace(/^create\s+(a\s+)?voice\s+ai\s+assistant\s+for\s+/i, "")
-    .replace(/^create\s+/i, "")
-    .trim();
+    let title = text
+      .replace(/^create\s+(a\s+)?voice\s+ai\s+agent\s+for\s+/i, "")
+      .replace(/^create\s+(an?\s+)?ai\s+agent\s+for\s+/i, "")
+      .replace(/^create\s+(a\s+)?voice\s+ai\s+assistant\s+for\s+/i, "")
+      .replace(/^create\s+/i, "")
+      .trim();
 
-  title = title
-    .split(" ")
-    .map(
-      word =>
-        word.charAt(0).toUpperCase() +
-        word.slice(1).toLowerCase()
-    )
-    .join(" ");
+    title = title
+      .split(" ")
+      .map(
+        word =>
+          word.charAt(0).toUpperCase() +
+          word.slice(1).toLowerCase()
+      )
+      .join(" ");
 
-  if (!title.toLowerCase().includes("agent")) {
-    title += " Agent";
-  }
-
-  return title;
-};
-
-const generateAgentName = (text: string) => {
-  let title = text
-    .replace(/^create\s+(a\s+)?voice\s+ai\s+agent\s+for\s+/i, "")
-    .replace(/^create\s+(an?\s+)?ai\s+agent\s+for\s+/i, "")
-    .replace(/^create\s+(a\s+)?voice\s+ai\s+assistant\s+for\s+/i, "")
-    .replace(/^create\s+/i, "")
-    .trim();
-
-  title = title
-    .replace(/\bassistance\b/gi, "")
-    .replace(/\bassistant\b/gi, "")
-    .replace(/\bagent\b/gi, "")
-    .trim();
-
-  title = title
-    .split(" ")
-    .filter(Boolean)
-    .map(
-      word =>
-        word.charAt(0).toUpperCase() +
-        word.slice(1).toLowerCase()
-    )
-    .join(" ");
-
-  return title ? `${title} Agent` : "Voice AI Agent";
-};
-
-  const handleEnhance = async () => {
-  if (!prompt.trim()) return;
-
-  try {
-    setEnhancing(true);
-
-    const response = await fetch(
-      "/api/v1/llm/enhance-prompt",
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          prompt,
-        }),
-      }
-    );
-
-    if (!response.ok) {
-      throw new Error("Enhance failed");
+    if (!title.toLowerCase().includes("agent")) {
+      title += " Agent";
     }
 
-  const data = await response.json();
+    return title;
+  };
 
-console.log("Enhance Response:", data);
-console.log("enhancedPrompt:", data.enhancedPrompt);
-console.log("Type:", typeof data.enhancedPrompt);
+  const generateAgentName = (text: string) => {
+    let title = text
+      .replace(/^create\s+(a\s+)?voice\s+ai\s+agent\s+for\s+/i, "")
+      .replace(/^create\s+(an?\s+)?ai\s+agent\s+for\s+/i, "")
+      .replace(/^create\s+(a\s+)?voice\s+ai\s+assistant\s+for\s+/i, "")
+      .replace(/^create\s+/i, "")
+      .trim();
 
-if (data.enhancedPrompt) {
-  const enhancedText =
-    typeof data.enhancedPrompt === "string"
-      ? data.enhancedPrompt
-      : data.enhancedPrompt.message || "";
+    title = title
+      .replace(/\bassistance\b/gi, "")
+      .replace(/\bassistant\b/gi, "")
+      .replace(/\bagent\b/gi, "")
+      .trim();
 
-  setPrompt(enhancedText);
+    title = title
+      .split(" ")
+      .filter(Boolean)
+      .map(
+        word =>
+          word.charAt(0).toUpperCase() +
+          word.slice(1).toLowerCase()
+      )
+      .join(" ");
 
-// Do NOT derive title from enhanced response.
-// Keep existing title if selected from use case.
-if (!agentTitle) {
-setAgentTitle(generateAgentName(prompt));
-}
-}
-  } catch (err) {
-    console.error(err);
-  } finally {
-    setEnhancing(false);
-  }
-};
+    return title ? `${title} Agent` : "Voice AI Agent";
+  };
+
+  const handleEnhance = async () => {
+    if (!prompt.trim()) return;
+
+    try {
+      setEnhancing(true);
+
+      const response = await fetch(
+        "/api/v1/llm/enhance-prompt",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            prompt,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Enhance failed");
+      }
+
+      const data = await response.json();
+
+      console.log("Enhance Response:", data);
+      console.log("enhancedPrompt:", data.enhancedPrompt);
+      console.log("Type:", typeof data.enhancedPrompt);
+
+      if (data.enhancedPrompt) {
+        const enhancedText =
+          typeof data.enhancedPrompt === "string"
+            ? data.enhancedPrompt
+            : data.enhancedPrompt.message || "";
+
+        setPrompt(enhancedText);
+
+        // Do NOT derive title from enhanced response.
+        // Keep existing title if selected from use case.
+        if (!agentTitle) {
+          setAgentTitle(generateAgentName(prompt));
+        }
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setEnhancing(false);
+    }
+  };
 
 
 
@@ -210,12 +210,12 @@ setAgentTitle(generateAgentName(prompt));
     if (!prompt.trim()) return;
     setCreating(true);
 
-   const name =
-  agentTitle ||
-  generateAgentName(prompt);
+    const name =
+      agentTitle ||
+      generateAgentName(prompt);
 
-let welcomeMsg = '';
-let defaultFlow: any[] = [];
+    let welcomeMsg = '';
+    let defaultFlow: any[] = [];
     // Attempt to generate flow dynamically from LLM backend (public endpoint — no auth needed)
     try {
       const genRes = await fetch('/api/v1/llm/generate-flow', {
@@ -245,7 +245,7 @@ let defaultFlow: any[] = [];
     }
 
     try {
-      const newAgent = await whapi.post<AgentConfig>('/agents', { 
+      const newAgent = await whapi.post<AgentConfig>('/agents', {
         name,
         welcomeMessage: welcomeMsg,
         flowItems: defaultFlow,
@@ -255,8 +255,8 @@ let defaultFlow: any[] = [];
 
       setAgents(prev => [newAgent, ...prev]);
       setPrompt('');
-setAgentTitle('');
-setSuccess(true);
+      setAgentTitle('');
+      setSuccess(true);
       setTimeout(() => setSuccess(false), 2000);
     } catch (err) {
       console.error('Failed to create agent on backend', err);
@@ -292,8 +292,8 @@ setSuccess(true);
 
       setAgents(prev => [localAgent, ...prev]);
       setPrompt('');
-setAgentTitle('');
-setSuccess(true);
+      setAgentTitle('');
+      setSuccess(true);
       setTimeout(() => setSuccess(false), 2000);
     } finally {
       setCreating(false);
@@ -310,10 +310,11 @@ setSuccess(true);
   );
 
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
-const useCases = {
-  "Lead Generation": [
-    { name: "Cold Calling Leads", 
-      prompt: `Create a voice AI agent for outbound lead generation campaigns targeting potential business customers.
+  const useCases = {
+    "Lead Generation": [
+      {
+        name: "Cold Calling Leads",
+        prompt: `Create a voice AI agent for outbound lead generation campaigns targeting potential business customers.
 
 Personality:
 - Professional and confident
@@ -346,8 +347,9 @@ Goals:
 - Increase sales opportunities
 - Improve prospect engagement
 - Book follow-up meetings` },
-    { name: "SaaS Demo Booking", 
-      prompt: `Create a voice AI agent for scheduling software product demonstrations for qualified prospects.
+      {
+        name: "SaaS Demo Booking",
+        prompt: `Create a voice AI agent for scheduling software product demonstrations for qualified prospects.
 
 Personality:
 - Professional and consultative
@@ -380,8 +382,9 @@ Goals:
 - Improve lead qualification
 - Reduce manual scheduling
 - Increase product adoption opportunities` },
-    { name: "Real Estate Lead Qualification", 
-      prompt: `Create a voice AI agent for qualifying real estate buyers and sellers.
+      {
+        name: "Real Estate Lead Qualification",
+        prompt: `Create a voice AI agent for qualifying real estate buyers and sellers.
 
 Personality:
 - Professional and trustworthy
@@ -414,8 +417,9 @@ Goals:
 - Increase site visit bookings
 - Improve lead conversion
 - Support sales team efficiency` },
-    { name: "Insurance Lead Qualification",
-       prompt: `Create a voice AI agent for insurance lead generation and customer qualification.
+      {
+        name: "Insurance Lead Qualification",
+        prompt: `Create a voice AI agent for insurance lead generation and customer qualification.
 
 Personality:
 - Professional and trustworthy
@@ -448,8 +452,9 @@ Goals:
 - Increase policy inquiries
 - Improve advisor productivity
 - Increase conversion rates` },
-    { name: "Loan Eligibility Verification", 
-      prompt: `Create a voice AI agent for preliminary loan qualification and applicant verification.
+      {
+        name: "Loan Eligibility Verification",
+        prompt: `Create a voice AI agent for preliminary loan qualification and applicant verification.
 
 Personality:
 - Professional and compliant
@@ -482,11 +487,12 @@ Goals:
 - Reduce manual verification effort
 - Improve application processing
 - Increase qualified loan applications` }
-  ],
+    ],
 
-  "Appointments": [
-    { name: "Doctor Appointment Booking", 
-      prompt: `Create a voice AI agent for healthcare appointment booking and patient scheduling.
+    "Appointments": [
+      {
+        name: "Doctor Appointment Booking",
+        prompt: `Create a voice AI agent for healthcare appointment booking and patient scheduling.
 
 Personality:
 - Professional and courteous
@@ -519,8 +525,9 @@ Goals:
 - Improve appointment booking efficiency
 - Reduce no-show rates
 - Enhance patient experience` },
-    { name: "Dental Clinic Booking",
-       prompt: `Create a voice AI agent for dental appointment management and patient scheduling.
+      {
+        name: "Dental Clinic Booking",
+        prompt: `Create a voice AI agent for dental appointment management and patient scheduling.
 
 Personality:
 - Friendly and caring
@@ -553,8 +560,9 @@ Goals:
 - Reduce missed appointments
 - Improve patient satisfaction
 - Streamline scheduling operations` },
-    { name: "Salon Appointment Scheduling",
-       prompt: `Create a voice AI agent for salon appointment booking and customer scheduling.
+      {
+        name: "Salon Appointment Scheduling",
+        prompt: `Create a voice AI agent for salon appointment booking and customer scheduling.
 
 Personality:
 - Friendly and welcoming
@@ -587,8 +595,9 @@ Goals:
 - Improve customer experience
 - Optimize stylist schedules
 - Reduce appointment conflicts` },
-    { name: "Interview Scheduling", 
-      prompt: `Create a voice AI agent for recruitment interview scheduling and candidate coordination.
+      {
+        name: "Interview Scheduling",
+        prompt: `Create a voice AI agent for recruitment interview scheduling and candidate coordination.
 
 Personality:
 - Professional and organized
@@ -621,8 +630,9 @@ Goals:
 - Improve interview attendance
 - Streamline recruitment processes
 - Enhance candidate experience` },
-    { name: "Hotel Reservation" , 
-      prompt: `Create a voice AI agent for hotel booking and reservation management.
+      {
+        name: "Hotel Reservation",
+        prompt: `Create a voice AI agent for hotel booking and reservation management.
 
 Personality:
 - Professional and hospitable
@@ -655,11 +665,12 @@ Goals:
 - Improve guest satisfaction
 - Reduce manual booking effort
 - Enhance customer experience` }
-  ],
+    ],
 
-  "Support": [
-    { name: "E-Commerce Support", 
-      prompt: `Create a voice AI agent for e-commerce customer support and order assistance.
+    "Support": [
+      {
+        name: "E-Commerce Support",
+        prompt: `Create a voice AI agent for e-commerce customer support and order assistance.
 
 Personality:
 - Friendly and empathetic
@@ -692,8 +703,9 @@ Goals:
 - Reduce support workload
 - Increase first-contact resolution
 - Improve customer retention` },
-    { name: "Technical Support", 
-      prompt: `Create a voice AI agent for technical troubleshooting and customer assistance.
+      {
+        name: "Technical Support",
+        prompt: `Create a voice AI agent for technical troubleshooting and customer assistance.
 
 Personality:
 - Patient and professional
@@ -726,8 +738,9 @@ Goals:
 - Reduce support costs
 - Increase customer satisfaction
 - Resolve issues efficiently` },
-    { name: "Banking Support", 
-      prompt: `Create a voice AI agent for banking customer service and account support.
+      {
+        name: "Banking Support",
+        prompt: `Create a voice AI agent for banking customer service and account support.
 
 Personality:
 - Professional and trustworthy
@@ -760,8 +773,9 @@ Goals:
 - Improve response efficiency
 - Increase customer trust
 - Reduce branch workload` },
-    { name: "Telecom Support", 
-      prompt: `Create a voice AI agent for telecom customer service and network support.
+      {
+        name: "Telecom Support",
+        prompt: `Create a voice AI agent for telecom customer service and network support.
 
 Personality:
 - Professional and patient
@@ -794,8 +808,9 @@ Goals:
 - Reduce support response times
 - Increase issue resolution rates
 - Improve service satisfaction` },
-    { name: "Billing Support", 
-      prompt: `Create a voice AI agent for billing assistance and payment-related inquiries.
+      {
+        name: "Billing Support",
+        prompt: `Create a voice AI agent for billing assistance and payment-related inquiries.
 
 Personality:
 - Professional and respectful
@@ -828,11 +843,12 @@ Goals:
 - Improve customer satisfaction
 - Increase payment clarity
 - Resolve billing disputes efficiently` }
-  ],
+    ],
 
-  "Negotiation": [
-    { name: "Price Negotiation", 
-      prompt: `Create a voice AI agent for sales price negotiations and deal closure.
+    "Negotiation": [
+      {
+        name: "Price Negotiation",
+        prompt: `Create a voice AI agent for sales price negotiations and deal closure.
 
 Personality:
 - Professional and persuasive
@@ -865,8 +881,9 @@ Goals:
 - Improve deal closure rates
 - Reduce lost opportunities
 - Maximize revenue generation` },
-    { name: "Subscription Retention", 
-      prompt: `Create a voice AI agent for customer retention and subscription renewal.
+      {
+        name: "Subscription Retention",
+        prompt: `Create a voice AI agent for customer retention and subscription renewal.
 
 Personality:
 - Friendly and empathetic
@@ -899,8 +916,9 @@ Goals:
 - Increase subscription renewals
 - Improve customer satisfaction
 - Retain high-value customers` },
-    { name: "Contract Renewal", 
-      prompt: `Create a voice AI agent for contract renewal management.
+      {
+        name: "Contract Renewal",
+        prompt: `Create a voice AI agent for contract renewal management.
 
 Personality:
 - Professional and trustworthy
@@ -933,8 +951,9 @@ Goals:
 - Improve customer retention
 - Reduce churn
 - Strengthen customer relationships` },
-    { name: "Vendor Negotiation", 
-      prompt: `Create a voice AI agent for vendor communication and procurement negotiations.
+      {
+        name: "Vendor Negotiation",
+        prompt: `Create a voice AI agent for vendor communication and procurement negotiations.
 
 Personality:
 - Professional and diplomatic
@@ -967,8 +986,9 @@ Goals:
 - Reduce operational costs
 - Strengthen vendor relationships
 - Achieve favorable contract terms` },
-    { name: "Debt Settlement Negotiation", 
-      prompt: `Create a voice AI agent for debt settlement and repayment negotiations.
+      {
+        name: "Debt Settlement Negotiation",
+        prompt: `Create a voice AI agent for debt settlement and repayment negotiations.
 
 Personality:
 - Professional and respectful
@@ -1001,11 +1021,12 @@ Goals:
 - Improve repayment commitments
 - Reduce overdue accounts
 - Maintain positive customer relationships` }
-  ],
+    ],
 
-  "Collections": [
-    { name: "EMI Reminder", 
-      prompt: `Create a voice AI agent for EMI payment reminders and repayment assistance.
+    "Collections": [
+      {
+        name: "EMI Reminder",
+        prompt: `Create a voice AI agent for EMI payment reminders and repayment assistance.
 
 Personality:
 - Professional and respectful
@@ -1038,8 +1059,9 @@ Goals:
 - Reduce overdue accounts
 - Increase payment commitments
 - Maintain positive customer relationships` },
-    { name: "Credit Card Collection", 
-      prompt: `Create a voice AI agent for credit card payment recovery and collections.
+      {
+        name: "Credit Card Collection",
+        prompt: `Create a voice AI agent for credit card payment recovery and collections.
 
 Personality:
 - Professional and courteous
@@ -1072,8 +1094,9 @@ Goals:
 - Increase promise-to-pay commitments
 - Reduce delinquent accounts
 - Improve recovery efficiency` },
-    { name: "Loan Recovery", 
-      prompt: `Create a voice AI agent for loan recovery and repayment management.
+      {
+        name: "Loan Recovery",
+        prompt: `Create a voice AI agent for loan recovery and repayment management.
 
 Personality:
 - Professional and respectful
@@ -1106,8 +1129,9 @@ Goals:
 - Improve repayment commitments
 - Reduce default rates
 - Maintain customer relationships` },
-    { name: "Rent Collection", 
-      prompt: `Create a voice AI agent for rental payment reminders and tenant communication.
+      {
+        name: "Rent Collection",
+        prompt: `Create a voice AI agent for rental payment reminders and tenant communication.
 
 Personality:
 - Professional and courteous
@@ -1140,8 +1164,9 @@ Goals:
 - Improve collection efficiency
 - Increase payment compliance
 - Maintain positive tenant relationships` },
-    { name: "Utility Bill Collection", 
-      prompt: `Create a voice AI agent for utility bill payment reminders and collections.
+      {
+        name: "Utility Bill Collection",
+        prompt: `Create a voice AI agent for utility bill payment reminders and collections.
 
 Personality:
 - Professional and helpful
@@ -1174,11 +1199,12 @@ Goals:
 - Reduce overdue accounts
 - Improve customer communication
 - Enhance collection efficiency` }
-  ],
+    ],
 
-  "Moon Information": [
-    { name: "Moon Phase Information",
-       prompt: `Create a voice AI agent for providing moon phase information and lunar cycle education.
+    "Moon Information": [
+      {
+        name: "Moon Phase Information",
+        prompt: `Create a voice AI agent for providing moon phase information and lunar cycle education.
 
 Personality:
 - Educational and engaging
@@ -1211,8 +1237,9 @@ Goals:
 - Educate users about lunar science
 - Increase user engagement
 - Make astronomy easy to understand` },
-    { name: "Full Moon Tracker", 
-      prompt: `Create a voice AI agent for providing full moon event information and observation guidance.
+      {
+        name: "Full Moon Tracker",
+        prompt: `Create a voice AI agent for providing full moon event information and observation guidance.
 
 Personality:
 - Friendly and informative
@@ -1245,8 +1272,9 @@ Goals:
 - Improve public understanding of lunar events
 - Encourage sky observation
 - Enhance user engagement` },
-    { name: "Lunar Eclipse Information", 
-      prompt: `Create a voice AI agent for lunar eclipse education and event guidance.
+      {
+        name: "Lunar Eclipse Information",
+        prompt: `Create a voice AI agent for lunar eclipse education and event guidance.
 
 Personality:
 - Educational and knowledgeable
@@ -1279,8 +1307,9 @@ Goals:
 - Promote scientific understanding
 - Encourage astronomy learning
 - Improve public engagement` },
-    { name: "Moon Mission Information", 
-      prompt: `Create a voice AI agent for lunar exploration and moon mission education.
+      {
+        name: "Moon Mission Information",
+        prompt: `Create a voice AI agent for lunar exploration and moon mission education.
 
 Personality:
 - Educational and inspiring
@@ -1313,8 +1342,9 @@ Goals:
 - Educate users about lunar missions
 - Inspire curiosity about science
 - Increase astronomy engagement` },
-    { name: "Moon Facts for Kids", 
-      prompt: `Create a voice AI educational agent that teaches children about the Moon in a fun and engaging way.
+      {
+        name: "Moon Facts for Kids",
+        prompt: `Create a voice AI educational agent that teaches children about the Moon in a fun and engaging way.
 
 Personality:
 - Fun and energetic
@@ -1347,15 +1377,14 @@ Goals:
 - Encourage scientific curiosity
 - Improve learning engagement
 - Build interest in space science` }
-  ]
-};;
-
+    ]
+  };
   return (
-    <>
+    <div className="omni-dashboard">
       {/* ════════════════════════════════════════════
           MAIN DASHBOARD CONTENT
          ════════════════════════════════════════════ */}
-      <div className="omni-dashboard">
+
         {/* Page Header */}
         <div className="omni-page-header">
           <h1>Voice AI Assistants</h1>
@@ -1404,9 +1433,9 @@ Goals:
                         key={item.name}
                         className="omni-chip"
                         onClick={() => {
-  setPrompt(item.prompt);
-  setAgentTitle(item.name);
-}}
+                          setPrompt(item.prompt);
+                          setAgentTitle(item.name);
+                        }}
                       >
                         {item.name}
                       </button>
@@ -1415,8 +1444,8 @@ Goals:
                 </div>
               )}
               <div style={{ position: 'relative' }}>
-                <button 
-                  className="assistant-menu" 
+                <button
+                  className="assistant-menu"
                   aria-label="Assistant actions"
                   onClick={(e) => handleMenuClick(e, hardcodedAssistant.id)}
                 >
@@ -1470,7 +1499,7 @@ Goals:
             <h2>My Voice AI Assistants</h2>
             <div className="omni-assistants-header-actions">
               <div className="omni-search-box">
-                <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" /></svg>
                 <input
                   type="text"
                   placeholder="Search assistants..."
@@ -1487,65 +1516,99 @@ Goals:
                 ))}
               </div>
             </div>
-  {assistant.name
-    .replace(/^Inbound Voice AI Agent:\s*/i, "")
-    .replace(/^Create a voice AI agent for\s*/i, "")
-    .substring(0, 40)}
-</h3>
-                    <p>{assistant.language}</p>
-                  </div>
-                  <div style={{ position: 'relative' }}>
-                    <button 
-                      className="assistant-menu" 
-                      aria-label="Assistant actions"
-                      onClick={(e) => handleMenuClick(e, assistant.id)}
-                    >
-                      ⋮
-                    </button>
-                    {openDropdownId === assistant.id && (
-                      <div className="assistant-menu-dropdown">
-                        <button onClick={(e) => handleCopyAssistant(e, assistant)}>
-                          <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                          </svg>
-                          Copy Assistant
-                        </button>
-                        <button className="delete-btn" onClick={(e) => handleDeleteAssistant(e, assistant.id)}>
-                          <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                            <polyline points="3 6 5 6 21 6"></polyline>
-                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                            <line x1="10" y1="11" x2="10" y2="17"></line>
-                            <line x1="14" y1="11" x2="14" y2="17"></line>
-                          </svg>
-                          Delete Assistant
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                </div>
-                <div className="omni-card-meta">
-                  <div><span>LLM:</span> <strong>{assistant.llm}</strong></div>
-                  <div><span>Voice:</span> <strong>{assistant.voice}</strong></div>
-                  <div><span>KB Files:</span> <strong>{assistant.kbFiles}</strong></div>
-                  <div><span>Search:</span> <strong>{assistant.search}</strong></div>
-                  <div><span>Post-call:</span> <strong>{assistant.postCall}</strong></div>
-                  <div><span>Integrations:</span> <strong>{assistant.integrations}</strong></div>
-                </div>
-                <div className="omni-card-footer">
-                  <span className="omni-card-id">ID: {assistant.id}</span>
-                  <button className="omni-btn omni-btn-primary" onClick={() => navigate(`/agent/${assistant.id}`)}>Edit Agent</button>
-                </div>
-              </article>
-            ))}
-          </div>
-        </div>
-      </div>
+            <div className="omni-assistants-grid">
+              {filteredAgents.map((assistant) => (
+                <article className="omni-card" key={assistant.id}>
+                  <div className="omni-card-head">
+                    <div>
+                      <h3>
+                        {assistant.name
+                          .replace(/^Inbound Voice AI Agent:\s*/i, "")
+                          .replace(/^Create a voice AI agent for\s*/i, "")
+                          .substring(0, 40)}
+                      </h3>
+                      <p>{assistant.language}</p>
+                    </div>
 
-      {/* ════════════════════════════════════════════
+                    <div style={{ position: "relative" }}>
+                      <button
+                        className="assistant-menu"
+                        aria-label="Assistant actions"
+                        onClick={(e) => handleMenuClick(e, assistant.id)}
+                      >
+                        ⋮
+                      </button>
+
+                      {openDropdownId === assistant.id && (
+                        <div className="assistant-menu-dropdown">
+                          <button onClick={(e) => handleCopyAssistant(e, assistant)}>
+                            <svg
+                              width="14"
+                              height="14"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              viewBox="0 0 24 24"
+                            >
+                              <rect
+                                x="9"
+                                y="9"
+                                width="13"
+                                height="13"
+                                rx="2"
+                                ry="2"
+                              />
+                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                            </svg>
+                            Copy Assistant
+                          </button>
+
+                          <button
+                            className="delete-btn"
+                            onClick={(e) => handleDeleteAssistant(e, assistant.id)}
+                          >
+                            <svg
+                              width="14"
+                              height="14"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              viewBox="0 0 24 24"
+                            >
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                              <line x1="10" y1="11" x2="10" y2="17" />
+                              <line x1="14" y1="11" x2="14" y2="17" />
+                            </svg>
+                            Delete Assistant
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="omni-card-meta">
+                    <div><span>LLM:</span> <strong>{assistant.llm}</strong></div>
+                    <div><span>Voice:</span> <strong>{assistant.voice}</strong></div>
+                    <div><span>KB Files:</span> <strong>{assistant.kbFiles}</strong></div>
+                    <div><span>Search:</span> <strong>{assistant.search}</strong></div>
+                    <div><span>Post-call:</span> <strong>{assistant.postCall}</strong></div>
+                    <div><span>Integrations:</span> <strong>{assistant.integrations}</strong></div>
+                  </div>
+                  <div className="omni-card-footer">
+                    <span className="omni-card-id">ID: {assistant.id}</span>
+                    <button className="omni-btn omni-btn-primary" onClick={() => navigate(`/agent/${assistant.id}`)}>Edit Agent</button>
+                  </div>
+                </article >
+              ))
+              }
+            </div >
+          </div >
+        </div >
+
+        {/* ════════════════════════════════════════════
           STYLES
          ════════════════════════════════════════════ */}
-      <style>{`
+        <style>{`
         /* ── Base ── */
         .omni-dashboard {
           max-width: 1200px;
@@ -1987,7 +2050,7 @@ Goals:
           }
         }
       `}</style>
-    </>
-  );
+    </div>
+      );
 }
 
