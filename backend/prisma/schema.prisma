@@ -3,12 +3,51 @@ generator client {
 }
 
 datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
 }
 
 // ─── Models ───────────────────────────────────────────────────────────────────
+
+model VoiceProvider {
+  id           String    @id @default(cuid())
+  name         String    @unique
+  isActive     Boolean   @default(true)
+  voices       Voice[]
+  lastSyncedAt DateTime?
+  @@index([name])
+}
+
+// ─── Voice Model ────────────────────────────────────────────────────────────────
+model Voice {
+  id              String   @id @default(cuid())
+  providerId      String
+  provider        VoiceProvider @relation(fields: [providerId], references: [id])
+  providerVoiceId String
+  name            String
+  language        String?
+  accent          String?
+  gender          String?
+  category        String?
+  metadata        String?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  agentVoices     AgentVoice[]
+  @@unique([providerId, providerVoiceId])
+}
+
+// ─── AgentVoice – persists selected voice per agent ─────────────────────────────
+model AgentVoice {
+  id        String   @id @default(cuid())
+  agentId   String   @unique
+  voiceId   String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  voice     Voice    @relation(fields: [voiceId], references: [id], onDelete: Restrict)
+}
+
 
 model User {
   id           String   @id @default(cuid())
@@ -215,7 +254,7 @@ model Campaign {
   whatsappNumberId  String
 variableMapping   String?   @default("{}")
 botId             String?
-phoneNumbers      Json?
+phoneNumbers      String?
 csvFileName       String?
 fromNumber        String?
 progress          Int       @default(0)
@@ -387,7 +426,8 @@ model Agent {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace        Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  agentVoice       AgentVoice?
 }
 
 model Integration {
