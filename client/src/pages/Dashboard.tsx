@@ -66,7 +66,7 @@ const [agentTitle, setAgentTitle] = useState('');
     setOpenDropdownId(null);
     if (!window.confirm('Are you sure you want to delete this assistant?')) return;
     try {
-      await whapi.delete(`/agents/${id}`);
+      await whapi.del(`/agents/${id}`);
       setAgents(prev => prev.filter(a => a.id !== id));
     } catch (err) {
       console.error('Failed to delete on backend', err);
@@ -1383,7 +1383,7 @@ Goals:
                     ← {selectedCategory}
                   </h4>
                   <div className="omni-use-case-chips">
-                    {useCases[selectedCategory].map((item) => (
+                    {(useCases as Record<string, { name: string; prompt: string }[]>)[selectedCategory].map((item) => (
                       <button
                         key={item.name}
                         className="omni-chip"
@@ -1523,6 +1523,7 @@ Goals:
                       </div>
                     )}
                   </div>
+                </div>
                 <div className="omni-card-meta">
                   <div><span>LLM:</span> <strong>{assistant.llm}</strong></div>
                   <div><span>Voice:</span> <strong>{assistant.voice}</strong></div>
