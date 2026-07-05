@@ -78,10 +78,20 @@ router.post('/assistant/chat', async (req, res) => {
 
     // Handle both string and object responses (mock returns object, real LLM returns string)
     const replyText = typeof response === 'object' ? response.message : response;
-    res.json({ success: true, message: replyText });
+
+    // Guard: ensure we haven't already sent headers (e.g. from express-async-errors)
+    if (res.headersSent) return;
+    return res.json({ success: true, message: replyText });
   } catch (err) {
-    logger.error('Assistant chat error:', err);
-    res.status(500).json({
+    // Log the full error including stack so the actual cause is visible in server logs
+    logger.error(
+      { err, stack: err?.stack, message: err?.message },
+      'Assistant chat error'
+    );
+
+    // Guard against double-send (express-async-errors may have already committed headers)
+    if (res.headersSent) return;
+    return res.status(500).json({
       error: 'Failed to generate response',
       message: "I'm having trouble right now. Please try again in a moment.",
     });

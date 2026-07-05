@@ -21,6 +21,7 @@ import {
   isValidTopK,
   getDefaultGenerationConfig,
   GEMINI_CONFIG,
+  DEFAULT_GEMINI_MODEL,
 } from "../constants/geminiModels.js";
 
 class GeminiService {
@@ -292,7 +293,7 @@ class GeminiService {
       userId,
       agentId,
       message,
-      model,
+      model: rawModel,
       chatHistory,
       systemPrompt = "You are a helpful AI assistant.",
       temperature,
@@ -301,6 +302,9 @@ class GeminiService {
       maxOutputTokens,
       skipCache = false,
     } = request;
+
+    // Fall back to the default model if none was supplied or the supplied value is invalid
+    const model = isValidGeminiModel(rawModel) ? rawModel : DEFAULT_GEMINI_MODEL;
 
     const startTime = Date.now();
     const requestId = Math.random().toString(36).substr(2, 9);
