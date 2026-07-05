@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useTheme } from '../hooks/useTheme';
 import { Languages, ArrowUpRight, PhoneIncoming, Plug, Wand2, Phone, PenLine, FlaskConical, Puzzle, Rocket, LineChart, ChevronUp, ChevronDown, MessageSquare, MousePointer2, Layers, Users, Activity, Database, Code, Link2, Zap, PhoneCall, BarChart2, FileText, Star, ArrowRight, ArrowDown } from 'lucide-react';
+import KevinChatWidget from '../components/KevinChatWidget';
 
 export default function Home() {
   const { darkMode } = useTheme();
@@ -9,6 +10,7 @@ export default function Home() {
   const [promptText, setPromptText] = useState('');
   const [activeFaq, setActiveFaq] = useState<number | null>(null);
   const [activeStep, setActiveStep] = useState(0);
+  const [kevinOpen, setKevinOpen] = useState(false);
 
 
   const useCases = {
@@ -520,7 +522,10 @@ export default function Home() {
       </section>
       
       {/* Ask Kevin Chat Bubble */}
-      <div style={{position:'fixed', bottom:'24px', right:'24px', display: 'flex', alignItems: 'center', gap: '12px', zIndex:100}}>
+      <div
+        onClick={() => setKevinOpen(prev => !prev)}
+        style={{position:'fixed', bottom:'24px', right:'24px', display: 'flex', alignItems: 'center', gap: '12px', zIndex:100, cursor:'pointer'}}
+      >
         <div style={{fontWeight:600, fontSize:'14px', color:'var(--text-primary)', background:'var(--bg-card)', border:'1px solid var(--border)', padding:'6px 12px', borderRadius:'16px', backdropFilter:'blur(4px)', boxShadow:'var(--shadow-topbar)'}}>
           Ask Kevin
         </div>
@@ -530,6 +535,9 @@ export default function Home() {
           </svg>
         </div>
       </div>
+
+      {/* Kevin Chat Widget */}
+      <KevinChatWidget open={kevinOpen} onClose={() => setKevinOpen(false)} />
     </>
   );
 }
