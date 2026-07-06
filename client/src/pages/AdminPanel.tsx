@@ -4,7 +4,7 @@ import {
   Search, Filter, Plus, Trash2, UserCheck, UserX,
   PowerOff, RotateCcw, Globe, ChevronDown, X, Check,
   AlertCircle, Shield, Ban, ChevronLeft, ChevronRight,
-  Eye, CreditCard
+  Eye, CreditCard, MoreVertical
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -118,7 +118,7 @@ function MiniBarChart({ data, valueKey, color = '#0eb39e' }: {
 }) {
   if (!data.length) return <div style={{ height: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#555', fontSize: 12 }}>No data</div>;
 
-  const values = data.map((d) => ((d as unknown as Record<string, number>)[valueKey] ?? 0));
+  const values = data.map((d) => (d as Record<string, number>)[valueKey] ?? 0);
   const max = Math.max(...values, 1);
 
   return (
@@ -439,7 +439,7 @@ function AnalyticsTab() {
               <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{chart.sub}</div>
             </div>
             <div style={{ fontSize: 22, fontWeight: 800, color: chart.color, margin: '8px 0' }}>
-              {chart.data.reduce((s, d) => s + (((d as unknown as Record<string, number>)[chart.key]) ?? 0), 0)}
+              {chart.data.reduce((s, d) => s + ((d as Record<string, number>)[chart.key] ?? 0), 0)}
             </div>
             <MiniBarChart data={chart.data} valueKey={chart.key} color={chart.color} />
           </div>

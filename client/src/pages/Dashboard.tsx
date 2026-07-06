@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AgentConfig, loadAgents, getDefaultFlowItems, getDefaultWelcomeMessage } from '../lib/agentStore';
+import { AgentConfig, createAgent, loadAgents, getDefaultFlowItems, getDefaultWelcomeMessage } from '../lib/agentStore';
 import { whapi } from '../lib/whapi';
 
 

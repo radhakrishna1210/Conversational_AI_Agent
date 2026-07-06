@@ -7,6 +7,7 @@ import { whapi } from '../lib/whapi';
 import { integrationsApi } from '../lib/integrationsApi';
 import { toast } from 'sonner';
 import ChatComponent from '../components/ChatComponent';
+import AIAssistantSidebar from '../components/AIAssistantSidebar';
 import { useTheme } from '../hooks/useTheme';
 
 
@@ -204,6 +205,9 @@ export default function EditAgent() {
   const [viewMode, setViewMode] = useState<'ui' | 'code'>('ui');
   const [phoneTestNumber, setPhoneTestNumber] = useState('');
   const [deployStatus, setDeployStatus] = useState<'idle' | 'deploying' | 'done'>('idle');
+  const [askAIInput, setAskAIInput] = useState('');
+  const [askAIResponse, setAskAIResponse] = useState('');
+  const [isAskAILoading, setIsAskAILoading] = useState(false);
   const [webCallActive, setWebCallActive] = useState(false);
   const [webCallStatus, setWebCallStatus] = useState<'idle' | 'connecting' | 'connected' | 'ended'>('idle');
 
@@ -726,10 +730,10 @@ The goal is to accurately test real-world agent behavior before deployment.
 
 # Current Agent Configuration
 
-Welcome Message: ${welcomeMessage}
+Welcome Message: \${welcomeMessage}
 
 Flow:
-${flowItems.filter(f => f.enabled).map(f => f.title).join('\n')}`;
+\${flowItems.filter(f => f.enabled).map(f => f.title).join('\\n')}\`;
 
       const response = await whapi.post<{ message: string }>('/llm/generate', {
         agentId,
@@ -745,6 +749,26 @@ ${flowItems.filter(f => f.enabled).map(f => f.title).join('\n')}`;
       setChatMessages([...newMessages, { role: 'assistant', content: 'Error: Failed to get response from AI.' }]);
     } finally {
       setIsTyping(false);
+    }
+  };
+
+  const handleAskAI = async () => {
+    if (!askAIInput.trim()) return;
+    setIsAskAILoading(true);
+    setAskAIResponse('');
+    try {
+      const response = await whapi.post<{ message: string }>('/llm/generate', {
+        agentId,
+        message: askAIInput,
+        systemPrompt: `You are an AI assistant helping configure an AI voice agent. The agent is named "${agentName}" and its welcome message is: "${welcomeMessage}". Provide helpful, concise suggestions for improving or configuring this agent.`,
+        provider: 'openai',
+        model: 'gpt-4o'
+      });
+      setAskAIResponse(response.message);
+    } catch (err) {
+      setAskAIResponse('Failed to get AI response. Please check your backend connection.');
+    } finally {
+      setIsAskAILoading(false);
     }
   };
 
@@ -1241,7 +1265,7 @@ ${flowItems.filter(f => f.enabled).map(f => f.title).join('\n')}`;
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
           {/* Ask AI Button */}
           <button
-            onClick={() => setShowAskAIModal(true)}
+            onClick={() => { setShowAskAIModal(true); setAskAIResponse(''); setAskAIInput(''); }}
             style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', background: '#ff9800', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', transition: 'opacity 0.2s' }}
             onMouseEnter={e => e.currentTarget.style.opacity = '0.85'}
             onMouseLeave={e => e.currentTarget.style.opacity = '1'}
@@ -2617,7 +2641,7 @@ ${flowItems.filter(f => f.enabled).map(f => f.title).join('\n')}`;
 
         {/* Right Sidebar (AI Assistant) */}
         {showAskAIModal && (
-          <div style={{ padding: 24, color: '#fff' }}>AI assistant sidebar temporarily unavailable.</div>
+          <AIAssistantSidebar onClose={() => setShowAskAIModal(false)} />
         )}
       </div>
 

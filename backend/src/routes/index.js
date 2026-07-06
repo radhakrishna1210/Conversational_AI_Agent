@@ -31,7 +31,6 @@ import { getHealth as getGeminiHealth, getMetrics as getGeminiMetrics } from '..
 import { getHealth as getOpenAIHealth, getMetrics as getOpenAIMetrics } from '../controllers/openai.controller.js';
 import { getHealth as getAzureHealth, getMetrics as getAzureMetrics } from '../controllers/azure.controller.js';
 import { generateAgentFlow } from '../controllers/llm.controller.js';
-import { buildAssistantRequestPayload } from '../lib/chatHistoryFormatter.js';
 
 const router = Router();
 
@@ -47,111 +46,33 @@ router.use('/integrations', integrationsPublicRoutes);
 
 // Public AI Assistant chat — no auth required, always works
 router.post('/assistant/chat', async (req, res) => {
-  console.log("✅ Assistant chat endpoint hit");
-console.log(req.body);
   try {
-    const { message, systemPrompt, history } = req.body;
+    const { message, systemPrompt } = req.body;
     if (!message || typeof message !== 'string' || !message.trim()) {
       return res.status(400).json({ error: 'Message is required' });
     }
 
-    const { message: cleanedMessage, chatHistory, systemPrompt: resolvedSystemPrompt } = buildAssistantRequestPayload({
-      message,
-      history,
-      systemPrompt,
-    });
-
-    const normalizedMessage = cleanedMessage.toLowerCase().replace(/[^a-z0-9\s?]/g, ' ').replace(/\s+/g, ' ').trim();
-    const isPlatformQuestion = /\b(what|who|which|where|why|how)\b.*\b(platform|website|product|service|omnidimension|omni dimension)\b/i.test(normalizedMessage);
-    const isAssistantQuestion = /\b(what|who|which|where|why|how)\b.*\b(ai assistant|assistant|voice ai|voice assistant|chatbot)\b/i.test(normalizedMessage);
-    const isVoiceAssistantQuestion = /\b(what|who|which|where|why|how)\b.*\b(voice assistant|voice ai|voice bot)\b/i.test(normalizedMessage);
-    const isHowItWorksQuestion = /\b(what|who|which|where|why|how)\b.*\b(work|works|function|functions|operate|operates)\b/i.test(normalizedMessage);
-    const isSetupTimeQuestion = /\b(how long|setup|takes|time|minutes|hours)\b/i.test(normalizedMessage);
-    const isFreeTrialQuestion = /\b(free|trial|demo|test)\b/i.test(normalizedMessage);
-    const isCodingKnowledgeQuestion = /\b(coding|code|developer|programming|technical|tech)\b/i.test(normalizedMessage);
-    const yesNoQuestion = /\b(yes|no)\b/i.test(normalizedMessage) || (/\?/.test(message.trim()) && /\b(is|are|do|does|did|can|could|would|should|will|have|has|need|must|shall)\b/i.test(normalizedMessage));
-
-    if (isPlatformQuestion) {
-      return res.json({
-        success: true,
-        message: 'This is OmniDimension, a voice AI platform for building assistants, managing contacts, running WhatsApp campaigns, and connecting integrations from one dashboard.',
-      });
-    }
-
-    if (isAssistantQuestion) {
-      return res.json({
-        success: true,
-        message: 'An AI assistant is a smart helper that understands questions, guides conversations, and automates tasks like answering customers or booking appointments.',
-      });
-    }
-
-    if (isVoiceAssistantQuestion || isHowItWorksQuestion) {
-      return res.json({
-        success: true,
-        message: 'A voice assistant listens to spoken questions, understands them, and replies with a voice answer or action. It is commonly used for support, booking, and automation.',
-      });
-    }
-
-    if (isSetupTimeQuestion) {
-      return res.json({
-        success: true,
-        message: 'Setup usually takes only a few minutes to get started, and a bit longer if you are configuring custom flows or integrations.',
-      });
-    }
-
-    if (isFreeTrialQuestion) {
-      return res.json({
-        success: true,
-        message: 'Yes, a free trial or demo is typically available so you can explore the platform before committing to a paid plan.',
-      });
-    }
-
-    if (isCodingKnowledgeQuestion) {
-      return res.json({
-        success: true,
-        message: 'No coding knowledge is required for the basic experience. You can build and manage assistants using the visual tools, and coding is only needed for advanced custom integrations.',
-      });
-    }
-
-    if (yesNoQuestion) {
-      return res.json({
-        success: true,
-        message: 'Yes — Kelvin can help answer yes/no questions about building agents, training your assistant, WhatsApp integration, API keys, and dashboard features.',
-      });
-    }
-
     // Try real LLM provider with fallback, ultimately falls back to mock
-    console.log("STEP 1");
-
-    const provider = getLLMProviderWithFallback('openai');
-    console.log("STEP 2", provider);
-    console.log("STEP 3");
-    
-    // console.log("Provider:", provider.constructor.name); 
+    const provider = getLLMProviderWithFallback('gemini');
     const response = await provider.generateResponse(
-      cleanedMessage,
-      { model: 'gpt-4o-mini', temperature: 0.7 },
+      message,
+      { model: 'gemini-2.5-flash', temperature: 0.7 },
       {
-        systemPrompt: resolvedSystemPrompt || "You are a helpful AI assistant representing the OmniDimension Conversational Voice AI platform. Your job is to answer the user's questions about configuring their agent, setting up integrations (like N8N, Genesys, Twilio), setting up speech-to-text / text-to-speech, and configuring languages. Be concise, professional, and friendly.",
+        systemPrompt: systemPrompt || "You are a helpful AI assistant representing the OmniDimension Conversational Voice AI platform. Your job is to answer the user's questions about configuring their agent, setting up integrations (like N8N, Genesys, Twilio), setting up speech-to-text / text-to-speech, and configuring languages. Be concise, professional, and friendly.",
         maxTokens: 2000,
-        chatHistory,
       }
     );
-    console.log("STEP 4", response);
 
     // Handle both string and object responses (mock returns object, real LLM returns string)
     const replyText = typeof response === 'object' ? response.message : response;
     res.json({ success: true, message: replyText });
   } catch (err) {
-  console.error("🔥 Assistant Chat Error:", err);
-
-  res.status(500).json({
-    success: false,
-    error: err.message,
-    stack: err.stack
-    // stack: process.env.NODE_ENV !== "production" ? err.stack : undefined
-  });
-}
+    logger.error('Assistant chat error:', err);
+    res.status(500).json({
+      error: 'Failed to generate response',
+      message: "I'm having trouble right now. Please try again in a moment.",
+    });
+  }
 });
 
 // Public LLM — generate-flow needs no auth (only takes a name, returns AI config)
