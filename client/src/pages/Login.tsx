@@ -38,12 +38,28 @@ export default function Login() {
         return;
       }
 
-      localStorage.setItem('token', data.accessToken);
-      localStorage.setItem('refreshToken', data.refreshToken);
-      localStorage.setItem('userName', data.user.name);
-      localStorage.setItem('userEmail', data.user.email);
-      if (data.workspace?.id) {
-        localStorage.setItem('workspaceId', data.workspace.id);
+      // Wrap localStorage in try/catch — Safari private mode blocks storage access
+      try {
+        localStorage.setItem('token', data.accessToken);
+        localStorage.setItem('refreshToken', data.refreshToken);
+        localStorage.setItem('userName', data.user.name);
+        localStorage.setItem('userEmail', data.user.email);
+        if (data.workspace?.id) {
+          localStorage.setItem('workspaceId', data.workspace.id);
+        }
+      } catch {
+        // localStorage unavailable (private/incognito mode) — store in sessionStorage
+        try {
+          sessionStorage.setItem('token', data.accessToken);
+          sessionStorage.setItem('refreshToken', data.refreshToken);
+          sessionStorage.setItem('userName', data.user.name);
+          sessionStorage.setItem('userEmail', data.user.email);
+          if (data.workspace?.id) {
+            sessionStorage.setItem('workspaceId', data.workspace.id);
+          }
+        } catch {
+          // sessionStorage also blocked — proceed anyway, page will redirect
+        }
       }
 
       setStatus('success');

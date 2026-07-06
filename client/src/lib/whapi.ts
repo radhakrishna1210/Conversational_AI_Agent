@@ -1,20 +1,29 @@
 const BASE = '/api/v1';
 
 function getAuth() {
-  const token = localStorage.getItem('token') ?? '';
-  let workspaceId = localStorage.getItem('workspaceId') ?? '';
+  // Read from localStorage first, fall back to sessionStorage (for mobile private/incognito mode)
+  const safeGet = (key: string): string => {
+    try { return localStorage.getItem(key) ?? ''; } catch { /* blocked */ }
+    try { return sessionStorage.getItem(key) ?? ''; } catch { /* blocked */ }
+    return '';
+  };
+
+  const token = safeGet('token');
+  let workspaceId = safeGet('workspaceId');
   
   if (workspaceId === 'undefined' || workspaceId === 'null') {
     workspaceId = '';
   }
   
-  // Auto-recover workspaceId from token if it's missing in localStorage
+  // Auto-recover workspaceId from token if it's missing in storage
   if (!workspaceId && token) {
     try {
       const payload = JSON.parse(atob(token.split('.')[1]));
       if (payload.workspaceId) {
         workspaceId = payload.workspaceId;
-        localStorage.setItem('workspaceId', workspaceId);
+        try { localStorage.setItem('workspaceId', workspaceId); } catch {
+          try { sessionStorage.setItem('workspaceId', workspaceId); } catch { /* blocked */ }
+        }
       }
     } catch (_) {}
   }
@@ -24,6 +33,13 @@ function getAuth() {
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const { token, workspaceId } = getAuth();
+
+  if (!workspaceId) {
+    // Don't make a broken request — redirect to login so user can re-authenticate
+    window.location.href = '/login';
+    throw new Error('No workspace ID found. Please log in again.');
+  }
+
   const url = `${BASE}/workspaces/${workspaceId}${path}`;
   const headers: Record<string, string> = {
     ...(options.headers ?? {}),
