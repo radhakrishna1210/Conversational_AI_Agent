@@ -355,6 +355,7 @@ export const createOAuthConnectUrl = async (workspaceId, providerKey, userId, re
 
   const clientId = providerClientId(provider);
   const clientSecret = providerClientSecret(provider);
+ 
   const isMock = !clientId || !clientSecret || provider.key === 'twilio';
 
   await prisma.oAuthSession.create({
@@ -369,10 +370,15 @@ export const createOAuthConnectUrl = async (workspaceId, providerKey, userId, re
       metadata: jsonString({ provider: provider.key, mock: isMock }),
     },
   });
+   
 
   let authorizationUrl;
   if (!isMock) {
+    throw new Error("I AM HERE");
+    console.log("STATE GENERATED:", state);
     authorizationUrl = buildAuthorizationUrl(provider, state, redirectUri);
+    console.log("AUTHORIZATION URL:");
+console.log(authorizationUrl);
   } else {
     // MOCK CONNECT: Redirect straight back to our own callback to simulate completion
     const url = new URL(redirectUri || 'http://localhost:4000/api/v1/integrations/mock/callback');
@@ -393,7 +399,21 @@ export const createOAuthConnectUrl = async (workspaceId, providerKey, userId, re
 
 export const completeOAuthCallback = async (providerKey, code, state, callbackRedirectUri = null) => {
   const provider = getProvider(providerKey);
-  const session = await prisma.oAuthSession.findUnique({ where: { state } });
+
+  let session;
+
+  try {
+    session = await prisma.oAuthSession.findUnique({
+      where: { state }
+    });
+
+    console.log("SESSION FOUND:", session);
+
+  } catch (err) {
+    console.error("OAUTH SESSION ERROR:", err);
+    throw err;
+  }
+
   if (!session || session.provider !== provider.key || session.consumedAt || session.expiresAt < now()) {
     const error = new Error('OAuth session expired or invalid');
     error.statusCode = 400;

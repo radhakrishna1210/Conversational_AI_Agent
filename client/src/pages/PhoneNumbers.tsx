@@ -30,6 +30,122 @@ interface SipForm {
   password: string;
 }
 
+const VALIDATION = {
+  name: /^[a-zA-Z\s]{2,50}$/,
+  email: /^[^\s@]+@[^\s@]+\.[^\s@]+$/,
+  phone: /^[6-9]\d{9}$/,
+  pan: /^[A-Z]{5}[0-9]{4}[A-Z]$/,
+  aadhar: /^\d{12}$/,
+  gst: /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][A-Z0-9]Z[A-Z0-9]$/,
+  sid: /^[a-zA-Z0-9_-]{5,100}$/,
+  token: /^.{5,200}$/,
+ port: /^([1-9][0-9]{0,4})$/
+};
+
+const isEmpty = (value: string) =>
+  !value.trim();
+
+const validateName = (value: string) =>
+  VALIDATION.name.test(value);
+
+const validateEmail = (value: string) =>
+  VALIDATION.email.test(value);
+
+const validatePhone = (value: string) =>
+  VALIDATION.phone.test(value);
+
+const validatePAN = (value: string) =>
+  VALIDATION.pan.test(value);
+
+const validateAadhar = (value: string) =>
+  VALIDATION.aadhar.test(value);
+
+const validateGST = (value: string) =>
+  VALIDATION.gst.test(value);
+
+const validatePort = (value: string) =>
+  VALIDATION.port.test(value);
+
+const validateTwilioForm = (
+  form: TwilioForm
+) => {
+
+  if (isEmpty(form.name))
+    return "Name is required";
+
+  if (!validateName(form.name))
+    return "Enter valid name";
+
+  if (isEmpty(form.phoneNumber))
+    return "Phone number required";
+
+  if (!validatePhone(form.phoneNumber))
+    return "Enter valid phone number";
+
+  if (isEmpty(form.accountSid))
+    return "Account SID required";
+
+  if (isEmpty(form.accountToken))
+    return "Account Token required";
+
+  return null;
+};
+
+const validateExotelForm = (
+  form: ExotelForm
+) => {
+
+  if (!validateName(form.name))
+    return "Enter valid name";
+
+  if (!validatePhone(form.phoneNumber))
+    return "Enter valid phone number";
+
+  if (isEmpty(form.apiKey))
+    return "API Key required";
+
+  if (isEmpty(form.apiToken))
+    return "API Token required";
+
+  if (isEmpty(form.subdomain))
+    return "Subdomain required";
+
+  if (isEmpty(form.accountSid))
+    return "Account SID required";
+
+  if (isEmpty(form.appId))
+    return "App ID required";
+
+  return null;
+};
+
+const validateSipForm = (
+  form: SipForm
+) => {
+
+  if (!validateName(form.name))
+    return "Enter valid name";
+
+  if (isEmpty(form.provider))
+    return "Select provider";
+
+  if (!validatePhone(form.phoneNumber))
+    return "Enter valid phone number";
+
+  if (isEmpty(form.sipHost))
+    return "SIP Host required";
+
+  if (isEmpty(form.sipPort))
+    return "SIP Port required";
+
+  if (!validatePort(form.sipPort))
+    return "SIP Port must be numeric";
+
+  return null;
+};
+
+
+
 // ---------- shared styled input ----------
 function Field({
   label,
@@ -90,13 +206,19 @@ function PhoneField({ value, onChange }: { value: string; onChange: (v: string) 
           fontSize: '13px',
           color: '#fff',
         }}>
-          🇺🇸 <span style={{ color: '#aaa' }}>+1</span>
+         🇮🇳 <span style={{ color: '#aaa' }}>+91</span>
         </div>
         <input
           type="tel"
           value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder="Phone number"
+         onChange={(e) =>
+  onChange(
+    e.target.value
+      .replace(/\D/g, '')
+      .slice(0, 10)
+  )
+}
+        placeholder="9876543210"
           style={{
             flex: 1,
             padding: '10px 12px',
@@ -523,7 +645,7 @@ function SipTrunkModal({
             <label style={labelStyle}>Phone Number</label>
             <div style={{ display: 'flex', alignItems: 'center', background: '#111827', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px', overflow: 'hidden' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '10px 12px', borderRight: '1px solid rgba(255,255,255,0.1)', whiteSpace: 'nowrap', fontSize: '13px', color: '#fff' }}>
-                🇺🇸 <span style={{ color: '#aaa' }}>+1</span>
+                🇮🇳 <span style={{ color: '#aaa' }}>+91</span>
               </div>
               <input
                 type="tel"
@@ -1230,18 +1352,20 @@ function KYCModal({
   const next = async () => {
     if (step === 0) {
       // Validate inputs
-      if (!fullName.trim()) {
-        showToast('Please enter your full name', 'error');
-        return;
-      }
-      if (!email.trim() || !email.includes('@')) {
-        showToast('Please enter a valid email address', 'error');
-        return;
-      }
-      if (!mobile || mobile.length < 10) {
-        showToast('Please enter a 10-digit mobile number', 'error');
-        return;
-      }
+      if (!validateName(fullName)) {
+  showToast('Enter a valid full name', 'error');
+  return;
+}
+
+if (!validateEmail(email)) {
+  showToast('Enter a valid email address', 'error');
+  return;
+}
+
+if (!validatePhone(mobile)) {
+  showToast('Enter a valid 10-digit mobile number', 'error');
+  return;
+}
       // Send mobile OTP when moving to step 1
       const sent = await sendMobileOTP();
       if (sent) setStep(1);
@@ -1251,30 +1375,48 @@ function KYCModal({
       if (verified) setStep(2);
     } else if (step === 2) {
       // Validate PAN fields
-      if (!panNumber || panNumber.length < 10) {
-        showToast('Please enter a valid 10-character PAN number', 'error');
-        return;
-      }
+      if (!validatePAN(panNumber)) {
+  showToast(
+    'Please enter a valid PAN number',
+    'error'
+  );
+  return;
+}
       if (!dob) {
         showToast('Please enter your date of birth', 'error');
         return;
       }
-      if (!fatherName.trim()) {
-        showToast("Please enter your father's name", 'error');
-        return;
-      }
+      if (!validateName(fatherName)) {
+  showToast(
+    "Please enter a valid father's name",
+    'error'
+  );
+  return;
+}
       setStep(3);
     } else if (step === 3) {
       // Validate Aadhar and verify OTP
-      if (!aadharNumber || aadharNumber.length < 12) {
+      if (!validateAadhar(aadharNumber)){
         showToast('Please enter a valid 12-digit Aadhar number', 'error');
         return;
       }
       const verified = await verifyAadharOTP();
       if (verified) setStep(4);
-    } else {
-      setStep(s => Math.min(s + 1, 5));
-    }
+    } else if (step === 4) {
+
+  if (
+    gstNumber &&
+    !validateGST(gstNumber)
+  ) {
+    showToast(
+      'Enter a valid GST number',
+      'error'
+    );
+    return;
+  }
+
+  setStep(5);
+}
   };
 
   const prev = () => setStep(s => Math.max(s - 1, 0));
@@ -1669,6 +1811,45 @@ export default function PhoneNumbers() {
 
   const closeModal = () => setModal(null);
 
+  const handleTwilioSubmit = () => {
+  const error = validateTwilioForm(twilioForm);
+
+  if (error) {
+    alert(error);
+    return;
+  }
+
+  console.log("Twilio Import:", twilioForm);
+
+  closeModal();
+};
+
+const handleExotelSubmit = () => {
+  const error = validateExotelForm(exotelForm);
+
+  if (error) {
+    alert(error);
+    return;
+  }
+
+  console.log("Exotel Import:", exotelForm);
+
+  closeModal();
+};
+
+const handleSipSubmit = () => {
+  const error = validateSipForm(sipForm);
+
+  if (error) {
+    alert(error);
+    return;
+  }
+
+  console.log("SIP Import:", sipForm);
+
+  closeModal();
+};
+
   const importBtnStyle: React.CSSProperties = {
     display: 'flex',
     alignItems: 'center',
@@ -1781,7 +1962,7 @@ export default function PhoneNumbers() {
 
       {/* ── Twilio Modal ── */}
       {modal === 'twilio' && (
-        <NarrowModal title="Import Twilio Number" icon="📞" onClose={closeModal} onSubmit={closeModal}>
+        <NarrowModal title="Import Twilio Number" icon="📞" onClose={closeModal} onSubmit={handleTwilioSubmit}>
           <Field label="Name" value={twilioForm.name} onChange={(v) => setTwilioForm({ ...twilioForm, name: v })} placeholder="Enter a name for this number" />
           <PhoneField value={twilioForm.phoneNumber} onChange={(v) => setTwilioForm({ ...twilioForm, phoneNumber: v })} />
           <Field label="Account SID" value={twilioForm.accountSid} onChange={(v) => setTwilioForm({ ...twilioForm, accountSid: v })} placeholder="Enter your Twilio Account SID" />
@@ -1793,7 +1974,7 @@ export default function PhoneNumbers() {
       {modal === 'exotel' && (
         <ExotelModal
           onClose={closeModal}
-          onSubmit={closeModal}
+         onSubmit={handleExotelSubmit}
           form={exotelForm}
           setForm={setExotelForm}
         />
@@ -1803,7 +1984,7 @@ export default function PhoneNumbers() {
       {modal === 'sip' && (
         <SipTrunkModal
           onClose={closeModal}
-          onSubmit={closeModal}
+         onSubmit={handleSipSubmit}
           form={sipForm}
           setForm={setSipForm}
         />

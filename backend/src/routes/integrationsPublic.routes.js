@@ -4,6 +4,7 @@ import * as service from '../services/integrations.service.js';
 const router = Router();
 
 router.get('/:provider/callback', async (req, res) => {
+  
   const { provider } = req.params;
   const { code, state, error, error_description: errorDescription } = req.query;
 
