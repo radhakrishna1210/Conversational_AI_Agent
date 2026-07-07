@@ -41,9 +41,14 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   }
 
   const url = `${BASE}/workspaces/${workspaceId}${path}`;
-  const headers: Record<string, string> = {
-    ...(options.headers ?? {}),
-  };
+  const headers: Record<string, string> = {};
+
+  if (options.headers) {
+    const incomingHeaders = new Headers(options.headers);
+    incomingHeaders.forEach((value, key) => {
+      headers[key] = value;
+    });
+  }
   if (token) headers.Authorization = `Bearer ${token}`;
 
   if (!(options.body instanceof FormData)) {
@@ -95,5 +100,6 @@ export const whapi = {
     request<T>(path, { method: 'PATCH', body: JSON.stringify(body) }),
   put: <T>(path: string, body: unknown) =>
     request<T>(path, { method: 'PUT', body: JSON.stringify(body) }),
+  delete: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
   del: <T>(path: string) => request<T>(path, { method: 'DELETE' }),
 };
