@@ -8,7 +8,9 @@ const isApiKey = (token) => API_KEY_PREFIXES.some((p) => token?.startsWith(p));
 
 export const authenticate = async (req, res, next) => {
   const authHeader = req.headers.authorization;
-  const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
+  // SSE connections (EventSource) cannot send headers — accept token from query param as fallback
+  const queryToken = typeof req.query?.token === 'string' ? req.query.token : null;
+  const token = (authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null) ?? queryToken;
 
   if (!token) {
     return res.status(401).json({ error: 'Authentication required' });

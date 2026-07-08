@@ -5,6 +5,7 @@ import logger from '../lib/logger.js';
 // In-memory stores (dev only)
 const users = new Map();
 const tokenStore = new Map();
+let authInitPromise = null;
 
 // Default users
 const defaultUsers = [
@@ -12,25 +13,31 @@ const defaultUsers = [
   { id: '2', email: 'admin@example.com', name: 'Admin User', password: 'admin123' },
 ];
 
-// Initialize default users
+// Initialize default users once and reuse the promise for all callers
 async function initializeDefaultUsers() {
-  for (const user of defaultUsers) {
-    const passwordHash = await hashPassword(user.password);
+  if (authInitPromise) return authInitPromise;
 
-    users.set(user.email, {
-      id: user.id,
-      email: user.email,
-      name: user.name,
-      passwordHash,
-      workspace: {
-        id: `ws-${user.id}`,
-        name: `${user.name}'s Workspace`,
-        slug: user.name.toLowerCase().replace(/\s+/g, '-'),
-      },
-    });
-  }
+  authInitPromise = (async () => {
+    for (const user of defaultUsers) {
+      const passwordHash = await hashPassword(user.password);
 
-  logger.info('Mock auth users initialized');
+      users.set(user.email, {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        passwordHash,
+        workspace: {
+          id: `ws-${user.id}`,
+          name: `${user.name}'s Workspace`,
+          slug: user.name.toLowerCase().replace(/\s+/g, '-'),
+        },
+      });
+    }
+
+    logger.info('Mock auth users initialized');
+  })();
+
+  return authInitPromise;
 }
 
 // Initialize on startup
@@ -42,6 +49,7 @@ initializeDefaultUsers().catch(err =>
 
 // Register
 export const registerUser = async ({ name, email, password, workspaceName }) => {
+  await initializeDefaultUsers();
   if (users.has(email)) {
     throw Object.assign(new Error('Email already registered'), { statusCode: 409 });
   }
@@ -72,6 +80,7 @@ export const registerUser = async ({ name, email, password, workspaceName }) => 
 
 // Login
 export const loginUser = async ({ email, password }) => {
+  await initializeDefaultUsers();
   const user = users.get(email);
 
   if (!user) {
@@ -114,6 +123,7 @@ export const loginUser = async ({ email, password }) => {
 
 // Refresh token
 export const refreshUserToken = async (rawToken) => {
+  await initializeDefaultUsers();
   const tokenHash = hashToken(rawToken);
   const stored = tokenStore.get(tokenHash);
 
@@ -170,6 +180,7 @@ export const logout = async (rawToken) => {
 
 // Google OAuth Login/Register
 export const loginOrRegisterWithGoogle = async ({ googleId, email, name, avatarUrl }) => {
+  await initializeDefaultUsers();
   // Check if user exists by googleId
   let user = null;
   for (const u of users.values()) {

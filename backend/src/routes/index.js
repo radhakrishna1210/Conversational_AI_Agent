@@ -54,6 +54,7 @@ router.use('/voices', voiceRoutes);
 router.use('/voice', voiceRoutes);
 router.use('/integrations', integrationsPublicRoutes);
 
+
 // Public AI Assistant chat — no auth required, always works
 router.post('/assistant/chat', async (req, res) => {
   try {
