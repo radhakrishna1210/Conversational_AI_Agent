@@ -1535,12 +1535,12 @@ Goals:
                     <span className="omni-card-id">ID: {assistant.id}</span>
                     <button className="omni-btn omni-btn-primary" onClick={() => navigate(`/agent/${assistant.id}`)}>Edit Agent</button>
                   </div>
-                </article >
+                </div>{/* omni-card-head */}
+                </article>
               ))
               }
-            </div >
-          </div >
-        </div >
+            </div>
+          </div>
 
         {/* ════════════════════════════════════════════
           STYLES
