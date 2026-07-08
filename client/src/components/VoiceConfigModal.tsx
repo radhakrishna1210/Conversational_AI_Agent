@@ -29,9 +29,13 @@ interface Voice {
 interface ProviderStatus {
   google: boolean;
   elevenlabs: boolean;
+  sarvam?: boolean;
+  cartesia?: boolean;
   details: {
     google: { healthy: boolean; latencyMs?: number; error?: string };
     elevenlabs: { healthy: boolean; latencyMs?: number; error?: string };
+    sarvam?: { healthy: boolean; latencyMs?: number; error?: string };
+    cartesia?: { healthy: boolean; latencyMs?: number; error?: string };
   };
 }
 

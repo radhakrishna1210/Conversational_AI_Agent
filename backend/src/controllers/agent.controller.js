@@ -125,9 +125,20 @@ export const deleteAgent = async (req, res) => {
  * Chat endpoint for multilingual AI responses
  * POST /api/v1/agents/:agentId/chat
  */
+const normalizePromptBullets = (items = []) => {
+  return items
+    .filter((item) => item && item.enabled !== false)
+    .map((item, index) => {
+      const title = item.title || `Section ${index + 1}`;
+      const body = item.body ? `\n${item.body}` : '';
+      return `- ${title}${body}`;
+    })
+    .join('\n');
+};
+
 export const chat = async (req, res) => {
   const { agentId } = req.params;
-  const { message, selectedLanguages, welcomeMessage } = req.body;
+  const { message, selectedLanguages, welcomeMessage, flowItems: clientFlowItems, voice: clientVoice, chatHistory = [] } = req.body;
 
   // Validate input
   if (!message || !message.trim()) {
@@ -155,14 +166,17 @@ export const chat = async (req, res) => {
       flowItems = safeJson(agent.flowItems, []);
     }
 
+    const requestFlowItems = Array.isArray(clientFlowItems) && clientFlowItems.length > 0 ? clientFlowItems : flowItems;
+    const selectedVoice = agent?.voice || clientVoice || 'Google - Aoede (female)';
+
     const agentContext = {
       name: agent?.name || 'AI Assistant',
       welcomeMessage: agent?.welcomeMessage || welcomeMessage || 'Hello!',
       aiModel: agent?.aiModel || 'sarvam-30b',
-      voice: agent?.voice || 'Google',
+      voice: selectedVoice,
       transcription: agent?.transcription || 'Azure',
       languages: selectedLanguages,
-      flowItems,
+      flowItems: requestFlowItems,
     };
 
     logger.debug(
@@ -170,16 +184,45 @@ export const chat = async (req, res) => {
       'Chat request received'
     );
 
-    const systemPrompt = `You are a helpful multilingual assistant. 
-Agent context: ${agentContext.welcomeMessage}
-Important: You must detect the language of the user's message and respond in the same language. 
-Ensure your response aligns with one of the following requested languages if possible: ${selectedLanguages.join(', ')}.`;
+    const flowPrompt = normalizePromptBullets(agentContext.flowItems);
+
+    const systemPrompt = `You are the live voice assistant for the agent "${agentContext.name}".
+
+Agent purpose and context:
+${agentContext.welcomeMessage}
+
+Configured voice:
+${agentContext.voice}
+
+Operating instructions:
+- Stay tightly aligned to the agent's business purpose, not generic chatbot behavior.
+- If the agent is for appointments, focus on scheduling, confirmations, reschedules, reminders, availability, and follow-ups.
+- If the agent is for support, focus on troubleshooting, orders, returns, account issues, and next steps.
+- If the agent is for sales or lead qualification, focus on qualification, interest, objections, and booking next actions.
+- Ask the next natural follow-up question when needed.
+- Keep replies concise, helpful, and spoken-natural.
+- Detect the user's language and respond in the same language when possible.
+
+Requested languages:
+${selectedLanguages.join(', ')}
+
+Relevant flow / problem-statement context:
+${flowPrompt || '(none provided)'}`;
 
     // Generate response using Gemini
     const response = await geminiService.generateResponse({
       message,
       model: 'gemini-2.5-flash',
-      systemPrompt: systemPrompt
+      systemPrompt,
+      chatHistory: Array.isArray(chatHistory)
+        ? chatHistory
+            .filter((item) => item && typeof item.text === 'string' && item.text.trim())
+            .slice(-10)
+            .map((item) => ({
+              role: item.role === 'assistant' ? 'assistant' : 'user',
+              content: item.text,
+            }))
+        : [],
     });
 
     if (!response.success) {

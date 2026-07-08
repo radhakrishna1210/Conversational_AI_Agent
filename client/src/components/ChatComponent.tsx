@@ -58,7 +58,8 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
       timestamp: new Date(),
     };
 
-    setMessages(prev => [...prev, userMessage]);
+    const updatedMessages = [...messages, userMessage];
+    setMessages(updatedMessages);
     setInputValue('');
     setLoading(true);
     setError('');
@@ -80,6 +81,10 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
           message: trimmedInput,
           selectedLanguages,
           welcomeMessage,
+          chatHistory: updatedMessages.slice(0, -1).slice(-10).map((msg) => ({
+            role: msg.type,
+            text: msg.text,
+          })),
         }),
       });
 
