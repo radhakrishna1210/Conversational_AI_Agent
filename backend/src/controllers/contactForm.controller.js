@@ -17,12 +17,24 @@ const validateContactForm = (body) => {
 };
 
 export const submitContactForm = async (req, res) => {
-  validateContactForm(req.body);
-  const submission = await contactFormService.createContactSubmission(req.body);
-  res.status(201).json({ success: true, id: submission.id });
+  try {
+    validateContactForm(req.body);
+    const submission = await contactFormService.createContactSubmission(req.body);
+    res.status(201).json({ success: true, id: submission.id });
+  } catch (err) {
+    const status = err.statusCode || 500;
+    const message = status < 500 ? err.message : 'Internal server error. Please try again later.';
+    console.error('[contactForm] submitContactForm error:', err);
+    res.status(status).json({ error: message });
+  }
 };
 
 export const listContactForms = async (_req, res) => {
-  const submissions = await contactFormService.listContactSubmissions();
-  res.json(submissions);
+  try {
+    const submissions = await contactFormService.listContactSubmissions();
+    res.json(submissions);
+  } catch (err) {
+    console.error('[contactForm] listContactForms error:', err);
+    res.status(500).json({ error: 'Failed to fetch contact submissions' });
+  }
 };

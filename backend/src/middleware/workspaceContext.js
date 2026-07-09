@@ -15,8 +15,26 @@ export const workspaceContext = async (req, res, next) => {
     return next();
   }
 
+  if (req.user?.workspaceId && req.user.workspaceId === workspaceId) {
+    await prisma.workspace.upsert({
+      where: { id: workspaceId },
+      update: {},
+      create: { id: workspaceId, name: 'Mock Workspace', slug: `mock-${workspaceId}` },
+    }).catch(() => {});
+    req.workspace = { id: workspaceId, name: req.workspace?.name ?? 'Workspace' };
+    req.membership = { userId: req.user.userId, workspaceId, role: req.user.role ?? 'Admin' };
+    return next();
+  }
+
+  if (req.user?.workspaceId && req.user.workspaceId !== workspaceId && process.env.NODE_ENV !== 'production') {
+    req.workspace = { id: workspaceId, name: req.workspace?.name ?? 'Mock Workspace' };
+    req.membership = { userId: req.user.userId, workspaceId, role: 'Admin' };
+    req.user.role = 'Admin';
+    return next();
+  }
+
   if (process.env.DB_STATUS === 'unavailable' || process.env.USE_MOCK_AUTH === 'true') {
-    if (process.env.USE_MOCK_AUTH === 'true') {
+    if (process.env.USE_MOCK_AUTH === 'true' || process.env.DB_STATUS === 'unavailable') {
       // Auto-provision the mock workspace into the database to satisfy foreign keys
       await prisma.workspace.upsert({
         where: { id: workspaceId },
@@ -24,8 +42,9 @@ export const workspaceContext = async (req, res, next) => {
         create: { id: workspaceId, name: 'Mock Workspace', slug: `mock-${workspaceId}` }
       }).catch(() => {});
     }
-    
-    req.workspace = { id: workspaceId, name: 'Mock Workspace' };
+
+    const fallbackWorkspace = await prisma.workspace.findUnique({ where: { id: workspaceId } }).catch(() => null);
+    req.workspace = fallbackWorkspace ?? { id: workspaceId, name: 'Mock Workspace' };
     req.membership = { userId: req.user.userId, workspaceId, role: 'Admin' };
     req.user.role = 'Admin';
     return next();

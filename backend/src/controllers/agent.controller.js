@@ -51,6 +51,10 @@ export const createAgent = async (req, res) => {
 export const getAgents = async (req, res) => {
   const { workspaceId } = req.params;
 
+  if (!workspaceId) {
+    return res.status(400).json({ error: 'workspaceId is required' });
+  }
+
   try {
     const agents = await prisma.agent.findMany({
       where: { workspaceId },

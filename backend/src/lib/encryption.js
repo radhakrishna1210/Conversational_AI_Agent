@@ -7,10 +7,16 @@ const KEY_LENGTH = 32;
 
 const getKey = () => {
   const raw = env.ENCRYPTION_KEY;
-  if (!raw || raw.length < KEY_LENGTH) {
+  // In dev/test, fall back to a deterministic key so the server still starts
+  // even when ENCRYPTION_KEY is unset or a placeholder.
+  const effectiveRaw = (!raw || raw.startsWith('your-')) && env.NODE_ENV !== 'production'
+    ? 'dev-fallback-key-do-not-use-in-prod!!'
+    : raw;
+
+  if (!effectiveRaw || effectiveRaw.length < KEY_LENGTH) {
     throw new Error(`ENCRYPTION_KEY must be at least ${KEY_LENGTH} characters`);
   }
-  return Buffer.from(raw.slice(0, KEY_LENGTH), 'utf8');
+  return Buffer.from(effectiveRaw.slice(0, KEY_LENGTH), 'utf8');
 };
 
 /**
