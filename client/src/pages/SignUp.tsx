@@ -20,42 +20,56 @@ const validateEmail = (email: string) =>
 
 const validatePassword = (password: string) =>
   /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/.test(password);
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
 
-   if (!validateName(form.name)) {
-  setErrorMsg(
-    'Full Name should contain only letters and spaces.'
-  );
-  return;
-}
-
-if (!validateEmail(form.email)) {
-  setErrorMsg(
-    'Please enter a valid email address.'
-  );
-  return;
-}
-
-if (!validatePassword(form.password)) {
-  setErrorMsg(
-    'Password must be at least 8 characters and include uppercase, lowercase, number, and special character.'
-  );
-  return;
-}
-
-if (form.password !== form.confirm) {
-  setErrorMsg('Passwords do not match.');
-  return;
-}
+    if (!validateName(form.name)) {
+      setErrorMsg('Full Name should contain only letters and spaces.');
+      return;
+    }
+    if (!validateEmail(form.email)) {
+      setErrorMsg('Please enter a valid email address.');
+      return;
+    }
+    if (!validatePassword(form.password)) {
+      setErrorMsg('Password must be at least 8 characters and include uppercase, lowercase, number, and special character.');
+      return;
+    }
+    if (form.password !== form.confirm) {
+      setErrorMsg('Passwords do not match.');
+      return;
+    }
 
     setStatus('submitting');
-    // Simulate API call
-    setTimeout(() => {
+
+    try {
+      const res = await fetch('/api/v1/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: form.name.trim(),
+          email: form.email.trim(),
+          password: form.password,
+          workspaceName: `${form.name.trim()}'s Workspace`,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok) {
+        setErrorMsg(data.error || 'Registration failed. Please try again.');
+        setStatus('error');
+        return;
+      }
+
       setStatus('success');
-      setTimeout(() => navigate('/dashboard'), 800);
-    }, 1500);
+      // Redirect to login so they can sign in with their new credentials
+      setTimeout(() => navigate('/login'), 1200);
+    } catch {
+      setErrorMsg('Network error. Please check your connection.');
+      setStatus('error');
+    }
   };
 
   return (
@@ -182,7 +196,7 @@ if (form.password !== form.confirm) {
             {/* Success */}
             {status === 'success' && (
               <div style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: '8px', padding: '12px 16px', color: '#22c55e', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                ✓ Account created! Redirecting to dashboard...
+                ✓ Account created! Redirecting to login...
               </div>
             )}
 

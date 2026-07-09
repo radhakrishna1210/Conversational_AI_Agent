@@ -1,35 +1,35 @@
-
-
 import * as mockAuthService from '../services/mockAuth.service.js';
 import * as authService from '../services/auth.service.js';
-
-
 import { env } from '../config/env.js';
 
-// Fallback to mock service if database is unavailable
+// In dev (NODE_ENV !== 'production'), always use mock auth so default test
+// credentials work without a real DB user.  Flip USE_MOCK_AUTH=false to use
+// the real auth.service against the Neon DB.
 const getAuthService = () => {
   const useMock = env.USE_MOCK_AUTH === 'true' || process.env.DB_STATUS === 'unavailable';
   return useMock ? mockAuthService : authService;
 };
 
+// Unified error handler — converts thrown errors into proper HTTP responses
+const handleAuthError = (res, err) => {
+  const status = err.statusCode ?? 500;
+  const message = status < 500 ? err.message : 'Something went wrong. Please try again.';
+  return res.status(status).json({ error: message });
+};
+
 export const register = async (req, res) => {
-  const service = getAuthService();
   try {
+    const service = getAuthService();
     const { user, workspace } = await service.registerUser(req.body);
     res.status(201).json({ message: 'Account created', userId: user.id, workspaceId: workspace?.id });
   } catch (err) {
-    // Try fallback to mock if auth service fails
-    if (service === authService && process.env.DB_STATUS === 'unavailable') {
-      const { user, workspace } = await mockAuthService.registerUser(req.body);
-      return res.status(201).json({ message: 'Account created (dev mode)', userId: user.id, workspaceId: workspace?.id });
-    }
-    throw err;
+    handleAuthError(res, err);
   }
 };
 
 export const login = async (req, res) => {
-  const service = getAuthService();
   try {
+    const service = getAuthService();
     const { accessToken, refreshToken, user, workspace } = await service.loginUser(req.body);
     res.json({
       accessToken,
@@ -38,46 +38,39 @@ export const login = async (req, res) => {
       workspace: workspace ? { id: workspace.id, name: workspace.name, slug: workspace.slug } : null,
     });
   } catch (err) {
-    // Try fallback to mock if auth service fails
-    if (service === authService && process.env.DB_STATUS === 'unavailable') {
-      const { accessToken, refreshToken, user, workspace } = await mockAuthService.loginUser(req.body);
-      return res.json({
-        accessToken,
-        refreshToken,
-        user: { id: user.id, name: user.name, email: user.email },
-        workspace: workspace ? { id: workspace.id, name: workspace.name, slug: workspace.slug } : null,
-      });
-    }
-    throw err;
+    handleAuthError(res, err);
   }
 };
 
 export const refresh = async (req, res) => {
-  const service = getAuthService();
-  const { refreshToken } = req.body;
   try {
+    const service = getAuthService();
+    const { refreshToken } = req.body;
     const tokens = await service.refreshTokens(refreshToken);
     res.json(tokens);
   } catch (err) {
-    // Fallback
-    if (service === authService && process.env.DB_STATUS === 'unavailable') {
-      const tokens = await mockAuthService.refreshUserToken(refreshToken);
-      return res.json(tokens);
-    }
-    throw err;
+    handleAuthError(res, err);
   }
 };
 
 export const logout = async (req, res) => {
-  const service = getAuthService();
-  await service.logout(req.body.refreshToken);
-  res.json({ message: 'Logged out' });
+  try {
+    const service = getAuthService();
+    await service.logout(req.body.refreshToken);
+    res.json({ message: 'Logged out' });
+  } catch (err) {
+    handleAuthError(res, err);
+  }
 };
 
 export const acceptInvite = async (req, res) => {
-  const service = getAuthService();
-  const user = await service.acceptInvite(req.body);
-  res.json({ message: 'Invite accepted', userId: user.id });
+  try {
+    const service = getAuthService();
+    const user = await service.acceptInvite(req.body);
+    res.json({ message: 'Invite accepted', userId: user.id });
+  } catch (err) {
+    handleAuthError(res, err);
+  }
 };
 
 export const me = async (req, res) => {
