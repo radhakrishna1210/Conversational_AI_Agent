@@ -1,4 +1,4 @@
-import { useParams, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { useEffect, useState, useRef } from 'react';
 import { AgentConfig, getAgent, saveAgent, getDefaultFlowItems } from '../lib/agentStore';
@@ -10,6 +10,22 @@ import ChatComponent from '../components/ChatComponent';
 import AIAssistantSidebar from '../components/AIAssistantSidebar';
 import VoiceConfigModal from '../components/VoiceConfigModal';
 import { useTheme } from '../hooks/useTheme';
+import { getTemplateById, type AgentTemplate } from '../data/agentTemplates';
+import { TemplateBanner, TemplatePickerModal } from '../components/TemplateSelector';
+import { AgentPlayground } from '../components/playground/AgentPlayground';
+import { KPICard } from '../components/analytics/KPICard';
+import { CallsOverTimeChart, OutcomePieChart, DurationBarChart, TopIntentsChart } from '../components/analytics/AnalyticsChart';
+import { CallLogsTable } from '../components/analytics/CallLogsTable';
+import {
+  getKPIs,
+  getCallsOverTime,
+  getOutcomeBreakdown,
+  getDurationBuckets,
+  getTopIntents,
+  mockCallLogs
+} from '../data/mockCallLogs';
+import { PhoneCall, CheckCircle2, Clock, Zap, CalendarCheck, TrendingUp, Smile, Bot } from 'lucide-react';
+import { KnowledgeBaseTab } from '../components/knowledge/KnowledgeBaseTab';
 
 
 interface FlowItem {
@@ -102,9 +118,16 @@ const InfoIcon = () => (
 export default function EditAgent() {
   const { agentId } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [activeTab, setActiveTab] = useState('details');
   const [isSaving, setIsSaving] = useState(false);
   const { darkMode, toggleDarkMode } = useTheme();
+
+  // Template state
+  const [activeTemplate, setActiveTemplate] = useState<AgentTemplate | null>(null);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
+  // Track which fields were pre-filled by the template (so we don't overwrite user edits)
+  const [templatePrefilled, setTemplatePrefilled] = useState(false);
 
 
   const [isLoading, setIsLoading] = useState(true);
@@ -219,7 +242,7 @@ export default function EditAgent() {
     
     const fetchAgent = async () => {
       try {
-        const agent = await whapi.get<AgentConfig>(`/agents/${agentId}`);
+        const agent = await whapi.get('/agents/' + agentId) as AgentConfig;
         if (agent) {
           const savedPostCallConfigs = (agent as any).postCallConfigs;
           setAgentName(agent.name);
@@ -283,6 +306,32 @@ export default function EditAgent() {
     fetchAgent();
   }, [agentId]);
 
+  // Read ?template param and apply defaults once after agent data loads
+  useEffect(() => {
+    const slugParam = searchParams.get('template');
+    if (!slugParam || templatePrefilled) return;
+    const tpl = getTemplateById(slugParam);
+    if (!tpl) return;
+    setActiveTemplate(tpl);
+    // Only pre-fill welcomeMessage if it hasn't been personalised yet
+    if (!welcomeMessage || welcomeMessage === tpl.defaultGreeting) {
+      setWelcomeMessage(tpl.defaultGreeting);
+    }
+    setTemplatePrefilled(true);
+  }, [welcomeMessage, templatePrefilled, searchParams]);
+
+  // Handler: user picks a new template from the modal
+  const handleTemplateSelect = (tpl: AgentTemplate) => {
+    setActiveTemplate(tpl);
+    // Only apply defaults on explicit user selection (requirement 6)
+    setWelcomeMessage(tpl.defaultGreeting);
+    setVoice(tpl.suggestedVoice);
+    setSelectedLanguages([tpl.suggestedLanguage]);
+    // Update ?template in the URL without reloading
+    setSearchParams({ template: tpl.id }, { replace: true });
+    setShowTemplatePicker(false);
+  };
+
 
   // Save changes to backend and local storage
   const handleSave = async () => {
@@ -312,7 +361,7 @@ export default function EditAgent() {
     };
 
     try {
-      await whapi.put(`/agents/${agentId}`, agentData);
+      await whapi.put('/agents/' + agentId, agentData);
     } catch (err) {
       console.error('Failed to save to backend', err);
     }
@@ -359,7 +408,7 @@ export default function EditAgent() {
   };
 
   const handleVoiceSelect = (v: { id: string; name: string; provider: string | null }) => {
-    const displayName = `${v.provider ?? 'Unknown'} - ${v.name}`;
+    const displayName = (v.provider ?? 'Unknown') + ' - ' + v.name;
     setVoice(displayName);
     setSelectedVoiceId(v.id);
     setShowVoiceModal(false);
@@ -403,7 +452,7 @@ export default function EditAgent() {
               extractedVariables: [
                 ...config.extractedVariables,
                 {
-                  id: `variable_${Date.now()}`,
+                  id: 'variable_' + Date.now(),
                   key: '',
                   description: ''
                 }
@@ -457,276 +506,9 @@ export default function EditAgent() {
 
     try {
       const isGemini = aiModel.toLowerCase().includes('gemini');
-      const chatTestInstructions = `# Chat Test Assistant Instructions
+      const chatTestInstructions = '# Chat Test Assistant Instructions\n\nYou are the Chat Test Environment for this AI Agent.\n\nYour responsibility is to simulate the exact behavior of the deployed agent and validate that the agent follows its configured instructions, conversation flow, knowledge base, variables, business rules, and integrations.\n\n## Primary Objective\n\nAct exactly as the configured agent would act in production.\n\nThe purpose of this chat is to test the agent\'s behavior before deployment.\n\nNever bypass configured instructions.\n\nNever ignore defined conversation flows.\n\nNever invent information not present in the knowledge base.\n\nNever assume tool execution if no tool is available.\n\n---\n\n## Agent Configuration Priority\n\nAlways follow this order:\n\n1. Agent Instructions\n2. Conversation Flow\n3. Knowledge Base\n4. Variables & Memory\n5. Business Rules\n6. Integrations & Tools\n7. User Message\n\nIf conflicts occur, higher-priority instructions take precedence.\n\n---\n\n## Conversation Flow Enforcement\n\nFor every user message:\n\n1. Identify current flow stage.\n2. Determine expected next action.\n3. Check required information.\n4. Continue only according to flow rules.\n\n---\n\n## Knowledge Base Rules\n\nWhen answering questions:\n\n* Search available knowledge first.\n* Use only information present in the configured knowledge base.\n* Keep responses accurate and grounded.\n\nDo not hallucinate. Do not generate unsupported facts.\n\n---\n\n## Variable Tracking\n\nMaintain conversation state throughout the session. Reuse previously collected information. Never ask for information that has already been collected unless verification is required.\n\n---\n\n## Error Handling\n\nFor ambiguous requests: Ask for clarification.\nFor unsupported requests: State that the request is outside the agent\'s configured capabilities.\nFor missing required data: Request only the specific missing information.\n\n---\n\n## Internal Validation Checklist\n\nBefore every response verify:\n✓ Agent instructions followed\n✓ Flow followed correctly\n✓ Knowledge base checked\n✓ Required variables collected\n✓ Business rules satisfied\n✓ Tool requirements validated\n✓ Memory updated\n✓ Response aligned with current stage\n\nOnly then generate the response.\n\n---\n\n# Current Agent Configuration\n\nWelcome Message: ' + welcomeMessage + '\n\nFlow:\n' + flowItems.filter(function(f) { return f.enabled; }).map(function(f) { return f.title; }).join('\n') + '';
 
-You are the Chat Test Environment for this AI Agent.
-
-Your responsibility is to simulate the exact behavior of the deployed agent and validate that the agent follows its configured instructions, conversation flow, knowledge base, variables, business rules, and integrations.
-
-## Primary Objective
-
-Act exactly as the configured agent would act in production.
-
-The purpose of this chat is to test the agent's behavior before deployment.
-
-Never bypass configured instructions.
-
-Never ignore defined conversation flows.
-
-Never invent information not present in the knowledge base.
-
-Never assume tool execution if no tool is available.
-
----
-
-## Agent Configuration Priority
-
-Always follow this order:
-
-1. Agent Instructions
-2. Conversation Flow
-3. Knowledge Base
-4. Variables & Memory
-5. Business Rules
-6. Integrations & Tools
-7. User Message
-
-If conflicts occur, higher-priority instructions take precedence.
-
----
-
-## Conversation Flow Enforcement
-
-For every user message:
-
-1. Identify current flow stage.
-2. Determine expected next action.
-3. Check required information.
-4. Continue only according to flow rules.
-
-Examples:
-
-* Greeting Flow
-* Qualification Flow
-* FAQ Flow
-* Product Inquiry Flow
-* Appointment Booking Flow
-* Support Flow
-* Escalation Flow
-* Feedback Collection Flow
-* Closing Flow
-
-Do not skip mandatory stages.
-
-Do not jump ahead in the workflow.
-
-Do not collect unnecessary information.
-
----
-
-## Knowledge Base Rules
-
-When answering questions:
-
-* Search available knowledge first.
-* Use only information present in the configured knowledge base.
-* Keep responses accurate and grounded.
-
-If information cannot be found:
-
-Respond with:
-
-"I couldn't find that information in the configured knowledge base."
-
-Do not hallucinate.
-
-Do not generate unsupported facts.
-
----
-
-## Variable Tracking
-
-Maintain conversation state throughout the session.
-
-Track:
-
-* Name
-* Email
-* Phone
-* Company
-* Product Interest
-* Booking Preferences
-* Support Details
-* Any custom variables defined for the agent
-
-Reuse previously collected information.
-
-Never ask for information that has already been collected unless verification is required.
-
----
-
-## Lead Qualification Testing
-
-If the flow requires qualification:
-
-Collect required fields.
-
-Validate:
-
-* Completeness
-* Format
-* Eligibility Criteria
-
-Only mark a lead as qualified when all required conditions are satisfied.
-
-If information is missing, request only the missing fields.
-
----
-
-## Appointment Booking Testing
-
-Before booking:
-
-Collect:
-
-* Date
-* Time
-* Time Zone
-* Contact Details
-
-Generate a confirmation summary.
-
-Require explicit user confirmation before proceeding.
-
-Never assume confirmation.
-
----
-
-## Tool & Integration Validation
-
-When a workflow requires a tool:
-
-1. Verify prerequisites.
-2. Validate collected inputs.
-3. Execute configured action.
-4. Return actual results.
-
-If the tool is unavailable:
-
-State that the requested action cannot be completed due to unavailable integration.
-
-Never fabricate successful execution.
-
-Never generate fake booking IDs, order IDs, confirmations, or API responses.
-
----
-
-## Error Handling
-
-For ambiguous requests:
-
-Ask for clarification.
-
-For unsupported requests:
-
-State that the request is outside the agent's configured capabilities.
-
-For missing required data:
-
-Request only the specific missing information.
-
----
-
-## Escalation Rules
-
-Escalate when:
-
-* User requests a human agent.
-* User repeatedly expresses frustration.
-* Request falls outside available knowledge.
-* Business rules require human review.
-
-When escalation occurs:
-
-Inform the user that the conversation should be transferred to a human representative.
-
----
-
-## Memory & Context
-
-Maintain awareness of:
-
-* Previous user responses
-* Current flow stage
-* Collected variables
-* Pending actions
-* Completed actions
-
-Use context throughout the conversation.
-
-Avoid repetitive questions.
-
----
-
-## Response Quality Standards
-
-Responses must be:
-
-* Accurate
-* Professional
-* Context-aware
-* Flow-compliant
-* Knowledge-grounded
-* Concise
-* Action-oriented
-
-Avoid:
-
-* Hallucinations
-* Guessing
-* Contradictory responses
-* Flow violations
-* Unverified claims
-
----
-
-## Internal Validation Checklist
-
-Before every response verify:
-
-✓ Agent instructions followed
-
-✓ Flow followed correctly
-
-✓ Knowledge base checked
-
-✓ Required variables collected
-
-✓ Business rules satisfied
-
-✓ Tool requirements validated
-
-✓ Memory updated
-
-✓ Response aligned with current stage
-
-Only then generate the response.
-
----
-
-## Final Rule
-
-The Chat Test environment must behave exactly like the live agent.
-
-Every response must reflect:
-
-* Agent Instructions
-* Flow Logic
-* Knowledge Base Content
-* Variables
-* Integrations
-* Business Rules
-
+<<<<<<< ours
 The goal is to accurately test real-world agent behavior before deployment.
 
 ---
@@ -739,6 +521,9 @@ Flow:
 ${flowItems.filter(f => f.enabled).map(f => f.title).join('\n')}`;
 
       const response = await whapi.post<{ message: string }>('/llm/generate', {
+=======
+      const response = await whapi.post('/llm/generate', {
+>>>>>>> theirs
         agentId,
         message: userMessage,
         systemPrompt: chatTestInstructions,
@@ -760,10 +545,11 @@ ${flowItems.filter(f => f.enabled).map(f => f.title).join('\n')}`;
     setIsAskAILoading(true);
     setAskAIResponse('');
     try {
-      const response = await whapi.post<{ message: string }>('/llm/generate', {
+      const askAIPrompt = 'You are an AI assistant helping configure an AI voice agent. The agent is named "' + agentName + '" and its welcome message is: "' + welcomeMessage + '". Provide helpful, concise suggestions for improving or configuring this agent.';
+      const response = await whapi.post('/llm/generate', {
         agentId,
         message: askAIInput,
-        systemPrompt: `You are an AI assistant helping configure an AI voice agent. The agent is named "${agentName}" and its welcome message is: "${welcomeMessage}". Provide helpful, concise suggestions for improving or configuring this agent.`,
+        systemPrompt: askAIPrompt,
         provider: 'openai',
         model: 'gpt-4o'
       });
@@ -783,7 +569,7 @@ ${flowItems.filter(f => f.enabled).map(f => f.title).join('\n')}`;
       await new Promise(resolve => setTimeout(resolve, 1200));
       setDeployStatus('done');
       setTimeout(() => setDeployStatus('idle'), 3000);
-    } catch {
+    } catch (err) {
       setDeployStatus('idle');
     }
   };
@@ -805,8 +591,8 @@ ${flowItems.filter(f => f.enabled).map(f => f.title).join('\n')}`;
   const handlePhoneCall = async () => {
     if (!phoneTestNumber.trim()) return;
     try {
-      const res = await whapi.post<{ message: string }>('/agents/test-call', { agentId, phoneNumber: phoneTestNumber });
-      alert(res.message || `Test call initiated to ${phoneTestNumber}.`);
+      const res = await whapi.post('/agents/test-call', { agentId, phoneNumber: phoneTestNumber });
+      alert(res.message || 'Test call initiated to ' + phoneTestNumber + '.');
       setShowPhoneCallModal(false);
     } catch (err: any) {
       alert(err.message || 'Failed to initiate test call. Please check your Twilio configuration.');
@@ -820,11 +606,7 @@ ${flowItems.filter(f => f.enabled).map(f => f.title).join('\n')}`;
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
           <div style={{ width: '40px', height: '40px', border: '3px solid #1a1a1a', borderTopColor: '#00bcd4', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
           <span style={{ fontSize: '14px', color: '#999' }}>Loading agent configuration...</span>
-          <style>{`
-            @keyframes spin {
-              to { transform: rotate(360deg); }
-            }
-          `}</style>
+          <style dangerouslySetInnerHTML={{ __html: '@keyframes spin { to { transform: rotate(360deg); } }' }} />
         </div>
       </div>
     );
@@ -832,6 +614,16 @@ ${flowItems.filter(f => f.enabled).map(f => f.title).join('\n')}`;
 
   return (
     <div style={{ width: '100%', minHeight: '100vh', background: '#0f0f0f', color: '#fff', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
+
+      {/* Template picker modal */}
+      {showTemplatePicker && (
+        <TemplatePickerModal
+          currentId={activeTemplate?.id ?? ''}
+          onSelect={handleTemplateSelect}
+          onClose={() => setShowTemplatePicker(false)}
+        />
+      )}
+
       {/* Language Configuration Modal */}
       {showLanguageModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
@@ -1056,7 +848,7 @@ ${flowItems.filter(f => f.enabled).map(f => f.title).join('\n')}`;
               {/* Right Column */}
               <div style={{ paddingLeft: '30px', borderLeft: '1px solid #222' }}>
                 <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '20px' }}>
-                  {sttProvider === 'Sarvam' ? 'Sarvam AI Configuration' : `${sttProvider} Configuration`}
+                  {sttProvider === 'Sarvam' ? 'Sarvam AI Configuration' : sttProvider + ' Configuration'}
                 </div>
                 
                 <div style={{ marginBottom: '16px', position: 'relative' }}>
@@ -1144,7 +936,7 @@ ${flowItems.filter(f => f.enabled).map(f => f.title).join('\n')}`;
               {webCallStatus === 'idle' ? 'Web Call Test' : webCallStatus === 'connecting' ? 'Connecting...' : webCallStatus === 'connected' ? 'Call Connected' : 'Call Ended'}
             </h3>
             <p style={{ fontSize: '13px', color: '#999', marginBottom: '24px' }}>
-              {webCallStatus === 'idle' ? `Test your agent "${agentName}" with a browser-based voice call.` : webCallStatus === 'connecting' ? 'Setting up audio connection...' : webCallStatus === 'connected' ? 'Speak into your microphone to interact with the agent.' : 'The test call has ended.'}
+              {webCallStatus === 'idle' ? 'Test your agent "' + agentName + '" with a browser-based voice call.' : webCallStatus === 'connecting' ? 'Setting up audio connection...' : webCallStatus === 'connected' ? 'Speak into your microphone to interact with the agent.' : 'The test call has ended.'}
             </p>
             {!webCallActive ? (
               <button
@@ -1346,6 +1138,21 @@ ${flowItems.filter(f => f.enabled).map(f => f.title).join('\n')}`;
               </div>
             )}
 
+            {/* Template banner — shown when navigated from a Use Case page */}
+            {activeTemplate && (
+              <div style={{ padding: '16px 24px 0' }}>
+                <TemplateBanner
+                  template={activeTemplate}
+                  onChangeTemplate={() => setShowTemplatePicker(true)}
+                  onDismiss={() => {
+                    setActiveTemplate(null);
+                    setTemplatePrefilled(false);
+                    setSearchParams({}, { replace: true });
+                  }}
+                />
+              </div>
+            )}
+
       {/* Tabs */}
       <div style={{ display: 'flex', borderBottom: '1px solid #1a1a1a', background: '#0a0a0a', padding: '0 24px', gap: '24px', overflowX: 'auto', alignItems: 'center' }}>
         <div style={{ display: 'flex', gap: '24px', flex: 1 }}>
@@ -1356,7 +1163,9 @@ ${flowItems.filter(f => f.enabled).map(f => f.title).join('\n')}`;
             { id: 'integrations', label: 'Integrations' },
             { id: 'postcall', label: 'Post-Call' },
             { id: 'chat', label: 'Chat Test' },
-            { id: 'calls', label: 'Recent Calls' }
+            { id: 'analytics', label: 'Analytics' },
+            { id: 'calls', label: 'Call Logs' },
+            { id: 'playground', label: '⚡ Playground' },
           ].map(tab => (
             <button
               key={tab.id}
@@ -1422,7 +1231,7 @@ ${flowItems.filter(f => f.enabled).map(f => f.title).join('\n')}`;
               style={{ padding: '10px 20px', background: '#1a1a1a', border: '1px solid #333', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}
             >📋 Copy JSON</button>
             <button
-              onClick={() => { const blob = new Blob([JSON.stringify({ name: agentName, welcomeMessage, aiModel, voice, transcription, languages: selectedLanguages, flowItems, maxDuration, silenceTimeout, dynamicEnabled, interruptibleEnabled, postCallConfigs }, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${agentName.replace(/\s+/g, '_')}_config.json`; a.click(); URL.revokeObjectURL(url); }}
+              onClick={() => { const blob = new Blob([JSON.stringify({ name: agentName, welcomeMessage, aiModel, voice, transcription, languages: selectedLanguages, flowItems, maxDuration, silenceTimeout, dynamicEnabled, interruptibleEnabled, postCallConfigs }, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = agentName.replace(/\s+/g, '_') + '_config.json'; a.click(); URL.revokeObjectURL(url); }}
               style={{ padding: '10px 20px', background: '#1a1a1a', border: '1px solid #333', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}
             >⬇️ Download JSON</button>
           </div>
@@ -1817,7 +1626,7 @@ ${flowItems.filter(f => f.enabled).map(f => f.title).join('\n')}`;
                                 style={{
                                   padding: '14px', 
                                   background: ambientSound === sound ? '#0a2e30' : '#1a1a1a', 
-                                  border: `1px solid ${ambientSound === sound ? '#12c8d0' : '#333'}`, 
+                                  border: '1px solid ' + (ambientSound === sound ? '#12c8d0' : '#333'), 
                                   borderRadius: '8px', 
                                   color: ambientSound === sound ? '#12c8d0' : '#fff',
                                   cursor: 'pointer',
@@ -1844,91 +1653,8 @@ ${flowItems.filter(f => f.enabled).map(f => f.title).join('\n')}`;
         )}
 
         {activeTab === 'kb' && (
-          <div
-            style={{
-              minHeight: '620px',
-              padding: '8px 0 0',
-              display: 'flex',
-              flexDirection: 'column'
-            }}
-          >
-            <div style={{ background: '#072122', border: '1px solid #113638', borderRadius: '16px', padding: '28px 28px 36px', marginBottom: '22px' }}>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                <div style={{ background: '#0b0b0b', border: '1px solid #2a2a2a', borderRadius: '16px', padding: '34px 30px 30px' }}>
-                  <div style={{ fontSize: '18px', fontWeight: '700', color: '#fff', marginBottom: '10px' }}>Upload PDFs</div>
-                  <div style={{ fontSize: '14px', color: '#c5c5c5', marginBottom: '16px' }}>Add PDF files to your assistant's knowledge base</div>
-                  <div 
-                    onClick={() => fileInputRef.current?.click()}
-                    style={{ border: '2px dashed #323232', borderRadius: '14px', minHeight: '168px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '18px', cursor: 'pointer' }}
-                  >
-                    <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".pdf" multiple style={{ display: 'none' }} />
-                    <div style={{ width: '54px', height: '54px', borderRadius: '18px', background: '#062d2f', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#12c8d0', fontSize: '20px', marginBottom: '16px' }}>^</div>
-                    <div style={{ fontSize: '17px', fontWeight: '700', color: '#fff', marginBottom: '10px' }}>Drag and drop a file here, or click to select</div>
-                    <div style={{ fontSize: '13px', color: '#b7b7b7' }}>Supported formats: PDF (max 10MB)</div>
-                  </div>
-                  {kbFiles.length > 0 && (
-                    <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {kbFiles.map((file, i) => (
-                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', background: '#111', padding: '8px 12px', borderRadius: '8px', border: '1px solid #222' }}>
-                          <span style={{ fontSize: '13px', color: '#fff' }}>{file.name}</span>
-                          <button onClick={(e) => { e.stopPropagation(); removeKbFile(i); }} style={{ background: 'none', border: 'none', color: '#ff6f6f', cursor: 'pointer', fontSize: '12px' }}>Remove</button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div style={{ background: '#0b0b0b', border: '1px solid #2a2a2a', borderRadius: '16px', padding: '34px 30px 30px' }}>
-                  <div style={{ fontSize: '18px', fontWeight: '700', color: '#fff', marginBottom: '10px' }}>Website Knowledge Base</div>
-                  <div style={{ fontSize: '14px', color: '#c5c5c5', marginBottom: '12px' }}>Add website content to your assistant's knowledge base</div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-                    <label style={{ display: 'block', fontSize: '14px', fontWeight: '700', color: '#fff' }}>Website URL</label>
-                    <InfoIcon />
-                  </div>
-                  <input
-                    type="text"
-                    value={kbUrlInput}
-                    onChange={(e) => setKbUrlInput(e.target.value)}
-                    placeholder="https://example.com/"
-                    style={{
-                      width: '100%',
-                      height: '44px',
-                      padding: '0 14px',
-                      background: '#171717',
-                      border: '1px solid #2e2e2e',
-                      borderRadius: '8px',
-                      color: '#fff',
-                      fontSize: '14px',
-                      outline: 'none',
-                      marginBottom: '20px'
-                    }}
-                  />
-                  <button onClick={handleAddKbUrl} style={{ width: '100%', height: '46px', background: '#0f6f73', border: 'none', borderRadius: '10px', color: '#071416', fontSize: '15px', fontWeight: '700', cursor: 'pointer', marginBottom: kbUrls.length > 0 ? '16px' : '0' }}>
-                    Add to Knowledge Base
-                  </button>
-                  {kbUrls.length > 0 && (
-                    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {kbUrls.map((url, i) => (
-                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', background: '#111', padding: '8px 12px', borderRadius: '8px', border: '1px solid #222' }}>
-                          <span style={{ fontSize: '13px', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{url}</span>
-                          <button onClick={() => removeKbUrl(url)} style={{ background: 'none', border: 'none', color: '#ff6f6f', cursor: 'pointer', fontSize: '12px' }}>Remove</button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div style={{ background: '#281509', border: '1px solid #b65912', borderRadius: '14px', padding: '18px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '20px' }}>
-              <div>
-                <div style={{ fontSize: '15px', fontWeight: '700', color: '#ffd95f', marginBottom: '6px' }}>Low Storage Space Warning</div>
-                <div style={{ fontSize: '14px', color: '#ffd066' }}>You only have {Math.max(0, 5.0 - kbFiles.reduce((acc, file) => acc + file.size, 0) / (1024 * 1024)).toFixed(1)} MB of knowledge base storage remaining. Consider upgrading your account to avoid upload restrictions.</div>
-              </div>
-              <button style={{ padding: '10px 18px', background: '#ff6f6f', border: 'none', borderRadius: '10px', color: '#1f0d0d', fontSize: '14px', fontWeight: '700', cursor: 'pointer' }}>
-                Upgrade
-              </button>
-            </div>
+          <div style={{ padding: '0', minHeight: '620px' }}>
+            <KnowledgeBaseTab />
           </div>
         )}
 
@@ -2146,7 +1872,7 @@ ${flowItems.filter(f => f.enabled).map(f => f.title).join('\n')}`;
                           <button
                             onClick={async () => {
                               try {
-                                const callbackUrl = `${window.location.origin}/api/v1/integrations/${integration.provider}/callback`;
+                                const callbackUrl = window.location.origin + '/api/v1/integrations/' + integration.provider + '/callback';
                                 const { authorizationUrl } = await integrationsApi.connect(integration.provider, callbackUrl);
                                 window.location.href = authorizationUrl;
                               } catch (error) {
@@ -2477,119 +2203,49 @@ ${flowItems.filter(f => f.enabled).map(f => f.title).join('\n')}`;
         )}
 
         {activeTab === 'calls' && (
-          <div
-            style={{
-              minHeight: '620px',
-              padding: '8px 0 0',
-              display: 'flex',
-              flexDirection: 'column'
-            }}
-          >
-            <div
-              style={{
-                display: 'flex',
-                justifyContent: 'space-between',
-                alignItems: 'center',
-                gap: '18px',
-                marginBottom: '54px',
-                flexWrap: 'wrap'
-              }}
-            >
-              <div style={{ fontSize: '22px', fontWeight: '700', color: '#ffffff', paddingLeft: '20px' }}>Recent Calls</div>
+          <div style={{ padding: '24px' }}>
+            <CallLogsTable logs={mockCallLogs} />
+          </div>
+        )}
 
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#cbcbcb', fontSize: '13px', paddingRight: '2px' }}>
-                  <span>Filters</span>
-                  <span
-                    style={{
-                      width: '18px',
-                      height: '18px',
-                      borderRadius: '999px',
-                      border: '1px solid #565656',
-                      color: '#9c9c9c',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '11px',
-                      fontWeight: '600'
-                    }}
-                  >
-                    ?
-                  </span>
-                </div>
-
-                {['All directions', 'All statuses', 'All durations'].map((label) => (
-                  <select
-                    key={label}
-                    defaultValue={label}
-                    style={{
-                      width: '216px',
-                      height: '44px',
-                      padding: '0 16px',
-                      background: '#111111',
-                      border: '1px solid #2a2a2a',
-                      borderRadius: '10px',
-                      color: '#ffffff',
-                      fontSize: '14px',
-                      outline: 'none'
-                    }}
-                  >
-                    <option>{label}</option>
-                  </select>
-                ))}
-
-                <button
-                  style={{
-                    height: '44px',
-                    padding: '0 18px',
-                    background: '#101010',
-                    border: '1px solid #2a2a2a',
-                    borderRadius: '10px',
-                    color: '#ffffff',
-                    fontSize: '14px',
-                    fontWeight: '600',
-                    cursor: 'pointer'
-                  }}
-                >
-                  Refresh
-                </button>
-              </div>
+        {activeTab === 'analytics' && (
+          <div style={{ padding: '24px', display: 'flex', flexDirection: 'column', gap: '24px' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '16px' }}>
+              <KPICard label="Total Calls" value={getKPIs().totalCalls} icon={PhoneCall} accentColor="#00bcd4" change={12} />
+              <KPICard label="Successful Conversations" value={getKPIs().successfulConversations} icon={CheckCircle2} accentColor="#22c55e" change={8} />
+              <KPICard label="Avg Duration" value={getKPIs().avgDurationSec} suffix="s" icon={Clock} accentColor="#f59e0b" change={-5} />
+              <KPICard label="Automation Rate" value={getKPIs().automationRate} suffix="%" icon={Zap} accentColor="#a855f7" change={2} />
+              <KPICard label="Appointments Booked" value={getKPIs().appointmentsBooked} icon={CalendarCheck} accentColor="#ec4899" change={15} />
+              <KPICard label="Leads Qualified" value={getKPIs().leadsQualified} icon={TrendingUp} accentColor="#3b82f6" change={22} />
+              <KPICard label="Customer Satisfaction" value={getKPIs().customerSatisfaction} suffix="%" icon={Smile} accentColor="#22c55e" change={4} />
+              <KPICard label="Avg Response Time" value={getKPIs().avgResponseTimeMs} suffix="ms" icon={Bot} accentColor="#00bcd4" change={-12} />
             </div>
 
-            <div
-              style={{
-                flex: 1,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                paddingBottom: '140px'
-              }}
-            >
-              <div style={{ textAlign: 'center', maxWidth: '420px' }}>
-                <div
-                  style={{
-                    width: '64px',
-                    height: '64px',
-                    margin: '0 auto 22px',
-                    borderRadius: '999px',
-                    border: '1px solid #303030',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: '#8c8c8c',
-                    fontSize: '28px'
-                  }}
-                >
-                  Call
-                </div>
-                <div style={{ fontSize: '18px', lineHeight: 1.2, fontWeight: '700', color: '#ffffff', marginBottom: '10px' }}>No call history</div>
-                <div style={{ fontSize: '15px', lineHeight: 1.6, color: '#a0a0a0' }}>
-                  You haven't made any calls with this assistant yet.
-                  <br />
-                  Start a call to see your history here.
-                </div>
-              </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+              <CallsOverTimeChart data={getCallsOverTime()} accentColor="#00bcd4" />
+              <OutcomePieChart data={getOutcomeBreakdown()} />
             </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '24px' }}>
+              <DurationBarChart data={getDurationBuckets()} accentColor="#f59e0b" />
+              <TopIntentsChart data={getTopIntents()} accentColor="#3b82f6" />
+            </div>
+          </div>
+        )}
+
+        {/* ── Playground tab ──────────────────────────────────────────── */}
+        {activeTab === 'playground' && (
+          <div style={{ height: 'calc(100vh - 180px)', overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <AgentPlayground
+              config={{
+                agentName,
+                templateId: activeTemplate?.id ?? searchParams.get('template') ?? '',
+                voice,
+                language: selectedLanguages[0] ?? 'English',
+                welcomeMessage,
+                accentColor: activeTemplate?.accentColor ?? '#00bcd4',
+              }}
+            />
           </div>
         )}
       </div>

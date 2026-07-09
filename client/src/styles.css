@@ -3311,8 +3311,7 @@ input:-webkit-autofill:active {
   -webkit-text-fill-color: white !important;
   transition: background-color 5000s ease-in-out 0s;
 }
-/* =========================
-   Notification Drawer UI
+/* ==================   Notification Drawer UI
    ========================= */
 
 .notification-backdrop {
@@ -3335,8 +3334,7 @@ input:-webkit-autofill:active {
   box-shadow: -10px 0 40px rgba(0, 0, 0, 0.25);
 }
 
-/* =========================
-   LIGHT MODE
+/* ==================   LIGHT MODE
    ========================= */
 
 html.light .notification-panel {
@@ -3408,8 +3406,7 @@ html.light .notification-panel-footer {
   border-top: 1px solid #e5e7eb;
 }
 
-/* =========================
-   DARK MODE
+/* ==================   DARK MODE
    ========================= */
 
 html:not(.light) .notification-panel {
@@ -3481,8 +3478,7 @@ html:not(.light) .notification-panel-footer {
   border-top: 1px solid rgba(255,255,255,0.08);
 }
 
-/* =========================
-   COMMON STYLES
+/* ==================   COMMON STYLES
    ========================= */
 
 .notification-panel-header {
@@ -3655,8 +3651,7 @@ html:not(.light) .notification-panel-footer {
 .notification-archived-link:hover {
   color: #38d9ca;
 }
-/* =========================
-   NOTIFICATION ARCHIVE
+/* ==================   NOTIFICATION ARCHIVE
 ========================= */
 
 .archive-page {
@@ -3665,8 +3660,7 @@ html:not(.light) .notification-panel-footer {
   color: #fff;
 }
 
-/* =========================
-   TOP BANNER
+/* ==================   TOP BANNER
 ========================= */
 
 .archive-banner {
@@ -3692,16 +3686,14 @@ html:not(.light) .notification-panel-footer {
   font-weight: 600;
 }
 
-/* =========================
-   MAIN CONTENT
+/* ==================   MAIN CONTENT
 ========================= */
 
 .archive-content {
   padding: 45px 55px;
 }
 
-/* =========================
-   HEADER
+/* ==================   HEADER
 ========================= */
 
 .archive-top-row {
@@ -3724,8 +3716,7 @@ html:not(.light) .notification-panel-footer {
   color: #94a3b8;
 }
 
-/* =========================
-   FILTERS
+/* ==================   FILTERS
 ========================= */
 
 .archive-filters {
@@ -3753,8 +3744,7 @@ html:not(.light) .notification-panel-footer {
   font-weight: 600;
 }
 
-/* =========================
-   CARDS GRID
+/* ==================   CARDS GRID
 ========================= */
 
 .archive-grid {
@@ -3764,8 +3754,7 @@ html:not(.light) .notification-panel-footer {
   justify-content: start;
 }
 
-/* =========================
-   CARD
+/* ==================   CARD
 ========================= */
 
 .archive-card {
@@ -3789,8 +3778,7 @@ html:not(.light) .notification-panel-footer {
   margin-bottom: 16px;
 }
 
-/* =========================
-   BADGE
+/* ==================   BADGE
 ========================= */
 
 .archive-badge {
@@ -3807,8 +3795,7 @@ html:not(.light) .notification-panel-footer {
   color: #94a3b8;
 }
 
-/* =========================
-   TEXT
+/* ==================   TEXT
 ========================= */
 
 .archive-card h3 {
@@ -3825,8 +3812,7 @@ html:not(.light) .notification-panel-footer {
   margin-bottom: 14px;
 }
 
-/* =========================
-   RED BUTTON
+/* ==================   RED BUTTON
 ========================= */
 
 .archive-tag,
@@ -3841,8 +3827,7 @@ html:not(.light) .notification-panel-footer {
   margin-bottom: 18px;
 }
 
-/* =========================
-   SECTION TITLE
+/* ==================   SECTION TITLE
 ========================= */
 
 .archive-card h4 {
@@ -3852,8 +3837,7 @@ html:not(.light) .notification-panel-footer {
   margin-bottom: 12px;
 }
 
-/* =========================
-   LIST
+/* ==================   LIST
 ========================= */
 
 .archive-card ul {
@@ -3869,8 +3853,7 @@ html:not(.light) .notification-panel-footer {
   margin-bottom: 10px;
 }
 
-/* =========================
-   LIGHT MODE
+/* ==================   LIGHT MODE
 ========================= */
 
 .light .archive-page {
@@ -3911,8 +3894,7 @@ html:not(.light) .notification-panel-footer {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
 }
 
-/* ===========================
-   MOBILE SIDEBAR
+/* ====================   MOBILE SIDEBAR
    =========================== */
 
 /* Hamburger: hidden on desktop, shown on mobile */
@@ -3944,8 +3926,7 @@ html:not(.light) .notification-panel-footer {
   z-index: 998;
 }
 
-/* ============================================
-   MOBILE BREAKPOINT (max-width: 768px)
+/* =====================================   MOBILE BREAKPOINT (max-width: 768px)
    ============================================ */
 @media (max-width: 768px) {
 
@@ -4031,8 +4012,7 @@ html:not(.light) .notification-panel-footer {
   }
 }
 
-/* ============================================
-   DESKTOP BREAKPOINT (min-width: 769px)
+/* =====================================   DESKTOP BREAKPOINT (min-width: 769px)
    ============================================ */
 @media (min-width: 769px) {
   /* Hide overlay and hamburger on desktop */
@@ -4042,4 +4022,26 @@ html:not(.light) .notification-panel-footer {
   .omni-hamburger {
     display: none !important;
   }
+}
+
+/* ── Use Case Page ── */
+@media (max-width: 860px) {
+  .use-case-hero-visual {
+    display: none !important;
+  }
+}
+
+/* Smooth horizontal scroll for timeline */
+.wf-timeline-scroll {
+  -webkit-overflow-scrolling: touch;
+  scroll-behavior: smooth;
+  scrollbar-width: thin;
+  scrollbar-color: var(--teal) transparent;
+}
+.wf-timeline-scroll::-webkit-scrollbar {
+  height: 4px;
+}
+.wf-timeline-scroll::-webkit-scrollbar-thumb {
+  background: var(--teal);
+  border-radius: 4px;
 }

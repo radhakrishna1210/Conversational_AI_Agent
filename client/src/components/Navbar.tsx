@@ -127,23 +127,23 @@ export default function Navbar() {
               <div>
                 <div className="dropdown-col-title">Use Cases</div>
 
-                <Link to="/solutions/use-cases/lead-generation" className="dropdown-item">
+                <Link to="/use-cases/lead-generation" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
                   <span className="item-icon"><Phone size={16} /></span>Lead Generation
                 </Link>
 
-                <Link to="/solutions/use-cases/collections" className="dropdown-item">
+                <Link to="/use-cases/collections" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
                   <span className="item-icon"><Calendar size={16} /></span>Collections
                 </Link>
 
-                <Link to="/solutions/use-cases/negotiation" className="dropdown-item">
+                <Link to="/use-cases/negotiation" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
                   <span className="item-icon"><MessageCircle size={16} /></span>Negotiation
                 </Link>
 
-                <Link to="/solutions/use-cases/customer-support" className="dropdown-item">
+                <Link to="/use-cases/customer-support" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
                   <span className="item-icon"><Headphones size={16} /></span>Customer Support
                 </Link>
 
-                <Link to="/solutions/use-cases/appointments" className="dropdown-item">
+                <Link to="/use-cases/appointments" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
                   <span className="item-icon"><Calendar size={16} /></span>Appointments
                 </Link>
               </div>

@@ -42,6 +42,7 @@ import EditAgent from './pages/EditAgent';
 import VoiceAssistant from './components/VoiceAssistant';
 import AdminPanel from './pages/AdminPanel';
 import NotificationArchive from './pages/NotificationArchive';
+import UseCasePage from './pages/UseCasePage';
 
 import SolutionUseCasePage from './pages/solutions/SolutionUseCasePage';
 import { solutionUseCases } from './pages/solutions/useCaseContent';
@@ -162,8 +163,8 @@ function App() {
   }
 />
 
-<Route path="/signup" element={<SignUp />} />
-        
+        <Route path="/use-cases/:slug" element={<DefaultLayout><UseCasePage /></DefaultLayout>} />
+        <Route path="/signup" element={<SignUp />} />
         <Route path="/login" element={<Login />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
         {/* Protected dashboard routes */}

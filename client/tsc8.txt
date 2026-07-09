@@ -1,0 +1,64 @@
+﻿src/pages/EditAgent.tsx(98,53): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(99,51): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(104,63): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(105,57): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(106,63): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(107,63): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(108,75): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(109,53): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(109,62): error TS1003: Identifier expected.
+src/pages/EditAgent.tsx(114,69): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(114,76): error TS1003: Identifier expected.
+src/pages/EditAgent.tsx(115,45): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(116,49): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(117,61): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(120,69): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(121,63): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(124,77): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(124,85): error TS1003: Identifier expected.
+src/pages/EditAgent.tsx(125,79): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(126,63): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(127,63): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(128,69): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(129,57): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(130,59): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(131,59): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(132,63): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(133,79): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(134,57): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(135,73): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(136,65): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(137,51): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(138,57): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(139,85): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(140,81): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(141,79): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(142,85): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(144,61): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(145,53): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(146,61): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(147,65): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(147,80): error TS1003: Identifier expected.
+src/pages/EditAgent.tsx(150,61): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(151,59): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(152,57): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(153,51): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(156,67): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(157,71): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(158,63): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(159,71): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(160,51): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(161,65): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(162,59): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(163,55): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(164,61): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(165,63): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(166,61): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(167,61): error TS1005: ',' expected.
+src/pages/EditAgent.tsx(507,6): error TS17008: JSX element 'div' has no corresponding closing tag.
+src/pages/EditAgent.tsx(1108,8): error TS17008: JSX element 'div' has no corresponding closing tag.
+src/pages/EditAgent.tsx(2224,12): error TS17008: JSX element 'div' has no corresponding closing tag.
+src/pages/EditAgent.tsx(2266,14): error TS17008: JSX element 'div' has no corresponding closing tag.
+src/pages/EditAgent.tsx(2335,4): error TS1005: '}' expected.
+src/pages/EditAgent.tsx(2336,1): error TS1381: Unexpected token. Did you mean `{'}'}` or `&rbrace;`?
+src/pages/EditAgent.tsx(2337,1): error TS1005: '</' expected.

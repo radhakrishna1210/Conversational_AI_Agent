@@ -1,7 +1,9 @@
 import { useEffect, useState, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AgentConfig, createAgent, loadAgents, getDefaultFlowItems, getDefaultWelcomeMessage } from '../lib/agentStore';
 import { whapi } from '../lib/whapi';
+import { getTemplateById, type AgentTemplate } from '../data/agentTemplates';
+import { TemplateBanner, TemplatePickerModal } from '../components/TemplateSelector';
 
 
 export default function Dashboard() {
@@ -13,7 +15,20 @@ export default function Dashboard() {
   const [agents, setAgents] = useState<AgentConfig[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
+  const [activeTemplate, setActiveTemplate] = useState<AgentTemplate | null>(null);
+  const [showTemplatePicker, setShowTemplatePicker] = useState(false);
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+
+  // Read ?template param on mount and pre-fill form
+  useEffect(() => {
+    const slugParam = searchParams.get('template');
+    if (!slugParam) return;
+    const tpl = getTemplateById(slugParam);
+    if (!tpl) return;
+    setActiveTemplate(tpl);
+    setPrompt(tpl.name);
+  }, []);  // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     const handleClickOutside = () => {
@@ -231,17 +246,19 @@ export default function Dashboard() {
     try {
       const newAgent = await whapi.post<AgentConfig>('/agents', {
         name,
-        welcomeMessage: welcomeMsg,
+        welcomeMessage: activeTemplate ? activeTemplate.defaultGreeting : welcomeMsg,
         flowItems: defaultFlow,
         aiModel: 'GPT-4.1-Mini',
-        voice: 'Google - Aoede (female)',
+        voice: activeTemplate ? activeTemplate.suggestedVoice : 'Google - Aoede (female)',
       });
 
       setAgents(prev => [newAgent, ...prev]);
       setPrompt('');
       setAgentTitle('');
       setSuccess(true);
-      setTimeout(() => setSuccess(false), 2000);
+      // Navigate to EditAgent with template param so it can show the banner
+      const templateSuffix = activeTemplate ? `?template=${activeTemplate.id}` : '';
+      setTimeout(() => navigate(`/agent/${newAgent.id}${templateSuffix}`), 800);
     } catch (err) {
       console.error('Failed to create agent on backend', err);
       // Fallback to local storage using the generated settings
@@ -250,15 +267,15 @@ export default function Dashboard() {
       const localAgent: AgentConfig = {
         id: localId,
         name,
-        language: 'English (India)',
+        language: activeTemplate ? activeTemplate.suggestedLanguage : 'English (India)',
         llm: 'GPT-4.1-Mini',
-        voice: 'Google - Aoede (female)',
+        voice: activeTemplate ? activeTemplate.suggestedVoice : 'Google - Aoede (female)',
         kbFiles: 0,
         search: 'Off',
         postCall: 'None',
         integrations: 'None',
-        welcomeMessage: welcomeMsg,
-        selectedLanguages: ['English (Indian)'],
+        welcomeMessage: activeTemplate ? activeTemplate.defaultGreeting : welcomeMsg,
+        selectedLanguages: [activeTemplate ? activeTemplate.suggestedLanguage : 'English (Indian)'],
         flowItems: defaultFlow,
         maxDuration: 30,
         silenceTimeout: 5,
@@ -278,7 +295,8 @@ export default function Dashboard() {
       setPrompt('');
       setAgentTitle('');
       setSuccess(true);
-      setTimeout(() => setSuccess(false), 2000);
+      const tplSuffix = activeTemplate ? `?template=${activeTemplate.id}` : '';
+      setTimeout(() => navigate(`/agent/${localId}${tplSuffix}`), 800);
     } finally {
       setCreating(false);
     }
@@ -286,6 +304,13 @@ export default function Dashboard() {
 
 
   const setTemplate = (template: string) => setPrompt(template);
+
+  // When user picks a new template from the modal
+  const handleTemplateSelect = (tpl: AgentTemplate) => {
+    setActiveTemplate(tpl);
+    setPrompt(tpl.name);
+    setShowTemplatePicker(false);
+  };
 
   const filteredAgents = agents.filter(agent =>
     agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -1365,6 +1390,15 @@ Goals:
   };
   return (
     <div className="omni-dashboard">
+      {/* Template picker modal */}
+      {showTemplatePicker && (
+        <TemplatePickerModal
+          currentId={activeTemplate?.id ?? ''}
+          onSelect={handleTemplateSelect}
+          onClose={() => setShowTemplatePicker(false)}
+        />
+      )}
+
       {/* ════════════════════════════════════════════
           MAIN DASHBOARD CONTENT
          ════════════════════════════════════════════ */}
@@ -1373,6 +1407,16 @@ Goals:
         <div className="omni-page-header">
           <h1>Voice AI Assistants</h1>
           <p>Create and manage your voice AI assistants</p>
+        </div>
+
+      {/* Template banner – shown when a template is active */}
+      {activeTemplate && (
+        <TemplateBanner
+          template={activeTemplate}
+          onChangeTemplate={() => setShowTemplatePicker(true)}
+          onDismiss={() => { setActiveTemplate(null); setPrompt(''); }}
+        />
+      )}
         </div>
 
         {/* Create Agent Card */}
