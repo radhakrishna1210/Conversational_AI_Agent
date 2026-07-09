@@ -47,6 +47,15 @@ export const decryptToken = (cipherText) => {
   const iv = Buffer.from(ivHex, 'hex');
   const encrypted = Buffer.from(encryptedHex, 'hex');
   const decipher = createDecipheriv(ALGORITHM, getKey(), iv);
-  const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
-  return decrypted.toString('utf8');
+  try {
+    const decrypted = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+    return decrypted.toString('utf8');
+  } catch (err) {
+    // Token was encrypted with a different key (e.g. key rotation).
+    // Throw a clean error so the caller can handle it gracefully.
+    throw Object.assign(
+      new Error('Token decryption failed — the integration needs to be reconnected'),
+      { statusCode: 401, code: 'TOKEN_DECRYPT_FAILED' }
+    );
+  }
 };

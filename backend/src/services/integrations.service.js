@@ -158,13 +158,30 @@ const requestToken = async (provider, code, redirectUri) => {
 const getAccessToken = async (integration) => {
   if (!integration?.token) return null;
   if (integration.token.revokedAt) return null;
-  return decryptToken(integration.token.accessTokenCipher);
+  try {
+    return decryptToken(integration.token.accessTokenCipher);
+  } catch (err) {
+    // Key rotation or corrupt token — mark as needing reconnect and return null
+    if (err.code === 'TOKEN_DECRYPT_FAILED') {
+      await prisma.integration.update({
+        where: { id: integration.id },
+        data: { status: 'error', lastError: 'Token decryption failed — please reconnect this integration' },
+      }).catch(() => {});
+      return null;
+    }
+    throw err;
+  }
 };
 
 const getRefreshToken = async (integration) => {
   if (!integration?.token?.refreshTokenCipher) return null;
   if (integration.token.revokedAt) return null;
-  return decryptToken(integration.token.refreshTokenCipher);
+  try {
+    return decryptToken(integration.token.refreshTokenCipher);
+  } catch (err) {
+    if (err.code === 'TOKEN_DECRYPT_FAILED') return null;
+    throw err;
+  }
 };
 
 const maybeRefreshToken = async (integration) => {
