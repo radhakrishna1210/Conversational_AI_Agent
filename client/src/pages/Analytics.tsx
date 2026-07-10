@@ -58,7 +58,15 @@ interface ChatbotData {
   deliveryChart: { date: string; sent: number; delivered: number; rate: number }[];
 }
 
-const COLORS = ['#00d4c8', '#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4', '#ffeaa7'];
+// Restrained, fixed-order categorical palette (one brand accent + muted neutrals)
+// instead of a 6-hue rainbow. Reserve red/amber for actual bad/warning states.
+const TEAL = '#0eb39e';
+const RED = '#e34948';
+const AMBER = '#c98500';
+const SLATE = '#64748b';
+const VIOLET = '#7c86a0';
+const ROSE = '#b06b7a';
+const COLORS = [TEAL, SLATE, AMBER, VIOLET, ROSE];
 
 // ─── Small reusable components ────────────────────────────────────────────────
 
@@ -68,24 +76,24 @@ const Badge = ({ label, bg, color }: { label: string; bg: string; color: string 
 
 const StatusBadge = ({ status }: { status: string }) => {
   const map: Record<string, [string, string]> = {
-    completed:  ['rgba(78,205,196,0.15)',  '#4ecdc4'],
-    failed:     ['rgba(255,107,107,0.15)', '#ff6b6b'],
-    busy:       ['rgba(255,234,167,0.15)', '#ffeaa7'],
-    'no-answer':['rgba(255,234,167,0.15)', '#ffeaa7'],
+    completed:  ['rgba(14,179,158,0.15)', TEAL],
+    failed:     ['rgba(227,73,72,0.15)',  RED],
+    busy:       ['rgba(201,133,0,0.15)',  AMBER],
+    'no-answer':['rgba(201,133,0,0.15)',  AMBER],
   };
   const [bg, color] = map[status] ?? ['rgba(255,255,255,0.07)', 'var(--text-muted)'];
   return <Badge label={status} bg={bg} color={color} />;
 };
 
 const DirBadge = ({ dir }: { dir: string }) => (
-  <Badge label={dir} bg={dir === 'INBOUND' ? 'rgba(0,212,200,0.1)' : 'rgba(69,183,209,0.1)'} color={dir === 'INBOUND' ? '#00d4c8' : '#45b7d1'} />
+  <Badge label={dir} bg={dir === 'INBOUND' ? 'rgba(14,179,158,0.1)' : 'rgba(255,255,255,0.06)'} color={dir === 'INBOUND' ? TEAL : 'var(--text-secondary)'} />
 );
 
 const SentBadge = ({ s }: { s: string | null }) => {
   if (!s) return <span style={{ color: 'var(--text-muted)' }}>—</span>;
   const map: Record<string, [string, string]> = {
-    positive: ['rgba(0,212,200,0.1)',   '#00d4c8'],
-    negative: ['rgba(255,107,107,0.1)', '#ff6b6b'],
+    positive: ['rgba(14,179,158,0.1)', TEAL],
+    negative: ['rgba(227,73,72,0.1)', RED],
     neutral:  ['rgba(255,255,255,0.05)','var(--text-muted)'],
   };
   const [bg, color] = map[s] ?? map.neutral;
@@ -181,10 +189,10 @@ export default function Analytics() {
       <svg viewBox={`0 0 ${W} ${H}`} style={{ width:'100%', height:'100%' }} preserveAspectRatio="none">
         {[0,.25,.5,.75,1].map((r,i) => { const y = P.t+cH-r*cH; return <g key={i}><line x1={P.l} y1={y} x2={W-P.r} y2={y} stroke="rgba(255,255,255,0.05)" strokeDasharray="3,3"/><text x={P.l-6} y={y+4} textAnchor="end" fill="var(--text-muted)" fontSize="11">{metric==='duration'?`${Math.round(max*r)}m`:Math.round(max*r)}</text></g>; })}
         {data.filter((_,i)=>i%step===0||i===data.length-1).map((d,i)=><text key={i} x={P.l+(data.indexOf(d)/(data.length-1||1))*cW} y={H-10} textAnchor="middle" fill="var(--text-muted)" fontSize="11">{format(parseISO(d.date),'MMM dd')}</text>)}
-        <defs><linearGradient id="ag" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#00d4c8" stopOpacity=".25"/><stop offset="100%" stopColor="#00d4c8" stopOpacity="0"/></linearGradient></defs>
+        <defs><linearGradient id="ag" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor={TEAL} stopOpacity=".25"/><stop offset="100%" stopColor={TEAL} stopOpacity="0"/></linearGradient></defs>
         <path d={area} fill="url(#ag)"/>
-        <path d={line} fill="none" stroke="#00d4c8" strokeWidth="2"/>
-        {pts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r="3" fill="#00d4c8" stroke="#1a1a2e" strokeWidth="2"><title>{p.date}: {p.value}</title></circle>)}
+        <path d={line} fill="none" stroke={TEAL} strokeWidth="2"/>
+        {pts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r="3" fill={TEAL} stroke="#1a1a2e" strokeWidth="2"><title>{p.date}: {p.value}</title></circle>)}
       </svg>
     );
   };
@@ -215,14 +223,14 @@ export default function Analytics() {
     const max=Math.max(...sentiment.map(d=>d.count),1);
     const bw=cW/sentiment.length*.6, bg=cW/sentiment.length*.4;
     return <svg viewBox={`0 0 ${W} ${H}`} style={{ width:'100%', height:'100%' }}>{[0,.25,.5,.75,1].map((r,i)=>{const y=P.t+cH-r*cH;return <g key={i}><line x1={P.l} y1={y} x2={W-P.r} y2={y} stroke="rgba(255,255,255,0.05)" strokeDasharray="3,3"/><text x={P.l-4} y={y+4} textAnchor="end" fill="var(--text-muted)" fontSize="10">{Math.round(max*r)}</text></g>;})}
-    {sentiment.map((d,i)=>{const bh=(d.count/max)*cH,x=P.l+i*(bw+bg)+bg/2,y=P.t+cH-bh;const c=d.sentiment==='positive'?'#00d4c8':d.sentiment==='negative'?'#ff6b6b':'#96ceb4';return <g key={i}><rect x={x} y={y} width={bw} height={bh} fill={c} rx="3"/><text x={x+bw/2} y={H-10} textAnchor="middle" fill="var(--text-muted)" fontSize="10">{d.sentiment}</text><text x={x+bw/2} y={y-5} textAnchor="middle" fill="white" fontSize="10" fontWeight="600">{d.count}</text></g>;})}
+    {sentiment.map((d,i)=>{const bh=(d.count/max)*cH,x=P.l+i*(bw+bg)+bg/2,y=P.t+cH-bh;const c=d.sentiment==='positive'?TEAL:d.sentiment==='negative'?RED:SLATE;return <g key={i}><rect x={x} y={y} width={bw} height={bh} fill={c} rx="3"/><text x={x+bw/2} y={H-10} textAnchor="middle" fill="var(--text-muted)" fontSize="10">{d.sentiment}</text><text x={x+bw/2} y={y-5} textAnchor="middle" fill="white" fontSize="10" fontWeight="600">{d.count}</text></g>;})}
     </svg>;
   };
 
   // ─── Shared styles ─────────────────────────────────────────────────────────
   const card: React.CSSProperties = { border:'1px solid var(--border)', borderRadius:'8px', background:'rgba(255,255,255,0.01)', padding:'24px' };
   const tabBtn = (active: boolean): React.CSSProperties => ({ background: active?'rgba(255,255,255,0.05)':'transparent', border: active?'1px solid var(--border)':'1px solid transparent', color: active?'white':'var(--text-secondary)', padding:'8px 24px', borderRadius:'6px', fontSize:'13px', fontWeight:600, cursor:'pointer' });
-  const rangeBtn = (active: boolean): React.CSSProperties => ({ background: active?'rgba(0,212,200,0.05)':'transparent', border: active?'1px solid rgba(0,212,200,0.3)':'1px solid transparent', color: active?'var(--teal)':'white', padding:'6px 16px', borderRadius:'6px', fontSize:'12px', fontWeight:600, cursor:'pointer' });
+  const rangeBtn = (active: boolean): React.CSSProperties => ({ background: active?'rgba(14,179,158,0.05)':'transparent', border: active?'1px solid rgba(14,179,158,0.3)':'1px solid transparent', color: active?'var(--teal)':'white', padding:'6px 16px', borderRadius:'6px', fontSize:'12px', fontWeight:600, cursor:'pointer' });
   const inp: React.CSSProperties = { padding:'6px 12px', fontSize:'13px', background:'transparent', border:'1px solid var(--border)', borderRadius:'6px', color:'white' };
 
   const StatCard = ({ title, value, trend, icon, suffix='' }: any) => (
@@ -233,7 +241,7 @@ export default function Analytics() {
       </div>
       <div style={{ fontSize:'28px', fontWeight:700, color:'white', marginBottom:'8px' }}>{loading?'—':value}{suffix}</div>
       {trend != null && !loading && (
-        <div style={{ fontSize:'12px', fontWeight:600, color:trend>=0?'#00d4c8':'#ff6b6b' }}>
+        <div style={{ fontSize:'12px', fontWeight:600, color:trend>=0?TEAL:RED }}>
           {trend>=0?'↑':'↓'} {Math.abs(trend)}% vs prev period
         </div>
       )}
@@ -259,7 +267,7 @@ export default function Analytics() {
 
       {/* Error banner */}
       {error && (
-        <div style={{ background:'rgba(255,107,107,0.1)', border:'1px solid rgba(255,107,107,0.3)', borderRadius:'8px', padding:'12px 16px', color:'#ff6b6b', fontSize:'13px', marginBottom:'16px' }}>
+        <div style={{ background:'rgba(227,73,72,0.1)', border:'1px solid rgba(227,73,72,0.3)', borderRadius:'8px', padding:'12px 16px', color:RED, fontSize:'13px', marginBottom:'16px' }}>
           ⚠️ {error}
         </div>
       )}
@@ -309,11 +317,11 @@ export default function Analytics() {
 
           {/* Mini metric strip */}
           <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))', gap:'12px', marginBottom:'24px' }}>
-            <MiniCard label="Success Rate" value={`${overview?.successRate??0}%`}    color="#00d4c8" />
-            <MiniCard label="Completed"    value={overview?.completedCalls??0}       color="#4ecdc4" />
-            <MiniCard label="Failed"       value={overview?.failedCalls??0}          color="#ff6b6b" />
-            <MiniCard label="Inbound"      value={overview?.inboundCalls??0}         color="#45b7d1" />
-            <MiniCard label="Outbound"     value={overview?.outboundCalls??0}        color="#96ceb4" />
+            <MiniCard label="Success Rate" value={`${overview?.successRate??0}%`}    color={TEAL} />
+            <MiniCard label="Completed"    value={overview?.completedCalls??0}       color={TEAL} />
+            <MiniCard label="Failed"       value={overview?.failedCalls??0}          color={RED} />
+            <MiniCard label="Inbound"      value={overview?.inboundCalls??0}         color="var(--text-secondary)" />
+            <MiniCard label="Outbound"     value={overview?.outboundCalls??0}        color="var(--text-secondary)" />
           </div>
 
           {/* Metric toggle */}
@@ -390,7 +398,7 @@ export default function Analytics() {
                       {day.hours.map(h => (
                         <div key={h.hour} title={`${day.day} ${h.hour}:00 — ${h.count} calls`}
                           style={{ aspectRatio:'1', borderRadius:'2px', minWidth:'14px',
-                            background: h.count>0 ? `rgba(0,212,200,${Math.max(h.intensity/100, 0.1)})` : 'rgba(255,255,255,0.03)' }} />
+                            background: h.count>0 ? `rgba(14,179,158,${Math.max(h.intensity/100, 0.1)})` : 'rgba(255,255,255,0.03)' }} />
                       ))}
                     </>
                   ))}
@@ -464,11 +472,11 @@ export default function Analytics() {
                       <tr key={a.id} style={{ borderBottom:'1px solid rgba(255,255,255,0.03)' }}>
                         <td style={{ padding:'10px 14px', color:'white',  fontSize:'13px', fontWeight:600 }}>{a.name}</td>
                         <td style={{ padding:'10px 14px', color:'white',  fontSize:'13px' }}>{a.totalCalls}</td>
-                        <td style={{ padding:'10px 14px', color:'#4ecdc4',fontSize:'13px' }}>{a.completedCalls}</td>
-                        <td style={{ padding:'10px 14px', color:'#ff6b6b',fontSize:'13px' }}>{a.failedCalls}</td>
+                        <td style={{ padding:'10px 14px', color:TEAL,fontSize:'13px' }}>{a.completedCalls}</td>
+                        <td style={{ padding:'10px 14px', color:RED,fontSize:'13px' }}>{a.failedCalls}</td>
                         <td style={{ padding:'10px 14px', color:'var(--text-secondary)', fontSize:'13px' }}>{a.avgDuration} min</td>
                         <td style={{ padding:'10px 14px' }}>
-                          <span style={{ padding:'2px 8px', borderRadius:'4px', fontSize:'11px', fontWeight:700, background: a.successRate>=50?'rgba(0,212,200,0.1)':'rgba(255,107,107,0.1)', color: a.successRate>=50?'#00d4c8':'#ff6b6b' }}>{a.successRate}%</span>
+                          <span style={{ padding:'2px 8px', borderRadius:'4px', fontSize:'11px', fontWeight:700, background: a.successRate>=50?'rgba(14,179,158,0.1)':'rgba(227,73,72,0.1)', color: a.successRate>=50?TEAL:RED }}>{a.successRate}%</span>
                         </td>
                         <td style={{ padding:'10px 14px', color:'var(--text-secondary)', fontSize:'13px' }}>${a.totalCost}</td>
                       </tr>
@@ -487,12 +495,12 @@ export default function Analytics() {
               {/* KPI cards */}
               <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))', gap:'16px', marginBottom:'24px' }}>
                 {[
-                  { label:'💬 Messages',     val: chatbot.messages.total,       sub:`${chatbot.messages.inbound} in · ${chatbot.messages.outbound} out`, color:'var(--teal)' },
-                  { label:'🗨️ Conversations', val: chatbot.conversations.total,  sub:`${chatbot.conversations.open} open · ${chatbot.conversations.resolved} resolved`, color:'#45b7d1' },
-                  { label:'👥 Contacts',      val: chatbot.contacts.total,       sub:`+${chatbot.contacts.new} new this period`, color:'#96ceb4' },
-                  { label:'📣 Campaigns',     val: chatbot.campaigns.total,      sub:`${chatbot.campaigns.active} active`, color:'#ffeaa7' },
-                ].map(({ label, val, sub, color }) => (
-                  <div key={label} style={{ ...card, borderTop:`2px solid ${color}` }}>
+                  { label:'💬 Messages',     val: chatbot.messages.total,       sub:`${chatbot.messages.inbound} in · ${chatbot.messages.outbound} out` },
+                  { label:'🗨️ Conversations', val: chatbot.conversations.total,  sub:`${chatbot.conversations.open} open · ${chatbot.conversations.resolved} resolved` },
+                  { label:'👥 Contacts',      val: chatbot.contacts.total,       sub:`+${chatbot.contacts.new} new this period` },
+                  { label:'📣 Campaigns',     val: chatbot.campaigns.total,      sub:`${chatbot.campaigns.active} active` },
+                ].map(({ label, val, sub }) => (
+                  <div key={label} style={{ ...card, borderTop:'2px solid var(--teal)' }}>
                     <div style={{ fontSize:'12px', color:'var(--text-secondary)', fontWeight:600, marginBottom:'8px' }}>{label}</div>
                     <div style={{ fontSize:'28px', fontWeight:700, color:'white' }}>{val.toLocaleString()}</div>
                     <div style={{ fontSize:'12px', color:'var(--text-muted)', marginTop:'4px' }}>{sub}</div>
@@ -502,11 +510,11 @@ export default function Analytics() {
 
               {/* Rate metrics */}
               <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))', gap:'12px', marginBottom:'24px' }}>
-                <MiniCard label="Delivery Rate"  value={`${chatbot.rates.deliveryRate}%`}  color="#00d4c8" />
-                <MiniCard label="Read Rate"      value={`${chatbot.rates.readRate}%`}      color="#4ecdc4" />
-                <MiniCard label="Response Rate"  value={`${chatbot.rates.responseRate}%`}  color="#45b7d1" />
-                <MiniCard label="Opt-Out Rate"   value={`${chatbot.rates.optOutRate}%`}    color="#ff6b6b" />
-                <MiniCard label="Opt-Outs"       value={chatbot.contacts.optOuts}          color="#ff6b6b" />
+                <MiniCard label="Delivery Rate"  value={`${chatbot.rates.deliveryRate}%`}  color={TEAL} />
+                <MiniCard label="Read Rate"      value={`${chatbot.rates.readRate}%`}      color={TEAL} />
+                <MiniCard label="Response Rate"  value={`${chatbot.rates.responseRate}%`}  color={TEAL} />
+                <MiniCard label="Opt-Out Rate"   value={`${chatbot.rates.optOutRate}%`}    color={RED} />
+                <MiniCard label="Opt-Outs"       value={chatbot.contacts.optOuts}          color={RED} />
               </div>
 
               {/* Delivery bar chart */}
@@ -517,16 +525,16 @@ export default function Analytics() {
                     <p style={{ color:'var(--text-secondary)', fontSize:'13px' }}>Daily sent vs delivered</p>
                   </div>
                   <div style={{ display:'flex', gap:'16px', fontSize:'11px', color:'var(--text-muted)' }}>
-                    <span><span style={{ color:'#00d4c8' }}>■</span> &gt;97%</span>
-                    <span><span style={{ color:'#ffeaa7' }}>■</span> 93–97%</span>
-                    <span><span style={{ color:'#ff6b6b' }}>■</span> &lt;93%</span>
+                    <span><span style={{ color:TEAL }}>■</span> &gt;97%</span>
+                    <span><span style={{ color:AMBER }}>■</span> 93–97%</span>
+                    <span><span style={{ color:RED }}>■</span> &lt;93%</span>
                   </div>
                 </div>
                 <div style={{ display:'flex', alignItems:'flex-end', gap:'6px', height:'120px' }}>
                   {chatbot.deliveryChart.map(d => (
                     <div key={d.date} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:'4px', height:'100%', justifyContent:'flex-end' }}>
                       <span style={{ fontSize:'9px', color:'var(--text-muted)' }}>{d.sent>0?`${d.rate}%`:'—'}</span>
-                      <div style={{ width:'100%', minHeight:'2px', height:`${d.sent>0?Math.max(d.rate,2):2}%`, background: d.rate>97?'#00d4c8':d.rate>93?'#ffeaa7':'#ff6b6b', borderRadius:'3px 3px 0 0' }} title={`${d.date}: ${d.sent} sent, ${d.delivered} delivered`} />
+                      <div style={{ width:'100%', minHeight:'2px', height:`${d.sent>0?Math.max(d.rate,2):2}%`, background: d.rate>97?TEAL:d.rate>93?AMBER:RED, borderRadius:'3px 3px 0 0' }} title={`${d.date}: ${d.sent} sent, ${d.delivered} delivered`} />
                       <span style={{ fontSize:'9px', color:'var(--text-muted)' }}>{d.date.slice(5)}</span>
                     </div>
                   ))}
@@ -538,10 +546,10 @@ export default function Analytics() {
                 <div style={card}>
                   <h3 style={{ color:'white', fontSize:'15px', fontWeight:700, marginBottom:'16px' }}>Message Breakdown</h3>
                   {[
-                    { label:'Sent (outbound)',    val: chatbot.messages.outbound,  color:'#45b7d1', max: chatbot.messages.total },
-                    { label:'Received (inbound)', val: chatbot.messages.inbound,   color:'#00d4c8', max: chatbot.messages.total },
-                    { label:'Delivered',          val: chatbot.messages.delivered, color:'#4ecdc4', max: chatbot.messages.outbound },
-                    { label:'Read',               val: chatbot.messages.read,      color:'#96ceb4', max: chatbot.messages.outbound },
+                    { label:'Sent (outbound)',    val: chatbot.messages.outbound,  color:TEAL, max: chatbot.messages.total },
+                    { label:'Received (inbound)', val: chatbot.messages.inbound,   color:TEAL, max: chatbot.messages.total },
+                    { label:'Delivered',          val: chatbot.messages.delivered, color:TEAL, max: chatbot.messages.outbound },
+                    { label:'Read',               val: chatbot.messages.read,      color:TEAL, max: chatbot.messages.outbound },
                   ].map(({ label, val, color, max }) => (
                     <div key={label} style={{ marginBottom:'12px' }}>
                       <div style={{ display:'flex', justifyContent:'space-between', marginBottom:'4px' }}>
@@ -557,9 +565,9 @@ export default function Analytics() {
                 <div style={card}>
                   <h3 style={{ color:'white', fontSize:'15px', fontWeight:700, marginBottom:'16px' }}>Conversation Status</h3>
                   {[
-                    { label:'Open',       val: chatbot.conversations.open,     color:'#ffeaa7' },
-                    { label:'Resolved',   val: chatbot.conversations.resolved, color:'#00d4c8' },
-                    { label:'This Period',val: chatbot.conversations.total,    color:'#45b7d1' },
+                    { label:'Open',       val: chatbot.conversations.open,     color:AMBER },
+                    { label:'Resolved',   val: chatbot.conversations.resolved, color:TEAL },
+                    { label:'This Period',val: chatbot.conversations.total,    color:'var(--text-secondary)' },
                   ].map(({ label, val, color }) => (
                     <div key={label} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'12px 0', borderBottom:'1px solid rgba(255,255,255,0.04)' }}>
                       <span style={{ fontSize:'13px', color:'var(--text-secondary)' }}>{label}</span>

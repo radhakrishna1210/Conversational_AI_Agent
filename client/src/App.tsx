@@ -39,7 +39,6 @@ import SignUp from './pages/SignUp';
 import Login from './pages/Login';
 import AuthCallback from './pages/AuthCallback';
 import EditAgent from './pages/EditAgent';
-import VoiceAssistant from './components/VoiceAssistant';
 import AdminPanel from './pages/AdminPanel';
 import NotificationArchive from './pages/NotificationArchive';
 
@@ -55,14 +54,6 @@ import RealEstate from "./pages/RealEstate";
 import Insurance from "./pages/Insurance";
 import Healthcare from "./pages/Healthcare";
 import Restaurants from "./pages/Restaurants";
-// Quick Wrapper for the new page
-function VoiceAssistantPage() {
-  return (
-    <div className="container py-8">
-      <VoiceAssistant />
-    </div>
-  );
-}
 
 function ScrollToTop() {
   const { pathname } = useLocation();
@@ -185,7 +176,6 @@ function App() {
             <Route path="/billing" element={<Billing />} />
             <Route path="/api_keys" element={<ApiKeys />} />
             <Route path="/agent/:agentId" element={<EditAgent />} />
-            <Route path="/voice_assistant" element={<VoiceAssistantPage />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/profile" element={<Settings />} />
             <Route path="/admin" element={<AdminPanel />} />
