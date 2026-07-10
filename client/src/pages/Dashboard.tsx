@@ -1364,6 +1364,7 @@ Goals:
     ]
   };
   return (
+    <>
     <div className="omni-dashboard">
       {/* ════════════════════════════════════════════
           MAIN DASHBOARD CONTENT
@@ -1546,6 +1547,7 @@ Goals:
           STYLES
          ════════════════════════════════════════════ */}
         <style>{`
+
         /* ── Base ── */
         .omni-dashboard {
           max-width: 1200px;
@@ -1982,11 +1984,11 @@ Goals:
             grid-template-columns: 1fr;
           }
           .omni-suggestions span {
-            display: none;
-          }
-        }
-      `}</style>
-    </div>
-      );
+  display: none;
 }
-
+}
+`}</style>
+    </div>
+    </>
+);
+}

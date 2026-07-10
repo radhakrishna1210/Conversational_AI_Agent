@@ -1,5 +1,6 @@
 import { useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { setStorageItem } from '../lib/storage';
 
 export default function AuthCallback() {
   const navigate = useNavigate();
@@ -17,9 +18,9 @@ export default function AuthCallback() {
       return;
     }
 
-    localStorage.setItem('token', token);
-    if (refreshToken) localStorage.setItem('refreshToken', refreshToken);
-    if (workspaceId) localStorage.setItem('workspaceId', workspaceId);
+    setStorageItem('token', token);
+    if (refreshToken) setStorageItem('refreshToken', refreshToken);
+    if (workspaceId) setStorageItem('workspaceId', workspaceId);
 
     navigate('/dashboard');
   }, []);

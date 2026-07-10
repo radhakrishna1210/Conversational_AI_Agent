@@ -7,7 +7,7 @@ import * as authService from '../services/auth.service.js';
 import { env } from '../config/env.js';
 
 const shouldUseMockAuth = () => {
-  return env.USE_MOCK_AUTH === 'true' || process.env.DB_STATUS === 'unavailable' || env.NODE_ENV !== 'production';
+  return env.USE_MOCK_AUTH === 'true' || process.env.DB_STATUS === 'unavailable';
 };
 
 // Fallback to mock service for local development so the default test credentials work end to end.

@@ -60,16 +60,15 @@ export const registerUser = async ({ name, email, password, workspaceName }) => 
 
   const user = { id, email, name, passwordHash };
 
-  const workspace = workspaceName
-    ? {
-        id: workspaceId,
-        name: workspaceName,
-        slug:
-          workspaceName.toLowerCase().replace(/\s+/g, '-') +
-          '-' +
-          Date.now().toString(36),
-      }
-    : null;
+  const actualWorkspaceName = workspaceName || `${name}'s Workspace`;
+  const workspace = {
+    id: workspaceId,
+    name: actualWorkspaceName,
+    slug:
+      actualWorkspaceName.toLowerCase().replace(/\s+/g, '-') +
+      '-' +
+      Date.now().toString(36),
+  };
 
   users.set(email, { ...user, workspace });
 
