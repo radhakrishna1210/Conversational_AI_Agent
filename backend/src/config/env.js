@@ -34,6 +34,17 @@ export const env = {
   CLIENT_URL: optional('CLIENT_URL', 'http://localhost:5173'),
   CHATFLOW_PRO_URL: optional('CHATFLOW_PRO_URL', 'http://localhost:8080'),
 
+  TWILIO_ACCOUNT_SID: optional('TWILIO_ACCOUNT_SID'),
+  TWILIO_AUTH_TOKEN: optional('TWILIO_AUTH_TOKEN'),
+  TWILIO_FROM_NUMBER: optional('TWILIO_FROM_NUMBER'),
+  TWILIO_PHONE: optional('TWILIO_PHONE'),
+
+  SMTP_HOST: optional('SMTP_HOST'),
+  SMTP_PORT: optional('SMTP_PORT', '587'),
+  SMTP_USER: optional('SMTP_USER'),
+  SMTP_PASS: optional('SMTP_PASS') || optional('SMTP_PASSWORD'),
+  SMTP_FROM: optional('SMTP_FROM') || optional('EMAIL_FROM'),
+
   GOOGLE_CLIENT_ID: optional('GOOGLE_CLIENT_ID'),
   GOOGLE_CLIENT_SECRET: optional('GOOGLE_CLIENT_SECRET'),
   GOOGLE_REDIRECT_URI: optional('GOOGLE_REDIRECT_URI'),

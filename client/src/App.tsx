@@ -85,8 +85,10 @@ function DefaultLayout({ children }: { children: React.ReactNode }) {
   );
 }
 
+import { getStorageItem } from './lib/storage';
+
 function ProtectedRoute() {
-  const token = localStorage.getItem('token');
+  const token = getStorageItem('token');
   if (!token) {
     return <Navigate to="/login" replace />;
   }

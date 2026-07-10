@@ -20,6 +20,8 @@ import {
   Moon
 } from "lucide-react";
 
+import { getStorageItem } from '../lib/storage';
+
 export default function Navbar() {
   const { darkMode, toggleDarkMode } = useTheme();
   const [dropdownOpen, setDropdownOpen] = useState(false);
@@ -28,7 +30,7 @@ export default function Navbar() {
 
   useEffect(() => {
     const checkLogin = () => {
-      setIsLoggedIn(!!localStorage.getItem('token'));
+      setIsLoggedIn(!!getStorageItem('token'));
     };
     
     checkLogin();
