@@ -77,18 +77,6 @@ export default function Dashboard() {
     }
   };
 
-  const hardcodedAssistant = {
-    name: 'Outbound Lead Qualification Agent',
-    language: 'English (India)',
-    llm: 'gpt-4.1-mini',
-    voice: 'google',
-    kbFiles: 0,
-    search: 'Off',
-    postCall: 'None',
-    integrations: 'None',
-    id: '131000',
-  };
-
   useEffect(() => {
     const fetchAgents = async () => {
       try {
@@ -1428,35 +1416,6 @@ Goals:
                   </div>
                 </div>
               )}
-              <div style={{ position: 'relative' }}>
-                <button
-                  className="assistant-menu"
-                  aria-label="Assistant actions"
-                  onClick={(e) => handleMenuClick(e, hardcodedAssistant.id)}
-                >
-                  ⋮
-                </button>
-                {openDropdownId === hardcodedAssistant.id && (
-                  <div className="assistant-menu-dropdown">
-                    <button onClick={(e) => handleCopyAssistant(e, hardcodedAssistant as any)}>
-                      <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                      </svg>
-                      Copy Assistant
-                    </button>
-                    <button className="delete-btn" onClick={(e) => handleDeleteAssistant(e, hardcodedAssistant.id)}>
-                      <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                        <polyline points="3 6 5 6 21 6"></polyline>
-                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                        <line x1="10" y1="11" x2="10" y2="17"></line>
-                        <line x1="14" y1="11" x2="14" y2="17"></line>
-                      </svg>
-                      Delete Assistant
-                    </button>
-                  </div>
-                )}
-              </div>
             </div>
             <div className="omni-create-actions">
               {enhanceError && (
@@ -1524,22 +1483,51 @@ Goals:
                       .substring(0, 40)}</h3>
                     <p>{assistant.language}</p>
                   </div>
-                  <div className="omni-card-meta">
-                    <div><span>LLM:</span> <strong>{assistant.llm}</strong></div>
-                    <div><span>Voice:</span> <strong>{assistant.voice}</strong></div>
-                    <div><span>KB Files:</span> <strong>{assistant.kbFiles}</strong></div>
-                    <div><span>Search:</span> <strong>{assistant.search}</strong></div>
-                    <div><span>Post-call:</span> <strong>{assistant.postCall}</strong></div>
-                    <div><span>Integrations:</span> <strong>{assistant.integrations}</strong></div>
+                  <div style={{ position: 'relative' }}>
+                    <button
+                      className="assistant-menu"
+                      aria-label="Assistant actions"
+                      onClick={(e) => handleMenuClick(e, assistant.id)}
+                    >
+                      ⋮
+                    </button>
+                    {openDropdownId === assistant.id && (
+                      <div className="assistant-menu-dropdown">
+                        <button onClick={(e) => handleCopyAssistant(e, assistant)}>
+                          <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
+                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
+                          </svg>
+                          Copy Assistant
+                        </button>
+                        <button className="delete-btn" onClick={(e) => handleDeleteAssistant(e, assistant.id)}>
+                          <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                            <polyline points="3 6 5 6 21 6"></polyline>
+                            <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
+                            <line x1="10" y1="11" x2="10" y2="17"></line>
+                            <line x1="14" y1="11" x2="14" y2="17"></line>
+                          </svg>
+                          Delete Assistant
+                        </button>
+                      </div>
+                    )}
                   </div>
-                  <div className="omni-card-footer">
-                    <span className="omni-card-id">ID: {assistant.id}</span>
-                    <button className="omni-btn omni-btn-primary" onClick={() => navigate(`/agent/${assistant.id}`)}>Edit Agent</button>
-                  </div>
-                </div>{/* omni-card-head */}
-                </article>
-              ))
-              }
+                </div>
+                <div className="omni-card-meta">
+                  <div><span>LLM:</span> <strong>{assistant.llm}</strong></div>
+                  <div><span>Voice:</span> <strong>{assistant.voice}</strong></div>
+                  <div><span>KB Files:</span> <strong>{assistant.kbFiles}</strong></div>
+                  <div><span>Search:</span> <strong>{assistant.search}</strong></div>
+                  <div><span>Post-call:</span> <strong>{assistant.postCall}</strong></div>
+                  <div><span>Integrations:</span> <strong>{assistant.integrations}</strong></div>
+                </div>
+                <div className="omni-card-footer">
+                  <span className="omni-card-id">ID: {assistant.id}</span>
+                  <button className="omni-btn omni-btn-primary" onClick={() => navigate(`/agent/${assistant.id}`)}>Edit Agent</button>
+                </div>
+              </article>
+            ))
+            }
             </div>
           </div>
 
