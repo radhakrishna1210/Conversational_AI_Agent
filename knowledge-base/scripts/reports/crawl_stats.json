@@ -1,0 +1,240 @@
+{
+  "started_at": "2026-07-06T17:23:51.740764Z",
+  "total": 23,
+  "success": 23,
+  "failed": 0,
+  "skipped": 0,
+  "pages": [
+    {
+      "title": "Home",
+      "route": "/",
+      "folder": "Home",
+      "filename": "home.md",
+      "output_path": "Home\\home.md",
+      "status": "success",
+      "char_count": 3101,
+      "summary": "title: \"Home\""
+    },
+    {
+      "title": "Pricing",
+      "route": "/pricing",
+      "folder": "Pricing",
+      "filename": "pricing.md",
+      "output_path": "Pricing\\pricing.md",
+      "status": "success",
+      "char_count": 1094,
+      "summary": "title: \"Pricing\""
+    },
+    {
+      "title": "Documentation",
+      "route": "/documentation",
+      "folder": "Documentation",
+      "filename": "documentation.md",
+      "output_path": "Documentation\\documentation.md",
+      "status": "success",
+      "char_count": 957,
+      "summary": "title: \"Documentation\""
+    },
+    {
+      "title": "Docs",
+      "route": "/docs",
+      "folder": "Documentation",
+      "filename": "docs.md",
+      "output_path": "Documentation\\docs.md",
+      "status": "success",
+      "char_count": 1020,
+      "summary": "title: \"Docs\""
+    },
+    {
+      "title": "Contact Us",
+      "route": "/contact",
+      "folder": "Contact",
+      "filename": "contact.md",
+      "output_path": "Contact\\contact.md",
+      "status": "success",
+      "char_count": 231,
+      "summary": "title: \"Contact Us\""
+    },
+    {
+      "title": "Book an Appointment",
+      "route": "/book-appointment",
+      "folder": "BookAppointment",
+      "filename": "book_appointment.md",
+      "output_path": "BookAppointment\\book_appointment.md",
+      "status": "success",
+      "char_count": 250,
+      "summary": "title: \"Book an Appointment\""
+    },
+    {
+      "title": "Report an Issue",
+      "route": "/report-issue",
+      "folder": "ReportIssue",
+      "filename": "report_issue.md",
+      "output_path": "ReportIssue\\report_issue.md",
+      "status": "success",
+      "char_count": 223,
+      "summary": "title: \"Report an Issue\""
+    },
+    {
+      "title": "Cal.com Integration",
+      "route": "/integrations/cal-com",
+      "folder": "Integrations/CalCom",
+      "filename": "cal_com.md",
+      "output_path": "Integrations\\CalCom\\cal_com.md",
+      "status": "success",
+      "char_count": 1467,
+      "summary": "title: \"Cal.com Integration\""
+    },
+    {
+      "title": "Salesforce Integration",
+      "route": "/integrations/salesforce",
+      "folder": "Integrations/Salesforce",
+      "filename": "salesforce.md",
+      "output_path": "Integrations\\Salesforce\\salesforce.md",
+      "status": "success",
+      "char_count": 1729,
+      "summary": "title: \"Salesforce Integration\""
+    },
+    {
+      "title": "Custom API Integration",
+      "route": "/integrations/custom-api",
+      "folder": "Integrations/CustomAPI",
+      "filename": "custom_api.md",
+      "output_path": "Integrations\\CustomAPI\\custom_api.md",
+      "status": "success",
+      "char_count": 1558,
+      "summary": "title: \"Custom API Integration\""
+    },
+    {
+      "title": "SIP Trunking Integration",
+      "route": "/integrations/SIPTrunking",
+      "folder": "Integrations/SIPTrunking",
+      "filename": "sip_trunking.md",
+      "output_path": "Integrations\\SIPTrunking\\sip_trunking.md",
+      "status": "success",
+      "char_count": 1633,
+      "summary": "title: \"SIP Trunking Integration\""
+    },
+    {
+      "title": "Finance Solutions",
+      "route": "/solutions/verticals/finance",
+      "folder": "Solutions/Finance",
+      "filename": "finance.md",
+      "output_path": "Solutions\\Finance\\finance.md",
+      "status": "success",
+      "char_count": 2579,
+      "summary": "title: \"Finance Solutions\""
+    },
+    {
+      "title": "Education Solutions",
+      "route": "/solutions/verticals/education",
+      "folder": "Solutions/Education",
+      "filename": "education.md",
+      "output_path": "Solutions\\Education\\education.md",
+      "status": "success",
+      "char_count": 2397,
+      "summary": "title: \"Education Solutions\""
+    },
+    {
+      "title": "E-Commerce Solutions",
+      "route": "/solutions/verticals/ecommerce",
+      "folder": "Solutions/Ecommerce",
+      "filename": "ecommerce.md",
+      "output_path": "Solutions\\Ecommerce\\ecommerce.md",
+      "status": "success",
+      "char_count": 3409,
+      "summary": "title: \"E-Commerce Solutions\""
+    },
+    {
+      "title": "Real Estate Solutions",
+      "route": "/solutions/verticals/real-estate",
+      "folder": "Solutions/RealEstate",
+      "filename": "real_estate.md",
+      "output_path": "Solutions\\RealEstate\\real_estate.md",
+      "status": "success",
+      "char_count": 2881,
+      "summary": "title: \"Real Estate Solutions\""
+    },
+    {
+      "title": "Insurance Solutions",
+      "route": "/solutions/verticals/insurance",
+      "folder": "Solutions/Insurance",
+      "filename": "insurance.md",
+      "output_path": "Solutions\\Insurance\\insurance.md",
+      "status": "success",
+      "char_count": 2745,
+      "summary": "title: \"Insurance Solutions\""
+    },
+    {
+      "title": "Healthcare Solutions",
+      "route": "/solutions/verticals/healthcare",
+      "folder": "Solutions/Healthcare",
+      "filename": "healthcare.md",
+      "output_path": "Solutions\\Healthcare\\healthcare.md",
+      "status": "success",
+      "char_count": 3045,
+      "summary": "title: \"Healthcare Solutions\""
+    },
+    {
+      "title": "Restaurants Solutions",
+      "route": "/solutions/verticals/restaurants",
+      "folder": "Solutions/Restaurants",
+      "filename": "restaurants.md",
+      "output_path": "Solutions\\Restaurants\\restaurants.md",
+      "status": "success",
+      "char_count": 3205,
+      "summary": "title: \"Restaurants Solutions\""
+    },
+    {
+      "title": "Lead Generation",
+      "route": "/solutions/use-cases/lead-generation",
+      "folder": "Solutions/LeadGeneration",
+      "filename": "lead_generation.md",
+      "output_path": "Solutions\\LeadGeneration\\lead_generation.md",
+      "status": "success",
+      "char_count": 4180,
+      "summary": "title: \"Lead Generation\""
+    },
+    {
+      "title": "Collections",
+      "route": "/solutions/use-cases/collections",
+      "folder": "Solutions/Collections",
+      "filename": "collections.md",
+      "output_path": "Solutions\\Collections\\collections.md",
+      "status": "success",
+      "char_count": 3062,
+      "summary": "title: \"Collections\""
+    },
+    {
+      "title": "Negotiation",
+      "route": "/solutions/use-cases/negotiation",
+      "folder": "Solutions/Negotiation",
+      "filename": "negotiation.md",
+      "output_path": "Solutions\\Negotiation\\negotiation.md",
+      "status": "success",
+      "char_count": 3027,
+      "summary": "title: \"Negotiation\""
+    },
+    {
+      "title": "Customer Support",
+      "route": "/solutions/use-cases/customer-support",
+      "folder": "Solutions/CustomerSupport",
+      "filename": "customer_support.md",
+      "output_path": "Solutions\\CustomerSupport\\customer_support.md",
+      "status": "success",
+      "char_count": 2974,
+      "summary": "title: \"Customer Support\""
+    },
+    {
+      "title": "Appointments",
+      "route": "/solutions/use-cases/appointments",
+      "folder": "Solutions/Appointments",
+      "filename": "appointments.md",
+      "output_path": "Solutions\\Appointments\\appointments.md",
+      "status": "success",
+      "char_count": 2957,
+      "summary": "title: \"Appointments\""
+    }
+  ],
+  "finished_at": "2026-07-06T17:25:59.545975Z"
+}

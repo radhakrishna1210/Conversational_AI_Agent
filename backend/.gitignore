@@ -5,3 +5,5 @@ uploads/*
 prisma/migrations/
 dist/
 *.log
+# RAG index cache — generated at runtime, do not commit (contains large embedding vectors)
+rag-index.json

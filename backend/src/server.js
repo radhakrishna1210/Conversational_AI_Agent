@@ -7,6 +7,7 @@ import logger from './lib/logger.js';
 import { SSE_KEEPALIVE_INTERVAL_MS, SHUTDOWN_GRACE_PERIOD_MS } from './constants/limits.js';
 import { createCampaignWorker } from './workers/campaign.worker.js';
 import { startIntegrationScheduler } from './services/integrationScheduler.service.js';
+import { ragService } from './rag/rag.service.js';
 
 mkdirSync(env.UPLOAD_DIR, { recursive: true });
 
@@ -20,6 +21,17 @@ mkdirSync(env.UPLOAD_DIR, { recursive: true });
     logger.warn('Database connection failed on startup:', err.message);
     logger.warn('Server will continue using mock auth for development');
     process.env.DB_STATUS = 'unavailable';
+  }
+})();
+
+// Warm up the RAG index at startup so the first chat request is fast.
+// Runs in background — does not block the server from accepting requests.
+(async () => {
+  try {
+    await ragService.initializeIndex();
+    logger.info(`✅ RAG index ready (${ragService.getStatus().entries} entries)`);
+  } catch (err) {
+    logger.warn({ err }, '⚠️ RAG index initialisation failed — Kevin will use refusal responses');
   }
 })();
 
