@@ -24,14 +24,13 @@ export const env = {
   META_WABA_ID: optional('META_WABA_ID'),
   META_SYSTEM_USER_TOKEN: optional('META_SYSTEM_USER_TOKEN'),
   META_SYSTEM_USER_ID: optional('META_SYSTEM_USER_ID'),
-  META_DISPLAY_NAME: optional('META_DISPLAY_NAME', 'Whabridge'),
+  META_DISPLAY_NAME: optional('META_DISPLAY_NAME', 'Meta Business'),
   META_WEBHOOK_VERIFY_TOKEN: required('META_WEBHOOK_VERIFY_TOKEN'),
   META_API_VERSION: optional('META_API_VERSION', 'v19.0'),
 
   ENCRYPTION_KEY: optional('ENCRYPTION_KEY'),
 
   CLIENT_URL: optional('CLIENT_URL', 'http://localhost:5173'),
-  CHATFLOW_PRO_URL: optional('CHATFLOW_PRO_URL', 'http://localhost:8080'),
 
   GOOGLE_CLIENT_ID: optional('GOOGLE_CLIENT_ID'),
   GOOGLE_CLIENT_SECRET: optional('GOOGLE_CLIENT_SECRET'),

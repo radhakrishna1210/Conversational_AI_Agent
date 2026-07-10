@@ -23,7 +23,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [showBanner, setShowBanner] = useState(true);
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
   const [user, setUser] = useState({ name: 'User', email: '', initials: 'U' });
-  
+
   const location = useLocation();
   const navigate = useNavigate();
   const path = location.pathname;
@@ -41,10 +41,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   useEffect(() => {
     const name = localStorage.getItem('userName');
     const email = localStorage.getItem('userEmail');
-    
+
     let displayName = name || 'User';
     let displayEmail = email || '';
-    
+
     // If not in localStorage, try decoding the token
     if (!name || !email) {
       const token = localStorage.getItem('token');
@@ -53,7 +53,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           const payload = JSON.parse(atob(token.split('.')[1]));
           displayName = payload.name || payload.email?.split('@')[0] || 'User';
           displayEmail = payload.email || '';
-        } catch (e) {}
+        } catch (e) { }
       }
     }
 
@@ -70,21 +70,21 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   return (
     <div className="dashboard-layout">
       {/* Topbar */}
-      <div style={{background:'var(--bg-secondary)', borderBottom:'1px solid var(--border)', position: 'fixed', top: 0, left: '68px', right: 0, zIndex: 10, height: '56px'}}>
+      <div style={{ background: 'var(--bg-secondary)', borderBottom: '1px solid var(--border)', position: 'fixed', top: 0, left: '68px', right: 0, zIndex: 10, height: '56px' }}>
         <div className="dashboard-topbar">
           <div className="topbar-search">
-            <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+            <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" /></svg>
             <input type="text" placeholder="Search or jump to..." />
             <span>⌘ K</span>
           </div>
           <div className="topbar-actions">
             {/* Bell with red badge */}
-            <button style={{background:'none', border:'none', color:'var(--text-secondary)', cursor:'pointer', position:'relative', display:'flex', alignItems:'center', justifyContent:'center', padding:'4px'}}>
+            <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px' }}>
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/>
-                <path d="M13.73 21a2 2 0 0 1-3.46 0"/>
+                <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                <path d="M13.73 21a2 2 0 0 1-3.46 0" />
               </svg>
-              <span style={{position:'absolute', top:'2px', right:'2px', width:'8px', height:'8px', background:'#ef4444', borderRadius:'50%', display:'block', border:'1.5px solid var(--bg-secondary)'}}></span>
+              <span style={{ position: 'absolute', top: '2px', right: '2px', width: '8px', height: '8px', background: '#ef4444', borderRadius: '50%', display: 'block', border: '1.5px solid var(--bg-secondary)' }}></span>
             </button>
             {/* GD Avatar */}
             <div style={{
@@ -96,20 +96,20 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               border: '1.5px solid rgba(14,179,158,0.4)'
             }}>GD</div>
             {/* Moon / dark mode */}
-            <button style={{background:'none', border:'none', color:'var(--text-secondary)', cursor:'pointer', display:'flex', alignItems:'center', justifyContent:'center', padding:'4px'}}>
+            <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '4px' }}>
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" />
               </svg>
             </button>
             <div style={{ position: 'relative' }}>
-              <div 
-                className="topbar-avatar" 
+              <div
+                className="topbar-avatar"
                 onClick={() => setProfileDropdownOpen(!profileDropdownOpen)}
                 style={{ cursor: 'pointer', background: '#00b4d8', color: '#001a2c', fontWeight: 'bold', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
               >
                 {user.initials}
               </div>
-              
+
               {profileDropdownOpen && (
                 <div style={{
                   position: 'absolute',
@@ -128,7 +128,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     <div style={{ fontWeight: 'bold', fontSize: '14px', color: '#fff', marginBottom: '4px', textTransform: 'uppercase' }}>{user.name}</div>
                     <div style={{ fontSize: '12px', color: '#888' }}>{user.email}</div>
                   </div>
-                  
+
                   <div style={{ padding: '8px 0', borderBottom: '1px solid #2a2a2a' }}>
                     <Link to="/profile" style={{ display: 'flex', alignItems: 'center', padding: '10px 16px', textDecoration: 'none', color: '#eaeaea', fontSize: '14px', transition: 'background 0.2s' }} onMouseOver={(e) => e.currentTarget.style.background = '#1f1f1f'} onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}>
                       <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '12px' }}><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path><circle cx="12" cy="7" r="4"></circle></svg>
@@ -143,9 +143,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       Billing
                     </Link>
                   </div>
-                  
+
                   <div style={{ padding: '8px 0' }}>
-                    <div 
+                    <div
                       onClick={handleLogout}
                       style={{ display: 'flex', alignItems: 'center', padding: '10px 16px', cursor: 'pointer', color: '#eaeaea', fontSize: '14px', transition: 'background 0.2s' }}
                       onMouseOver={(e) => e.currentTarget.style.background = '#1f1f1f'} onMouseOut={(e) => e.currentTarget.style.background = 'transparent'}
@@ -157,17 +157,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 </div>
               )}
             </div>
-            <button style={{background:'none', border:'none', color:'var(--text-secondary)', fontSize:'18px', cursor:'pointer'}}>🌙</button>
+            <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', fontSize: '18px', cursor: 'pointer' }}>🌙</button>
           </div>
         </div>
       </div>
 
       {/* Sidebar */}
       <aside className="sidebar">
-        <Link to="/" style={{textDecoration: 'none'}}>
+        <Link to="/" style={{ textDecoration: 'none' }}>
           <div className="sidebar-header">
             <div className="sidebar-logo-icon">O</div>
-            <div className="sidebar-logo-text">OMNI<span style={{color: 'white', fontWeight: 300}}>DIMENSION</span></div>
+            <div className="sidebar-logo-text">OMNI<span style={{ color: 'white', fontWeight: 300 }}>DIMENSION</span></div>
           </div>
         </Link>
 
@@ -181,14 +181,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <span className="sidebar-text">Voice AI Assistants</span>
               </div>
             </Link>
-            <Link to="/voice_assistant" style={{textDecoration: 'none'}}>
+            <Link to="/voice_assistant" style={{ textDecoration: 'none' }}>
               <div className={`sidebar-item ${path === '/voice_assistant' ? 'active' : ''}`}>
                 <span className="sidebar-icon">🔊</span>
                 <span className="sidebar-text">Real-time TTS</span>
                 <span className="badge-new">Live</span>
               </div>
             </Link>
-            <Link to="/clone_voice" style={{textDecoration: 'none'}}>
+            <Link to="/clone_voice" style={{ textDecoration: 'none' }}>
               <div className={`sidebar-item ${path === '/clone_voice' ? 'active' : ''}`}>
                 <span className="sidebar-icon"><Mic size={16} /></span>
                 <span className="sidebar-text">Clone Voice</span>
@@ -252,11 +252,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <span className="sidebar-text">WhatsApp</span>
               </div>
             </Link>
-
-            <div className="sidebar-item">
-              <span className="sidebar-icon"><MessageCircle size={16} /></span>
-              <span className="sidebar-text">WhaBridge</span>
-            </div>
           </div>
 
           <div className="sidebar-section">

@@ -3,10 +3,6 @@
 import * as mockAuthService from '../services/mockAuth.service.js';
 import * as authService from '../services/auth.service.js';
 
-
-import * as authService from '../services/auth.service.js';
-
-
 import { env } from '../config/env.js';
 
 // Fallback to mock service if database is unavailable
@@ -64,7 +60,7 @@ export const refresh = async (req, res) => {
   } catch (err) {
     // Fallback
     if (service === authService && process.env.DB_STATUS === 'unavailable') {
-      const tokens = await mockAuthService.refreshTokens_fn(refreshToken);
+      const tokens = await mockAuthService.refreshUserToken(refreshToken);
       return res.json(tokens);
     }
     throw err;

@@ -127,7 +127,6 @@ DATABASE_URL="postgresql://user:password@localhost:5432/convo_ai"
 NODE_ENV=development
 PORT=4000
 CLIENT_URL=http://localhost:5173
-CHATFLOW_PRO_URL=http://localhost:8080
 
 # JWT Secrets (Can keep as-is for development)
 JWT_ACCESS_SECRET=supersecretaccesskey1234567890abcdef

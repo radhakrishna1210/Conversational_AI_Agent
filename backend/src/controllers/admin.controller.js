@@ -86,9 +86,9 @@ async function readOTPFromTwilio(accountSid, authToken, toNumber, maxWaitMs = 12
 
 export const syncTwilioNumbers = async (req, res) => {
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken  = process.env.TWILIO_AUTH_TOKEN;
-  const wabaId     = env.META_WABA_ID;
-  const metaToken  = env.META_SYSTEM_USER_TOKEN;
+  const authToken = process.env.TWILIO_AUTH_TOKEN;
+  const wabaId = env.META_WABA_ID;
+  const metaToken = env.META_SYSTEM_USER_TOKEN;
 
   if (!accountSid || !authToken) {
     return res.status(503).json({ error: 'TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN not set in .env' });
@@ -160,7 +160,7 @@ export const syncTwilioNumbers = async (req, res) => {
       } else {
         logger.info({ phoneNumber, wabaId }, 'Registering number with Meta WABA');
         const { cc, number } = parseE164(phoneNumber);
-        const verifiedName = env.META_DISPLAY_NAME || 'Whabridge';
+        const verifiedName = env.META_DISPLAY_NAME || 'Meta Business';
         try {
           const regResp = await metaPost(`/${wabaId}/phone_numbers`, {
             cc,
@@ -192,17 +192,17 @@ export const syncTwilioNumbers = async (req, res) => {
           phoneNumber,
           phoneNumberId: metaPhoneNumberId,
           wabaId,
-          accessToken:  encryptedMetaToken,
+          accessToken: encryptedMetaToken,
           displayName,
-          status:       'AVAILABLE',
+          status: 'AVAILABLE',
           registeredAt: new Date(),
         },
         update: {
           phoneNumberId: metaPhoneNumberId,
           wabaId,
-          accessToken:  encryptedMetaToken,
+          accessToken: encryptedMetaToken,
           displayName,
-          status:       'AVAILABLE',
+          status: 'AVAILABLE',
         },
       });
 
@@ -218,8 +218,8 @@ export const syncTwilioNumbers = async (req, res) => {
   }
 
   const registered = results.filter((r) => r.status === 'registered').length;
-  const skipped    = results.filter((r) => r.status?.startsWith('skipped')).length;
-  const failed     = results.filter((r) => r.status === 'failed').length;
+  const skipped = results.filter((r) => r.status?.startsWith('skipped')).length;
+  const failed = results.filter((r) => r.status === 'failed').length;
 
   logger.info({ registered, skipped, failed, total: numbers.length }, 'Twilio → Meta sync complete');
 
@@ -381,7 +381,7 @@ export const verifyOtp = async (req, res) => {
     return res.status(400).json({ error: 'OTP is required — enter it manually or wait for the SMS webhook to capture it' });
   }
 
-  const wabaId    = env.META_WABA_ID;
+  const wabaId = env.META_WABA_ID;
   const metaToken = env.META_SYSTEM_USER_TOKEN;
 
   if (!phoneNumber || !metaPhoneNumberId) {
@@ -407,17 +407,17 @@ export const verifyOtp = async (req, res) => {
       phoneNumber,
       phoneNumberId: metaPhoneNumberId,
       wabaId,
-      accessToken:  encryptedMetaToken,
-      displayName:  displayName ?? phoneNumber,
-      status:       'AVAILABLE',
+      accessToken: encryptedMetaToken,
+      displayName: displayName ?? phoneNumber,
+      status: 'AVAILABLE',
       registeredAt: new Date(),
     },
     update: {
       phoneNumberId: metaPhoneNumberId,
       wabaId,
-      accessToken:  encryptedMetaToken,
-      displayName:  displayName ?? phoneNumber,
-      status:       'AVAILABLE',
+      accessToken: encryptedMetaToken,
+      displayName: displayName ?? phoneNumber,
+      status: 'AVAILABLE',
     },
   });
 
@@ -429,7 +429,7 @@ export const verifyOtp = async (req, res) => {
 // List phone numbers registered in the platform WABA (to find metaPhoneNumberId)
 
 export const listWabaNumbers = async (req, res) => {
-  const wabaId    = env.META_WABA_ID;
+  const wabaId = env.META_WABA_ID;
   const metaToken = env.META_SYSTEM_USER_TOKEN;
 
   if (!wabaId || !metaToken) {
@@ -474,10 +474,10 @@ export const getNumberPool = async (req, res) => {
   const pool = entries.map(({ accessToken: _omit, ...safe }) => safe);
 
   const summary = {
-    total:    entries.length,
+    total: entries.length,
     available: entries.filter((e) => e.status === 'AVAILABLE').length,
-    assigned:  entries.filter((e) => e.status === 'ASSIGNED').length,
-    banned:    entries.filter((e) => e.status === 'BANNED').length,
+    assigned: entries.filter((e) => e.status === 'ASSIGNED').length,
+    banned: entries.filter((e) => e.status === 'BANNED').length,
   };
 
   logger.info(
