@@ -1,0 +1,114 @@
+/**
+ * RAG — Intent Classifier
+ * =======================
+ * Lightweight, regex-only classifier that intercepts conversational
+ * messages (greetings, thanks, farewells, empty input) BEFORE they
+ * reach the RAG retrieval pipeline.
+ *
+ * Design decisions:
+ *   - Pure regex — zero latency, zero API calls, zero cost.
+ *   - Only intercepts messages that are UNAMBIGUOUSLY conversational.
+ *   - Any message not matched as GREETING / THANKS / GOODBYE / EMPTY
+ *     returns intent === 'UNKNOWN', which signals rag.service to run
+ *     the full strict RAG pipeline unchanged.
+ *   - Prompt-injection attempts ("Ignore previous instructions …")
+ *     will NOT match these patterns and will reach RAG, which will
+ *     return the refusal phrase because no docs are relevant.
+ *
+ * @module intentClassifier
+ */
+
+// ─── Intent definitions ─────────────────────────────────────────────────────
+
+const INTENTS = [
+  {
+    name: 'GREETING',
+    patterns: [
+      // Simple greetings (with optional punctuation / filler at the end)
+      /^(hi|hello|hey|howdy|hiya|yo|sup|heya)[\s!.,?]*$/i,
+      // Formal time-of-day greetings
+      /^good\s+(morning|afternoon|evening|day|night)[\s!.,?]*$/i,
+      // Wellbeing openers
+      /^how\s+are\s+you(\s+(doing|today))?[\s!.,?]*$/i,
+      /^how'?s?\s+it\s+going[\s!.,?]*$/i,
+      /^what'?s\s+up[\s!.,?]*$/i,
+      /^greetings[\s!.,?]*$/i,
+    ],
+    responses: [
+      "Hi! I'm Kevin, OmniDimension's AI assistant. How can I help you today?",
+      "Hello! I'm Kevin, here to help with OmniDimension. What would you like to know?",
+      "Hey there! I'm Kevin, OmniDimension's AI assistant. What can I assist you with?",
+    ],
+  },
+  {
+    name: 'THANKS',
+    patterns: [
+      // Thank-you phrases
+      /^(thanks|thank\s+you|thank\s+u|thx|ty|cheers)[\s!.,?]*$/i,
+      /^(appreciate\s+it|much\s+appreciated|that'?s?\s+(helpful|great|perfect|exactly\s+what\s+i\s+needed))[\s!.,?]*$/i,
+      // Positive one-word reactions (short enough to be purely social)
+      /^(great|awesome|perfect|wonderful|excellent|fantastic|nice|cool|brilliant|superb)[\s!.,?]*$/i,
+      /^(good\s+job|well\s+done|good\s+one)[\s!.,?]*$/i,
+    ],
+    responses: [
+      "You're welcome! Let me know if you have any other questions about OmniDimension.",
+      "Happy to help! Feel free to ask if there's anything else you'd like to know.",
+    ],
+  },
+  {
+    name: 'GOODBYE',
+    patterns: [
+      /^(bye|goodbye|good\s+bye|cya|ttyl|later)[\s!.,?]*$/i,
+      /^(see\s+you(\s+(later|soon|around))?|catch\s+you\s+later)[\s!.,?]*$/i,
+      /^(take\s+care|have\s+a\s+good\s+(day|one|night)|all\s+the\s+best)[\s!.,?]*$/i,
+    ],
+    responses: [
+      "Goodbye! Feel free to come back if you have more questions about OmniDimension.",
+      "Take care! Don't hesitate to reach out if you need help with OmniDimension.",
+    ],
+  },
+];
+
+// ─── Classifier ─────────────────────────────────────────────────────────────
+
+/**
+ * @typedef {Object} IntentResult
+ * @property {'GREETING'|'THANKS'|'GOODBYE'|'EMPTY'|'UNKNOWN'} intent
+ * @property {string|null} response - Pre-built response, or null for UNKNOWN
+ */
+
+/**
+ * Classify the conversational intent of a user message.
+ *
+ * Returns `{ intent: 'UNKNOWN', response: null }` for anything that
+ * should proceed to the RAG pipeline.
+ *
+ * @param {string} message - Raw user input
+ * @returns {IntentResult}
+ */
+export function classifyIntent(message) {
+  const trimmed = (message ?? '').trim();
+
+  // ── Empty ──────────────────────────────────────────────────────────────────
+  if (!trimmed) {
+    return {
+      intent: 'EMPTY',
+      response: 'Please enter a question about OmniDimension.',
+    };
+  }
+
+  // ── Pattern matching ───────────────────────────────────────────────────────
+  for (const { name, patterns, responses } of INTENTS) {
+    for (const pattern of patterns) {
+      if (pattern.test(trimmed)) {
+        // Pick a response variant (round-robin based on message length to be
+        // deterministic while still varying the wording across sessions)
+        const response = responses[trimmed.length % responses.length];
+        return { intent: name, response };
+      }
+    }
+  }
+
+  // ── Unknown — send to RAG ──────────────────────────────────────────────────
+  return { intent: 'UNKNOWN', response: null };
+}

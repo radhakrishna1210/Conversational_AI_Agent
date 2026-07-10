@@ -1,0 +1,145 @@
+{
+  "generated_at": "2026-07-06T17:26:00.299730Z",
+  "base_url": "http://localhost:5173",
+  "total_pages": 23,
+  "pages": [
+    {
+      "title": "Home",
+      "route": "/",
+      "markdown_path": "Home/home.md",
+      "summary": "Build, test, and ship reliable voice AI assistants"
+    },
+    {
+      "title": "Pricing",
+      "route": "/pricing",
+      "markdown_path": "Pricing/pricing.md",
+      "summary": "Choose the perfect plan for your business. Start free, scale as you grow, and only pay for what you use."
+    },
+    {
+      "title": "Documentation",
+      "route": "/documentation",
+      "markdown_path": "Documentation/documentation.md",
+      "summary": "Build powerful AI voice agents with our easy-to-use SDK"
+    },
+    {
+      "title": "Docs",
+      "route": "/docs",
+      "markdown_path": "Documentation/docs.md",
+      "summary": "Explore the API, setup guides, and support resources to build your AI workflows."
+    },
+    {
+      "title": "Contact Us",
+      "route": "/contact",
+      "markdown_path": "Contact/contact.md",
+      "summary": "Thank you for taking the time to contact us. We look forward to connecting with you soon."
+    },
+    {
+      "title": "Book an Appointment",
+      "route": "/book-appointment",
+      "markdown_path": "BookAppointment/book_appointment.md",
+      "summary": "Schedule a time with our team to discuss your needs and how we can help."
+    },
+    {
+      "title": "Report an Issue",
+      "route": "/report-issue",
+      "markdown_path": "ReportIssue/report_issue.md",
+      "summary": "Tell us what went wrong and attach a screenshot if you have one."
+    },
+    {
+      "title": "Cal.com Integration",
+      "route": "/integrations/cal-com",
+      "markdown_path": "Integrations/CalCom/cal_com.md",
+      "summary": "Schedule meetings on your Cal.com calendar from a voice conversation."
+    },
+    {
+      "title": "Salesforce Integration",
+      "route": "/integrations/salesforce",
+      "markdown_path": "Integrations/Salesforce/salesforce.md",
+      "summary": "Update Salesforce contacts, leads, and opportunities from call outcomes."
+    },
+    {
+      "title": "Custom API Integration",
+      "route": "/integrations/custom-api",
+      "markdown_path": "Integrations/CustomAPI/custom_api.md",
+      "summary": "Connect your agent to any external REST API endpoint."
+    },
+    {
+      "title": "SIP Trunking Integration",
+      "route": "/integrations/SIPTrunking",
+      "markdown_path": "Integrations/SIPTrunking/sip_trunking.md",
+      "summary": "Connect Vonage SIP trunks with UserKey and Secret authentication."
+    },
+    {
+      "title": "Finance Solutions",
+      "route": "/solutions/verticals/finance",
+      "markdown_path": "Solutions/Finance/finance.md",
+      "summary": "Financial Services Voice AI Solutions"
+    },
+    {
+      "title": "Education Solutions",
+      "route": "/solutions/verticals/education",
+      "markdown_path": "Solutions/Education/education.md",
+      "summary": "Handle admissions, enrollment, financial aid, and campus tours with intelligent voice assistants. Support students 24/7 while your team focuses on education."
+    },
+    {
+      "title": "E-Commerce Solutions",
+      "route": "/solutions/verticals/ecommerce",
+      "markdown_path": "Solutions/Ecommerce/ecommerce.md",
+      "summary": "Handle order inquiries, product support, returns, and customer notifications with intelligent voice assistants. Turn every call into a sales opportunity."
+    },
+    {
+      "title": "Real Estate Solutions",
+      "route": "/solutions/verticals/real-estate",
+      "markdown_path": "Solutions/RealEstate/real_estate.md",
+      "summary": "Never miss a lead again. Our AI agents handle property inquiries, schedule site visits, and qualify buyers 24/7 while you focus on closing deals."
+    },
+    {
+      "title": "Insurance Solutions",
+      "route": "/solutions/verticals/insurance",
+      "markdown_path": "Solutions/Insurance/insurance.md",
+      "summary": "Streamline policy management, accelerate claims processing, and enhance customer experience with AI-powered insurance solutions that work around the clock."
+    },
+    {
+      "title": "Healthcare Solutions",
+      "route": "/solutions/verticals/healthcare",
+      "markdown_path": "Solutions/Healthcare/healthcare.md",
+      "summary": "Never miss an appointment call again. AI-powered voice assistant that schedules, reschedules, and sends reminders 24/7 while maintaining HIPAA compliance."
+    },
+    {
+      "title": "Restaurants Solutions",
+      "route": "/solutions/verticals/restaurants",
+      "markdown_path": "Solutions/Restaurants/restaurants.md",
+      "summary": "Automate order taking, reservations, and customer service with voice AI. Handle peak hours effortlessly while increasing average order value."
+    },
+    {
+      "title": "Lead Generation",
+      "route": "/solutions/use-cases/lead-generation",
+      "markdown_path": "Solutions/LeadGeneration/lead_generation.md",
+      "summary": "Lead Generation Voice AI Solutions"
+    },
+    {
+      "title": "Collections",
+      "route": "/solutions/use-cases/collections",
+      "markdown_path": "Solutions/Collections/collections.md",
+      "summary": "Automate payment reminders and collections with AI. Improve cash flow while maintaining positive customer relationships."
+    },
+    {
+      "title": "Negotiation",
+      "route": "/solutions/use-cases/negotiation",
+      "markdown_path": "Solutions/Negotiation/negotiation.md",
+      "summary": "Automate structured negotiation calls with AI. Handle objections, offer approved terms, and move customers toward clear next steps."
+    },
+    {
+      "title": "Customer Support",
+      "route": "/solutions/use-cases/customer-support",
+      "markdown_path": "Solutions/CustomerSupport/customer_support.md",
+      "summary": "Customer Support Voice AI Solutions"
+    },
+    {
+      "title": "Appointments",
+      "route": "/solutions/use-cases/appointments",
+      "markdown_path": "Solutions/Appointments/appointments.md",
+      "summary": "Appointments Voice AI Solutions"
+    }
+  ]
+}

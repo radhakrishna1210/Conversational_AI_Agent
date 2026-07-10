@@ -1,0 +1,297 @@
+[
+  {
+    "title": "API Keys",
+    "route": "/api_keys",
+    "category": "Account",
+    "filename": "api_keys.md",
+    "markdown_path": "dashboard/api_keys.md",
+    "source_url": "http://localhost:5173/api_keys",
+    "crawled_at": "2026-07-10T05:18:30.905440Z",
+    "summary": "Generate and manage API credentials for programmatic access to the OmniDimension platform.",
+    "headings": [
+      "Overview",
+      "Creating an API Key",
+      "Using Your API Key",
+      "Key Management",
+      "Security Best Practices",
+      "Rate Limits"
+    ],
+    "word_count": 229,
+    "char_count": 1840,
+    "auth_required": true,
+    "status": "indexed",
+    "note": "Statically authored (page was empty at crawl time)"
+  },
+  {
+    "title": "Admin Panel",
+    "route": "/admin",
+    "category": "Account",
+    "filename": "admin_panel.md",
+    "markdown_path": "dashboard/admin_panel.md",
+    "source_url": "http://localhost:5173/admin",
+    "crawled_at": "2026-07-10T05:13:18.839699Z",
+    "summary": "Platform-wide analytics, user management, and number pool administration",
+    "headings": [],
+    "word_count": 22,
+    "char_count": 343,
+    "auth_required": true,
+    "status": "indexed"
+  },
+  {
+    "title": "Billing",
+    "route": "/billing",
+    "category": "Account",
+    "filename": "billing.md",
+    "markdown_path": "dashboard/billing.md",
+    "source_url": "http://localhost:5173/billing",
+    "crawled_at": "2026-07-10T05:12:39.231982Z",
+    "summary": "View your balance and choose right plan",
+    "headings": [
+      "Voice AI Pricing",
+      "Chatbot Pricing",
+      "Features"
+    ],
+    "word_count": 324,
+    "char_count": 2228,
+    "auth_required": true,
+    "status": "indexed"
+  },
+  {
+    "title": "Profile",
+    "route": "/profile",
+    "category": "Account",
+    "filename": "profile.md",
+    "markdown_path": "dashboard/profile.md",
+    "source_url": "http://localhost:5173/profile",
+    "crawled_at": "2026-07-10T05:13:02.606239Z",
+    "summary": "Manage your account settings and preferences",
+    "headings": [
+      "👤 Personal Information",
+      "🔒 Security",
+      "🌐 Preferences"
+    ],
+    "word_count": 68,
+    "char_count": 651,
+    "auth_required": true,
+    "status": "indexed"
+  },
+  {
+    "title": "Settings",
+    "route": "/settings",
+    "category": "Account",
+    "filename": "settings.md",
+    "markdown_path": "dashboard/settings.md",
+    "source_url": "http://localhost:5173/settings",
+    "crawled_at": "2026-07-10T05:12:54.597079Z",
+    "summary": "Manage your account settings and preferences",
+    "headings": [
+      "👤 Personal Information",
+      "🔒 Security",
+      "🌐 Preferences"
+    ],
+    "word_count": 68,
+    "char_count": 654,
+    "auth_required": true,
+    "status": "indexed"
+  },
+  {
+    "title": "WhatsApp",
+    "route": "/whatsapp",
+    "category": "Chat",
+    "filename": "whatsapp.md",
+    "markdown_path": "dashboard/whatsapp.md",
+    "source_url": "http://localhost:5173/whatsapp",
+    "crawled_at": "2026-07-10T05:12:30.921338Z",
+    "summary": "Manage your WhatsApp Business connections and settings.",
+    "headings": [
+      "Connect WhatsApp",
+      "Phone WhatsApp",
+      "Cloud WhatsApp"
+    ],
+    "word_count": 41,
+    "char_count": 470,
+    "auth_required": true,
+    "status": "indexed"
+  },
+  {
+    "title": "Analytics",
+    "route": "/analytics",
+    "category": "Operations",
+    "filename": "analytics.md",
+    "markdown_path": "dashboard/analytics.md",
+    "source_url": "http://localhost:5173/analytics",
+    "crawled_at": "2026-07-10T05:12:23.164363Z",
+    "summary": "View and analyze your call and chatbot performance metrics",
+    "headings": [
+      "Call Volume Over Time",
+      "Call Outcomes",
+      "Sentiment Analysis",
+      "Call Activity Heatmap",
+      "Recent Calls"
+    ],
+    "word_count": 143,
+    "char_count": 1025,
+    "auth_required": true,
+    "status": "indexed"
+  },
+  {
+    "title": "Bulk Call",
+    "route": "/bulk_call/create",
+    "category": "Operations",
+    "filename": "bulk_call.md",
+    "markdown_path": "dashboard/bulk_call.md",
+    "source_url": "http://localhost:5173/bulk_call/create",
+    "crawled_at": "2026-07-10T05:11:59.524278Z",
+    "summary": "Build your campaign in four simple steps. This prototype stores data locally and does not connect to backend services.",
+    "headings": [
+      "Campaign Details",
+      "Phone Number"
+    ],
+    "word_count": 114,
+    "char_count": 847,
+    "auth_required": true,
+    "status": "indexed"
+  },
+  {
+    "title": "Call Logs",
+    "route": "/call_logs",
+    "category": "Operations",
+    "filename": "call_logs.md",
+    "markdown_path": "dashboard/call_logs.md",
+    "source_url": "http://localhost:5173/call_logs",
+    "crawled_at": "2026-07-10T05:12:07.126459Z",
+    "summary": "View and analyze your call history",
+    "headings": [
+      "Filters"
+    ],
+    "word_count": 83,
+    "char_count": 654,
+    "auth_required": true,
+    "status": "indexed"
+  },
+  {
+    "title": "Phone Numbers",
+    "route": "/phone_numbers",
+    "category": "Operations",
+    "filename": "phone_numbers.md",
+    "markdown_path": "dashboard/phone_numbers.md",
+    "source_url": "http://localhost:5173/phone_numbers",
+    "crawled_at": "2026-07-10T05:11:51.844059Z",
+    "summary": "Manage your phone numbers and attached bots",
+    "headings": [
+      "📞 Buy a Phone Number",
+      "📥 Import Existing Number",
+      "No phone numbers yet"
+    ],
+    "word_count": 111,
+    "char_count": 887,
+    "auth_required": true,
+    "status": "indexed"
+  },
+  {
+    "title": "Notification Archive",
+    "route": "/notifications/archive",
+    "category": "Other",
+    "filename": "notifications.md",
+    "markdown_path": "dashboard/notifications.md",
+    "source_url": "http://localhost:5173/notifications/archive",
+    "crawled_at": "2026-07-10T05:13:26.904262Z",
+    "summary": "📅 Need help getting started? Talk to our team.Book a Meeting →",
+    "headings": [
+      "Free Voice Cloning!",
+      "OmniDimension Telephony is live",
+      "Scheduled Maintenance"
+    ],
+    "word_count": 161,
+    "char_count": 1246,
+    "auth_required": true,
+    "status": "indexed"
+  },
+  {
+    "title": "Clone Voice",
+    "route": "/clone_voice",
+    "category": "Voice AI Setup",
+    "filename": "clone_voice.md",
+    "markdown_path": "dashboard/clone_voice.md",
+    "source_url": "http://localhost:5173/clone_voice",
+    "crawled_at": "2026-07-10T05:11:21.986366Z",
+    "summary": "Create custom AI voices by uploading audio samples. Minimum 20 seconds, recommended 30-60 seconds of clear speech.",
+    "headings": [
+      "🎙️ Clone Your Voice",
+      "No Cloned Voices Yet"
+    ],
+    "word_count": 99,
+    "char_count": 811,
+    "auth_required": true,
+    "status": "indexed"
+  },
+  {
+    "title": "Files & Knowledge Base",
+    "route": "/files",
+    "category": "Voice AI Setup",
+    "filename": "files.md",
+    "markdown_path": "dashboard/files.md",
+    "source_url": "http://localhost:5173/files",
+    "crawled_at": "2026-07-10T05:11:28.852007Z",
+    "summary": "Supported formats: PDF (max 10MB)",
+    "headings": [
+      "↑ Upload PDFs",
+      "📄 Uploaded Files"
+    ],
+    "word_count": 39,
+    "char_count": 410,
+    "auth_required": true,
+    "status": "indexed"
+  },
+  {
+    "title": "Integrations",
+    "route": "/integrations",
+    "category": "Voice AI Setup",
+    "filename": "integrations.md",
+    "markdown_path": "dashboard/integrations.md",
+    "source_url": "http://localhost:5173/integrations",
+    "crawled_at": "2026-07-10T05:11:43.898709Z",
+    "summary": "Connect Cal.com, Calendly, Salesforce, Google, Slack, HubSpot, Genesys, and custom APIs with secure OAuth, logs, sync jobs, and webhook-driven updates.",
+    "headings": [],
+    "word_count": 262,
+    "char_count": 1984,
+    "auth_required": true,
+    "status": "indexed"
+  },
+  {
+    "title": "Real-time TTS",
+    "route": "/voice_assistant",
+    "category": "Voice AI Setup",
+    "filename": "voice_assistant.md",
+    "markdown_path": "dashboard/voice_assistant.md",
+    "source_url": "http://localhost:5173/voice_assistant",
+    "crawled_at": "2026-07-10T05:11:14.850910Z",
+    "summary": "Real-time neural text-to-speech with dynamic voice cloning.",
+    "headings": [
+      "🤖 AI Voice Assistant"
+    ],
+    "word_count": 34,
+    "char_count": 473,
+    "auth_required": true,
+    "status": "indexed"
+  },
+  {
+    "title": "Voice AI Assistants (Dashboard)",
+    "route": "/dashboard",
+    "category": "Voice AI Setup",
+    "filename": "dashboard.md",
+    "markdown_path": "dashboard/dashboard.md",
+    "source_url": "http://localhost:5173/dashboard",
+    "crawled_at": "2026-07-10T05:11:05.177519Z",
+    "summary": "Create and manage your voice AI assistants",
+    "headings": [
+      "Create a new voice AI assistant",
+      "My Voice AI Assistants",
+      "Outbound Lead Qualification Agent"
+    ],
+    "word_count": 71,
+    "char_count": 775,
+    "auth_required": true,
+    "status": "indexed"
+  }
+]

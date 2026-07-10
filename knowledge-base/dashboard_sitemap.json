@@ -1,0 +1,120 @@
+{
+  "generated_at": "2026-07-10T05:13:28.071881Z",
+  "base_url": "http://localhost:5173",
+  "auth_required": true,
+  "total_pages": 16,
+  "pages": [
+    {
+      "title": "Voice AI Assistants (Dashboard)",
+      "route": "/dashboard",
+      "category": "Voice AI Setup",
+      "markdown_path": "dashboard/dashboard.md",
+      "summary": "Create and manage your voice AI assistants"
+    },
+    {
+      "title": "Real-time TTS",
+      "route": "/voice_assistant",
+      "category": "Voice AI Setup",
+      "markdown_path": "dashboard/voice_assistant.md",
+      "summary": "Real-time neural text-to-speech with dynamic voice cloning."
+    },
+    {
+      "title": "Clone Voice",
+      "route": "/clone_voice",
+      "category": "Voice AI Setup",
+      "markdown_path": "dashboard/clone_voice.md",
+      "summary": "Create custom AI voices by uploading audio samples. Minimum 20 seconds, recommended 30-60 seconds of clear speech."
+    },
+    {
+      "title": "Files & Knowledge Base",
+      "route": "/files",
+      "category": "Voice AI Setup",
+      "markdown_path": "dashboard/files.md",
+      "summary": "Supported formats: PDF (max 10MB)"
+    },
+    {
+      "title": "Integrations",
+      "route": "/integrations",
+      "category": "Voice AI Setup",
+      "markdown_path": "dashboard/integrations.md",
+      "summary": "Connect Cal.com, Calendly, Salesforce, Google, Slack, HubSpot, Genesys, and custom APIs with secure OAuth, logs, sync jobs, and webhook-driven updates."
+    },
+    {
+      "title": "Phone Numbers",
+      "route": "/phone_numbers",
+      "category": "Operations",
+      "markdown_path": "dashboard/phone_numbers.md",
+      "summary": "Manage your phone numbers and attached bots"
+    },
+    {
+      "title": "Bulk Call",
+      "route": "/bulk_call/create",
+      "category": "Operations",
+      "markdown_path": "dashboard/bulk_call.md",
+      "summary": "Build your campaign in four simple steps. This prototype stores data locally and does not connect to backend services."
+    },
+    {
+      "title": "Call Logs",
+      "route": "/call_logs",
+      "category": "Operations",
+      "markdown_path": "dashboard/call_logs.md",
+      "summary": "View and analyze your call history"
+    },
+    {
+      "title": "Analytics",
+      "route": "/analytics",
+      "category": "Operations",
+      "markdown_path": "dashboard/analytics.md",
+      "summary": "View and analyze your call and chatbot performance metrics"
+    },
+    {
+      "title": "WhatsApp",
+      "route": "/whatsapp",
+      "category": "Chat",
+      "markdown_path": "dashboard/whatsapp.md",
+      "summary": "Manage your WhatsApp Business connections and settings."
+    },
+    {
+      "title": "Billing",
+      "route": "/billing",
+      "category": "Account",
+      "markdown_path": "dashboard/billing.md",
+      "summary": "View your balance and choose right plan"
+    },
+    {
+      "title": "Settings",
+      "route": "/settings",
+      "category": "Account",
+      "markdown_path": "dashboard/settings.md",
+      "summary": "Manage your account settings and preferences"
+    },
+    {
+      "title": "Profile",
+      "route": "/profile",
+      "category": "Account",
+      "markdown_path": "dashboard/profile.md",
+      "summary": "Manage your account settings and preferences"
+    },
+    {
+      "title": "Admin Panel",
+      "route": "/admin",
+      "category": "Account",
+      "markdown_path": "dashboard/admin_panel.md",
+      "summary": "Platform-wide analytics, user management, and number pool administration"
+    },
+    {
+      "title": "Notification Archive",
+      "route": "/notifications/archive",
+      "category": "Other",
+      "markdown_path": "dashboard/notifications.md",
+      "summary": "📅 Need help getting started? Talk to our team.Book a Meeting →"
+    },
+    {
+      "title": "API Keys",
+      "route": "/api_keys",
+      "category": "Account",
+      "markdown_path": "dashboard/api_keys.md",
+      "summary": "Generate and manage API credentials for programmatic access to the OmniDimension platform."
+    }
+  ]
+}

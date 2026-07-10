@@ -4,6 +4,7 @@ import { workspaceContext } from '../middleware/workspaceContext.js';
 import { mockLLMService } from '../services/llm/mock.service.js';
 import { getLLMProviderWithFallback } from '../services/llm.factory.js';
 import logger from '../lib/logger.js';
+import { ragService } from '../rag/rag.service.js';
 
 import authRoutes from './auth.routes.js';
 import otpRoutes from './otp.routes.js';
@@ -65,19 +66,10 @@ router.post('/assistant/chat', async (req, res) => {
       return res.status(400).json({ error: 'Message is required' });
     }
 
-    // Try real LLM provider with fallback, ultimately falls back to mock
-    const provider = getLLMProviderWithFallback('gemini');
-    const response = await provider.generateResponse(
-      message,
-      { model: 'gemini-2.5-flash', temperature: 0.7 },
-      {
-        systemPrompt: systemPrompt || "You are a helpful AI assistant representing the OmniDimension Conversational Voice AI platform. Your job is to answer the user's questions about configuring their agent, setting up integrations (like N8N, Genesys, Twilio), setting up speech-to-text / text-to-speech, and configuring languages. Be concise, professional, and friendly.",
-        maxTokens: 2000,
-      }
-    );
-
-    // Handle both string and object responses (mock returns object, real LLM returns string)
-    const replyText = typeof response === 'object' ? response.message : response;
+    // Strict RAG — Kevin answers ONLY from the knowledge-base documentation.
+    // ragService handles retrieval, prompt construction, and LLM generation.
+    const response = await ragService.chat(message);
+    const replyText = response.message;
 
     // Guard: ensure we haven't already sent headers (e.g. from express-async-errors)
     if (res.headersSent) return;
