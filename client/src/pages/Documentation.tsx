@@ -2,12 +2,12 @@ import { Link } from 'react-router-dom';
 
 export default function Documentation() {
   const docCards = [
-    { icon: '📱', color: '#60a5fa', title: 'Getting Started', desc: 'Learn how to install and set up the OmniDimension SDK' },
-    { icon: '🖥️', color: '#a78bfa', title: 'Client', desc: 'Initialize and configure the OmniDimension client' },
-    { icon: '💬', color: '#34d399', title: 'Agent', desc: 'Create, manage, and customize AI agents' },
-    { icon: '📞', color: '#fbbf24', title: 'Call', desc: 'Manage call logs and dispatch calls' },
-    { icon: '⚡', color: '#ef4444', title: 'Integrations', desc: 'Connect with external services and APIs' },
-    { icon: '🗄️', color: '#3b82f6', title: 'Knowledge Base', desc: 'Manage files and knowledge for your agents' }
+    { icon: '📱', color: '#60a5fa', title: 'Getting Started', desc: 'Learn how to install and set up the OmniDimension SDK', to: '/docs/getting-started' },
+    { icon: '🖥️', color: '#a78bfa', title: 'Client', desc: 'Initialize and configure the OmniDimension client', to: '/docs/client' },
+    { icon: '💬', color: '#34d399', title: 'Agent', desc: 'Create, manage, and customize AI agents', to: '/docs/agent' },
+    { icon: '📞', color: '#fbbf24', title: 'Call', desc: 'Manage call logs and dispatch calls', to: '/docs/call' },
+    { icon: '⚡', color: '#ef4444', title: 'Integrations', desc: 'Connect with external services and APIs', to: '/docs/integrations' },
+    { icon: '🗄️', color: '#3b82f6', title: 'Knowledge Base', desc: 'Manage files and knowledge for your agents', to: '/docs/knowledge-base' },
   ];
 
   return (
@@ -25,7 +25,7 @@ export default function Documentation() {
         <h1>OmniDimension SDK</h1>
         <p className="subtitle">Build powerful AI voice agents with our easy-to-use SDK</p>
         <div className="doc-actions">
-          <a href="#" className="btn btn-primary btn-lg">Get Started →</a>
+          <Link to="/docs/getting-started" className="btn btn-primary btn-lg">Get Started →</Link>
           <a href="https://github.com/omnidimension" className="btn btn-secondary btn-lg" target="_blank" rel="noreferrer">
             View SDK on GitHub ↗
           </a>
@@ -43,12 +43,14 @@ export default function Documentation() {
 
         <div className="doc-grid" style={{marginBottom:'80px'}}>
           {docCards.map((card, i) => (
-            <div className="doc-card animate-me" key={i}>
-              <div className="doc-card-icon" style={{color: card.color}}>{card.icon}</div>
-              <h3>{card.title}</h3>
-              <p>{card.desc}</p>
-              <div className="learn-more">Learn more →</div>
-            </div>
+            <Link key={i} to={card.to} style={{ textDecoration: 'none' }}>
+              <div className="doc-card animate-me" style={{ cursor: 'pointer', height: '100%' }}>
+                <div className="doc-card-icon" style={{color: card.color}}>{card.icon}</div>
+                <h3>{card.title}</h3>
+                <p>{card.desc}</p>
+                <div className="learn-more">Learn more →</div>
+              </div>
+            </Link>
           ))}
         </div>
 

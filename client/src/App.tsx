@@ -46,6 +46,14 @@ import NotificationArchive from './pages/NotificationArchive';
 import SolutionUseCasePage from './pages/solutions/SolutionUseCasePage';
 import { solutionUseCases } from './pages/solutions/useCaseContent';
 
+// Documentation sub-pages
+import GettingStarted from './pages/docs/GettingStarted';
+import ClientDoc from './pages/docs/ClientDoc';
+import AgentDoc from './pages/docs/AgentDoc';
+import CallDoc from './pages/docs/CallDoc';
+import IntegrationsDoc from './pages/docs/IntegrationsDoc';
+import KnowledgeBaseDoc from './pages/docs/KnowledgeBaseDoc';
+
 import { Toaster } from './components/ui/sonner';
 import { ThemeProvider } from './hooks/useTheme';
 
@@ -115,6 +123,12 @@ function App() {
         <Route path="/" element={<DefaultLayout><Home /></DefaultLayout>} />
         <Route path="/pricing" element={<DefaultLayout><Pricing /></DefaultLayout>} />
         <Route path="/documentation" element={<DefaultLayout><Documentation /></DefaultLayout>} />
+        <Route path="/docs/getting-started" element={<DefaultLayout><GettingStarted /></DefaultLayout>} />
+        <Route path="/docs/client" element={<DefaultLayout><ClientDoc /></DefaultLayout>} />
+        <Route path="/docs/agent" element={<DefaultLayout><AgentDoc /></DefaultLayout>} />
+        <Route path="/docs/call" element={<DefaultLayout><CallDoc /></DefaultLayout>} />
+        <Route path="/docs/integrations" element={<DefaultLayout><IntegrationsDoc /></DefaultLayout>} />
+        <Route path="/docs/knowledge-base" element={<DefaultLayout><KnowledgeBaseDoc /></DefaultLayout>} />
         <Route path="/book-appointment" element={<DefaultLayout><BookAppointment /></DefaultLayout>} />
         <Route path="/contact" element={<DefaultLayout><Contact /></DefaultLayout>} />
         <Route path="/docs" element={<DefaultLayout><Docs /></DefaultLayout>} />
