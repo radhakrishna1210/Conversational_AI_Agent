@@ -39,6 +39,7 @@ import { vectorStore }                  from './vectorStore.js';
 import { retrieve }                     from './retriever.js';
 import { buildSystemPrompt, buildRefusalPrompt, REFUSAL_PHRASE } from './promptBuilder.js';
 import { classifyIntent }               from './intentClassifier.js';
+import { isTicketFlowActive, startTicketFlow, handleTicketFlow } from './ticketFlow.js';
 
 const __dirname   = path.dirname(fileURLToPath(import.meta.url));
 // Disk cache lives at backend/rag-index.json (two directories up from src/rag/)
@@ -75,18 +76,31 @@ class RagService {
    * Answer a user question using strict RAG.
    *
    * @param {string} userMessage
+   * @param {string} sessionId
    * @returns {Promise<{ success: boolean, message: string }>}
    */
-  async chat(userMessage) {
+  async chat(userMessage, sessionId = 'default-session') {
     // Ensure the index is ready (lazy-init safety net)
     await this.initializeIndex();
 
     const query = (userMessage || '').trim();
 
+    // ── Step 0: Active Ticket Flow ────────────────────────────────────────
+    if (isTicketFlowActive(sessionId)) {
+      logger.debug(`[RAG] Continuing active ticket flow for session ${sessionId}`);
+      return await handleTicketFlow(sessionId, query);
+    }
+
     // ── Step 1: Intent pre-check ──────────────────────────────────────────
-    // Intercept greetings, thanks, farewells, and empty input BEFORE retrieval.
+    // Intercept greetings, thanks, farewells, ticket creation, and empty input BEFORE retrieval.
     // UNKNOWN intent falls through to the full strict RAG pipeline below.
     const { intent, response: intentResponse } = classifyIntent(query);
+    
+    if (intent === 'RAISE_TICKET') {
+      logger.debug(`[RAG] Intent short-circuit: ${intent}`);
+      return startTicketFlow(sessionId, query);
+    }
+    
     if (intent !== 'UNKNOWN') {
       logger.debug(`[RAG] Intent short-circuit: ${intent}`);
       return { success: true, message: intentResponse };

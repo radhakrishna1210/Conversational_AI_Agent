@@ -67,8 +67,9 @@ router.post('/assistant/chat', async (req, res) => {
     }
 
     // Strict RAG — Kevin answers ONLY from the knowledge-base documentation.
-    // ragService handles retrieval, prompt construction, and LLM generation.
-    const response = await ragService.chat(message);
+    // ragService handles retrieval, prompt construction, LLM generation, and ticket flow.
+    const sessionId = req.ip || 'default-session';
+    const response = await ragService.chat(message, sessionId);
     const replyText = response.message;
 
     // Guard: ensure we haven't already sent headers (e.g. from express-async-errors)
