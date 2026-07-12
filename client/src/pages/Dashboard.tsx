@@ -1,6 +1,6 @@
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { AgentConfig, createAgent, loadAgents, getDefaultFlowItems, getDefaultWelcomeMessage } from '../lib/agentStore';
+import { AgentConfig, loadAgents, getDefaultFlowItems, getDefaultWelcomeMessage } from '../lib/agentStore';
 import { whapi } from '../lib/whapi';
 import { getTemplateById, type AgentTemplate } from '../data/agentTemplates';
 import { TemplateBanner, TemplatePickerModal } from '../components/TemplateSelector';
@@ -92,7 +92,7 @@ export default function Dashboard() {
     }
   };
 
-  const hardcodedAssistant = {
+  const hardcodedAssistant: AgentConfig = {
     name: 'Outbound Lead Qualification Agent',
     language: 'English (India)',
     llm: 'gpt-4.1-mini',
@@ -102,6 +102,17 @@ export default function Dashboard() {
     postCall: 'None',
     integrations: 'None',
     id: '131000',
+    welcomeMessage: '',
+    selectedLanguages: [],
+    flowItems: [],
+    maxDuration: 60,
+    silenceTimeout: 10,
+    dynamicEnabled: false,
+    interruptibleEnabled: true,
+    aiModel: '',
+    transcription: '',
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString()
   };
 
   useEffect(() => {
@@ -123,25 +134,6 @@ export default function Dashboard() {
 
   const [enhanceError, setEnhanceError] = useState('');
 
-  const extractAgentTitle = (text: string) => {
-    let title = text
-      .replace(/^create\s+(a\s+)?voice\s+ai\s+agent\s+for\s+/i, '')
-      .replace(/^create\s+(an?\s+)?ai\s+agent\s+for\s+/i, '')
-      .replace(/^create\s+(a\s+)?voice\s+ai\s+assistant\s+for\s+/i, '')
-      .replace(/^create\s+/i, '')
-      .trim();
-
-    title = title
-      .split(' ')
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-      .join(' ');
-
-    if (!title.toLowerCase().includes('agent')) {
-      title += ' Agent';
-    }
-
-    return title;
-  };
 
   const generateAgentName = (text: string) => {
     let title = text
@@ -303,7 +295,6 @@ export default function Dashboard() {
   };
 
 
-  const setTemplate = (template: string) => setPrompt(template);
 
   // When user picks a new template from the modal
   const handleTemplateSelect = (tpl: AgentTemplate) => {
@@ -1417,8 +1408,6 @@ Goals:
           onDismiss={() => { setActiveTemplate(null); setPrompt(''); }}
         />
       )}
-        </div>
-
         {/* Create Agent Card */}
         <div className="omni-create-card">
           <div className="omni-create-card-header">
@@ -1481,7 +1470,7 @@ Goals:
                 </button>
                 {openDropdownId === hardcodedAssistant.id && (
                   <div className="assistant-menu-dropdown">
-                    <button onClick={(e) => handleCopyAssistant(e, hardcodedAssistant as any)}>
+                    <button onClick={(e) => handleCopyAssistant(e, hardcodedAssistant)}>
                       <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                         <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
                         <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>

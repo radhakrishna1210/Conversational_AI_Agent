@@ -61,9 +61,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
-    let errMsg = (err as any).message ?? (err as any).error ?? `Request failed: ${res.status}`;
-    if ((err as any).debug) {
-      errMsg += ` [DEBUG: ${JSON.stringify((err as any).debug)}]`;
+    const errObj = err as { message?: string; error?: string; debug?: unknown };
+    let errMsg = errObj?.message ?? errObj?.error ?? `Request failed: ${res.status}`;
+    if (errObj?.debug) {
+      errMsg += ` [DEBUG: ${JSON.stringify(errObj.debug)}]`;
     }
     
     if (res.status === 401) {

@@ -1,6 +1,6 @@
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState } from 'react';
 import { AgentConfig, getAgent, saveAgent, getDefaultFlowItems } from '../lib/agentStore';
 
 import { whapi } from '../lib/whapi';
@@ -41,6 +41,8 @@ interface ExtractedVariable {
   description: string;
 }
 
+
+
 interface PostCallConfig {
   id: string;
   deliveryMethod: string;
@@ -58,24 +60,6 @@ const LANGUAGES_LIST = [
   'Japanese', 'Korean', 'Portuguese', 'Russian', 'Arabic', 'Italian'
 ];
 
-const VOICES_BY_PROVIDER = {
-  google: [
-    { id: 'aoede', name: 'Aoede', gender: 'female', accents: ['feminine', 'premium', 'chirp3'] },
-    { id: 'achernar', name: 'Achernar', gender: 'female', accents: ['feminine', 'premium', 'chirp3'] },
-    { id: 'algenib', name: 'Algenib', gender: 'male', accents: ['masculine', 'premium', 'chirp3'] },
-    { id: 'algieba', name: 'Algieba', gender: 'male', accents: ['masculine', 'premium', 'chirp3'] },
-    { id: 'alnilam', name: 'Alnilam', gender: 'male', accents: ['masculine', 'premium', 'chirp3'] }
-  ],
-  elevenlabs: [
-    { id: 'bella', name: 'Bella', gender: 'female', accents: ['professional', 'narration'] },
-    { id: 'matilda', name: 'Matilda', gender: 'female', accents: ['professional', 'narration'] },
-    { id: 'adam', name: 'Adam', gender: 'male', accents: ['professional', 'narration'] }
-  ],
-  cartesia: [
-    { id: 'dante', name: 'Dante', gender: 'male', accents: ['smooth', 'natural'] },
-    { id: 'ivy', name: 'Ivy', gender: 'female', accents: ['smooth', 'natural'] }
-  ]
-};
 
 const AI_MODELS = ['GPT-4.1-Mini', 'GPT-4-Turbo', 'Claude-3-Opus', 'Gemini-Pro', 'Llama-2-70B'];
 const POST_CALL_TRIGGER_OPTIONS = ['Completed', 'Voicemail Detected', 'No Answer', 'Busy', 'Failed'];
@@ -145,6 +129,7 @@ export default function EditAgent() {
   const [aiModel, setAiModel] = useState('GPT-4.1-Mini');
   const [transcription, setTranscription] = useState('Azure');
 
+
   // Modal states
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [showVoiceModal, setShowVoiceModal] = useState(false);
@@ -171,7 +156,6 @@ export default function EditAgent() {
   const [isSttModelDropdownOpen, setIsSttModelDropdownOpen] = useState(false);
   const [isSttLanguageDropdownOpen, setIsSttLanguageDropdownOpen] = useState(false);
   
-  const [voiceProvider, setVoiceProvider] = useState('google');
   const [agentName, setAgentName] = useState('');
   const [agentNotFound, setAgentNotFound] = useState(false);
   const [postCallConfigs, setPostCallConfigs] = useState<PostCallConfig[]>([createDefaultPostCallConfig()]);
@@ -188,33 +172,6 @@ export default function EditAgent() {
     }));
   };
   
-  // KB state
-  const [kbUrls, setKbUrls] = useState<string[]>([]);
-  const [kbUrlInput, setKbUrlInput] = useState('');
-  const [kbFiles, setKbFiles] = useState<File[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-
-  const handleAddKbUrl = () => {
-    if (kbUrlInput.trim() && !kbUrls.includes(kbUrlInput.trim())) {
-      setKbUrls([...kbUrls, kbUrlInput.trim()]);
-      setKbUrlInput('');
-    }
-  };
-
-  const removeKbUrl = (url: string) => {
-    setKbUrls(kbUrls.filter(u => u !== url));
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      const newFiles = Array.from(e.target.files);
-      setKbFiles([...kbFiles, ...newFiles]);
-    }
-  };
-
-  const removeKbFile = (index: number) => {
-    setKbFiles(kbFiles.filter((_, i) => i !== index));
-  };
   
   // Chat test state
   const [showChatModal, setShowChatModal] = useState(false);
@@ -244,33 +201,26 @@ export default function EditAgent() {
       try {
         const agent = await whapi.get('/agents/' + agentId) as AgentConfig;
         if (agent) {
-          const savedPostCallConfigs = (agent as any).postCallConfigs;
+          const savedPostCallConfigs = agent.postCallConfigs;
           setAgentName(agent.name);
           setWelcomeMessage(agent.welcomeMessage);
-          setSelectedLanguages(((agent as any).languages ?? agent.selectedLanguages) || ['English (Indian)']);
+          setSelectedLanguages(agent.languages ?? (agent.selectedLanguages || ['English (Indian)']));
           setVoice(agent.voice || 'Google - Aoede (female)');
           setAiModel(agent.aiModel || 'GPT-4.1-Mini');
           setTranscription(agent.transcription || 'Azure');
           setMaxDuration(agent.maxDuration ?? 30);
           setSilenceTimeout(agent.silenceTimeout ?? 5);
-          setMaxSilenceBeforeHangup((agent as any).maxSilenceBeforeHangup ?? 15);
-          setEndCallMessage((agent as any).endCallMessage ?? 'Goodbye and thank you for calling.');
-          setTransferNumber((agent as any).transferNumber ?? '');
-          setTransferCondition((agent as any).transferCondition ?? '');
-          setFillerWords((agent as any).fillerWords ?? false);
-          setSpeakingRate((agent as any).speakingRate ?? 1.0);
-          setAmbientSound((agent as any).ambientSound ?? 'None');
+          setMaxSilenceBeforeHangup(agent.maxSilenceBeforeHangup ?? 15);
+          setEndCallMessage(agent.endCallMessage ?? 'Goodbye and thank you for calling.');
+          setTransferNumber(agent.transferNumber ?? '');
+          setTransferCondition(agent.transferCondition ?? '');
+          setFillerWords(agent.fillerWords ?? false);
+          setSpeakingRate(agent.speakingRate ?? 1.0);
+          setAmbientSound(agent.ambientSound ?? 'None');
           setDynamicEnabled(agent.dynamicEnabled ?? true);
           setInterruptibleEnabled(agent.interruptibleEnabled ?? true);
-          setFlowItems((agent.flowItems as any) || getDefaultFlowItems(agent.name || ''));
+          setFlowItems(agent.flowItems || getDefaultFlowItems(agent.name || ''));
           setPostCallConfigs(savedPostCallConfigs?.length ? savedPostCallConfigs : [createDefaultPostCallConfig()]);
-          if (agent.voice?.toLowerCase().startsWith('google')) {
-            setVoiceProvider('google');
-          } else if (agent.voice?.toLowerCase().startsWith('eleven')) {
-            setVoiceProvider('elevenlabs');
-          } else if (agent.voice?.toLowerCase().startsWith('cartesia')) {
-            setVoiceProvider('cartesia');
-          }
           setIsLoading(false);
           return;
         }
@@ -291,15 +241,15 @@ export default function EditAgent() {
       setVoice(localAgent.voice || 'Google - Aoede (female)');
       setAiModel(localAgent.aiModel || 'GPT-4.1-Mini');
       setTranscription(localAgent.transcription || 'Azure');
-      setMaxSilenceBeforeHangup((localAgent as any).maxSilenceBeforeHangup ?? 15);
-      setEndCallMessage((localAgent as any).endCallMessage ?? 'Goodbye and thank you for calling.');
-      setTransferNumber((localAgent as any).transferNumber ?? '');
-      setTransferCondition((localAgent as any).transferCondition ?? '');
-      setFillerWords((localAgent as any).fillerWords ?? false);
-      setSpeakingRate((localAgent as any).speakingRate ?? 1.0);
-      setAmbientSound((localAgent as any).ambientSound ?? 'None');
-      setPostCallConfigs((localAgent as any).postCallConfigs?.length ? (localAgent as any).postCallConfigs : [createDefaultPostCallConfig()]);
-      setFlowItems((localAgent as any).flowItems || getDefaultFlowItems(localAgent.name || ''));
+      setMaxSilenceBeforeHangup(localAgent.maxSilenceBeforeHangup ?? 15);
+      setEndCallMessage(localAgent.endCallMessage ?? 'Goodbye and thank you for calling.');
+      setTransferNumber(localAgent.transferNumber ?? '');
+      setTransferCondition(localAgent.transferCondition ?? '');
+      setFillerWords(localAgent.fillerWords ?? false);
+      setSpeakingRate(localAgent.speakingRate ?? 1.0);
+      setAmbientSound(localAgent.ambientSound ?? 'None');
+      setPostCallConfigs(localAgent.postCallConfigs?.length ? localAgent.postCallConfigs : [createDefaultPostCallConfig()]);
+      setFlowItems(localAgent.flowItems || getDefaultFlowItems(localAgent.name || ''));
       setIsLoading(false);
     };
 
@@ -356,8 +306,6 @@ export default function EditAgent() {
       dynamicEnabled,
       interruptibleEnabled,
       postCallConfigs,
-      kbUrls,
-      kbFiles: kbFiles.map(f => f.name)
     };
 
     try {
@@ -367,7 +315,7 @@ export default function EditAgent() {
     }
 
     // Still save to local storage as backup/sync
-    saveAgent({ ...agentData, id: agentId!, selectedLanguages } as any);
+    saveAgent({ ...agentData, id: agentId!, selectedLanguages } as AgentConfig);
     
     setIsSaving(false);
   };
@@ -508,22 +456,7 @@ export default function EditAgent() {
       const isGemini = aiModel.toLowerCase().includes('gemini');
       const chatTestInstructions = '# Chat Test Assistant Instructions\n\nYou are the Chat Test Environment for this AI Agent.\n\nYour responsibility is to simulate the exact behavior of the deployed agent and validate that the agent follows its configured instructions, conversation flow, knowledge base, variables, business rules, and integrations.\n\n## Primary Objective\n\nAct exactly as the configured agent would act in production.\n\nThe purpose of this chat is to test the agent\'s behavior before deployment.\n\nNever bypass configured instructions.\n\nNever ignore defined conversation flows.\n\nNever invent information not present in the knowledge base.\n\nNever assume tool execution if no tool is available.\n\n---\n\n## Agent Configuration Priority\n\nAlways follow this order:\n\n1. Agent Instructions\n2. Conversation Flow\n3. Knowledge Base\n4. Variables & Memory\n5. Business Rules\n6. Integrations & Tools\n7. User Message\n\nIf conflicts occur, higher-priority instructions take precedence.\n\n---\n\n## Conversation Flow Enforcement\n\nFor every user message:\n\n1. Identify current flow stage.\n2. Determine expected next action.\n3. Check required information.\n4. Continue only according to flow rules.\n\n---\n\n## Knowledge Base Rules\n\nWhen answering questions:\n\n* Search available knowledge first.\n* Use only information present in the configured knowledge base.\n* Keep responses accurate and grounded.\n\nDo not hallucinate. Do not generate unsupported facts.\n\n---\n\n## Variable Tracking\n\nMaintain conversation state throughout the session. Reuse previously collected information. Never ask for information that has already been collected unless verification is required.\n\n---\n\n## Error Handling\n\nFor ambiguous requests: Ask for clarification.\nFor unsupported requests: State that the request is outside the agent\'s configured capabilities.\nFor missing required data: Request only the specific missing information.\n\n---\n\n## Internal Validation Checklist\n\nBefore every response verify:\n✓ Agent instructions followed\n✓ Flow followed correctly\n✓ Knowledge base checked\n✓ Required variables collected\n✓ Business rules satisfied\n✓ Tool requirements validated\n✓ Memory updated\n✓ Response aligned with current stage\n\nOnly then generate the response.\n\n---\n\n# Current Agent Configuration\n\nWelcome Message: ' + welcomeMessage + '\n\nFlow:\n' + flowItems.filter(function(f) { return f.enabled; }).map(function(f) { return f.title; }).join('\n') + '';
 
-<<<<<<< ours
-The goal is to accurately test real-world agent behavior before deployment.
-
----
-
-# Current Agent Configuration
-
-Welcome Message: ${welcomeMessage}
-
-Flow:
-${flowItems.filter(f => f.enabled).map(f => f.title).join('\n')}`;
-
       const response = await whapi.post<{ message: string }>('/llm/generate', {
-=======
-      const response = await whapi.post('/llm/generate', {
->>>>>>> theirs
         agentId,
         message: userMessage,
         systemPrompt: chatTestInstructions,
@@ -546,7 +479,7 @@ ${flowItems.filter(f => f.enabled).map(f => f.title).join('\n')}`;
     setAskAIResponse('');
     try {
       const askAIPrompt = 'You are an AI assistant helping configure an AI voice agent. The agent is named "' + agentName + '" and its welcome message is: "' + welcomeMessage + '". Provide helpful, concise suggestions for improving or configuring this agent.';
-      const response = await whapi.post('/llm/generate', {
+      const response = await whapi.post<{ message: string }>('/llm/generate', {
         agentId,
         message: askAIInput,
         systemPrompt: askAIPrompt,
@@ -591,7 +524,7 @@ ${flowItems.filter(f => f.enabled).map(f => f.title).join('\n')}`;
   const handlePhoneCall = async () => {
     if (!phoneTestNumber.trim()) return;
     try {
-      const res = await whapi.post('/agents/test-call', { agentId, phoneNumber: phoneTestNumber });
+      const res = await whapi.post<{ message?: string }>('/agents/test-call', { agentId, phoneNumber: phoneTestNumber });
       alert(res.message || 'Test call initiated to ' + phoneTestNumber + '.');
       setShowPhoneCallModal(false);
     } catch (err: any) {
@@ -1872,9 +1805,7 @@ ${flowItems.filter(f => f.enabled).map(f => f.title).join('\n')}`;
                           <button
                             onClick={async () => {
                               try {
-                                const callbackUrl = window.location.origin + '/api/v1/integrations/' + integration.provider + '/callback';
-                                const { authorizationUrl } = await integrationsApi.connect(integration.provider, callbackUrl);
-                                window.location.href = authorizationUrl;
+                                window.location.href = (await integrationsApi.connect(integration.provider) as { authorizationUrl: string }).authorizationUrl || '';
                               } catch (error) {
                                 toast.error(error instanceof Error ? error.message : 'Failed to begin OAuth');
                               }
