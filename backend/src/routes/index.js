@@ -32,7 +32,7 @@ import notificationRoutes from './notification.routes.js';
 import contactFormRoutes from './contactForm.routes.js';
 import appointmentRoutes from './appointment.routes.js';
 import reportIssueRoutes from './reportIssue.routes.js';
-
+import kycRoutes from './kyc.routes.js';
 import { getHealth as getGeminiHealth, getMetrics as getGeminiMetrics } from '../controllers/gemini.controller.js';
 import { getHealth as getOpenAIHealth, getMetrics as getOpenAIMetrics } from '../controllers/openai.controller.js';
 import { getHealth as getAzureHealth, getMetrics as getAzureMetrics } from '../controllers/azure.controller.js';
@@ -55,6 +55,7 @@ router.use('/agents', agentRoutes);
 router.use('/voices', voiceRoutes);
 router.use('/voice', voiceRoutes);
 router.use('/integrations', integrationsPublicRoutes);
+router.use('/kyc', kycRoutes);
 
 
 // Public AI Assistant chat — no auth required, always works

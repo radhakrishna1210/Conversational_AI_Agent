@@ -8,6 +8,7 @@ const router = Router();
 
 // ── OAuth callback ────────────────────────────────────────────────────────────
 router.get('/:provider/callback', async (req, res) => {
+  
   const { provider } = req.params;
   const clientUrl = process.env.CLIENT_URL ?? 'http://localhost:5173';
   const { code, state, error, error_description: errorDescription } = req.query;

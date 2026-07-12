@@ -8,6 +8,8 @@ import routes from './routes/index.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import logger from './lib/logger.js';
 
+console.log("DATABASE_URL =", process.env.DATABASE_URL);
+
 const app = express();
 
 const clientUrls = env.CLIENT_URL ? env.CLIENT_URL.split(',').map(url => url.trim()) : [];
