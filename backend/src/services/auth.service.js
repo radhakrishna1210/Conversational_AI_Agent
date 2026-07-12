@@ -3,28 +3,42 @@ import { hashPassword, comparePassword, hashToken, generateSecureToken } from '.
 import { signAccessToken, signRefreshToken } from '../lib/jwt.js';
 import { REFRESH_TOKEN_EXPIRY_MS, INVITE_TOKEN_BYTES } from '../constants/limits.js';
 import { env } from '../config/env.js';
+import jwt from 'jsonwebtoken';
 
 const resolveRole = (email) => (env.ADMIN_EMAIL && email === env.ADMIN_EMAIL ? 'Admin' : 'Viewer');
 
 const makeSlug = (name) =>
   name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') + '-' + Date.now().toString(36);
 
-export const registerUser = async ({ name, email, password, workspaceName }) => {
+export const registerUser = async ({ name, email, password, workspaceName, otpToken }) => {
+  if (!otpToken) {
+    throw Object.assign(new Error('Email OTP verification is required for signup'), { statusCode: 400 });
+  }
+  let decoded;
+  try {
+    decoded = jwt.verify(otpToken, env.JWT_ACCESS_SECRET);
+  } catch {
+    throw Object.assign(new Error('OTP token is invalid or expired. Please verify your email again.'), { statusCode: 400 });
+  }
+  if (decoded.purpose !== 'signup-otp' || decoded.email !== email) {
+    throw Object.assign(new Error('OTP token does not match the provided email address.'), { statusCode: 400 });
+  }
+
   const passwordHash = await hashPassword(password);
 
-  const user = await prisma.user.create({ data: { name, email, passwordHash } });
+  const user = await prisma.user.create({
+    data: { name, email, passwordHash },
+  });
 
-  let workspace = null;
-  if (workspaceName) {
-    workspace = await prisma.workspace.create({
-      data: {
-        name: workspaceName,
-        slug: makeSlug(workspaceName),
-        members: { create: { userId: user.id, role: resolveRole(email) } },
-        settings: { create: {} },
-      },
-    });
-  }
+  const actualWorkspaceName = workspaceName || `${name}'s Workspace`;
+  const workspace = await prisma.workspace.create({
+    data: {
+      name: actualWorkspaceName,
+      slug: makeSlug(actualWorkspaceName),
+      members: { create: { userId: user.id, role: resolveRole(email) } },
+      settings: { create: {} },
+    },
+  });
 
   return { user, workspace };
 };

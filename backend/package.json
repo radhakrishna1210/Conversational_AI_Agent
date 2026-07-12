@@ -37,6 +37,7 @@
     "multer": "^1.4.5-lts.1",
     "nanoid": "^5.0.7",
     "node-fetch": "^3.3.2",
+    "nodemailer": "^9.0.3",
     "openai": "^4.52.7",
     "pino": "^9.1.0",
     "pino-pretty": "^11.0.0",

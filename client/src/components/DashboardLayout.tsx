@@ -23,6 +23,7 @@ import {
 import { useTheme } from '../hooks/useTheme';
 import { CommandMenu } from './CommandMenu';
 import { NotificationPanel } from '@/components/notifications/NotificationPanel';
+import { getStorageItem, setStorageItem } from '../lib/storage';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
@@ -103,13 +104,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         .toUpperCase()
         .substring(0, 2) || 'U';
       setUser({ name, email, initials, plan, role });
-      localStorage.setItem('userName', name);
-      localStorage.setItem('userEmail', email);
-      if (role) localStorage.setItem('userRole', role);
+      setStorageItem('userName', name);
+      setStorageItem('userEmail', email);
+      if (role) setStorageItem('userRole', role);
     };
 
     const fetchMe = async () => {
-      const token = localStorage.getItem('token');
+      const token = getStorageItem('token');
       if (!token) return;
       try {
         const res = await fetch('/api/v1/auth/me', {
@@ -120,33 +121,39 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           const u = data.user;
           const name = u.name || u.email?.split('@')[0] || 'User';
 
-          buildUser(name, u.email || '', u.plan || '', u.role || '');
-          if (u.workspaceId && !localStorage.getItem('workspaceId')) {
-            localStorage.setItem('workspaceId', u.workspaceId);
-          }
+          // Extract role from JWT token payload since /auth/me doesn't return it directly
+          let role = u.role || '';
+          try {
+            const payload = JSON.parse(atob(token.split('.')[1]));
+            if (!role && payload.role) role = payload.role;
+          } catch (_) {}
 
+          buildUser(name, u.email || '', u.plan || '', role);
+
+          if (u.workspaceId && !getStorageItem('workspaceId')) {
+            setStorageItem('workspaceId', u.workspaceId);
+          }
           return;
         }
       } catch (_) {}
 
-      const token2 = localStorage.getItem('token');
+      // Fallback: decode JWT directly
+      const token2 = getStorageItem('token');
       if (token2) {
         try {
           const payload = JSON.parse(atob(token2.split('.')[1]));
           const name = payload.name || payload.email?.split('@')[0] || 'User';
-
           buildUser(name, payload.email || '', payload.plan || '', payload.role || '');
-          if (payload.workspaceId && !localStorage.getItem('workspaceId')) {
-            localStorage.setItem('workspaceId', payload.workspaceId);
+          if (payload.workspaceId && !getStorageItem('workspaceId')) {
+            setStorageItem('workspaceId', payload.workspaceId);
           }
-
           return;
         } catch (_) {}
       }
 
-      const cachedName = localStorage.getItem('userName') || 'User';
-      const cachedEmail = localStorage.getItem('userEmail') || '';
-      const cachedRole = localStorage.getItem('userRole') || '';
+      const cachedName = getStorageItem('userName') || 'User';
+      const cachedEmail = getStorageItem('userEmail') || '';
+      const cachedRole = getStorageItem('userRole') || '';
       buildUser(cachedName, cachedEmail, '', cachedRole);
     };
 
@@ -154,8 +161,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, []);
 
   useEffect(() => {
-    const token = localStorage.getItem('token');
-    const workspaceId = localStorage.getItem('workspaceId');
+    const token = getStorageItem('token');
+    const workspaceId = getStorageItem('workspaceId');
     if (!token || !workspaceId) return;
 
     fetch(`/api/v1/workspaces/${workspaceId}/notifications/unread-count`, {
@@ -278,10 +285,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </div>
             </Link>
 
-            <div className="sidebar-item">
-              <span className="sidebar-icon"><MessageCircle size={16} /></span>
-              <span className="sidebar-text">WhaBridge</span>
-            </div>
+            <Link to="/whatsapp">
+              <div className={`sidebar-item ${path === '/whatsapp' ? 'active' : ''}`}>
+                <span className="sidebar-icon"><MessageCircle size={16} /></span>
+                <span className="sidebar-text">WhaBridge</span>
+              </div>
+            </Link>
           </div>
 
           <div className="sidebar-section">

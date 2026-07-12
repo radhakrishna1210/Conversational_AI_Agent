@@ -6,6 +6,7 @@ export const registerSchema = z.object({
   email: z.string().email(),
   password: z.string().min(PASSWORD_MIN_LENGTH).max(PASSWORD_MAX_LENGTH),
   workspaceName: z.string().min(2).max(80).optional(),
+  otpToken: z.string().min(1).optional(),
 });
 
 export const loginSchema = z.object({

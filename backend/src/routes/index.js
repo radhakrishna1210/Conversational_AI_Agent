@@ -6,6 +6,7 @@ import { getLLMProviderWithFallback } from '../services/llm.factory.js';
 import logger from '../lib/logger.js';
 
 import authRoutes from './auth.routes.js';
+import otpRoutes from './otp.routes.js';
 import adminRoutes from './admin.routes.js';
 import workspaceRoutes from './workspace.routes.js';
 import whatsappRoutes from './whatsapp.routes.js';
@@ -46,6 +47,7 @@ router.get('/config', (_req, res) => {
 
 // Public
 router.use('/auth', authRoutes);
+router.use('/otp', otpRoutes);
 router.use('/contact-form', contactFormRoutes);
 router.use('/appointments', appointmentRoutes);
 router.use('/report-issue', reportIssueRoutes);
@@ -54,6 +56,7 @@ router.use('/voices', voiceRoutes);
 router.use('/voice', voiceRoutes);
 router.use('/integrations', integrationsPublicRoutes);
 router.use('/kyc', kycRoutes);
+
 
 // Public AI Assistant chat — no auth required, always works
 router.post('/assistant/chat', async (req, res) => {

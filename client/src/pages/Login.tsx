@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link } from "react-router-dom";
+import { setStorageItem } from '../lib/storage';
 
 export default function Login() {
   const [form, setForm] = useState({ email: '', password: '' });
@@ -38,12 +39,12 @@ export default function Login() {
         return;
       }
 
-      localStorage.setItem('token', data.accessToken);
-      localStorage.setItem('refreshToken', data.refreshToken);
-      localStorage.setItem('userName', data.user.name);
-      localStorage.setItem('userEmail', data.user.email);
+      setStorageItem('token', data.accessToken);
+      setStorageItem('refreshToken', data.refreshToken);
+      setStorageItem('userName', data.user.name);
+      setStorageItem('userEmail', data.user.email);
       if (data.workspace?.id) {
-        localStorage.setItem('workspaceId', data.workspace.id);
+        setStorageItem('workspaceId', data.workspace.id);
       }
 
       setStatus('success');

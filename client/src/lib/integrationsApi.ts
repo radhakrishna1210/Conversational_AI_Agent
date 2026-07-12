@@ -54,7 +54,8 @@ export const integrationsApi = {
     const suffix = provider ? `?provider=${encodeURIComponent(provider)}` : '';
     return whapi.get<{ logs: IntegrationLogItem[] }>(`/integrations/logs${suffix}`);
   },
-  connect: async (provider: string, redirectUri?: string) => whapi.post<{ authorizationUrl: string }>(`/integrations/${provider}/connect`, { redirectUri }),
+  connect: async (provider: string) =>
+    whapi.post<{ authorizationUrl: string | null; connected?: boolean; requiresWebhookConfig?: boolean }>(`/integrations/${provider}/connect`, {}),
   disconnect: async (provider: string) => whapi.post<{ message: string }>(`/integrations/${provider}/disconnect`, {}),
   sync: async (provider: string, jobType = 'manual') => whapi.post(`/integrations/${provider}/sync`, { jobType }),
   saveSettings: async (provider: string, settings: Record<string, unknown>, enabled = true) =>

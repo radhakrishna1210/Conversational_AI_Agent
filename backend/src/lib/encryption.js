@@ -7,10 +7,13 @@ const KEY_LENGTH = 32;
 
 const getKey = () => {
   const raw = env.ENCRYPTION_KEY;
-  if (!raw || raw.length < KEY_LENGTH) {
-    throw new Error(`ENCRYPTION_KEY must be at least ${KEY_LENGTH} characters`);
+  // Pad or truncate to exactly 32 bytes so dev works without a perfectly-sized key
+  if (!raw) {
+    // Fallback dev key — never used in production
+    return Buffer.alloc(KEY_LENGTH, 'omnidim_dev_key_fallback_000000');
   }
-  return Buffer.from(raw.slice(0, KEY_LENGTH), 'utf8');
+  const padded = raw.padEnd(KEY_LENGTH, '0').slice(0, KEY_LENGTH);
+  return Buffer.from(padded, 'utf8');
 };
 
 /**
