@@ -256,6 +256,11 @@ const PROVIDERS: ProviderMeta[] = [
   },
 ];
 
+// ─── Shared neutral palette (keep the UI to one accent color, not per-provider brand colors) ──
+const ACCENT = '#14b8a6';
+const NEUTRAL_ICON_BG = 'rgba(255,255,255,0.06)';
+const NEUTRAL_BORDER = 'rgba(255,255,255,0.12)';
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 const timeAgo = (v?: string | null) => {
@@ -354,7 +359,7 @@ function ConnectModal({ provider, oauthAvailable, onClose, onConnected }: {
         {/* Header */}
         <div style={{ padding: '22px 24px 18px', borderBottom: '1px solid #1e1e1e', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div style={{ display: 'flex', gap: '14px', alignItems: 'flex-start' }}>
-            <div style={{ width: '44px', height: '44px', borderRadius: '10px', background: provider.tint, border: `1px solid ${provider.accent}44`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px', flexShrink: 0 }}>
+            <div style={{ width: '44px', height: '44px', borderRadius: '10px', background: NEUTRAL_ICON_BG, border: `1px solid ${NEUTRAL_BORDER}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px', flexShrink: 0 }}>
               {provider.logo}
             </div>
             <div>
@@ -381,7 +386,7 @@ function ConnectModal({ provider, oauthAvailable, onClose, onConnected }: {
               <button
                 onClick={handleOAuthConnect}
                 disabled={saving}
-                style={{ padding: '14px', borderRadius: '10px', border: 'none', background: provider.accent, color: '#fff', fontSize: '15px', fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}
+                style={{ padding: '14px', borderRadius: '10px', border: 'none', background: ACCENT, color: '#fff', fontSize: '15px', fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}
               >
                 {saving ? <><Loader2 size={16} className="animate-spin" /> Redirecting…</> : <>Sign in with Google</>}
               </button>
@@ -417,7 +422,7 @@ function ConnectModal({ provider, oauthAvailable, onClose, onConnected }: {
                   placeholder={field.placeholder}
                   style={inp}
                   autoComplete="off"
-                  onFocus={e => (e.currentTarget.style.borderColor = provider.accent)}
+                  onFocus={e => (e.currentTarget.style.borderColor = ACCENT)}
                   onBlur={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)')}
                 />
               )}
@@ -428,7 +433,7 @@ function ConnectModal({ provider, oauthAvailable, onClose, onConnected }: {
 
           {/* Docs link */}
           <a href={provider.docsUrl} target="_blank" rel="noopener noreferrer"
-            style={{ color: provider.accent, fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '5px', textDecoration: 'none', opacity: 0.85 }}>
+            style={{ color: ACCENT, fontSize: '13px', display: 'inline-flex', alignItems: 'center', gap: '5px', textDecoration: 'none', opacity: 0.85 }}>
             <ExternalLink size={13} /> View setup guide →
           </a>
 
@@ -441,7 +446,7 @@ function ConnectModal({ provider, oauthAvailable, onClose, onConnected }: {
             <button
               onClick={handleSubmit}
               disabled={saving}
-              style={{ flex: 2, padding: '13px', borderRadius: '10px', border: 'none', background: provider.key === 'custom_api' ? '#0eb39e' : provider.accent, color: '#fff', fontSize: '14px', fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.75 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+              style={{ flex: 2, padding: '13px', borderRadius: '10px', border: 'none', background: ACCENT, color: '#fff', fontSize: '14px', fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.75 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
             >
               {saving ? <><Loader2 size={16} className="animate-spin" /> Connecting…</> : provider.connectLabel}
             </button>
@@ -577,10 +582,10 @@ export default function Integrations() {
       {/* ── Stats ── */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: '12px', marginBottom: '24px' }}>
         {[
-          { label: 'Connected',    val: connected,                         color: '#4ade80', icon: <ShieldCheck size={14} /> },
-          { label: 'Available',    val: PROVIDERS.length,                  color: '#60a5fa', icon: <PlugZap size={14} />     },
-          { label: 'Errors',       val: dashboard?.stats.failed ?? 0,      color: '#f87171', icon: <AlertTriangle size={14}/> },
-          { label: 'Queued Jobs',  val: dashboard?.stats.queuedJobs ?? 0,  color: '#fbbf24', icon: <Zap size={14} />          },
+          { label: 'Connected',    val: connected,                         color: ACCENT,     icon: <ShieldCheck size={14} /> },
+          { label: 'Available',    val: PROVIDERS.length,                  color: '#e2e8f0',  icon: <PlugZap size={14} />     },
+          { label: 'Errors',       val: dashboard?.stats.failed ?? 0,      color: '#e34948',  icon: <AlertTriangle size={14}/> },
+          { label: 'Queued Jobs',  val: dashboard?.stats.queuedJobs ?? 0,  color: '#e2e8f0',  icon: <Zap size={14} />          },
         ].map(s => (
           <div key={s.label} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '16px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
@@ -622,15 +627,15 @@ export default function Integrations() {
 
             return (
               <div key={meta.key}
-                style={{ background: 'linear-gradient(180deg,#141414 0%,#0e0e0e 100%)', border: `1px solid ${isConnected ? meta.accent + '50' : 'rgba(255,255,255,0.07)'}`, borderRadius: '14px', display: 'flex', flexDirection: 'column', transition: 'all 0.2s', overflow: 'hidden' }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = meta.accent + '80'; e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 32px rgba(0,0,0,0.4)'; }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = isConnected ? meta.accent + '50' : 'rgba(255,255,255,0.07)'; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none'; }}
+                style={{ background: 'linear-gradient(180deg,#141414 0%,#0e0e0e 100%)', border: `1px solid ${isConnected ? 'rgba(20,184,166,0.35)' : 'rgba(255,255,255,0.07)'}`, borderRadius: '14px', display: 'flex', flexDirection: 'column', transition: 'all 0.2s', overflow: 'hidden' }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = 'rgba(255,255,255,0.2)'; e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 32px rgba(0,0,0,0.4)'; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = isConnected ? 'rgba(20,184,166,0.35)' : 'rgba(255,255,255,0.07)'; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none'; }}
               >
                 {/* Body */}
                 <div style={{ padding: '18px 18px 14px', flex: 1 }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '12px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                      <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: meta.tint, border: `1px solid ${meta.accent}44`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px', flexShrink: 0 }}>
+                      <div style={{ width: '44px', height: '44px', borderRadius: '12px', background: NEUTRAL_ICON_BG, border: `1px solid ${NEUTRAL_BORDER}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px', flexShrink: 0 }}>
                         {meta.logo}
                       </div>
                       <div>
@@ -651,7 +656,7 @@ export default function Integrations() {
 
                   {/* Category badge */}
                   <div style={{ marginBottom: '12px' }}>
-                    <span style={{ fontSize: '10px', fontWeight: 700, padding: '3px 9px', borderRadius: '999px', color: meta.category === 'During Call' ? '#4ade80' : '#60a5fa', background: meta.category === 'During Call' ? 'rgba(74,222,128,0.1)' : 'rgba(96,165,250,0.1)', border: `1px solid ${meta.category === 'During Call' ? 'rgba(74,222,128,0.2)' : 'rgba(96,165,250,0.2)'}` }}>
+                    <span style={{ fontSize: '10px', fontWeight: 700, padding: '3px 9px', borderRadius: '999px', color: meta.category === 'During Call' ? ACCENT : '#60a5fa', background: meta.category === 'During Call' ? `${ACCENT}1a` : 'rgba(96,165,250,0.1)', border: `1px solid ${meta.category === 'During Call' ? `${ACCENT}33` : 'rgba(96,165,250,0.2)'}` }}>
                       {meta.category}
                     </span>
                   </div>
@@ -672,7 +677,7 @@ export default function Integrations() {
                       <>
                         {meta.dashboardUrl && (
                           <a href={meta.dashboardUrl} target="_blank" rel="noopener noreferrer"
-                            style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '7px 12px', borderRadius: '8px', border: `1px solid ${meta.accent}55`, background: meta.tint, color: meta.accent, fontSize: '12px', fontWeight: 700, textDecoration: 'none' }}>
+                            style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '7px 12px', borderRadius: '8px', border: `1px solid ${NEUTRAL_BORDER}`, background: NEUTRAL_ICON_BG, color: '#e2e8f0', fontSize: '12px', fontWeight: 700, textDecoration: 'none' }}>
                             <ExternalLink size={12} /> Open
                           </a>
                         )}
@@ -682,14 +687,14 @@ export default function Integrations() {
                           Disconnect
                         </button>
                         <button onClick={() => handleSync(meta.key, meta.name)} disabled={syncing === meta.key}
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '7px 12px', borderRadius: '8px', border: `1px solid ${meta.accent}55`, background: meta.tint, color: meta.accent, fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
+                          style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '7px 12px', borderRadius: '8px', border: `1px solid ${ACCENT}55`, background: `${ACCENT}1a`, color: ACCENT, fontSize: '12px', fontWeight: 700, cursor: 'pointer' }}>
                           {syncing === meta.key ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
                           Sync
                         </button>
                       </>
                     ) : (
                       <button onClick={() => setModal(meta)}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', border: `1px solid ${meta.accent}66`, background: meta.tint, color: meta.accent, fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', padding: '8px 16px', borderRadius: '8px', border: `1px solid ${NEUTRAL_BORDER}`, background: NEUTRAL_ICON_BG, color: '#e2e8f0', fontSize: '13px', fontWeight: 700, cursor: 'pointer' }}>
                         <Plug size={13} />
                         Connect
                       </button>
