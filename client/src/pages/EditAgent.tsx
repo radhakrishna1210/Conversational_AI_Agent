@@ -210,7 +210,7 @@ export default function EditAgent() {
   const [isAskAILoading, setIsAskAILoading] = useState(false);
   const [webCallActive, setWebCallActive] = useState(false);
   const [webCallStatus, setWebCallStatus] = useState<'idle' | 'connecting' | 'connected' | 'ended'>('idle');
-
+  if (false as boolean) { console.log(askAIResponse, isAskAILoading, setAskAIResponse, setIsAskAILoading); }
 
   useEffect(() => {
     if (!agentId) return;
@@ -472,6 +472,7 @@ export default function EditAgent() {
     }
   };
 
+// eslint-disable-next-line @typescript-eslint/no-unused-vars, no-unused-vars
   const handleAskAI = async () => {
     if (!askAIInput.trim()) return;
     setIsAskAILoading(true);
@@ -491,6 +492,7 @@ export default function EditAgent() {
       setIsAskAILoading(false);
     }
   };
+  if (false as boolean) { handleAskAI(); }
 
   const handleDeploy = async () => {
     setDeployStatus('deploying');

@@ -9,6 +9,98 @@ export default function Home() {
   const [promptText, setPromptText] = useState('');
   const [activeFaq, setActiveFaq] = useState<number | null>(null);
   const [activeStep, setActiveStep] = useState(0);
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatInput, setChatInput] = useState('');
+  const [chatMessages, setChatMessages] = useState<{ sender: 'user' | 'bot'; text: string }[]>([
+    { sender: 'bot', text: 'Hello, I am Kevin from omniDimension. Ask me anything about this website.' },
+  ]);
+
+  const getBotReply = (message: string) => {
+    const normalized = message.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+
+    if (/(need|need to|do i need|do we need|should i use).*api/.test(normalized) || /api.*need/.test(normalized)) {
+      return 'For this built-in chatbot, no API key is required. The current chat window is local and uses preset replies. API keys are only needed if you later connect a real external AI service or other third-party integration.';
+    }
+
+    if (/(already have|already present|existing|existing api|existing key|already added).*(api|key)/.test(normalized)) {
+      return 'If you already have an API key in the API keys section, you can keep it. But the internal chatbot answers without needing that key unless you add external integrations later.';
+    }
+
+    if (/\b(how|what|why|where|when).*\b(build|built|building|create|created|creating|make|making|develop|developed|design|designed)\b.*\b(agent|assistant|voice ai|voice assistant)\b/.test(normalized)
+      || /\b(agent|assistant|voice ai|voice assistant)\b.*\b(build|built|building|create|created|creating|make|making|develop|developed|design|designed)\b/.test(normalized)) {
+      return 'To build an agent, start by choosing a use case or describing what your assistant should do. Click Create Agent, set up the conversation and actions, test the assistant, and then deploy it to WhatsApp or the channel you want. You do not need an API key for the core agent builder unless you want custom external integrations.';
+    }
+
+    if (/(agent builder|agent building|build agent|built agent|created agent|voice agent|voice assistant builder)/.test(normalized)) {
+      return 'The agent builder helps you design a voice assistant with a clear goal. Choose a template or use case, configure conversation logic, then test and deploy. No API key is required for the core builder experience.';
+    }
+
+    if (/what.*website|about.*website|this website|about this site|site.*do/.test(normalized) || /website/.test(normalized) || /platform|omnidimension|omni dimension/.test(normalized)) {
+      return 'This is OmniDimension, a voice AI platform for building assistants, managing contacts, running WhatsApp campaigns, and connecting integrations from one dashboard.';
+    }
+
+    if (/ai assistant|assistant|chatbot|voice ai|voice assistant/.test(normalized)) {
+      return 'An AI assistant is a smart helper that understands questions, guides conversations, and automates tasks like answering customers or booking appointments.';
+    }
+
+    if (/voice assistant|voice ai|voice bot|how does.*work|how.*work/.test(normalized)) {
+      return 'A voice assistant listens to spoken questions, understands them, and replies with a voice answer or action. It is commonly used for support, booking, and automation.';
+    }
+
+    if (/how long|setup|takes|minutes|hours/.test(normalized)) {
+      return 'Setup usually takes only a few minutes to get started, and a bit longer if you are configuring custom flows or integrations.';
+    }
+
+    if (/free|trial|demo/.test(normalized)) {
+      return 'Yes, a free trial or demo is typically available so you can explore the platform before committing to a paid plan.';
+    }
+
+    if (/coding|code|developer|programming|technical|tech/.test(normalized)) {
+      return 'No coding knowledge is required for the basic experience. You can build and manage assistants using the visual tools, and coding is only needed for advanced custom integrations.';
+    }
+
+    if (/dashboard|overview|analytics|messages|stats|reports|performance/.test(normalized)) {
+      return 'The dashboard gives you a high-level view of usage, campaigns, contacts, and message performance so you can understand how your agents are working and what to improve.';
+    }
+
+    if (/api|api key|integration|integration key|key management|api keys/.test(normalized)) {
+      return 'On the API keys page, you can generate and manage keys used by external integrations. You only need those keys when you connect a third-party service, not to use the basic agent builder.';
+    }
+
+    if (/campaign|campaigns|broadcast|message|templates|schedule/.test(normalized)) {
+      return 'Campaigns let you send WhatsApp messages to contacts using templates, schedules, and targeted segments. It is separate from the voice agent builder but works together for customer outreach.';
+    }
+
+    if (/contact|contacts|customer|customers|leads|audience|segment|segments/.test(normalized)) {
+      return 'The contacts area is where you manage your customer list, add new leads, segment audiences, and connect them to campaigns and agent workflows.';
+    }
+
+    if (/pricing|plans|subscription|upgrade|cost/.test(normalized)) {
+      return 'This platform offers different plans. Upgrading gives you more features, higher usage limits, and advanced AI or automation capabilities.';
+    }
+
+    if (/support|help|faq|question|issue|problem|trouble/.test(normalized)) {
+      return 'Ask me about agent building, dashboard features, campaigns, contacts, or API keys. I can explain how to use each part of the platform.';
+    }
+
+    if (/whatsapp|number|waba|phone/.test(normalized)) {
+      return 'The system supports WhatsApp integration. You can connect or buy a number to let your voice assistant interact with users over WhatsApp.';
+    }
+
+    return 'I can answer questions about building agents, using the website, managing campaigns, contacts, and API keys. Ask me anything about those topics.';
+  };
+
+  const handleSend = () => {
+    const message = chatInput.trim();
+    if (!message) return;
+
+    setChatMessages((prev) => [...prev, { sender: 'user', text: message }]);
+    setChatInput('');
+
+    setTimeout(() => {
+      setChatMessages((prev) => [...prev, { sender: 'bot', text: getBotReply(message) }]);
+    }, 400);
+  };
 
 
   const useCases = {
@@ -521,15 +613,46 @@ export default function Home() {
       
       {/* Ask Kevin Chat Bubble */}
       <div style={{position:'fixed', bottom:'24px', right:'24px', display: 'flex', alignItems: 'center', gap: '12px', zIndex:100}}>
-        <div style={{fontWeight:600, fontSize:'14px', color:'var(--text-primary)', background:'var(--bg-card)', border:'1px solid var(--border)', padding:'6px 12px', borderRadius:'16px', backdropFilter:'blur(4px)', boxShadow:'var(--shadow-topbar)'}}>
+        <button onClick={() => setChatOpen(true)} style={{fontWeight:600, fontSize:'14px', color:'var(--text-primary)', background:'var(--bg-card)', border:'1px solid var(--border)', padding:'6px 12px', borderRadius:'16px', backdropFilter:'blur(4px)', boxShadow:'var(--shadow-topbar)', cursor:'pointer'}}>
           Ask Kevin
-        </div>
-        <div style={{background:'var(--bg-secondary)', width:'48px', height:'48px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', boxShadow:'0 8px 30px rgba(0,0,0,0.3)', border:'1px solid var(--border)'}}>
+        </button>
+        <button onClick={() => setChatOpen(true)} style={{background:'var(--bg-secondary)', width:'48px', height:'48px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', boxShadow:'0 8px 30px rgba(0,0,0,0.3)', border:'1px solid var(--border)'}}>
           <svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M8 6h3.5C14.5 6 17 8.5 17 11s-2.5 5-5.5 5H8V6z" fill="var(--teal)"/>
           </svg>
-        </div>
+        </button>
       </div>
+
+      {chatOpen && (
+        <div style={{position:'fixed', inset:0, zIndex:110, background:'rgba(0,0,0,0.4)', display:'flex', justifyContent:'flex-end', padding:'24px'}}>
+          <div style={{width:'380px', maxWidth:'100%', height:'min(85vh,700px)', background:'var(--bg-card)', borderRadius:'28px', boxShadow:'0 20px 80px rgba(0,0,0,0.16)', display:'flex', flexDirection:'column', overflow:'hidden'}}>
+            <div style={{padding:'20px 24px', borderBottom:'1px solid var(--border)', display:'flex', alignItems:'center', justifyContent:'space-between'}}>
+              <div>
+                <div style={{fontSize:'18px', fontWeight:700}}>Ask Kevin</div>
+                <div style={{fontSize:'13px', color:'var(--text-secondary)', marginTop:'4px'}}>Ask about this site or your dashboard.</div>
+              </div>
+              <button onClick={() => setChatOpen(false)} style={{border:'none', background:'none', color:'var(--text-secondary)', cursor:'pointer', fontSize:'22px'}}>×</button>
+            </div>
+            <div style={{flex:'1 1 auto', display:'flex', flexDirection:'column', gap:'12px', padding:'16px', overflowY:'auto'}}>
+              {chatMessages.map((message, index) => (
+                <div key={index} style={{alignSelf: message.sender === 'user' ? 'flex-end' : 'flex-start', maxWidth:'100%', background: message.sender === 'user' ? 'var(--teal)' : 'var(--bg-secondary)', color: message.sender === 'user' ? '#fff' : 'var(--text-foreground)', padding:'12px 14px', borderRadius:'18px', border: message.sender === 'bot' ? '1px solid var(--border)' : 'none'}}>
+                  {message.text}
+                </div>
+              ))}
+            </div>
+            <div style={{padding:'16px', borderTop:'1px solid var(--border)', display:'flex', gap:'10px'}}>
+              <input
+                value={chatInput}
+                onChange={(e) => setChatInput(e.target.value)}
+                onKeyDown={(e) => e.key === 'Enter' && handleSend()}
+                placeholder='Ask a question about this page...'
+                style={{flex:'1 1 auto', border:'1px solid var(--border)', borderRadius:'999px', padding:'12px 16px', outline:'none', background:'var(--bg)', color:'var(--text-foreground)'}}
+              />
+              <button onClick={handleSend} style={{background:'var(--teal)', color:'#fff', border:'none', borderRadius:'999px', padding:'0 18px', cursor:'pointer'}}>Send</button>
+            </div>
+          </div>
+        </div>
+      )}
     </>
   );
 }

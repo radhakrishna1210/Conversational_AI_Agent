@@ -51,16 +51,17 @@ function ScrollToTop() {
   return null;
 }
 
+/* ─── UPDATED DEFAULT LAYOUT FOR LIGHT/DARK THEME COMPATIBILITY ─── */
 function DefaultLayout({ children }: { children: React.ReactNode }) {
   return (
-    <>
+    <div className="min-h-screen flex flex-col bg-background text-foreground transition-colors duration-200">
       <AnnouncementBar />
       <Navbar />
-      <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
-        <div style={{ flex: 1 }}>{children}</div>
-      </div>
+      <main className="flex-1 w-full">
+        {children}
+      </main>
       <Footer />
-    </>
+    </div>
   );
 }
 
@@ -88,46 +89,45 @@ function App() {
     <ThemeProvider>
       <Router>
         <ScrollToTop />
-      <Toaster position="top-right" richColors />
-      <Routes>
-        <Route path="/" element={<DefaultLayout><Home /></DefaultLayout>} />
-        <Route path="/pricing" element={<DefaultLayout><Pricing /></DefaultLayout>} />
-        <Route path="/documentation" element={<DefaultLayout><Documentation /></DefaultLayout>} />
-        <Route path="/book-appointment" element={<DefaultLayout><BookAppointment /></DefaultLayout>} />
-        <Route path="/contact" element={<DefaultLayout><Contact /></DefaultLayout>} />
-        <Route path="/docs" element={<DefaultLayout><Docs /></DefaultLayout>} />
-        <Route path="/report-issue" element={<DefaultLayout><ReportIssue /></DefaultLayout>} />
-        <Route path="/signup" element={<SignUp />} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/auth/callback" element={<AuthCallback />} />
-        {/* Protected dashboard routes */}
-        <Route element={<ProtectedRoute />}>
-          <Route element={<DashboardLayoutWrapper />}>
-            <Route path="/dashboard" element={<Dashboard />} />
-            <Route path="/bulk_call" element={<BulkCallCreate />} />
-            <Route path="/bulk_call/create" element={<BulkCallCreate />} />
-            <Route path="/clone_voice" element={<CloneVoice />} />
-            <Route path="/files" element={<Files />} />
-            <Route path="/integrations" element={<Integrations />} />
-            <Route path="/phone_numbers" element={<PhoneNumbers />} />
-            <Route path="/call_logs" element={<CallLogs />} />
-            <Route path="/analytics" element={<Analytics />} />
-            <Route path="/whatsapp" element={<WhatsApp />} />
-            <Route path="/billing" element={<Billing />} />
-            <Route path="/api_keys" element={<ApiKeys />} />
-            <Route path="/agent/:agentId" element={<EditAgent />} />
-            <Route path="/voice_assistant" element={<VoiceAssistantPage />} />
-            <Route path="/settings" element={<Settings />} />
-            <Route path="/profile" element={<Settings />} />
-            <Route path="/admin" element={<AdminPanel />} />
+        <Toaster position="top-right" richColors />
+        <Routes>
+          <Route path="/" element={<DefaultLayout><Home /></DefaultLayout>} />
+          <Route path="/pricing" element={<DefaultLayout><Pricing /></DefaultLayout>} />
+          <Route path="/documentation" element={<DefaultLayout><Documentation /></DefaultLayout>} />
+          <Route path="/book-appointment" element={<DefaultLayout><BookAppointment /></DefaultLayout>} />
+          <Route path="/contact" element={<DefaultLayout><Contact /></DefaultLayout>} />
+          <Route path="/docs" element={<DefaultLayout><Docs /></DefaultLayout>} />
+          <Route path="/report-issue" element={<DefaultLayout><ReportIssue /></DefaultLayout>} />
+          <Route path="/signup" element={<SignUp />} />
+          <Route path="/login" element={<Login />} />
+          <Route path="/auth/callback" element={<AuthCallback />} />
+          
+          {/* Protected dashboard routes */}
+          <Route element={<ProtectedRoute />}>
+            <Route element={<DashboardLayoutWrapper />}>
+              <Route path="/dashboard" element={<Dashboard />} />
+              <Route path="/bulk_call" element={<BulkCallCreate />} />
+              <Route path="/bulk_call/create" element={<BulkCallCreate />} />
+              <Route path="/clone_voice" element={<CloneVoice />} />
+              <Route path="/files" element={<Files />} />
+              <Route path="/integrations" element={<Integrations />} />
+              <Route path="/phone_numbers" element={<PhoneNumbers />} />
+              <Route path="/call_logs" element={<CallLogs />} />
+              <Route path="/analytics" element={<Analytics />} />
+              <Route path="/whatsapp" element={<WhatsApp />} />
+              <Route path="/billing" element={<Billing />} />
+              <Route path="/api_keys" element={<ApiKeys />} />
+              <Route path="/agent/:agentId" element={<EditAgent />} />
+              <Route path="/voice_assistant" element={<VoiceAssistantPage />} />
+              <Route path="/settings" element={<Settings />} />
+              <Route path="/profile" element={<Settings />} />
+              <Route path="/admin" element={<AdminPanel />} />
+            </Route>
           </Route>
-        </Route>
-      </Routes>
+        </Routes>
       </Router>
     </ThemeProvider>
   );
 }
 
 export default App;
-
-

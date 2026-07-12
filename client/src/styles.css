@@ -424,6 +424,28 @@ html:not(.light) [style*="color:rgb(153, 153, 153)"] {
    LIGHT MODE — Component overrides
    ═══════════════════════════════════════════ */
 
+/* Ensure ALL textareas are white in light mode */
+html.light textarea {
+  background: #ffffff !important;
+  color: var(--text-primary) !important;
+  border-color: #e2e8f0 !important;
+  border: 1px solid #e2e8f0 !important;
+  box-shadow: none !important;
+  outline: 2px solid white !important;
+}
+
+html.light textarea:focus {
+  border-color: var(--teal) !important;
+  box-shadow: 0 0 0 3px rgba(14, 179, 158, 0.1) !important;
+  outline: 2px solid white !important;
+}
+
+html.light input,
+html.light input:focus {
+  border-color: #e2e8f0 !important;
+  border: 1px solid #e2e8f0 !important;
+}
+
 /* Forms input fields / textareas overrides */
 html.light .form-input,
 html.light .form-select,
@@ -439,18 +461,22 @@ html.light .form-select option {
 
 /* Voice Assistant Component overrides */
 html.light .voice-card {
-  background: rgba(0, 0, 0, 0.03) !important;
-  border-color: var(--border) !important;
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  border-color: #e2e8f0 !important;
 }
 html.light .voice-card:hover {
-  background: rgba(0, 0, 0, 0.06) !important;
+  background: #f8fafd !important;
+  border-color: #cbd5e1 !important;
 }
 html.light .voice-card.active {
-  background: rgba(14, 179, 158, 0.08) !important;
+  background: #ffffff !important;
   border-color: var(--teal) !important;
+  box-shadow: 0 0 0 3px rgba(14, 179, 158, 0.1) !important;
 }
 html.light .ai-auto-card.active {
-  background: linear-gradient(135deg, rgba(14, 179, 158, 0.12) 0%, rgba(124, 58, 237, 0.12) 100%) !important;
+  background: linear-gradient(135deg, rgba(14, 179, 158, 0.08) 0%, rgba(124, 58, 237, 0.08) 100%) !important;
+  border-color: var(--teal) !important;
 }
 html.light .voice-badge--female {
   background: rgba(236, 72, 153, 0.1) !important;
@@ -465,29 +491,32 @@ html.light .voice-badge--ai {
   color: #7c3aed !important;
 }
 html.light .voice-tag {
-  background: rgba(0, 0, 0, 0.04) !important;
-  border-color: rgba(0, 0, 0, 0.06) !important;
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  border-color: #e2e8f0 !important;
   color: var(--text-secondary) !important;
 }
 html.light .voice-selected-bar {
-  background: rgba(14, 179, 158, 0.05) !important;
-  border-color: rgba(14, 179, 158, 0.15) !important;
+  background: #ffffff !important;
+  border-color: #e2e8f0 !important;
 }
 html.light .mic-btn {
-  background: rgba(0, 0, 0, 0.04) !important;
-  border-color: var(--border) !important;
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  border-color: #e2e8f0 !important;
   color: var(--text-primary) !important;
 }
 html.light .mic-btn:hover {
-  background: rgba(0, 0, 0, 0.08) !important;
+  background: #f8fafd !important;
   border-color: var(--teal) !important;
 }
 html.light .voice-group-label {
   color: var(--text-secondary) !important;
 }
 html.light .voice-group-count {
-  background: rgba(0, 0, 0, 0.05) !important;
+  background: #f1f5f9 !important;
   color: var(--text-secondary) !important;
+  border: 1px solid #e2e8f0 !important;
 }
 
 html.light [style*="background: rgba(255,255,255,0.05)"],
@@ -526,19 +555,35 @@ html.light .dashboard-layout { background: var(--bg-primary); }
 
 /* Create assistant box */
 html.light .create-assistant-box {
-  background: #ffffff;
-  border-color: var(--border);
-  box-shadow: var(--shadow-card);
+  background: #ffffff !important;
+  background-image: none !important;
+  border: 1px solid #ffffff !important;
+  border-top: 1px solid #ffffff !important;
+  border-right: 1px solid #ffffff !important;
+  border-bottom: 1px solid #ffffff !important;
+  border-left: 1px solid #ffffff !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+}
+
+html.light .create-actions {
+  background: #ffffff !important;
+  border: none !important;
 }
 
 /* Textarea */
 html.light .create-textarea {
-  background: #f8fafd;
-  border-color: var(--border);
-  color: var(--text-primary);
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  border-top: 1px solid #e2e8f0 !important;
+  border-right: 1px solid #e2e8f0 !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+  border-left: 1px solid #e2e8f0 !important;
+  color: var(--text-primary) !important;
+  box-shadow: none !important;
 }
 html.light .create-textarea::placeholder { color: var(--text-muted); }
-html.light .create-textarea:focus { border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-light); }
+html.light .create-textarea:focus { border-color: var(--teal) !important; box-shadow: 0 0 0 3px rgba(14, 179, 158, 0.1) !important; }
 
 /* Chips */
 html.light .chip {
@@ -1848,7 +1893,7 @@ html.light .topbar-icon-btn:hover {
 }
 
 .create-assistant-box {
-  background: radial-gradient(circle at top right, rgba(0,212,200,0.1), transparent 40%), var(--bg-card);
+  background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: 24px;
@@ -1863,15 +1908,16 @@ html.light .topbar-icon-btn:hover {
 .create-assistant-box p {
   font-size: 13px;
   margin-bottom: 18px;
+  color: var(--text-secondary);
 }
 
 .create-textarea {
   width: 100%;
-  background: rgba(0,0,0,0.18);
+  background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 16px;
-  color: white;
+  color: var(--text-primary);
   font-family: inherit;
   font-size: 14px;
   min-height: 100px;
@@ -1880,8 +1926,16 @@ html.light .topbar-icon-btn:hover {
   outline: none;
 }
 
-.create-textarea:focus {
-  border-color: rgba(0,212,200,0.5);
+html.light .create-textarea {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  border-top: 1px solid #e2e8f0 !important;
+  border-right: 1px solid #e2e8f0 !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+  border-left: 1px solid #e2e8f0 !important;
+  color: var(--text-primary) !important;
+  background-image: none !important;
+  box-shadow: none !important;
 }
 
 .create-actions {
@@ -2052,7 +2106,7 @@ html.light .topbar-icon-btn:hover {
   font-size: 12px;
   color: var(--text-secondary);
   border: 1px solid var(--border);
-  background: rgba(255, 255, 255, 0.02);
+  background: var(--bg-elevated);
   border-radius: 10px;
   padding: 6px 10px;
 }
@@ -2061,6 +2115,96 @@ html.light .topbar-icon-btn:hover {
   flex: 1;
   min-height: 34px;
   font-size: 13px;
+}
+
+/* Dashboard cards should stay light in light mode */
+html.light .create-assistant-box {
+  background: #ffffff !important;
+  background-image: none !important;
+  border: 1px solid #ffffff !important;
+  border-top: 1px solid #ffffff !important;
+  border-right: 1px solid #ffffff !important;
+  border-bottom: 1px solid #ffffff !important;
+  border-left: 1px solid #ffffff !important;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05) !important;
+}
+
+html.light .create-assistant-box h3 {
+  background: #ffffff !important;
+  color: var(--teal) !important;
+}
+
+html.light .create-assistant-box p {
+  background: #ffffff !important;
+  color: var(--text-secondary) !important;
+}
+
+html.light .create-textarea {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  border-top: 1px solid #e2e8f0 !important;
+  border-right: 1px solid #e2e8f0 !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+  border-left: 1px solid #e2e8f0 !important;
+  color: var(--text-primary) !important;
+  box-shadow: none !important;
+}
+
+html.light .create-textarea::placeholder {
+  color: var(--text-muted);
+}
+
+html.light .assistants-search {
+  background: var(--bg-secondary);
+  border-color: var(--border);
+}
+
+html.light .assistant-card {
+  background: var(--bg-secondary) !important;
+  border-color: var(--border) !important;
+  box-shadow: 0 2px 10px rgba(100, 116, 139, 0.08) !important;
+}
+
+html.light .assistant-card:hover {
+  box-shadow: 0 4px 20px rgba(100, 116, 139, 0.12) !important;
+  border-color: var(--teal) !important;
+}
+
+html.light .assistant-metadata {
+  border-color: var(--border);
+}
+
+html.light .assistant-id {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+  color: var(--text-secondary);
+}
+
+/* Core feature cards in light mode */
+html.light .core-feature-card {
+  background: #ffffff !important;
+  background: var(--bg-secondary) !important;
+  border-color: var(--border) !important;
+  box-shadow: 0 2px 10px rgba(100, 116, 139, 0.08) !important;
+}
+
+html.light .core-feature-card:hover {
+  border-color: var(--teal) !important;
+  box-shadow: 0 4px 20px rgba(100, 116, 139, 0.12) !important;
+}
+
+html.light .core-feature-icon-wrapper {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+}
+
+html.light .core-feature-card h3 {
+  color: var(--text-primary);
+}
+
+html.light .core-feature-card p {
+  color: var(--text-secondary);
 }
 
 .empty-state {
@@ -2112,8 +2256,18 @@ html.light .topbar-icon-btn:hover {
 
 .pricing-tab.active {
   background: var(--bg-card);
-  color: white;
+  color: var(--text-primary);
   box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+.pricing-tabs .pricing-tab,
+.pricing-tabs .pricing-tab * {
+  color: var(--text-secondary) !important;
+}
+
+.pricing-tabs .pricing-tab.active,
+.pricing-tabs .pricing-tab.active * {
+  color: var(--text-primary) !important;
 }
 
 .plan-cards {
@@ -2229,58 +2383,56 @@ html.light .topbar-icon-btn:hover {
   padding: 16px;
   border-bottom: 1px solid var(--border);
   font-weight: 600;
-  color: white;
-}
-
-.feature-table th:first-child {
-  text-align: left;
-}
-
-.feature-table td {
-  padding: 16px;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
-  color: var(--text-secondary);
-}
-
-.feature-table td:first-child {
-  text-align: left;
-  color: white;
-}
-
-.check-yes {
-  color: var(--success);
+   color: var(--text-primary);
+ }
+ 
+ .feature-table th:first-child {
+   text-align: left;
+ }
+ 
+ .feature-table td {
+   padding: 16px;
+   border-bottom: 1px solid rgba(255,255,255,0.05);
+   color: var(--text-secondary);
+ }
+ 
+ .feature-table td:first-child {
+   text-align: left;
+   color: var(--text-primary);
   font-weight: bold;
 }
 
-.check-no {
-  color: var(--text-muted);
+/* Light mode table styling */
+html.light .feature-table {
+  background: #ffffff !important;
+  border: 1px solid #e2e8f0 !important;
+  border-radius: 8px;
+  overflow: hidden;
 }
 
-/* ── Documentation Page Specific ── */
-.breadcrumb {
-  display: flex;
-  gap: 8px;
-  font-size: 13px;
-  color: var(--text-muted);
-  margin-top: 24px;
+html.light .feature-table th {
+  padding: 16px !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+  font-weight: 600 !important;
+  color: var(--text-primary) !important;
+  background: #f8fafd !important;
 }
 
-.breadcrumb a {
-  transition: color 0.2s;
+html.light .feature-table th:first-child {
+  text-align: left !important;
 }
 
-.breadcrumb a:hover {
-  color: white;
+html.light .feature-table td {
+  padding: 16px !important;
+  border-bottom: 1px solid #e2e8f0 !important;
+  color: var(--text-secondary) !important;
+  background: #ffffff !important;
 }
 
-.doc-hero {
-  text-align: center;
-  padding: 60px 0;
-}
-
-.doc-hero h1 {
-  font-size: 40px;
-  margin-bottom: 16px;
+html.light .feature-table td:first-child {
+  text-align: left !important;
+  color: var(--text-primary) !important;
+  font-weight: bold !important;
 }
 
 .doc-actions {
@@ -2498,4 +2650,176 @@ html.light .topbar-icon-btn:hover {
 @keyframes slideUp {
   from { opacity: 0; transform: translateY(20px); }
   to { opacity: 1; transform: translateY(0); }
+}
+
+/* ==========================================
+   FORCE TRUE LIGHT MODE BACKGROUNDS
+   ========================================== */
+
+/* Target the layout when the 'light' class is active */
+html.light, 
+html.light body, 
+html.light #root, 
+html.light main {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+/* Fallback: Target the layout when it DOES NOT have the 'dark' class */
+html:not(.dark), 
+html:not(.dark) body, 
+html:not(.dark) #root,
+html:not(.dark) main {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  color: #0f172a !important;
+}
+
+/* Ensure the hero layout elements are transparent to show the white background */
+html.light .bg-gradient-dark,
+html:not(.dark) .bg-gradient-dark {
+  background: transparent !important;
+  background-image: none !important;
+  display: none !important; /* Fully hides the dark layout layer if it tries to render */
+}
+
+/* ===================================================
+   THE CORE ENGINE RESET — FORCING TAILWIND VARIABLES
+   =================================================== */
+
+html.light,
+html:not(.dark) {
+  /* Force Tailwind Core Variables to Light Mode */
+  --background: 0 0% 100% !important;     /* Pure White background */
+  --foreground: 222.2 84% 4.9% !important; /* Slate Dark text */
+  --card: 0 0% 100% !important;
+  --card-foreground: 222.2 84% 4.9% !important;
+  --popover: 0 0% 100% !important;
+  --popover-foreground: 222.2 84% 4.9% !important;
+  --muted: 210 40% 96.1% !important;
+  --muted-foreground: 215.4 16.3% 46.9% !important;
+  --border: 214.3 32% 91% !important;
+  --input: 214.3 32% 91% !important;
+
+  /* Force Custom Template Variables to Light Mode */
+  --bg-primary: #ffffff !important;
+  --bg-secondary: #f8fafd !important;
+  --bg-card: #ffffff !important;
+  --bg-elevated: #ffffff !important;
+  --text-primary: #0f172a !important;
+  --text-secondary: #475569 !important;
+  
+  /* Wipe out the dark background gradient completely */
+  --gradient-dark: linear-gradient(0deg, #ffffff, #ffffff) !important;
+}
+
+/* Hard reset layout targets */
+html.light body,
+html:not(.dark) body,
+html.light #root,
+html:not(.dark) #root,
+html.light main,
+html:not(.dark) main,
+html.light section,
+html:not(.dark) section {
+  background-color: #ffffff !important;
+  background: #ffffff !important;
+  color: #0f172a !important;
+}
+
+/* If any element has a hardcoded class containing 'bg-gradient-dark' or 'glass' */
+html.light .bg-gradient-dark,
+html:not(.dark) .bg-gradient-dark,
+html.light .glass,
+html:not(.dark) .glass {
+  background: #ffffff !important;
+  background-color: #ffffff !important;
+  background-image: none !important;
+}
+
+/* ===================================================
+   FIX FOR FOCUS RING/BORDER AROUND TEXT BOXES IN LIGHT MODE
+   =================================================== */
+
+html.light input,
+html.light textarea,
+html.light select,
+html:not(.dark) input,
+html:not(.dark) textarea,
+html:not(.dark) select {
+  /* Force a clean, light border when resting */
+  border-color: #cbd5e1 !important; /* light grey border */
+  color: #0f172a !important;        /* dark text */
+  background-color: #ffffff !important;
+}
+
+/* Force a smooth blue or neutral focus outline when clicked */
+html.light input:focus,
+html.light textarea:focus,
+html:not(.dark) input:focus,
+html:not(.dark) textarea:focus,
+html.light input:focus-visible,
+html.light textarea:focus-visible,
+html:not(.dark) input:focus-visible,
+html:not(.dark) textarea:focus-visible {
+  outline: 2px solid #3b82f6 !important; /* Clean Blue focus ring */
+  outline-offset: 1px !important;
+  border-color: #3b82f6 !important;
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.2) !important;
+}
+
+/* ==========================================================================
+   PASTE THIS AT THE VERY BOTTOM OF YOUR FILE 
+   This forces the dark voice assistant box to turn clean white in light mode
+   ========================================================================== */
+
+html.light .hero-input-wrapper {
+  background: #ffffffc8 !important;
+  border: 1px solid #000000 !important; /* Changes the black border to soft grey */
+  box-shadow: 0 10px 30px rgba(15, 23, 42, 0.05) !important;
+}
+
+/* Fixes the text input area color */
+html.light .hero-input {
+  color: #0f172a !important; 
+  border: 1px solid #000000 !important; /* Thin black border for the inner text box */
+  border-radius: 6px !important;        /* Optional: rounds the corners slightly to match */
+  background: #ffffff !important; 
+}
+
+/* Fixes the "Guided Flow" text color so it doesn't stay white on a white background */
+html.light .hero-input-wrapper, 
+html.light .hero-input-wrapper * {
+  --text-secondary: #475569 !important;
+}
+
+html.light .hero-input-wrapper label,
+html.light .hero-input-wrapper span {
+  color: #475569 !important;
+}
+/* 3. Thick Green Checkbox Style */
+html.light .custom-checkbox {
+  border: 2px solid #10b981 !important; /* Thicker crisp green border line */
+  border-radius: 4px !important;
+  width: 18px !important;               /* Slightly larger for better click visibility */
+  height: 18px !important;
+}
+
+/* When the checkbox is checked, fill it with a vibrant green */
+html.light .custom-checkbox:checked {
+  background-color: #10b981 !important;
+  border-color: #10b981 !important;
+}
+
+/* 4. Guided Flow Text Colors */
+html.light .hero-input-wrapper, 
+html.light .hero-input-wrapper * {
+  --text-secondary: #475569 !important;
+}
+
+html.light .hero-input-wrapper label,
+html.light .hero-input-wrapper span {
+  color: #475569 !important;
+  font-weight: 500 !important; /* Slightly bolder text to look sharp next to the box */
 }

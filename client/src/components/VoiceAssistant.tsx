@@ -599,8 +599,9 @@ export default function VoiceAssistant() {
         }
         .voice-group-count {
           font-size: 10px;
-          background: rgba(255,255,255,0.07);
-          color: var(--text-muted);
+          background: #f1f5f9;
+          color: var(--text-secondary);
+          border: 1px solid #e2e8f0;
           border-radius: 20px;
           padding: 1px 7px;
           margin-left: 2px;
@@ -615,8 +616,8 @@ export default function VoiceAssistant() {
 
         /* ── Voice card ─────────────────────────────────────────────────── */
         .voice-card {
-          background: rgba(255,255,255,0.03);
-          border: 1px solid var(--border);
+          background: #ffffff;
+          border: 1px solid #e2e8f0;
           border-radius: 12px;
           padding: 12px 14px;
           display: flex;
@@ -627,16 +628,16 @@ export default function VoiceAssistant() {
           gap: 8px;
         }
         .voice-card:hover {
-          background: rgba(255,255,255,0.065);
-          border-color: rgba(0,212,200,0.4);
+          background: #f8fafd;
+          border-color: #cbd5e1;
         }
         .voice-card.active {
-          background: rgba(0,212,200,0.08);
+          background: #ffffff;
           border-color: var(--teal);
-          box-shadow: 0 0 0 1px rgba(0,212,200,0.25), inset 0 1px 0 rgba(255,255,255,0.05);
+          box-shadow: 0 0 0 3px rgba(14, 179, 158, 0.1);
         }
         .ai-auto-card.active {
-          background: linear-gradient(135deg, rgba(0,212,200,0.12) 0%, rgba(124,58,237,0.12) 100%);
+          background: linear-gradient(135deg, rgba(14, 179, 158, 0.08) 0%, rgba(124, 58, 237, 0.08) 100%);
           border-color: var(--teal);
         }
 
@@ -678,9 +679,9 @@ export default function VoiceAssistant() {
         /* ── Style tag ──────────────────────────────────────────────────── */
         .voice-tag {
           font-size: 10px;
-          color: var(--text-muted);
-          background: rgba(255,255,255,0.05);
-          border: 1px solid rgba(255,255,255,0.07);
+          color: var(--text-secondary);
+          background: #ffffff;
+          border: 1px solid #e2e8f0;
           border-radius: 4px;
           padding: 1px 6px;
           text-transform: capitalize;
@@ -697,20 +698,21 @@ export default function VoiceAssistant() {
 
         /* ── Preview button ─────────────────────────────────────────────── */
         .voice-preview-btn {
-          background: none;
-          border: none;
+          background: #ffffff;
+          border: 1px solid #e2e8f0;
           font-size: 14px;
           cursor: pointer;
-          padding: 5px;
+          padding: 5px 8px;
           border-radius: 7px;
           transition: background 0.18s, box-shadow 0.18s;
           line-height: 1;
+          color: var(--text-primary);
         }
-        .voice-preview-btn:hover { background: rgba(255,255,255,0.1); }
+        .voice-preview-btn:hover { background: #f8fafd; border-color: #cbd5e1; }
         .voice-preview-btn.previewing {
           color: var(--teal);
-          background: rgba(0,212,200,0.12);
-          box-shadow: 0 0 0 2px rgba(0,212,200,0.4);
+          background: rgba(14, 179, 158, 0.08);
+          box-shadow: 0 0 0 2px rgba(14, 179, 158, 0.2);
           animation: previewPulse 1.2s ease-in-out infinite;
         }
         @keyframes previewPulse {
