@@ -2,12 +2,12 @@ import { Link } from 'react-router-dom';
 
 export default function Docs() {
   const docCards = [
-    { icon: '📱', title: 'Getting Started', desc: 'Learn how to install and set up the OmniDimension SDK.' },
-    { icon: '🖥️', title: 'Client', desc: 'Initialize and configure the OmniDimension client.' },
-    { icon: '💬', title: 'Agent', desc: 'Create, manage, and customize AI agents.' },
-    { icon: '📞', title: 'Call', desc: 'Manage call logs and dispatch calls.' },
-    { icon: '⚡', title: 'Integrations', desc: 'Connect with external services and APIs.' },
-    { icon: '🗄️', title: 'Knowledge Base', desc: 'Manage files and knowledge for your agents.' }
+    { icon: '📱', title: 'Getting Started', desc: 'Learn how to install and set up the OmniDimension SDK.', to: '/docs/getting-started' },
+    { icon: '🖥️', title: 'Client', desc: 'Initialize and configure the OmniDimension client.', to: '/docs/client' },
+    { icon: '💬', title: 'Agent', desc: 'Create, manage, and customize AI agents.', to: '/docs/agent' },
+    { icon: '📞', title: 'Call', desc: 'Manage call logs and dispatch calls.', to: '/docs/call' },
+    { icon: '⚡', title: 'Integrations', desc: 'Connect with external services and APIs.', to: '/docs/integrations' },
+    { icon: '🗄️', title: 'Knowledge Base', desc: 'Manage files and knowledge for your agents.', to: '/docs/knowledge-base' },
   ];
 
   return (
@@ -35,12 +35,14 @@ export default function Docs() {
       <div className="container">
         <div className="doc-grid" style={{marginBottom:'80px'}}>
           {docCards.map((card, index) => (
-            <div key={index} className="doc-card">
-              <div className="doc-card-icon">{card.icon}</div>
-              <h3>{card.title}</h3>
-              <p>{card.desc}</p>
-              <div className="learn-more">Learn more →</div>
-            </div>
+            <Link key={index} to={card.to} style={{ textDecoration: 'none' }}>
+              <div className="doc-card" style={{ cursor: 'pointer', height: '100%' }}>
+                <div className="doc-card-icon">{card.icon}</div>
+                <h3>{card.title}</h3>
+                <p>{card.desc}</p>
+                <div className="learn-more">Learn more →</div>
+              </div>
+            </Link>
           ))}
         </div>
 
