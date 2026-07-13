@@ -198,6 +198,7 @@ export default function EditAgent() {
   const [chatMessages, setChatMessages] = useState<{ role: string, content: string }[]>([]);
   const [userMessage, setUserMessage] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const chatSessionIdRef = useRef<string>('');
 
   // Top-bar button states
   const [showWebCallModal, setShowWebCallModal] = useState(false);
@@ -212,6 +213,48 @@ export default function EditAgent() {
   const [isAskAILoading, setIsAskAILoading] = useState(false);
   const [webCallActive, setWebCallActive] = useState(false);
   const [webCallStatus, setWebCallStatus] = useState<'idle' | 'connecting' | 'connected' | 'ended'>('idle');
+  const [webCallTranscript, setWebCallTranscript] = useState<{ role: 'user' | 'assistant' | 'system'; text: string }[]>([]);
+  const [webCallInput, setWebCallInput] = useState('');
+  const [webCallError, setWebCallError] = useState('');
+  const [webCallListening, setWebCallListening] = useState(false);
+  const [webCallSpeaking, setWebCallSpeaking] = useState(false);
+  const [webCallVoiceId, setWebCallVoiceId] = useState<string | null>(null);
+  const [webCallVoiceName, setWebCallVoiceName] = useState('');
+  const [webCallVoiceEnabled, setWebCallVoiceEnabled] = useState(true);
+  const recognitionRef = useRef<any>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const webCallAudioRef = useRef<HTMLAudioElement | null>(null);
+  const webCallInputRef = useRef('');
+  const webCallActiveRef = useRef(false);
+  const webCallSpeakingRef = useRef(false);
+
+  useEffect(() => {
+    webCallInputRef.current = webCallInput;
+  }, [webCallInput]);
+
+  useEffect(() => {
+    webCallActiveRef.current = webCallActive;
+  }, [webCallActive]);
+
+  useEffect(() => {
+    webCallSpeakingRef.current = webCallSpeaking;
+  }, [webCallSpeaking]);
+
+  useEffect(() => {
+    return () => {
+      try {
+        recognitionRef.current?.stop?.();
+        recognitionRef.current?.abort?.();
+      } catch {}
+      if (micStreamRef.current) {
+        micStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+      if (webCallAudioRef.current) {
+        webCallAudioRef.current.pause();
+        webCallAudioRef.current = null;
+      }
+    };
+  }, []);
 
 
   useEffect(() => {
@@ -456,297 +499,21 @@ export default function EditAgent() {
     setIsTyping(true);
 
     try {
-      const isGemini = aiModel.toLowerCase().includes('gemini');
-      const chatTestInstructions = `# Chat Test Assistant Instructions
-
-You are the Chat Test Environment for this AI Agent.
-
-Your responsibility is to simulate the exact behavior of the deployed agent and validate that the agent follows its configured instructions, conversation flow, knowledge base, variables, business rules, and integrations.
-
-## Primary Objective
-
-Act exactly as the configured agent would act in production.
-
-The purpose of this chat is to test the agent's behavior before deployment.
-
-Never bypass configured instructions.
-
-Never ignore defined conversation flows.
-
-Never invent information not present in the knowledge base.
-
-Never assume tool execution if no tool is available.
-
----
-
-## Agent Configuration Priority
-
-Always follow this order:
-
-1. Agent Instructions
-2. Conversation Flow
-3. Knowledge Base
-4. Variables & Memory
-5. Business Rules
-6. Integrations & Tools
-7. User Message
-
-If conflicts occur, higher-priority instructions take precedence.
-
----
-
-## Conversation Flow Enforcement
-
-For every user message:
-
-1. Identify current flow stage.
-2. Determine expected next action.
-3. Check required information.
-4. Continue only according to flow rules.
-
-Examples:
-
-* Greeting Flow
-* Qualification Flow
-* FAQ Flow
-* Product Inquiry Flow
-* Appointment Booking Flow
-* Support Flow
-* Escalation Flow
-* Feedback Collection Flow
-* Closing Flow
-
-Do not skip mandatory stages.
-
-Do not jump ahead in the workflow.
-
-Do not collect unnecessary information.
-
----
-
-## Knowledge Base Rules
-
-When answering questions:
-
-* Search available knowledge first.
-* Use only information present in the configured knowledge base.
-* Keep responses accurate and grounded.
-
-If information cannot be found:
-
-Respond with:
-
-"I couldn't find that information in the configured knowledge base."
-
-Do not hallucinate.
-
-Do not generate unsupported facts.
-
----
-
-## Variable Tracking
-
-Maintain conversation state throughout the session.
-
-Track:
-
-* Name
-* Email
-* Phone
-* Company
-* Product Interest
-* Booking Preferences
-* Support Details
-* Any custom variables defined for the agent
-
-Reuse previously collected information.
-
-Never ask for information that has already been collected unless verification is required.
-
----
-
-## Lead Qualification Testing
-
-If the flow requires qualification:
-
-Collect required fields.
-
-Validate:
-
-* Completeness
-* Format
-* Eligibility Criteria
-
-Only mark a lead as qualified when all required conditions are satisfied.
-
-If information is missing, request only the missing fields.
-
----
-
-## Appointment Booking Testing
-
-Before booking:
-
-Collect:
-
-* Date
-* Time
-* Time Zone
-* Contact Details
-
-Generate a confirmation summary.
-
-Require explicit user confirmation before proceeding.
-
-Never assume confirmation.
-
----
-
-## Tool & Integration Validation
-
-When a workflow requires a tool:
-
-1. Verify prerequisites.
-2. Validate collected inputs.
-3. Execute configured action.
-4. Return actual results.
-
-If the tool is unavailable:
-
-State that the requested action cannot be completed due to unavailable integration.
-
-Never fabricate successful execution.
-
-Never generate fake booking IDs, order IDs, confirmations, or API responses.
-
----
-
-## Error Handling
-
-For ambiguous requests:
-
-Ask for clarification.
-
-For unsupported requests:
-
-State that the request is outside the agent's configured capabilities.
-
-For missing required data:
-
-Request only the specific missing information.
-
----
-
-## Escalation Rules
-
-Escalate when:
-
-* User requests a human agent.
-* User repeatedly expresses frustration.
-* Request falls outside available knowledge.
-* Business rules require human review.
-
-When escalation occurs:
-
-Inform the user that the conversation should be transferred to a human representative.
-
----
-
-## Memory & Context
-
-Maintain awareness of:
-
-* Previous user responses
-* Current flow stage
-* Collected variables
-* Pending actions
-* Completed actions
-
-Use context throughout the conversation.
-
-Avoid repetitive questions.
-
----
-
-## Response Quality Standards
-
-Responses must be:
-
-* Accurate
-* Professional
-* Context-aware
-* Flow-compliant
-* Knowledge-grounded
-* Concise
-* Action-oriented
-
-Avoid:
-
-* Hallucinations
-* Guessing
-* Contradictory responses
-* Flow violations
-* Unverified claims
-
----
-
-## Internal Validation Checklist
-
-Before every response verify:
-
-✓ Agent instructions followed
-
-✓ Flow followed correctly
-
-✓ Knowledge base checked
-
-✓ Required variables collected
-
-✓ Business rules satisfied
-
-✓ Tool requirements validated
-
-✓ Memory updated
-
-✓ Response aligned with current stage
-
-Only then generate the response.
-
----
-
-## Final Rule
-
-The Chat Test environment must behave exactly like the live agent.
-
-Every response must reflect:
-
-* Agent Instructions
-* Flow Logic
-* Knowledge Base Content
-* Variables
-* Integrations
-* Business Rules
-
-The goal is to accurately test real-world agent behavior before deployment.
-
----
-
-# Current Agent Configuration
-
-Welcome Message: ${welcomeMessage}
-
-Flow:
-${flowItems.filter(f => f.enabled).map(f => f.title).join('\n')}`;
-
-      const response = await whapi.post<{ message: string }>('/llm/generate', {
-        agentId,
+      if (!chatSessionIdRef.current) {
+        chatSessionIdRef.current = window.crypto?.randomUUID?.() ?? `chat-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      }
+
+      const response = await whapi.post<{ reply: string; detectedLanguage?: string }>(`/agents/${agentId}/chat`, {
         message: userMessage,
-        systemPrompt: chatTestInstructions,
-        provider: isGemini ? 'gemini' : 'openai',
-        model: isGemini ? 'gemini-2.5-flash' : 'gpt-4o'
+        selectedLanguages: selectedLanguages.length > 0 ? selectedLanguages : ['English (Indian)'],
+        welcomeMessage,
+        chatHistory: newMessages.slice(0, -1).slice(-10).map((msg) => ({
+          role: msg.role,
+          text: msg.content,
+        })),
       });
 
-      setChatMessages([...newMessages, { role: 'assistant', content: response.message }]);
+      setChatMessages([...newMessages, { role: 'assistant', content: response.reply }]);
     } catch (err) {
       console.error('Chat failed', err);
       setChatMessages([...newMessages, { role: 'assistant', content: 'Error: Failed to get response from AI.' }]);
@@ -788,17 +555,268 @@ ${flowItems.filter(f => f.enabled).map(f => f.title).join('\n')}`;
     }
   };
 
+  const stopBrowserWebCall = () => {
+    try {
+      recognitionRef.current?.stop?.();
+      recognitionRef.current?.abort?.();
+    } catch {}
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach((track) => track.stop());
+      micStreamRef.current = null;
+    }
+    if (webCallAudioRef.current) {
+      webCallAudioRef.current.pause();
+      webCallAudioRef.current = null;
+    }
+    window.speechSynthesis?.cancel?.();
+    setWebCallListening(false);
+    setWebCallSpeaking(false);
+  };
+
+  const appendWebCallMessage = (role: 'user' | 'assistant' | 'system', text: string) => {
+    setWebCallTranscript((prev) => [...prev, { role, text }]);
+  };
+
+  const replaceLastWebCallMessage = (role: 'assistant' | 'system', text: string) => {
+    setWebCallTranscript((prev) => {
+      if (prev.length === 0) return prev;
+      const next = [...prev];
+      next[next.length - 1] = { ...next[next.length - 1], role, text };
+      return next;
+    });
+  };
+
+  const buildWebCallHistory = () => {
+    return webCallTranscript
+      .filter((item) => item.role === 'user' || item.role === 'assistant')
+      .slice(-10)
+      .map((item) => ({ role: item.role, text: item.text }));
+  };
+
+  const resolveVoiceAudioUrl = (voiceId: string, text: string) => {
+    const path = `/api/v1/voices/${voiceId}/preview?text=${encodeURIComponent(text)}`;
+    return path;
+  };
+
+  const speakWebCallText = async (text: string, overrideVoiceId?: string | null): Promise<number> => {
+    if (!text) return 0;
+    const voiceIdToUse = overrideVoiceId ?? webCallVoiceId;
+
+    if (!webCallVoiceEnabled || !voiceIdToUse) {
+      if (!window.speechSynthesis) return;
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(text);
+      utterance.rate = speakingRate || 1;
+      utterance.pitch = 1;
+      utterance.onstart = () => {
+        setWebCallSpeaking(true);
+        setWebCallListening(false);
+      };
+      utterance.onend = () => {
+        setWebCallSpeaking(false);
+        if (webCallActiveRef.current) startRecognition();
+      };
+      utterance.onerror = () => {
+        setWebCallSpeaking(false);
+        if (webCallActiveRef.current) startRecognition();
+      };
+      window.speechSynthesis.speak(utterance);
+      const estimatedSeconds = Math.max(2.2, text.trim().split(/\s+/).length * 0.42 / Math.max(speakingRate || 1, 0.5));
+      return estimatedSeconds;
+    }
+
+    try {
+      setWebCallSpeaking(true);
+      setWebCallListening(false);
+      if (webCallAudioRef.current) {
+        webCallAudioRef.current.pause();
+        webCallAudioRef.current = null;
+      }
+
+      const token = localStorage.getItem('token') || '';
+      const res = await fetch(resolveVoiceAudioUrl(voiceIdToUse, text), {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+
+      if (!res.ok) {
+        throw new Error(`Voice playback failed (${res.status})`);
+      }
+
+      const blob = await res.blob();
+      const audio = new Audio(URL.createObjectURL(blob));
+      webCallAudioRef.current = audio;
+      const duration = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0;
+      audio.onended = () => {
+        setWebCallSpeaking(false);
+        if (webCallActiveRef.current) startRecognition();
+      };
+      audio.onerror = () => {
+        setWebCallSpeaking(false);
+        if (webCallActiveRef.current) startRecognition();
+      };
+      await audio.play();
+      return duration || Math.max(2.2, text.trim().split(/\s+/).length * 0.28);
+    } catch (error: any) {
+      setWebCallError(error?.message || 'Failed to play selected voice');
+      setWebCallSpeaking(false);
+      if (webCallActiveRef.current) startRecognition();
+      return 0;
+    }
+  };
+
+  const animateAssistantText = (text: string, durationSeconds: number) => {
+    const tokens = text.split(/(\s+)/);
+    let index = 0;
+    let current = '';
+    const totalMs = Math.max(1400, durationSeconds * 1000);
+    const intervalMs = Math.max(28, Math.min(120, Math.round(totalMs / Math.max(tokens.length, 1))));
+    replaceLastWebCallMessage('assistant', '');
+    const timer = window.setInterval(() => {
+      current += tokens[index] ?? '';
+      replaceLastWebCallMessage('assistant', current.trimStart());
+      index += 1;
+      if (index >= tokens.length) {
+        window.clearInterval(timer);
+      }
+    }, intervalMs);
+  };
+
+  const sendWebCallMessage = async (message: string) => {
+    const trimmed = message.trim();
+    if (!trimmed) return;
+
+    appendWebCallMessage('user', trimmed);
+    setWebCallError('');
+    setWebCallStatus('connected');
+
+    try {
+      const response = await whapi.post<{ reply: string; detectedLanguage?: string }>(`/agents/${agentId}/chat`, {
+        message: trimmed,
+        selectedLanguages,
+        welcomeMessage,
+        flowItems,
+        voice,
+        chatHistory: buildWebCallHistory(),
+      });
+
+      const replyText = response?.reply || 'Sorry, I did not catch that.';
+      appendWebCallMessage('assistant', '');
+      const duration = await speakWebCallText(replyText);
+      animateAssistantText(replyText, duration);
+    } catch (err: any) {
+      const messageText = err?.message || 'Failed to generate response';
+      setWebCallError(messageText);
+      appendWebCallMessage('system', `Error: ${messageText}`);
+    }
+  };
+
+  const startRecognition = async () => {
+    if (!webCallActive) return;
+
+    const RecognitionCtor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!RecognitionCtor) {
+      setWebCallError('Speech recognition is not supported in this browser.');
+      return;
+    }
+
+    try {
+      if (!micStreamRef.current) {
+        micStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+    } catch (err: any) {
+      setWebCallError(err?.message || 'Microphone permission is required for web call.');
+      setWebCallStatus('ended');
+      return;
+    }
+
+    try {
+      recognitionRef.current?.stop?.();
+    } catch {}
+
+    const recognition = new RecognitionCtor();
+    recognitionRef.current = recognition;
+    recognition.lang = 'en-US';
+    recognition.interimResults = true;
+    recognition.continuous = false;
+
+    let finalTranscript = '';
+
+    recognition.onstart = () => {
+      setWebCallListening(true);
+      setWebCallStatus('connected');
+    };
+
+    recognition.onresult = (event: any) => {
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalTranscript += transcript;
+        } else {
+          interim += transcript;
+        }
+      }
+      setWebCallInput((finalTranscript || interim).trim());
+    };
+
+    recognition.onerror = (event: any) => {
+      setWebCallError(event?.error || 'Speech recognition error');
+      setWebCallListening(false);
+    };
+
+    recognition.onend = async () => {
+      setWebCallListening(false);
+      const spoken = (finalTranscript || webCallInputRef.current).trim();
+      if (!spoken || !webCallActiveRef.current || webCallSpeakingRef.current) return;
+      setWebCallInput('');
+      await sendWebCallMessage(spoken);
+    };
+
+    try {
+      recognition.start();
+    } catch (err: any) {
+      setWebCallError(err?.message || 'Unable to start speech recognition');
+    }
+  };
+
+  const startBrowserWebCall = async () => {
+    let resolvedVoiceId: string | null = null;
+    try {
+      const voiceResponse = await whapi.get<{ id: string; name?: string }>(`/agents/${agentId}/voice`);
+      resolvedVoiceId = voiceResponse.id;
+      setWebCallVoiceId(voiceResponse.id);
+      setWebCallVoiceName(voiceResponse.name || '');
+    } catch {
+      setWebCallVoiceId(null);
+      setWebCallVoiceName('');
+    }
+
+    const initialText = welcomeMessage?.trim() || `Hello, I am ${agentName || 'your assistant'}. How can I help you today?`;
+    appendWebCallMessage('assistant', '');
+    setWebCallStatus('connected');
+    const initialDuration = await speakWebCallText(initialText, resolvedVoiceId);
+    animateAssistantText(initialText, initialDuration);
+    await startRecognition();
+  };
+
   const handleStartWebCall = () => {
-    setWebCallStatus('connecting');
+    setWebCallError('');
+    setWebCallTranscript([]);
+    setWebCallInput('');
     setWebCallActive(true);
-    setTimeout(() => setWebCallStatus('connected'), 1500);
+    setWebCallStatus('connecting');
+    void startBrowserWebCall();
   };
 
   const handleEndWebCall = () => {
+    stopBrowserWebCall();
     setWebCallStatus('ended');
     setTimeout(() => {
       setWebCallActive(false);
       setWebCallStatus('idle');
+      setWebCallError('');
+      setWebCallTranscript([]);
+      setWebCallInput('');
     }, 1000);
   };
 
@@ -1133,34 +1151,55 @@ ${flowItems.filter(f => f.enabled).map(f => f.title).join('\n')}`;
       {/* Web Call Modal */}
       {showWebCallModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: '#1a1a1a', borderRadius: '12px', padding: '40px', maxWidth: '420px', width: '90%', textAlign: 'center', border: '1px solid #333' }}>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '10px' }}>
-              <button onClick={() => { setShowWebCallModal(false); setWebCallActive(false); setWebCallStatus('idle'); }} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '20px' }}>✕</button>
+          <div style={{ background: '#1a1a1a', borderRadius: '12px', padding: '28px', maxWidth: '560px', width: '92%', border: '1px solid #333' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', marginBottom: '14px' }}>
+              <div>
+                <h3 style={{ fontSize: '18px', fontWeight: 700, margin: 0, color: '#fff' }}>Web Call Test</h3>
+                <p style={{ fontSize: '13px', color: '#999', margin: '6px 0 0' }}>Test your agent in the browser with text or voice.</p>
+              </div>
+              <button onClick={() => { setShowWebCallModal(false); handleEndWebCall(); }} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '20px', lineHeight: 1 }}>X</button>
             </div>
-            <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: webCallStatus === 'connected' ? 'rgba(76,175,80,0.2)' : webCallStatus === 'connecting' ? 'rgba(255,152,0,0.2)' : 'rgba(0,188,212,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px', border: webCallStatus === 'connected' ? '2px solid #4caf50' : '2px solid #00bcd4', transition: 'all 0.3s' }}>
-              <span style={{ fontSize: '36px' }}>{webCallStatus === 'connected' ? '🎙️' : webCallStatus === 'connecting' ? '⏳' : '🌐'}</span>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px', color: '#cfd3d7', fontSize: '13px', flexWrap: 'wrap' }}>
+              <div style={{ width: '10px', height: '10px', borderRadius: '999px', background: webCallStatus === 'connected' ? '#22c55e' : webCallStatus === 'connecting' ? '#f59e0b' : '#0ea5e9' }} />
+              <span>{webCallStatus === 'idle' ? 'Ready to start' : webCallStatus === 'connecting' ? 'Connecting...' : webCallStatus === 'connected' ? 'Connected' : 'Ended'}</span>
+              {(webCallListening || webCallSpeaking) && <span style={{ color: '#8aa4ff' }}>{webCallListening ? 'Listening' : 'Speaking'}</span>}
+              <button onClick={() => setWebCallVoiceEnabled((prev) => !prev)} style={{ marginLeft: 'auto', padding: '8px 12px', borderRadius: '999px', border: '1px solid #333', background: webCallVoiceEnabled ? 'rgba(0,188,212,0.16)' : '#111', color: '#fff', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}>{webCallVoiceEnabled ? 'Voice On' : 'Voice Off'}</button>
             </div>
-            <h3 style={{ fontSize: '18px', fontWeight: '600', margin: '0 0 8px', color: '#fff' }}>
-              {webCallStatus === 'idle' ? 'Web Call Test' : webCallStatus === 'connecting' ? 'Connecting...' : webCallStatus === 'connected' ? 'Call Connected' : 'Call Ended'}
-            </h3>
-            <p style={{ fontSize: '13px', color: '#999', marginBottom: '24px' }}>
-              {webCallStatus === 'idle' ? `Test your agent "${agentName}" with a browser-based voice call.` : webCallStatus === 'connecting' ? 'Setting up audio connection...' : webCallStatus === 'connected' ? 'Speak into your microphone to interact with the agent.' : 'The test call has ended.'}
-            </p>
-            {!webCallActive ? (
-              <button
-                onClick={handleStartWebCall}
-                style={{ padding: '14px 32px', background: '#00bcd4', color: '#000', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '600' }}
-              >🎤 Start Web Call</button>
-            ) : webCallStatus === 'connected' ? (
-              <button
-                onClick={handleEndWebCall}
-                style={{ padding: '14px 32px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '600' }}
-              >📞 End Call</button>
-            ) : null}
+
+            {webCallError && <div style={{ padding: '12px 14px', borderRadius: '10px', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', color: '#fca5a5', fontSize: '13px', marginBottom: '14px' }}>{webCallError}</div>}
+
+            <div style={{ height: '240px', overflowY: 'auto', background: '#0f0f0f', border: '1px solid #2a2a2a', borderRadius: '12px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '14px' }}>
+              {webCallTranscript.length === 0 ? (
+                <div style={{ color: '#6b7280', fontSize: '13px', margin: 'auto', textAlign: 'center' }}>Start the call to see the conversation here.</div>
+              ) : (
+                webCallTranscript.map((item, index) => (
+                  <div key={item.role + '-' + index} style={{ alignSelf: item.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '82%', padding: '10px 12px', borderRadius: '12px', background: item.role === 'user' ? '#14b8a6' : item.role === 'assistant' ? '#1f2937' : 'rgba(239,68,68,0.15)', color: item.role === 'user' ? '#081b1b' : '#f3f4f6', border: item.role === 'assistant' ? '1px solid #30363d' : 'none', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: '13px', lineHeight: 1.45 }}>{item.text}</div>
+                ))
+              )}
+            </div>
+
+            {webCallActive && <div style={{ display: 'flex', gap: '10px', marginBottom: '14px' }}>
+              <input type="text" value={webCallInput} onChange={(e) => setWebCallInput(e.target.value)} placeholder="Type a message..." style={{ flex: 1, background: '#0f0f0f', border: '1px solid #2a2a2a', color: '#fff', borderRadius: '10px', padding: '12px 14px', fontSize: '13px', outline: 'none' }} onKeyDown={(e) => { if (e.key === 'Enter') { void sendWebCallMessage(webCallInput); } }} />
+              <button onClick={() => void sendWebCallMessage(webCallInput)} disabled={!webCallInput.trim()} style={{ padding: '12px 18px', borderRadius: '10px', border: 'none', background: '#00bcd4', color: '#001014', fontWeight: 700, cursor: webCallInput.trim() ? 'pointer' : 'not-allowed', opacity: webCallInput.trim() ? 1 : 0.55 }}>Send</button>
+            </div>}
+
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                {!webCallActive ? (
+                  <button onClick={handleStartWebCall} style={{ padding: '14px 28px', background: '#00bcd4', color: '#000', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 700 }}>Start Web Call</button>
+                ) : (
+                  <>
+                    <button onClick={() => void startRecognition()} disabled={!webCallVoiceEnabled || webCallListening || webCallSpeaking} style={{ padding: '14px 22px', background: '#111827', color: '#fff', border: '1px solid #333', borderRadius: '8px', cursor: !webCallVoiceEnabled || webCallListening || webCallSpeaking ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 600, opacity: !webCallVoiceEnabled || webCallListening || webCallSpeaking ? 0.6 : 1 }}>Listen Again</button>
+                    <button onClick={handleEndWebCall} style={{ padding: '14px 22px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 700 }}>End Call</button>
+                  </>
+                )}
+              </div>
+              <div style={{ color: '#7c8794', fontSize: '12px' }}>{webCallVoiceName ? ('Voice: ' + webCallVoiceName) : ' '}</div>
+            </div>
           </div>
         </div>
       )}
-
       {/* Phone Call Modal */}
       {showPhoneCallModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>

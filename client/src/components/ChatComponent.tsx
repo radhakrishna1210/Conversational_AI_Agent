@@ -20,6 +20,7 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const sessionIdRef = useRef<string>('');
 
   // Scroll to bottom on new messages
   useEffect(() => {
@@ -37,6 +38,17 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
       }]);
     }
   }, [welcomeMessage]);
+
+  useEffect(() => {
+    if (sessionIdRef.current) return;
+    const key = 'chat_session_id';
+    let stored = localStorage.getItem(key);
+    if (!stored) {
+      stored = (window.crypto?.randomUUID?.() ?? `chat-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      localStorage.setItem(key, stored);
+    }
+    sessionIdRef.current = stored;
+  }, []);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -72,6 +84,9 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
       };
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
+      }
+      if (sessionIdRef.current) {
+        headers['x-session-id'] = sessionIdRef.current;
       }
 
       const response = await fetch(`/api/v1/agents/${agentId}/chat`, {

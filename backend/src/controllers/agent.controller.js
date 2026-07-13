@@ -4,6 +4,10 @@ import { geminiService } from '../services/gemini.service.js';
 import logger from '../lib/logger.js';
 import fetch from 'node-fetch';
 
+const chatSessions = new Map();
+const CHAT_SESSION_TTL_MS = 1000 * 60 * 60 * 6;
+const CHAT_SESSION_MAX_TURNS = 24;
+
 const safeJson = (value, fallback = []) => {
   if (value == null) return fallback;
   if (Array.isArray(value)) return value;
@@ -136,6 +140,130 @@ const normalizePromptBullets = (items = []) => {
     .join('\n');
 };
 
+const pruneSessionStore = () => {
+  const now = Date.now();
+  for (const [key, session] of chatSessions.entries()) {
+    if (!session || now - session.updatedAt > CHAT_SESSION_TTL_MS) {
+      chatSessions.delete(key);
+    }
+  }
+};
+
+const getChatSessionKey = (req, agentId) => {
+  const workspaceId = req.params.workspaceId || req.workspace?.id || req.user?.workspaceId || 'workspace';
+  const userKey = req.user?.userId || req.user?.id || req.user?.apiKeyId || req.headers['x-session-id'] || 'anonymous';
+  return `${workspaceId}:${agentId}:${userKey}`;
+};
+
+const getSessionMemory = (sessionKey) => {
+  pruneSessionStore();
+  const existing = chatSessions.get(sessionKey);
+  if (existing) {
+    existing.updatedAt = Date.now();
+    return existing;
+  }
+
+  const created = {
+    summary: '',
+    facts: {},
+    turns: [],
+    askedQuestions: new Set(),
+    pendingTopic: '',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
+  chatSessions.set(sessionKey, created);
+  return created;
+};
+
+const normalizeText = (value) => (typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : '');
+
+const extractMemoryFacts = (text) => {
+  const lower = text.toLowerCase();
+  const facts = {};
+
+  const nameMatch = text.match(/\bmy name is\s+([A-Za-z][A-Za-z\s.'-]{1,60})/i) || text.match(/\bcall me\s+([A-Za-z][A-Za-z\s.'-]{1,60})/i);
+  if (nameMatch) facts.name = normalizeText(nameMatch[1]);
+
+  const phoneMatch = text.match(/(?:\+?\d[\d\s().-]{7,}\d)/);
+  if (phoneMatch) facts.phone = normalizeText(phoneMatch[0]);
+
+  const emailMatch = text.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+  if (emailMatch) facts.email = normalizeText(emailMatch[0]);
+
+  const timeMatch = text.match(/\b\d{1,2}(?::\d{2})?\s?(?:am|pm)\b/i);
+  if (timeMatch) facts.time = normalizeText(timeMatch[0].toLowerCase());
+
+  const dateMatch = text.match(/\b(?:today|tomorrow|day after tomorrow|\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?)\b/i);
+  if (dateMatch) facts.date = normalizeText(dateMatch[0].toLowerCase());
+
+  const deptKeywords = ['child specialist', 'pediatric', 'pediatrics', 'doctor visit', 'appointment', 'dentist', 'cardiologist', 'dermatologist', 'general physician', 'physician', 'support', 'billing', 'sales'];
+  const foundDept = deptKeywords.find((keyword) => lower.includes(keyword));
+  if (foundDept) facts.topic = foundDept;
+
+  return facts;
+};
+
+const mergeFacts = (baseFacts, incomingFacts) => {
+  const merged = { ...(baseFacts || {}) };
+  for (const [key, value] of Object.entries(incomingFacts || {})) {
+    if (value) merged[key] = value;
+  }
+  return merged;
+};
+
+const buildMemorySummary = (memory) => {
+  const parts = [];
+  if (memory.pendingTopic) parts.push(`Current task: ${memory.pendingTopic}`);
+  const factLabels = {
+    name: 'Name',
+    phone: 'Phone',
+    email: 'Email',
+    date: 'Date',
+    time: 'Time',
+    topic: 'Topic',
+  };
+  const factLines = Object.entries(memory.facts || {})
+    .filter(([, value]) => Boolean(value))
+    .map(([key, value]) => `${factLabels[key] || key}: ${value}`);
+  if (factLines.length) parts.push(`Known details: ${factLines.join('; ')}`);
+  if (memory.askedQuestions?.size) parts.push(`Already asked: ${Array.from(memory.askedQuestions).slice(-5).join(' | ')}`);
+  if (memory.summary) parts.push(`Summary: ${memory.summary}`);
+  return parts.join('\n') || '(no prior session memory)';
+};
+
+const updateSessionMemory = (memory, userMessage, assistantReply) => {
+  const userText = normalizeText(userMessage);
+  const assistantText = normalizeText(assistantReply);
+
+  if (userText) {
+    memory.turns.push({ role: 'user', text: userText });
+    memory.facts = mergeFacts(memory.facts, extractMemoryFacts(userText));
+    if (!memory.pendingTopic && memory.facts.topic) {
+      memory.pendingTopic = memory.facts.topic;
+    }
+  }
+
+  if (assistantText) {
+    memory.turns.push({ role: 'assistant', text: assistantText });
+    const question = assistantText.split('?')[0]?.trim();
+    if (assistantText.includes('?') && question) {
+      memory.askedQuestions.add(question);
+      memory.pendingTopic = memory.pendingTopic || question;
+    }
+  }
+
+  memory.turns = memory.turns.slice(-CHAT_SESSION_MAX_TURNS);
+
+  const recentTurns = memory.turns
+    .slice(-8)
+    .map((turn) => `${turn.role === 'assistant' ? 'Assistant' : 'User'}: ${turn.text}`)
+    .join('\n');
+
+  memory.summary = [buildMemorySummary(memory), recentTurns].filter(Boolean).join('\n\n').trim();
+  memory.updatedAt = Date.now();
+};
+
 export const chat = async (req, res) => {
   const { agentId } = req.params;
   const { message, selectedLanguages, welcomeMessage, flowItems: clientFlowItems, voice: clientVoice, chatHistory = [] } = req.body;
@@ -185,6 +313,17 @@ export const chat = async (req, res) => {
     );
 
     const flowPrompt = normalizePromptBullets(agentContext.flowItems);
+    const sessionKey = getChatSessionKey(req, agentId);
+    const sessionMemory = getSessionMemory(sessionKey);
+    const incomingHistory = Array.isArray(chatHistory)
+      ? chatHistory
+          .filter((item) => item && typeof item.text === 'string' && item.text.trim())
+          .slice(-10)
+          .map((item) => ({
+            role: item.role === 'assistant' ? 'assistant' : 'user',
+            content: item.text,
+          }))
+      : [];
 
     const systemPrompt = `You are the live voice assistant for the agent "${agentContext.name}".
 
@@ -207,22 +346,24 @@ Requested languages:
 ${selectedLanguages.join(', ')}
 
 Relevant flow / problem-statement context:
-${flowPrompt || '(none provided)'}`;
+${flowPrompt || '(none provided)'}
+
+Session memory:
+${buildMemorySummary(sessionMemory)}
+
+Session rules:
+- Do not restart the conversation from the beginning if the user already answered something.
+- Never repeat a question that is already present in Session memory or the recent chat history.
+- Ask only the next missing detail, and ask one concise question at a time.
+- Prefer carrying forward the known details instead of re-confirming them.
+- If enough details are known, move to the next action immediately.`;
 
     // Generate response using Gemini
     const response = await geminiService.generateResponse({
       message,
       model: 'gemini-2.5-flash',
       systemPrompt,
-      chatHistory: Array.isArray(chatHistory)
-        ? chatHistory
-            .filter((item) => item && typeof item.text === 'string' && item.text.trim())
-            .slice(-10)
-            .map((item) => ({
-              role: item.role === 'assistant' ? 'assistant' : 'user',
-              content: item.text,
-            }))
-        : [],
+      chatHistory: incomingHistory,
     });
 
     if (!response.success) {
@@ -233,6 +374,8 @@ ${flowPrompt || '(none provided)'}`;
       { agentId, replyLength: response.message ? response.message.length : 0 },
       'Chat response generated'
     );
+
+    updateSessionMemory(sessionMemory, message, response.message);
 
     res.json({
       reply: response.message,
