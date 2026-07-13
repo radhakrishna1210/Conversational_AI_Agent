@@ -1,0 +1,245 @@
+import { useState, useEffect } from 'react';
+import { isLoggedIn as checkAuth, clearAuth } from '@/lib/authStorage';
+import { Link, useLocation } from 'react-router-dom';
+import { useTheme } from '../hooks/useTheme';
+import {
+  Home,
+  Shield,
+  Stethoscope,
+  Utensils,
+  TrendingUp,
+  GraduationCap,
+  ShoppingCart,
+  Phone,
+  Calendar,
+  MessageCircle,
+  Headphones,
+  Settings,
+  Radio,
+  Cloud,
+  Sun,
+  Moon
+} from "lucide-react";
+
+export default function Navbar() {
+  const { darkMode, toggleDarkMode } = useTheme();
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const location = useLocation();
+
+  useEffect(() => {
+    const checkLogin = () => {
+      setIsLoggedIn(checkAuth());
+    };
+    
+    checkLogin();
+    
+    // Listen for storage changes
+    window.addEventListener('storage', checkLogin);
+    return () => window.removeEventListener('storage', checkLogin);
+  }, []);
+
+  const isActive = (path: string) => {
+    return location.pathname === path ? 'active' : '';
+  };
+
+  return (
+    <nav className="navbar">
+      <Link to="/" className="navbar-logo">
+        <span style={{fontWeight: 800, fontSize: '18px', letterSpacing: '-1px'}}>
+          OMNI<span style={{color:'var(--teal)'}}>D</span>IMENSION
+        </span>
+      </Link>
+
+      <ul className="navbar-nav">
+        <li 
+          className="nav-dropdown"
+          onMouseEnter={() => setDropdownOpen(true)}
+          onMouseLeave={() => setDropdownOpen(false)}
+        >
+          <a href="#" className="nav-link" onClick={(e) => e.preventDefault()}>
+            Solutions 
+            <svg width="12" height="12" viewBox="0 0 12 12">
+              <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
+            </svg>
+          </a>
+
+          {dropdownOpen && (
+            <div className="dropdown-menu" style={{display: 'flex'}}>
+
+              {/* Industry */}
+<div>
+  <div className="dropdown-col-title">Industry Verticals</div>
+
+  <Link
+    to="/solutions/verticals/real-estate"
+    className="dropdown-item"
+  >
+    <span className="item-icon">
+      <Home size={16} />
+    </span>
+    Real Estate
+  </Link>
+
+  <Link
+    to="/solutions/verticals/insurance"
+    className="dropdown-item"
+  >
+    <span className="item-icon">
+      <Shield size={16} />
+    </span>
+    Insurance
+  </Link>
+
+  <Link
+    to="/solutions/verticals/healthcare"
+    className="dropdown-item"
+  >
+    <span className="item-icon">
+      <Stethoscope size={16} />
+    </span>
+    Healthcare
+  </Link>
+
+  <Link
+    to="/solutions/verticals/restaurants"
+    className="dropdown-item"
+  >
+    <span className="item-icon">
+      <Utensils size={16} />
+    </span>
+    Restaurants
+  </Link>
+
+  <Link to="/solutions/verticals/finance" className="dropdown-item">
+    <span className="item-icon"><TrendingUp size={16} /></span>Finance
+  </Link>
+
+  <Link to="/solutions/verticals/education" className="dropdown-item">
+    <span className="item-icon"><GraduationCap size={16} /></span>Education
+  </Link>
+
+  <Link to="/solutions/verticals/ecommerce" className="dropdown-item">
+    <span className="item-icon"><ShoppingCart size={16} /></span>E-commerce
+  </Link>
+</div>
+
+              {/* Use Cases */}
+              <div>
+                <div className="dropdown-col-title">Use Cases</div>
+
+                <Link to="/solutions/use-cases/lead-generation" className="dropdown-item">
+                  <span className="item-icon"><Phone size={16} /></span>Lead Generation
+                </Link>
+
+                <Link to="/solutions/use-cases/collections" className="dropdown-item">
+                  <span className="item-icon"><Calendar size={16} /></span>Collections
+                </Link>
+
+                <Link to="/solutions/use-cases/negotiation" className="dropdown-item">
+                  <span className="item-icon"><MessageCircle size={16} /></span>Negotiation
+                </Link>
+
+                <Link to="/solutions/use-cases/customer-support" className="dropdown-item">
+                  <span className="item-icon"><Headphones size={16} /></span>Customer Support
+                </Link>
+
+                <Link to="/solutions/use-cases/appointments" className="dropdown-item">
+                  <span className="item-icon"><Calendar size={16} /></span>Appointments
+                </Link>
+              </div>
+
+              {/* Integrations */}
+              <div>
+                <div className="dropdown-col-title">Popular Integrations</div>
+
+                <Link to="/integrations/custom-api" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
+                  <span className="item-icon"><Settings size={16} /></span>
+                  <div>
+                    <div>Custom API</div>
+                    <div className="dropdown-item-sub">Connect any external API</div>
+                  </div>
+                </Link>
+
+                 <Link to="/integrations/SIPTrunking" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
+                  <span className="item-icon"><Radio size={16} /></span>
+                  <div>
+                    <div>SIP Trunking</div>
+                    <div className="dropdown-item-sub">Connect to any telephony system</div>
+                  </div>
+                </Link>
+
+                <Link to="/integrations/cal-com" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
+                  <span className="item-icon"><Calendar size={16} /></span>
+                  <div>
+                    <div>Cal.com</div>
+                    <div className="dropdown-item-sub">Appointment scheduling</div>
+                  </div>
+                </Link>
+
+                <Link to="/integrations/salesforce" className="dropdown-item" onClick={() => setDropdownOpen(false)}>
+                  <span className="item-icon"><Cloud size={16} /></span>
+                  <div>
+                    <div>Salesforce</div>
+                    <div className="dropdown-item-sub">CRM sync &amp; automation</div>
+                  </div>
+                </Link>
+              </div>
+
+            </div>
+          )}
+        </li>
+
+        <li><Link to="/documentation" className={`nav-link ${isActive('/documentation')}`}>Documentation</Link></li>
+        <li><Link to="/pricing" className={`nav-link ${isActive('/pricing')}`}>Pricing</Link></li>
+        <li><Link to="/contact" className={`nav-link ${isActive('/contact')}`}>Contact Us</Link></li>
+        <li><Link to="/book-appointment" className={`nav-link ${isActive('/book-appointment')}`}>Book an Appointment</Link></li>
+      </ul>
+
+      <div className="navbar-actions" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+        <button
+          onClick={toggleDarkMode}
+          style={{
+            background: 'none',
+            border: 'none',
+            color: 'var(--text-secondary)',
+            cursor: 'pointer',
+            padding: '8px',
+            borderRadius: '50%',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            transition: 'background 0.2s',
+          }}
+          onMouseOver={e => (e.currentTarget.style.background = 'var(--bg-hover)')}
+          onMouseOut={e => (e.currentTarget.style.background = 'none')}
+          title={darkMode ? 'Switch to Light Mode' : 'Switch to Dark Mode'}
+        >
+          {darkMode ? <Sun size={18} /> : <Moon size={18} />}
+        </button>
+
+        {isLoggedIn ? (
+          <>
+            <Link to="/dashboard" style={{ color: 'var(--text-secondary)', fontSize: '14px', fontWeight: 500, textDecoration: 'none' }}>Dashboard</Link>
+            <button 
+              onClick={() => {
+                clearAuth();
+                setIsLoggedIn(false);
+                window.location.href = '/';
+              }}
+              className="btn btn-primary" 
+              style={{ padding: '8px 18px', fontSize: '14px' }}
+            >
+              Sign Out
+            </button>
+          </>
+        ) : (
+          <>
+            <Link to="/login" style={{ color: 'var(--text-secondary)', fontSize: '14px', fontWeight: 500, textDecoration: 'none' }}>Log In</Link>
+            <Link to="/signup" className="btn btn-primary" style={{ padding: '8px 18px', fontSize: '14px' }}>Get Started Free</Link>
+          </>
+        )}
+      </div>
+    </nav>
+  );
+}

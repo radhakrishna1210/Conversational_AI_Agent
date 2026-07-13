@@ -1,0 +1,182 @@
+import * as whatsappService from '../services/whatsapp.service.js';
+import prisma from '../config/prisma.js';
+import logger from '../lib/logger.js';
+import { assignNumberFromPool, getNumberHealth } from '../lib/meta.service.js';
+import { decryptToken } from '../lib/encryption.js';
+
+export const listNumbers = async (req, res) => {
+  const numbers = await whatsappService.listNumbers(req.params.workspaceId);
+  res.json(numbers);
+};
+
+export const requestOtp = async (req, res) => {
+  const { phoneNumber, countryCode } = req.body;
+  const number = await whatsappService.requestOtp(req.params.workspaceId, phoneNumber, countryCode);
+  res.json({ message: 'OTP sent', number });
+};
+
+export const verifyOtp = async (req, res) => {
+  const { phoneNumber, otp } = req.body;
+  const number = await whatsappService.verifyOtp(req.params.workspaceId, phoneNumber, otp);
+  res.json({ message: 'Number verified', number });
+};
+
+export const getNumber = async (req, res) => {
+  const number = await whatsappService.getNumber(req.params.workspaceId, req.params.numberId);
+  res.json(number);
+};
+
+export const updateBusinessProfile = async (req, res) => {
+  const number = await whatsappService.updateBusinessProfile(
+    req.params.workspaceId, req.params.numberId, req.body
+  );
+  res.json(number);
+};
+
+export const deleteNumber = async (req, res) => {
+  await whatsappService.deleteNumber(req.params.workspaceId, req.params.numberId);
+  res.json({ message: 'Number removed' });
+};
+
+export const connectTwilio = async (req, res) => {
+  const { accountSid, authToken } = req.body;
+  const numbers = await whatsappService.connectTwilioNumbers(req.params.workspaceId, accountSid, authToken);
+  logger.info({ workspaceId: req.params.workspaceId, count: numbers.length }, 'Twilio numbers connected');
+  res.json({ message: `${numbers.length} number(s) imported from Twilio`, numbers });
+};
+
+export const connectOwnNumber = async (req, res) => {
+  const { phoneNumber, metaPhoneNumberId, wabaId, accessToken, displayName } = req.body;
+  const number = await whatsappService.connectOwnNumber(req.params.workspaceId, {
+    phoneNumber, metaPhoneNumberId, wabaId, accessToken, displayName,
+  });
+  logger.info({ workspaceId: req.params.workspaceId, phoneNumber }, 'Own number connected');
+  res.status(201).json({ message: 'Number connected', number });
+};
+
+// ─── onboardWorkspace ─────────────────────────────────────────────────────────
+
+export const getAvailablePool = async (req, res) => {
+  const entries = await prisma.numberPool.findMany({
+    where: { status: 'AVAILABLE' },
+    select: { id: true, phoneNumber: true, displayName: true },
+    orderBy: { createdAt: 'asc' },
+  });
+  res.json(entries);
+};
+
+export const onboardWorkspace = async (req, res) => {
+  const { workspaceId } = req.params;
+  const { poolEntryId } = req.body;
+
+  const poolEntry = await prisma.numberPool.findFirst({
+    where: { status: 'AVAILABLE', ...(poolEntryId ? { id: poolEntryId } : {}) },
+  });
+  if (!poolEntry) {
+    return res.status(503).json({ error: 'No numbers available. Please contact support.' });
+  }
+
+  // Create a sub-WABA under the platform master business account for this workspace,
+  // so each end user gets their own isolated WABA. Falls back to the pool entry's
+  // shared wabaId in dev/environments where META_BUSINESS_ID is not configured.
+  let wabaId = poolEntry.wabaId;
+  const { createSubWABA } = await import('../lib/meta.service.js');
+  try {
+    const workspace = await prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { name: true },
+    });
+    const businessName = workspace?.name ?? `Workspace-${workspaceId.slice(0, 8)}`;
+    wabaId = await createSubWABA(workspaceId, businessName);
+    logger.info({ workspaceId, wabaId }, 'Sub-WABA created for workspace');
+  } catch (err) {
+    logger.warn({ workspaceId, err: err.message }, 'Sub-WABA creation failed — falling back to pool WABA');
+    // Non-fatal: use the pool entry's shared wabaId so onboarding still succeeds
+  }
+
+  let assigned;
+  try {
+    assigned = await assignNumberFromPool(workspaceId, wabaId, poolEntry.id);
+  } catch (err) {
+    if (err.statusCode === 503) {
+      return res.status(503).json({ error: err.message });
+    }
+    logger.error({ workspaceId, err: err.message }, 'assignNumberFromPool failed');
+    return res.status(502).json({ error: 'Could not assign a WhatsApp number. Please try again.' });
+  }
+
+  logger.info({ workspaceId, phoneNumber: assigned.phoneNumber, wabaId }, 'Workspace onboarded with sub-WABA');
+
+  return res.status(201).json({
+    success: true,
+    phoneNumber: assigned.phoneNumber,
+    displayName: assigned.displayName ?? assigned.phoneNumber,
+    wabaId,
+  });
+};
+
+// ─── getNumberStatus ──────────────────────────────────────────────────────────
+
+export const getNumberStatus = async (req, res) => {
+  const { workspaceId } = req.params;
+
+  const number = await prisma.whatsappNumber.findFirst({ where: { workspaceId } });
+
+  if (!number) {
+    return res.status(404).json({ error: 'No WhatsApp number assigned to this workspace' });
+  }
+
+  // Without credentials we can only return what is in the DB
+  if (!number.accessToken || !number.metaPhoneNumberId) {
+    return res.json({
+      phoneNumber: number.phoneNumber,
+      displayName: number.displayName,
+      qualityRating: number.qualityRating ?? '',
+      messagingLimit: number.messagingLimit ?? '',
+      status: number.status,
+      metaError: false,
+    });
+  }
+
+  // Decrypt stored token — configuration error if this fails
+  let plainToken;
+  try {
+    plainToken = decryptToken(number.accessToken);
+  } catch (err) {
+    logger.error({ workspaceId, err: err.message }, 'Failed to decrypt access token');
+    return res.status(500).json({ error: 'Internal configuration error' });
+  }
+
+  // Live health check — fall back to DB values if Meta is unreachable
+  try {
+    const health = await getNumberHealth(number.metaPhoneNumberId, plainToken);
+
+    await prisma.whatsappNumber.update({
+      where: { id: number.id },
+      data: {
+        qualityRating: health.qualityRating,
+        messagingLimit: health.messagingLimit,
+        status: health.status || number.status,
+      },
+    });
+
+    return res.json({
+      phoneNumber: number.phoneNumber,
+      displayName: health.displayName || number.displayName,
+      qualityRating: health.qualityRating,
+      messagingLimit: health.messagingLimit,
+      status: health.status || number.status,
+      metaError: false,
+    });
+  } catch (err) {
+    logger.warn({ workspaceId, err: err.message }, 'Meta health check failed — returning DB values');
+    return res.json({
+      phoneNumber: number.phoneNumber,
+      displayName: number.displayName,
+      qualityRating: number.qualityRating ?? '',
+      messagingLimit: number.messagingLimit ?? '',
+      status: number.status,
+      metaError: true,
+    });
+  }
+};

@@ -1,0 +1,1 @@
+fetch('http://localhost:5174/api/v1/agents/test-agent/chat', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({message: 'hello', selectedLanguages: ['English']}) }).then(async (res) => { console.log('Status:', res.status); console.log('Body:', await res.text()); }).catch(console.error);

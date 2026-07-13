@@ -1,0 +1,122 @@
+{
+    "speaker_1": {
+        "gender": "male",
+        "accent": "Indian",
+        "style": "natural",
+        "original_id": "p376"
+    },
+    "speaker_2": {
+        "gender": "female",
+        "accent": "American",
+        "style": "natural",
+        "original_id": "p300"
+    },
+    "speaker_3": {
+        "gender": "male",
+        "accent": "Australian",
+        "style": "natural",
+        "original_id": "p374"
+    },
+    "speaker_4": {
+        "gender": "male",
+        "accent": "American",
+        "style": "natural",
+        "original_id": "p360"
+    },
+    "speaker_5": {
+        "gender": "female",
+        "accent": "English",
+        "style": "natural",
+        "original_id": "p229"
+    },
+    "speaker_6": {
+        "gender": "female",
+        "accent": "Irish",
+        "style": "natural",
+        "original_id": "p340"
+    },
+    "speaker_7": {
+        "gender": "female",
+        "accent": "SouthAfrican",
+        "style": "natural",
+        "original_id": "p323"
+    },
+    "speaker_8": {
+        "gender": "male",
+        "accent": "NorthernIrish",
+        "style": "natural",
+        "original_id": "p304"
+    },
+    "speaker_9": {
+        "gender": "male",
+        "accent": "English",
+        "style": "natural",
+        "original_id": "p273"
+    },
+    "speaker_10": {
+        "gender": "female",
+        "accent": "NorthernIrish",
+        "style": "natural",
+        "original_id": "p351"
+    },
+    "speaker_11": {
+        "gender": "female",
+        "accent": "NewZealand",
+        "style": "natural",
+        "original_id": "p335"
+    },
+    "speaker_12": {
+        "gender": "male",
+        "accent": "Scottish",
+        "style": "natural",
+        "original_id": "p284"
+    },
+    "speaker_13": {
+        "gender": "female",
+        "accent": "Indian",
+        "style": "natural",
+        "original_id": "p248"
+    },
+    "speaker_14": {
+        "gender": "male",
+        "accent": "Canadian",
+        "style": "natural",
+        "original_id": "p363"
+    },
+    "speaker_15": {
+        "gender": "female",
+        "accent": "Welsh",
+        "style": "natural",
+        "original_id": "p253"
+    },
+    "speaker_16": {
+        "gender": "female",
+        "accent": "Scottish",
+        "style": "natural",
+        "original_id": "p264"
+    },
+    "speaker_17": {
+        "gender": "male",
+        "accent": "Irish",
+        "style": "natural",
+        "original_id": "p364"
+    },
+    "speaker_18": {
+        "gender": "male",
+        "accent": "SouthAfrican",
+        "style": "natural",
+        "original_id": "p347"
+    },
+    "speaker_19": {
+        "gender": "female",
+        "accent": "Canadian",
+        "style": "natural",
+        "original_id": "p343"
+    },
+    "speaker_20": {
+        "gender": "female",
+        "accent": "English",
+        "style": "natural",
+        "original_id": "p282"
+    }
+}

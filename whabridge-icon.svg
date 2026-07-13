@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="bgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#25D366;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#075E54;stop-opacity:1" />
+    </linearGradient>
+    <linearGradient id="bubbleGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" style="stop-color:#ffffff;stop-opacity:1" />
+      <stop offset="100%" style="stop-color:#e8fdf0;stop-opacity:1" />
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="8" stdDeviation="16" flood-color="#00000033"/>
+    </filter>
+  </defs>
+
+  <!-- Rounded square background -->
+  <rect width="1024" height="1024" rx="220" ry="220" fill="url(#bgGrad)"/>
+
+  <!-- Subtle inner glow ring -->
+  <rect width="1024" height="1024" rx="220" ry="220"
+        fill="none" stroke="#ffffff" stroke-width="6" opacity="0.12"/>
+
+  <!-- Main chat bubble body -->
+  <path d="
+    M 180 280
+    Q 180 200 260 200
+    L 764 200
+    Q 844 200 844 280
+    L 844 580
+    Q 844 660 764 660
+    L 560 660
+    L 480 790
+    L 400 660
+    L 260 660
+    Q 180 660 180 580
+    Z
+  " fill="url(#bubbleGrad)" filter="url(#shadow)"/>
+
+  <!-- Bridge arc (main arch) -->
+  <path d="M 270 520 Q 512 310 754 520"
+        fill="none" stroke="#25D366" stroke-width="48"
+        stroke-linecap="round"/>
+
+  <!-- Bridge left pillar -->
+  <rect x="246" y="500" width="48" height="120" rx="24" fill="#25D366"/>
+
+  <!-- Bridge right pillar -->
+  <rect x="730" y="500" width="48" height="120" rx="24" fill="#25D366"/>
+
+  <!-- Bridge road/deck line -->
+  <line x1="230" y1="610" x2="794" y2="610"
+        stroke="#128C7E" stroke-width="32" stroke-linecap="round"/>
+
+  <!-- Bridge suspension cables (left side) -->
+  <line x1="360" y1="398" x2="338" y2="610"
+        stroke="#128C7E" stroke-width="10" stroke-linecap="round" opacity="0.7"/>
+  <line x1="450" y1="343" x2="430" y2="610"
+        stroke="#128C7E" stroke-width="10" stroke-linecap="round" opacity="0.7"/>
+
+  <!-- Bridge suspension cables (right side) -->
+  <line x1="664" y1="398" x2="686" y2="610"
+        stroke="#128C7E" stroke-width="10" stroke-linecap="round" opacity="0.7"/>
+  <line x1="574" y1="343" x2="594" y2="610"
+        stroke="#128C7E" stroke-width="10" stroke-linecap="round" opacity="0.7"/>
+
+  <!-- Small decorative dots at bridge towers top -->
+  <circle cx="270" cy="500" r="20" fill="#128C7E"/>
+  <circle cx="754" cy="500" r="20" fill="#128C7E"/>
+
+</svg>

@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+
+<html class="light" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Interakt - Welcome Dashboard</title>
+<!-- Fonts -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&amp;family=Manrope:wght@600;700;800&amp;display=swap" rel="stylesheet"/>
+<!-- Icons -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Tailwind -->
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "outline": "#717974",
+              "inverse-primary": "#a8cfbb",
+              "surface-tint": "#416655",
+              "secondary-fixed": "#c4ecd6",
+              "on-error-container": "#93000a",
+              "error-container": "#ffdad6",
+              "surface": "#f9f9f8",
+              "surface-variant": "#e1e3e2",
+              "secondary-fixed-dim": "#a8cfbb",
+              "on-surface-variant": "#414844",
+              "on-primary-container": "#9bc2ae",
+              "on-secondary-fixed": "#002115",
+              "on-error": "#ffffff",
+              "tertiary-container": "#524076",
+              "background": "#f9f9f8",
+              "inverse-on-surface": "#f0f1f0",
+              "inverse-surface": "#2e3131",
+              "tertiary": "#3b295e",
+              "on-surface": "#191c1c",
+              "surface-container-high": "#e7e8e7",
+              "secondary": "#426655",
+              "error": "#ba1a1a",
+              "surface-container-low": "#f3f4f3",
+              "surface-bright": "#f9f9f8",
+              "primary": "#153a2b",
+              "on-primary-fixed-variant": "#2a4e3e",
+              "primary-fixed-dim": "#a8cfbb",
+              "tertiary-fixed": "#ebddff",
+              "surface-container": "#edeeed",
+              "on-secondary-fixed-variant": "#2a4e3e",
+              "on-tertiary-fixed-variant": "#4f3d73",
+              "surface-container-highest": "#e1e3e2",
+              "outline-variant": "#c1c8c2",
+              "secondary-container": "#c4ecd6",
+              "surface-container-lowest": "#ffffff",
+              "on-tertiary-container": "#c5afed",
+              "primary-fixed": "#c3ecd6",
+              "on-tertiary": "#ffffff",
+              "on-secondary": "#ffffff",
+              "tertiary-fixed-dim": "#d2bcfb",
+              "on-tertiary-fixed": "#220f44",
+              "on-primary-fixed": "#002115",
+              "on-background": "#191c1c",
+              "primary-container": "#2d5141",
+              "on-primary": "#ffffff",
+              "surface-dim": "#d9dad9",
+              "on-secondary-container": "#486c5b"
+            },
+            fontFamily: {
+              "headline": ["Manrope"],
+              "body": ["Inter"],
+              "label": ["Inter"]
+            },
+            borderRadius: {"DEFAULT": "0.125rem", "lg": "0.25rem", "xl": "0.5rem", "full": "0.75rem"},
+          },
+        },
+      }
+    </script>
+<style>
+      .material-symbols-outlined {
+        font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+      }
+      .glass-nav {
+        background: rgba(255, 255, 255, 0.8);
+        backdrop-filter: blur(12px);
+      }
+    </style>
+</head>
+<body class="bg-background text-on-background font-body antialiased">
+<!-- SideNavBar Shell -->
+<aside class="fixed left-0 top-0 h-full flex flex-col p-4 gap-2 h-screen w-64 bg-slate-50 dark:bg-zinc-950 z-50">
+<div class="mb-8 px-4 py-2">
+<span class="text-xl font-bold text-emerald-900 dark:text-emerald-500 tracking-tight font-headline">Interakt Clone</span>
+<p class="text-xs text-on-surface-variant font-medium">Architectural Curator</p>
+</div>
+<nav class="flex flex-col gap-1 overflow-y-auto">
+<a class="flex items-center gap-3 px-4 py-3 text-emerald-900 dark:text-emerald-300 font-bold bg-white dark:bg-zinc-800 rounded-lg shadow-sm" href="#">
+<span class="material-symbols-outlined">home</span>
+<span class="font-manrope text-sm font-medium tracking-tight">Home</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-slate-500 dark:text-zinc-500 hover:text-emerald-800 dark:hover:text-emerald-400 transition-colors" href="#">
+<span class="material-symbols-outlined">inbox</span>
+<span class="font-manrope text-sm font-medium tracking-tight">Inbox</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-slate-500 dark:text-zinc-500 hover:text-emerald-800 dark:hover:text-emerald-400 transition-colors" href="#">
+<span class="material-symbols-outlined">campaign</span>
+<span class="font-manrope text-sm font-medium tracking-tight">Campaigns</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-slate-500 dark:text-zinc-500 hover:text-emerald-800 dark:hover:text-emerald-400 transition-colors" href="#">
+<span class="material-symbols-outlined">contacts_product</span>
+<span class="font-manrope text-sm font-medium tracking-tight">Contacts</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-slate-500 dark:text-zinc-500 hover:text-emerald-800 dark:hover:text-emerald-400 transition-colors" href="#">
+<span class="material-symbols-outlined">storefront</span>
+<span class="font-manrope text-sm font-medium tracking-tight">Market</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-slate-500 dark:text-zinc-500 hover:text-emerald-800 dark:hover:text-emerald-400 transition-colors" href="#">
+<span class="material-symbols-outlined">support_agent</span>
+<span class="font-manrope text-sm font-medium tracking-tight">Support</span>
+</a>
+<a class="flex items-center gap-3 px-4 py-3 text-slate-500 dark:text-zinc-500 hover:text-emerald-800 dark:hover:text-emerald-400 transition-colors" href="#">
+<span class="material-symbols-outlined">smart_toy</span>
+<span class="font-manrope text-sm font-medium tracking-tight">Automation</span>
+</a>
+</nav>
+<div class="mt-auto pt-4 flex items-center gap-3 px-4">
+<div class="w-8 h-8 rounded-full bg-secondary-fixed flex items-center justify-center text-primary font-bold text-xs">UK</div>
+<div class="overflow-hidden">
+<p class="text-xs font-bold truncate">User Workspace Avatar</p>
+<p class="text-[10px] text-on-surface-variant">Admin Account</p>
+</div>
+</div>
+</aside>
+<!-- TopNavBar Shell -->
+<header class="w-full h-16 sticky top-0 z-40 bg-white/80 dark:bg-zinc-950/80 backdrop-blur-md border-b border-slate-100 dark:border-zinc-800 flex justify-between items-center px-8 ml-64 max-w-[calc(100%-16rem)]">
+<div class="flex items-center gap-4">
+<div class="relative">
+<span class="absolute left-3 top-1/2 -translate-y-1/2 material-symbols-outlined text-outline text-sm">search</span>
+<input class="pl-10 pr-4 py-1.5 bg-surface-container-low border-none rounded-full text-sm w-64 focus:ring-1 focus:ring-primary/20" placeholder="Search anything..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-6">
+<div class="text-emerald-900 dark:text-emerald-400 font-semibold text-sm">
+                Wallet: $1,250.00
+            </div>
+<div class="flex items-center gap-4 text-slate-600 dark:text-zinc-400">
+<span class="material-symbols-outlined cursor-pointer hover:text-primary transition-colors">notifications</span>
+<span class="material-symbols-outlined cursor-pointer hover:text-primary transition-colors">help_outline</span>
+</div>
+<button class="bg-primary text-on-primary px-4 py-2 rounded-md text-sm font-semibold hover:opacity-90 transition-opacity">
+                Create Campaign
+            </button>
+</div>
+</header>
+<!-- Main Content Area -->
+<main class="ml-64 p-8 min-h-screen bg-surface">
+<div class="max-w-7xl mx-auto flex flex-col lg:flex-row gap-12">
+<!-- Dashboard Canvas -->
+<div class="flex-1 space-y-10">
+<!-- Welcome Header -->
+<section>
+<h1 class="text-4xl font-headline font-extrabold text-primary tracking-tight mb-2">Hello, krushna. Welcome to Interakt!</h1>
+<p class="text-on-surface-variant max-w-2xl leading-relaxed">Let's get your communication hub set up. Connect your channels and prepare your first message templates to start engaging with your customers.</p>
+</section>
+<!-- Connectivity Stats Grid -->
+<section class="grid grid-cols-1 md:grid-cols-2 gap-6">
+<!-- WhatsApp Card -->
+<div class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/20 shadow-sm flex items-start gap-4">
+<div class="p-3 bg-[#25D366]/10 rounded-lg">
+<span class="material-symbols-outlined text-[#25D366]">chat</span>
+</div>
+<div class="flex-1">
+<h3 class="text-lg font-headline font-bold text-on-surface">WhatsApp connectivity</h3>
+<p class="text-sm text-on-surface-variant mb-4">Connect your WhatsApp Business API to start sending automated notifications.</p>
+<div class="flex items-center gap-2 text-error text-sm font-semibold">
+<span class="material-symbols-outlined text-sm">error</span>
+<span>Action Required</span>
+</div>
+</div>
+</div>
+<!-- Instagram Card -->
+<div class="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/20 shadow-sm flex items-start gap-4">
+<div class="p-3 bg-[#E4405F]/10 rounded-lg">
+<span class="material-symbols-outlined text-[#E4405F]">camera</span>
+</div>
+<div class="flex-1">
+<h3 class="text-lg font-headline font-bold text-on-surface">Instagram connectivity</h3>
+<p class="text-sm text-on-surface-variant mb-4">Automate your DMs and comments directly from the Interakt dashboard.</p>
+<div class="flex items-center gap-2 text-secondary text-sm font-semibold">
+<span class="material-symbols-outlined text-sm">check_circle</span>
+<span>Connected</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Interakt Pro Promotional Banner -->
+<section class="relative overflow-hidden bg-primary text-white rounded-2xl p-8 flex items-center justify-between shadow-lg">
+<div class="relative z-10 max-w-md">
+<span class="bg-secondary-container text-on-secondary-container px-3 py-1 rounded-full text-[10px] font-bold tracking-widest uppercase mb-4 inline-block">Pro Access</span>
+<h2 class="text-2xl font-headline font-extrabold mb-2">Scale your business with Interakt Pro</h2>
+<p class="text-on-primary-container text-sm mb-6">Unlock multi-agent support, advanced analytics, and custom CRM integrations today.</p>
+<button class="bg-white text-primary px-6 py-2 rounded-md font-bold text-sm hover:bg-surface-container-lowest transition-colors">Explore Pro Plans</button>
+</div>
+<div class="absolute right-0 top-0 h-full w-1/3 opacity-20 bg-no-repeat bg-center bg-cover" data-alt="Abstract architectural lines and geometric shadows representing structure and growth in a minimalist dark emerald theme" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuCylUvWRjOhcdeZ587LCStWMMMDieoVnnXyrQM1ZjIEMMYdF_TBzajXIv8I5BRTqmeY3Ci-DHwVFZGY2-7yQWN9kXQKtaC-NqBrdh9SneY47i7HNlMY_ByxZZPqeZNcb5t2vXbPjthOoWd3_oaLiTewjC59d-eMhbuH4YCOeKyAFiNL-16kS9Wn-2uIo2GVmd3slYVRczZm4gm-n7r6go9uqIf9tXDRpxb6CtWxpv4eHphctfL7yOLHvIhNweu5O7wknLGrz-ShGF4')">
+</div>
+<div class="absolute -right-20 -top-20 w-64 h-64 bg-primary-container rounded-full blur-3xl opacity-30"></div>
+</section>
+<!-- Pre-requisites Section -->
+<section>
+<div class="flex items-center justify-between mb-6">
+<h2 class="text-xl font-headline font-extrabold text-on-surface">Pre-requisites</h2>
+<a class="text-sm font-bold text-primary hover:underline" href="#">View All Tasks</a>
+</div>
+<div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+<!-- Add Customers Card -->
+<div class="group bg-surface-container-low p-6 rounded-xl border-2 border-transparent hover:border-primary/20 transition-all cursor-pointer">
+<div class="mb-4 flex items-center justify-between">
+<span class="material-symbols-outlined text-primary p-2 bg-primary/10 rounded-lg">person_add</span>
+<span class="text-xs font-bold text-on-surface-variant">Step 1</span>
+</div>
+<h3 class="text-md font-headline font-bold text-on-surface mb-2">Add Customers</h3>
+<p class="text-sm text-on-surface-variant">Import your contact list via CSV or sync directly from your Shopify or WooCommerce store.</p>
+<div class="mt-6 flex items-center gap-2 text-primary font-bold text-sm opacity-0 group-hover:opacity-100 transition-opacity">
+<span>Get Started</span>
+<span class="material-symbols-outlined text-sm">arrow_forward</span>
+</div>
+</div>
+<!-- Create Template Card -->
+<div class="group bg-surface-container-low p-6 rounded-xl border-2 border-transparent hover:border-primary/20 transition-all cursor-pointer">
+<div class="mb-4 flex items-center justify-between">
+<span class="material-symbols-outlined text-primary p-2 bg-primary/10 rounded-lg">description</span>
+<span class="text-xs font-bold text-on-surface-variant">Step 2</span>
+</div>
+<h3 class="text-md font-headline font-bold text-on-surface mb-2">Create a Template</h3>
+<p class="text-sm text-on-surface-variant">Design your first WhatsApp message template and submit it for Meta's approval.</p>
+<div class="mt-6 flex items-center gap-2 text-primary font-bold text-sm opacity-0 group-hover:opacity-100 transition-opacity">
+<span>Design Template</span>
+<span class="material-symbols-outlined text-sm">arrow_forward</span>
+</div>
+</div>
+</div>
+</section>
+</div>
+<!-- Live Preview / Sidebar Column -->
+<div class="w-full lg:w-96 space-y-8">
+<!-- Mobile Mockup -->
+<div class="sticky top-24">
+<div class="relative mx-auto border-8 border-on-surface bg-on-surface rounded-[2.5rem] h-[600px] w-[300px] shadow-2xl overflow-hidden">
+<!-- Device Notch -->
+<div class="absolute top-0 inset-x-0 h-6 bg-on-surface flex justify-center items-end pb-1">
+<div class="w-20 h-4 bg-on-surface rounded-b-xl"></div>
+</div>
+<!-- Content Area (WhatsApp UI Mock) -->
+<div class="bg-[#e5ddd5] h-full flex flex-col pt-6">
+<!-- Chat Header -->
+<div class="bg-[#075e54] text-white p-3 flex items-center gap-3">
+<span class="material-symbols-outlined text-lg">arrow_back</span>
+<div class="w-8 h-8 rounded-full bg-slate-300" data-alt="Professional profile portrait of a modern business architect in soft daylight" style="background-image: url('https://lh3.googleusercontent.com/aida-public/AB6AXuAyRh1UY7E5cZR-4mWI2WS2-jtM9q2DYj7na0hQEnM0meCJRpSfNqTUga-PZKpSQDN5lvsZcVjcyVNhsSYm26_tU_0gjfoEyxbDqoxxxjRT2n-Q1eI2sj5HwFEjmwrYGHzcHcYJbDhJqjyhFbXPhAFV1y7hhsFIy-4BrcOA8YTySs2TbiP4B8f_EPEuYaCe_O1pgJRX5w_QyBI3-SvYikHEgLYq2i73ZwR3GevvbMjJFieNXWyYEfnpkwWRWNFapNESzmKsrcSdSxs')"></div>
+<div class="flex-1">
+<p class="text-xs font-bold leading-none">Interakt Support</p>
+<p class="text-[10px] opacity-80">Online</p>
+</div>
+</div>
+<!-- Chat Messages -->
+<div class="flex-1 p-3 space-y-3 overflow-y-auto">
+<div class="bg-white p-3 rounded-lg rounded-tl-none shadow-sm max-w-[85%] text-[11px] leading-snug">
+                                    Hi there! 👋 Welcome to Interakt. We're excited to help you grow your business.
+                                    <p class="text-[9px] text-right mt-1 text-slate-400">10:45 AM</p>
+</div>
+<div class="bg-[#dcf8c6] p-3 rounded-lg rounded-tr-none shadow-sm max-w-[85%] ml-auto text-[11px] leading-snug">
+                                    Thanks! I'm ready to set up my first automated campaign.
+                                    <p class="text-[9px] text-right mt-1 text-slate-400">10:46 AM</p>
+</div>
+<div class="bg-white p-3 rounded-lg rounded-tl-none shadow-sm max-w-[85%] text-[11px] leading-snug">
+                                    Great! Let's start by connecting your Facebook Business Manager. 🚀
+                                    <div class="mt-2 pt-2 border-t border-slate-100 flex flex-col gap-1">
+<button class="bg-slate-50 text-primary py-1 rounded text-[10px] font-bold">Connect Now</button>
+<button class="bg-slate-50 text-slate-400 py-1 rounded text-[10px]">Maybe later</button>
+</div>
+<p class="text-[9px] text-right mt-1 text-slate-400">10:47 AM</p>
+</div>
+</div>
+<!-- Chat Input -->
+<div class="p-2 flex gap-1 items-center bg-transparent">
+<div class="flex-1 bg-white rounded-full px-3 py-2 flex items-center gap-2 shadow-sm">
+<span class="material-symbols-outlined text-sm text-slate-400">mood</span>
+<div class="flex-1 h-3 bg-slate-100 rounded"></div>
+<span class="material-symbols-outlined text-sm text-slate-400">attach_file</span>
+</div>
+<div class="w-8 h-8 rounded-full bg-[#075e54] flex items-center justify-center text-white">
+<span class="material-symbols-outlined text-sm">send</span>
+</div>
+</div>
+</div>
+</div>
+<div class="mt-6 text-center">
+<p class="text-sm font-bold text-on-surface">Live Preview</p>
+<p class="text-xs text-on-surface-variant">Changes reflect in real-time as you build.</p>
+</div>
+</div>
+</div>
+</div>
+</main>
+<!-- FAB (Suppressed on Home according to logic, but Interakt usually has a help/support anchor) -->
+<!-- Not rendering global FAB per task instructions for non-home specific actions -->
+</body></html>
