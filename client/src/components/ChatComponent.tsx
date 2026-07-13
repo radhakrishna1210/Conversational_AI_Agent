@@ -19,6 +19,7 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
   const [inputValue, setInputValue] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [conversationId, setConversationId] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
   // Scroll to bottom on new messages
@@ -26,7 +27,23 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Add welcome message on mount
+  // Generate conversation ID and reset messages when agentId changes
+  useEffect(() => {
+    setConversationId('test_' + Math.random().toString(36).substring(2, 11) + '_' + Date.now());
+    if (welcomeMessage) {
+      setMessages([{
+        id: 'welcome',
+        type: 'assistant',
+        text: welcomeMessage,
+        timestamp: new Date(),
+      }]);
+    } else {
+      setMessages([]);
+    }
+    setError('');
+  }, [agentId]);
+
+  // Add welcome message on mount/change if messages are empty
   useEffect(() => {
     if (welcomeMessage && messages.length === 0) {
       setMessages([{
@@ -80,6 +97,7 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
           message: trimmedInput,
           selectedLanguages,
           welcomeMessage,
+          conversationId,
         }),
       });
 

@@ -125,13 +125,27 @@ export const deleteAgent = async (req, res) => {
   }
 };
 
+// Keep track of active test chat sessions in-memory to maintain context during a session
+const testChatSessions = new Map();
+const MAX_SESSIONS = 1000;
+
+function pruneTestChatSessions() {
+  if (testChatSessions.size > MAX_SESSIONS) {
+    const keys = Array.from(testChatSessions.keys());
+    // Evict oldest 100 sessions
+    for (let i = 0; i < 100; i++) {
+      testChatSessions.delete(keys[i]);
+    }
+  }
+}
+
 /**
  * Chat endpoint for multilingual AI responses
  * POST /api/v1/agents/:agentId/chat
  */
 export const chat = async (req, res) => {
   const { agentId } = req.params;
-  const { message, selectedLanguages, welcomeMessage } = req.body;
+  const { message, selectedLanguages, welcomeMessage, conversationId } = req.body;
 
   // Validate input
   if (!message || !message.trim()) {
@@ -170,7 +184,7 @@ export const chat = async (req, res) => {
     };
 
     logger.debug(
-      { agentId, messageLength: message.length, languages: selectedLanguages, hasFlow: flowItems.length > 0 },
+      { agentId, messageLength: message.length, languages: selectedLanguages, hasFlow: flowItems.length > 0, conversationId },
       'Chat request received'
     );
 
@@ -179,15 +193,36 @@ Agent context: ${agentContext.welcomeMessage}
 Important: You must detect the language of the user's message and respond in the same language. 
 Ensure your response aligns with one of the following requested languages if possible: ${selectedLanguages.join(', ')}.`;
 
+    // Load conversation history from memory store
+    let chatHistory = [];
+    if (conversationId) {
+      if (!testChatSessions.has(conversationId)) {
+        pruneTestChatSessions();
+        testChatSessions.set(conversationId, []);
+      }
+      chatHistory = testChatSessions.get(conversationId);
+    }
+
     // Generate response using Gemini
     const response = await geminiService.generateResponse({
       message,
       model: 'gemini-2.5-flash',
-      systemPrompt: systemPrompt
+      systemPrompt: systemPrompt,
+      chatHistory: chatHistory
     });
 
     if (!response.success) {
       throw new Error(response.error || 'Gemini API failed to generate response');
+    }
+
+    // Append to memory history upon success
+    if (conversationId) {
+      chatHistory.push({ role: 'user', content: message });
+      chatHistory.push({ role: 'assistant', content: response.message });
+      // Limit size of history buffer
+      if (chatHistory.length > 40) {
+        chatHistory.splice(0, chatHistory.length - 40);
+      }
     }
 
     logger.debug(
