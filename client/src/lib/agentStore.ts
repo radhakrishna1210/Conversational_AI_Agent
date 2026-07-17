@@ -29,12 +29,120 @@ export interface AgentConfig {
   updatedAt: string;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// NOTE: All localStorage persistence (the old `voice_ai_agents_v1` cache, the
-// phantom default agent, loadAgents/saveAgents/createAgent/getAgent/saveAgent)
-// has been REMOVED. The backend API is the single source of truth for agents.
-// This module now only provides shared types and default flow templates.
-// ─────────────────────────────────────────────────────────────────────────────
+const STORAGE_KEY = 'voice_ai_agents_v1';
+
+const defaultAgent: AgentConfig = {
+  id: '131000',
+  name: 'Outbound Lead Qualification Agent',
+  language: 'English (India)',
+  llm: 'GPT-4.1-Mini',
+  voice: 'Google - Aoede (female)',
+  kbFiles: 0,
+  search: 'Off',
+  postCall: 'None',
+  integrations: 'None',
+  welcomeMessage: 'Hello, I am calling from our sales team to follow up on your interest in our services. Am I speaking with the business owner or decision maker?',
+  selectedLanguages: ['English (Indian)'],
+  flowItems: [
+    {
+      id: '1',
+      title: 'Agent Identity & Purpose',
+      enabled: true,
+      body: `AGENT GLOBAL INSTRUCTIONS\n# PERSONA\n- The agent is a professional and polite outbound lead qualification assistant.\n- Speak in a friendly, enthusiastic, and confident tone.\n\n# RESPONSE GENERATION GUIDELINES\n- Keep responses brief and user-focused.\n- Guide the user through the qualification questions efficiently.`
+    },
+    {
+      id: '2',
+      title: 'Interest Verification Flow',
+      enabled: true,
+      body: `INTEREST VERIFICATION\n- Verify if the contact is interested in our services and ask qualifying questions.\n\nExample response:\nI am calling to see if you are still looking for a solution to help manage your sales team. Are you currently the decision maker for software purchases?`
+    },
+    {
+      id: '3',
+      title: 'Lead Qualification Flow',
+      enabled: true,
+      body: `LEAD QUALIFICATION\n- Ask about their current challenges, team size, and timeline.\n- Take notes on their responses.`
+    },
+    {
+      id: '4',
+      title: 'Out of Scope Handling',
+      enabled: true,
+      body: `# OUT OF SCOPE HANDLING\n- If they ask unrelated questions or technical support questions, politely steer them back to scheduling a demo.\n\nExample response:\nThat's a great question, but I'm primarily here to see if we'd be a good fit and schedule a call with a specialist. Would you like to set up a time for a demo?`
+    },
+    {
+      id: '5',
+      title: 'Next Steps & Scheduling',
+      enabled: true,
+      body: `NEXT STEPS & SCHEDULING\n- Offer to schedule a meeting or demo with an account executive.\n- Confirm the date and time.`
+    }
+  ],
+  maxDuration: 30,
+  silenceTimeout: 5,
+  dynamicEnabled: true,
+  interruptibleEnabled: true,
+  aiModel: 'GPT-4.1-Mini',
+  transcription: 'Azure',
+  createdAt: new Date().toISOString(),
+  updatedAt: new Date().toISOString()
+};
+
+export function loadAgents(): AgentConfig[] {
+  if (typeof window === 'undefined') return [defaultAgent];
+  try {
+    const raw = window.localStorage.getItem(STORAGE_KEY);
+    if (!raw) {
+      window.localStorage.setItem(STORAGE_KEY, JSON.stringify([defaultAgent]));
+      return [defaultAgent];
+    }
+    const parsed = JSON.parse(raw);
+    if (Array.isArray(parsed) && parsed.length > 0) {
+      return parsed;
+    }
+  } catch (_error) {
+    // ignore parsing failures
+  }
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify([defaultAgent]));
+  return [defaultAgent];
+}
+
+export function saveAgents(agents: AgentConfig[]) {
+  if (typeof window === 'undefined') return;
+  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(agents));
+}
+
+export function getAgent(agentId: string | undefined): AgentConfig | undefined {
+  if (!agentId) return undefined;
+  return loadAgents().find(agent => agent.id === agentId);
+}
+
+export function saveAgent(agent: AgentConfig) {
+  const agents = loadAgents();
+  const existingIndex = agents.findIndex(item => item.id === agent.id);
+  const updatedAgent = { ...agent, updatedAt: new Date().toISOString() };
+  if (existingIndex >= 0) {
+    agents[existingIndex] = updatedAgent;
+  } else {
+    agents.unshift(updatedAgent);
+  }
+  saveAgents(agents);
+  return updatedAgent;
+}
+
+export function getDefaultWelcomeMessage(agentName: string): string {
+  const nameLower = agentName.toLowerCase();
+  if (nameLower.includes('moon') || nameLower.includes('space') || nameLower.includes('astronomy') || nameLower.includes('luna')) {
+    return 'Hello, I am Luna, your Moon Information Assistant. What would you like to know about the Moon?';
+  }
+  if (nameLower.includes('lead') || nameLower.includes('qualification') || nameLower.includes('outbound') || nameLower.includes('sales')) {
+    return 'Hello, I am calling from our sales team to follow up on your interest in our services. Am I speaking with the business owner or decision maker?';
+  }
+  if (nameLower.includes('support') || nameLower.includes('customer') || nameLower.includes('return') || nameLower.includes('refund') || nameLower.includes('help') || nameLower.includes('billing') || nameLower.includes('service')) {
+    return 'Hello, thank you for calling support. I am your customer service assistant. How can I help you with your order or return today?';
+  }
+  if (nameLower.includes('healthcare') || nameLower.includes('appointment') || nameLower.includes('reminder') || nameLower.includes('booking') || nameLower.includes('doctor') || nameLower.includes('medical') || nameLower.includes('schedule') || nameLower.includes('patient') || nameLower.includes('clinic')) {
+    return `Hello, I am your appointment coordinator. I am calling to confirm your upcoming appointment or help you manage your booking. How can I help you today?`;
+  }
+  return `Hello, I am ${agentName}. How can I help you today?`;
+}
 
 export function getDefaultFlowItems(agentName: string): FlowItem[] {
   const nameLower = agentName.toLowerCase();
@@ -202,19 +310,35 @@ export function getDefaultFlowItems(agentName: string): FlowItem[] {
   ];
 }
 
-export function getDefaultWelcomeMessage(agentName: string): string {
-  const nameLower = agentName.toLowerCase();
-  if (nameLower.includes('moon') || nameLower.includes('space') || nameLower.includes('astronomy') || nameLower.includes('luna')) {
-    return 'Hello, I am Luna, your Moon Information Assistant. What would you like to know about the Moon?';
-  }
-  if (nameLower.includes('lead') || nameLower.includes('qualification') || nameLower.includes('outbound') || nameLower.includes('sales')) {
-    return 'Hello, I am calling from our sales team to follow up on your interest in our services. Am I speaking with the business owner or decision maker?';
-  }
-  if (nameLower.includes('support') || nameLower.includes('customer') || nameLower.includes('return') || nameLower.includes('refund') || nameLower.includes('help') || nameLower.includes('billing') || nameLower.includes('service')) {
-    return 'Hello, thank you for calling support. I am your customer service assistant. How can I help you with your order or return today?';
-  }
-  if (nameLower.includes('healthcare') || nameLower.includes('appointment') || nameLower.includes('reminder') || nameLower.includes('booking') || nameLower.includes('doctor') || nameLower.includes('medical') || nameLower.includes('schedule') || nameLower.includes('patient') || nameLower.includes('clinic')) {
-    return `Hello, I am your appointment coordinator. I am calling to confirm your upcoming appointment or help you manage your booking. How can I help you today?`;
-  }
-  return `Hello, I am ${agentName}. How can I help you today?`;
+export function createAgent(name: string): AgentConfig {
+  const id = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : String(Date.now());
+  const now = new Date().toISOString();
+  const agent: AgentConfig = {
+    id,
+    name,
+    language: 'English (India)',
+    llm: 'GPT-4.1-Mini',
+    voice: 'Google - Aoede (female)',
+    kbFiles: 0,
+    search: 'Off',
+    postCall: 'None',
+    integrations: 'None',
+    welcomeMessage: getDefaultWelcomeMessage(name),
+    selectedLanguages: ['English (Indian)'],
+    flowItems: getDefaultFlowItems(name),
+    maxDuration: 30,
+    silenceTimeout: 5,
+    dynamicEnabled: true,
+    interruptibleEnabled: true,
+    aiModel: 'GPT-4.1-Mini',
+    transcription: 'Azure',
+    createdAt: now,
+    updatedAt: now
+  };
+  const agents = loadAgents();
+  agents.unshift(agent);
+  saveAgents(agents);
+  return agent;
 }

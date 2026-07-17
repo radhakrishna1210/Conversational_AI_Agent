@@ -1,6 +1,4 @@
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, Outlet } from 'react-router-dom';
-import { isLoggedIn, isAdminRole } from '@/lib/authStorage';
-import ForgotPassword from './pages/ForgotPassword';
 import { useEffect } from 'react';
 
 // Layout Components
@@ -88,22 +86,10 @@ function DefaultLayout({ children }: { children: React.ReactNode }) {
 }
 
 function ProtectedRoute() {
-  // sessionStorage-aware (Safari/incognito login falls back to sessionStorage)
-  if (!isLoggedIn()) {
+  const token = localStorage.getItem('token');
+  if (!token) {
     return <Navigate to="/login" replace />;
   }
-  return <Outlet />;
-}
-
-/**
- * Client-side admin boundary. Non-admin users are redirected to the dashboard
- * instead of ever mounting the AdminPanel. (The server independently enforces
- * authenticate + isAdmin on every /admin API route — this guard is UX, the
- * API is the real security boundary.)
- */
-function AdminRoute() {
-  if (!isLoggedIn()) return <Navigate to="/login" replace />;
-  if (!isAdminRole()) return <Navigate to="/dashboard" replace />;
   return <Outlet />;
 }
 
@@ -179,7 +165,6 @@ function App() {
 <Route path="/signup" element={<SignUp />} />
         
         <Route path="/login" element={<Login />} />
-            <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/auth/callback" element={<AuthCallback />} />
         {/* Protected dashboard routes */}
         <Route element={<ProtectedRoute />}>
@@ -201,11 +186,7 @@ function App() {
             <Route path="/voice_assistant" element={<VoiceAssistantPage />} />
             <Route path="/settings" element={<Settings />} />
             <Route path="/profile" element={<Settings />} />
-          </Route>
-          <Route element={<AdminRoute />}>
-            <Route element={<DashboardLayoutWrapper />}>
-              <Route path="/admin" element={<AdminPanel />} />
-            </Route>
+            <Route path="/admin" element={<AdminPanel />} />
           </Route>
         </Route>
        <Route

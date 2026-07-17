@@ -12,7 +12,6 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 
-import { getAuth } from '@/lib/authStorage';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Voice {
@@ -27,17 +26,16 @@ interface Voice {
   metadata?: Record<string, unknown> | null;
 }
 
-interface ProviderHealth { healthy: boolean; latencyMs?: number; error?: string }
 interface ProviderStatus {
   google: boolean;
   elevenlabs: boolean;
   sarvam?: boolean;
   cartesia?: boolean;
   details: {
-    google: ProviderHealth;
-    elevenlabs: ProviderHealth;
-    sarvam?: ProviderHealth;
-    cartesia?: ProviderHealth;
+    google: { healthy: boolean; latencyMs?: number; error?: string };
+    elevenlabs: { healthy: boolean; latencyMs?: number; error?: string };
+    sarvam?: { healthy: boolean; latencyMs?: number; error?: string };
+    cartesia?: { healthy: boolean; latencyMs?: number; error?: string };
   };
 }
 
@@ -58,8 +56,6 @@ interface VoiceConfigModalProps {
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const API_BASE = '/api/v1';
-// All voice/agent endpoints are workspace-scoped and authenticated.
-const wsBase = () => `${API_BASE}/workspaces/${getAuth().workspaceId}`;
 const LIMIT = 20;
 const PROVIDERS = ['All', 'Google', 'ElevenLabs', 'Sarvam', 'Cartesia'];
 const GENDER_OPTIONS = ['All', 'MALE', 'FEMALE', 'NEUTRAL'];
@@ -68,7 +64,7 @@ const DEFAULT_PREVIEW_TEXT = 'Hello, thank you for calling. How can I assist you
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function authHeaders(): Record<string, string> {
-  const { token } = getAuth();
+  const token = localStorage.getItem('token') ?? '';
   return token ? { Authorization: `Bearer ${token}` } : {};
 }
 
@@ -167,7 +163,7 @@ export default function VoiceConfigModal({
 
   // ── Load provider status ───────────────────────────────────────────
   useEffect(() => {
-    fetch(`${wsBase()}/voices/providers/status`, { headers: authHeaders() })
+    fetch(`${API_BASE}/voice/providers/status`, { headers: authHeaders() })
       .then(r => r.json())
       .then(setProviderStatus)
       .catch(() => null);
@@ -181,22 +177,6 @@ export default function VoiceConfigModal({
   }, [voices]);
 
   // ── Fetch voices ───────────────────────────────────────────────────
-  const [syncing, setSyncing] = useState(false);
-  const handleSyncNow = async () => {
-    setSyncing(true);
-    try {
-      const res = await fetch(`${wsBase()}/voices/sync`, { method: 'POST', headers: authHeaders() });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || `Sync failed (${res.status})`);
-      await fetchVoices();
-      await new Promise(r => setTimeout(r, 300));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Voice sync failed — check provider API keys in backend/.env');
-    } finally {
-      setSyncing(false);
-    }
-  };
-
   const fetchVoices = useCallback(async () => {
     setLoading(true);
     setError(null);
@@ -206,7 +186,7 @@ export default function VoiceConfigModal({
       if (genderFilter !== 'All') params.set('gender', genderFilter.toLowerCase());
       if (languageFilter !== 'All') params.set('language', languageFilter);
 
-      const data: PaginatedVoices = await fetch(`${wsBase()}/voices?${params}`, {
+      const data: PaginatedVoices = await fetch(`${API_BASE}/voices?${params}`, {
         headers: authHeaders(),
       }).then(r => r.json());
 
@@ -252,17 +232,11 @@ export default function VoiceConfigModal({
     audioRef.current?.pause();
     setPlayingId(voice.id);
     try {
-      // Audio elements can't send Authorization headers, so fetch the preview
-      // as a blob with proper auth and play it from an object URL.
-      const url = `${wsBase()}/voices/${voice.id}/preview?text=${encodeURIComponent(DEFAULT_PREVIEW_TEXT)}`;
-      const res = await fetch(url, { headers: authHeaders() });
-      if (!res.ok) throw new Error(`Preview failed (${res.status})`);
-      const blob = await res.blob();
-      const objectUrl = URL.createObjectURL(blob);
-      const audio = new Audio(objectUrl);
+      const url = `${API_BASE}/voices/${voice.id}/preview?text=${encodeURIComponent(DEFAULT_PREVIEW_TEXT)}`;
+      const audio = new Audio(url);
       audioRef.current = audio;
-      audio.onended = () => { setPlayingId(null); URL.revokeObjectURL(objectUrl); };
-      audio.onerror = () => { setPlayingId(null); URL.revokeObjectURL(objectUrl); };
+      audio.onended = () => setPlayingId(null);
+      audio.onerror = () => setPlayingId(null);
       await audio.play();
     } catch {
       setPlayingId(null);
@@ -274,7 +248,7 @@ export default function VoiceConfigModal({
     if (!selectedVoice) return;
     setSavingId(selectedVoice.id);
     try {
-      await fetch(`${wsBase()}/agents/${agentId}/voice`, {
+      await fetch(`${API_BASE}/agents/${agentId}/voice`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ voiceId: selectedVoice.id }),
@@ -558,7 +532,11 @@ export default function VoiceConfigModal({
             {error && (
               <div className="voice-error">
                 ⚠ {error}
-                {isDbEmpty && <span style={{ marginLeft: '8px' }}>— use the “Sync voices now” button below.</span>}
+                {isDbEmpty && (
+                  <span style={{ marginLeft: '8px' }}>
+                    — Sync voices first via <code style={{ background: '#2a0e0e', padding: '2px 6px', borderRadius: '4px' }}>POST /api/voices/sync</code>
+                  </span>
+                )}
               </div>
             )}
 
@@ -576,19 +554,9 @@ export default function VoiceConfigModal({
                 </div>
                 <div className="voice-empty-desc">
                   {isDbEmpty
-                    ? 'Your voice library is empty. Click "Sync voices now" to pull voices from the providers configured in backend/.env (Sarvam, ElevenLabs, Google TTS).'
+                    ? 'Configure your Google TTS and ElevenLabs API keys, then call POST /api/voices/sync to populate the voice library.'
                     : 'Try adjusting your search term or filters to find more voices.'}
                 </div>
-                {isDbEmpty && (
-                  <button
-                    className="voice-btn-save"
-                    style={{ marginTop: '8px' }}
-                    disabled={syncing}
-                    onClick={handleSyncNow}
-                  >
-                    {syncing ? 'Syncing…' : '⟳ Sync voices now'}
-                  </button>
-                )}
                 {!isDbEmpty && (
                   <button
                     className="voice-btn-cancel"

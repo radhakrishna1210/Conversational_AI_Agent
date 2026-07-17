@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { isLoggedIn as checkAuth, clearAuth } from '@/lib/authStorage';
 import { Link, useLocation } from 'react-router-dom';
 import { useTheme } from '../hooks/useTheme';
 import {
@@ -29,7 +28,7 @@ export default function Navbar() {
 
   useEffect(() => {
     const checkLogin = () => {
-      setIsLoggedIn(checkAuth());
+      setIsLoggedIn(!!localStorage.getItem('token'));
     };
     
     checkLogin();
@@ -223,7 +222,7 @@ export default function Navbar() {
             <Link to="/dashboard" style={{ color: 'var(--text-secondary)', fontSize: '14px', fontWeight: 500, textDecoration: 'none' }}>Dashboard</Link>
             <button 
               onClick={() => {
-                clearAuth();
+                localStorage.clear();
                 setIsLoggedIn(false);
                 window.location.href = '/';
               }}

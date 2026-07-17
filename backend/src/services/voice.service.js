@@ -23,11 +23,7 @@ const DEFAULT_PREVIEW_TEXT =
  */
 export const listVoices = async ({ page = 1, limit = 20, provider, gender, language } = {}) => {
   const skip = (page - 1) * limit;
-  const where = {
-    // Hide un-cloned samples from the agent voice picker: a sample_only voice
-    // cannot synthesize speech, so selecting it would break calls (#9 L5).
-    NOT: { AND: [{ category: 'cloned' }, { metadata: { contains: '"status":"sample_only"' } }] },
-  };
+  const where = {};
   if (provider) where.provider = { name: { equals: provider } };
   if (gender) where.gender = { equals: gender.toLowerCase() };
   if (language) where.language = { equals: language };
@@ -112,20 +108,6 @@ export const streamVoicePreview = async (voiceId, text = DEFAULT_PREVIEW_TEXT) =
     audioBuffer = await sarvamProvider.previewVoice(voice.providerVoiceId, text, langCode);
   } else if (providerName === 'Cartesia') {
     audioBuffer = await cartesiaProvider.previewVoice(voice.providerVoiceId, text);
-  } else if (providerName === 'Custom') {
-    // Cloned voices: if the clone completed on ElevenLabs, synthesize there
-    // using the stored ElevenLabs voice id. If it's still sample_only, fail
-    // with a clear, actionable message instead of a generic 500.
-    const meta = JSON.parse(voice.metadata || '{}');
-    if (meta.status === 'cloned' && meta.clonedProvider === 'elevenlabs' && meta.clonedVoiceId) {
-      audioBuffer = await elevenLabsProvider.previewVoice(meta.clonedVoiceId, text);
-    } else {
-      const err = new Error(
-        'This cloned voice has only a raw sample (status: sample_only) — it cannot synthesize new text yet. Re-submit it on the Clone Voice page with ELEVENLABS_API_KEY configured to complete neural cloning.'
-      );
-      err.statusCode = 409;
-      throw err;
-    }
   } else {
     throw new Error(`TTS not implemented for provider: ${providerName}`);
   }

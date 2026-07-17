@@ -82,7 +82,7 @@ export const get = async (req, res) => {
 export const preview = async (req, res) => {
   try {
     const { id } = req.params;
-    const text = req.query.text || DEFAULT_PREVIEW_TEXT;
+    const text = req.body?.text || req.query.text || DEFAULT_PREVIEW_TEXT;
     const { stream, contentType } = await streamVoicePreview(id, text);
     res.setHeader('Content-Type', contentType);
     res.setHeader('Cache-Control', 'no-store');

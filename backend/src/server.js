@@ -16,35 +16,12 @@ mkdirSync(env.UPLOAD_DIR, { recursive: true });
     await prisma.$queryRaw`SELECT 1`;
     logger.info('Database connected');
     process.env.DB_STATUS = 'available';
-    // Connectivity OK — now verify the schema is actually migrated. A missing
-    // table is the #1 cause of "every API returns 500" on fresh setups.
-    try {
-      await prisma.$queryRaw`SELECT 1 FROM "Agent" LIMIT 1`;
-      await prisma.$queryRaw`SELECT 1 FROM "KbFile" LIMIT 1`;
-      await prisma.$queryRaw`SELECT 1 FROM "Plan" LIMIT 1`;
-      process.env.DB_MIGRATIONS = 'applied';
-    } catch (schemaErr) {
-      process.env.DB_MIGRATIONS = 'missing';
-      logger.error('════════════════════════════════════════════════════════════');
-      logger.error('DATABASE SCHEMA IS NOT MIGRATED — tables are missing.');
-      logger.error('Every DB-backed endpoint (agents, files, voices, plans, notifications)');
-      logger.error('will return 500 until you run, inside the backend/ folder:');
-      logger.error('    npm run prestart');
-      logger.error('(npm run dev / npm start now do this automatically via pre-hooks;');
-      logger.error(' if you are seeing this, the pre-hook was skipped or failed.)');
-      logger.error(`Detail: ${schemaErr.message?.split('\n')[0]}`);
-      logger.error('════════════════════════════════════════════════════════════');
-    }
   } catch (err) {
     logger.warn('Database connection failed on startup:', err.message);
-    logger.error('DATABASE IS UNREACHABLE — all DB-backed features (agents, voices, notifications, files) WILL FAIL until this is fixed. Check DATABASE_URL in backend/.env.');
+    logger.warn('Server will continue using mock auth for development');
     process.env.DB_STATUS = 'unavailable';
   }
 })();
-
-logger.info(`Config sanity → DATABASE_URL protocol OK | JSON_BODY_LIMIT=${env.JSON_BODY_LIMIT} | SMTP=${env.SMTP_HOST ? 'configured' : 'NOT configured'} | GEMINI=${process.env.GEMINI_API_KEY ? 'set' : 'missing'}`);
-
-import('./controllers/platform.controller.js').then(m => m.ensurePlansSeeded().catch(e => logger.warn('Plan seed skipped: ' + e.message)));
 
 const campaignWorker = createCampaignWorker();
 if (campaignWorker) {

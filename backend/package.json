@@ -7,13 +7,11 @@
     "node": ">=20.0.0"
   },
   "scripts": {
-    "predev": "prisma generate && node scripts/prisma-migrate-deploy.js",
     "dev": "node --env-file=.env --watch src/server.js",
-    "prestart": "prisma generate && node scripts/prisma-migrate-deploy.js",
     "start": "node --env-file=.env src/server.js",
     "worker": "node --env-file=.env src/workers/workerBootstrap.js",
     "db:migrate": "prisma migrate dev",
-    "db:migrate:prod": "node scripts/prisma-migrate-deploy.js",
+    "db:migrate:prod": "prisma migrate deploy",
     "db:generate": "prisma generate",
     "db:push": "prisma db push",
     "db:studio": "prisma studio",
@@ -40,7 +38,6 @@
     "nanoid": "^5.0.7",
     "node-fetch": "^3.3.2",
     "openai": "^4.52.7",
-    "pg": "^8.22.0",
     "pino": "^9.1.0",
     "pino-pretty": "^11.0.0",
     "zod": "^3.23.8"

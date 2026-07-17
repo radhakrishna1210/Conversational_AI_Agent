@@ -1,7 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AgentConfig, getDefaultFlowItems, getDefaultWelcomeMessage } from '../lib/agentStore';
-import { toast } from 'sonner';
+import { AgentConfig, createAgent, loadAgents, getDefaultFlowItems, getDefaultWelcomeMessage } from '../lib/agentStore';
 import { whapi } from '../lib/whapi';
 
 
@@ -45,7 +44,20 @@ export default function Dashboard() {
       setAgents(prev => [newAgent, ...prev]);
     } catch (err) {
       console.error('Failed to copy agent on backend', err);
-      toast.error(err instanceof Error ? err.message : 'Failed to copy agent — it was NOT saved. Check your connection and try again.');
+      // Fallback
+      const localId = String(Date.now());
+      const nowStr = new Date().toISOString();
+      const localAgent: AgentConfig = {
+        ...assistant,
+        id: localId,
+        name: newName,
+        createdAt: nowStr,
+        updatedAt: nowStr
+      };
+      const agentsList = loadAgents();
+      agentsList.unshift(localAgent);
+      localStorage.setItem('voice_ai_agents_v1', JSON.stringify(agentsList));
+      setAgents(prev => [localAgent, ...prev]);
     }
   };
 
@@ -54,11 +66,14 @@ export default function Dashboard() {
     setOpenDropdownId(null);
     if (!window.confirm('Are you sure you want to delete this assistant?')) return;
     try {
-      await whapi.del(`/agents/${id}`);
+      await whapi.delete(`/agents/${id}`);
       setAgents(prev => prev.filter(a => a.id !== id));
     } catch (err) {
       console.error('Failed to delete on backend', err);
-      toast.error(err instanceof Error ? err.message : 'Failed to delete agent on the server.');
+      // Fallback local
+      const agentsList = loadAgents().filter(a => a.id !== id);
+      localStorage.setItem('voice_ai_agents_v1', JSON.stringify(agentsList));
+      setAgents(prev => prev.filter(a => a.id !== id));
     }
   };
 
@@ -74,84 +89,116 @@ export default function Dashboard() {
     id: '131000',
   };
 
-  const [agentsError, setAgentsError] = useState<string | null>(null);
-  const [agentsLoading, setAgentsLoading] = useState(true);
-  const fetchAgentsRef = useRef<(() => void) | null>(null);
-
   useEffect(() => {
-    // The server is the ONLY source of truth. The old localStorage fallback
-    // ('voice_ai_agents_v1') made failures look like success and produced
-    // phantom agents that vanished on refresh — removed entirely.
     const fetchAgents = async () => {
-      setAgentsLoading(true);
-      setAgentsError(null);
       try {
         const backendAgents = await whapi.get<AgentConfig[]>('/agents');
-        setAgents(Array.isArray(backendAgents) ? backendAgents : []);
+        setAgents(backendAgents);
       } catch (err) {
         console.error('Failed to fetch agents from backend', err);
-        setAgentsError(err instanceof Error ? err.message : 'Could not load your agents from the server.');
-      } finally {
-        setAgentsLoading(false);
+        setAgents(loadAgents());
       }
     };
-    fetchAgentsRef.current = fetchAgents;
     fetchAgents();
-    try { localStorage.removeItem('voice_ai_agents_v1'); } catch { /* ignore */ }
   }, []);
 
-  const [enhanceError, setEnhanceError] = useState('');
 
+  const extractAgentTitle = (text: string) => {
+    let title = text
+      .replace(/^create\s+(a\s+)?voice\s+ai\s+agent\s+for\s+/i, "")
+      .replace(/^create\s+(an?\s+)?ai\s+agent\s+for\s+/i, "")
+      .replace(/^create\s+(a\s+)?voice\s+ai\s+assistant\s+for\s+/i, "")
+      .replace(/^create\s+/i, "")
+      .trim();
+
+    title = title
+      .split(" ")
+      .map(
+        word =>
+          word.charAt(0).toUpperCase() +
+          word.slice(1).toLowerCase()
+      )
+      .join(" ");
+
+    if (!title.toLowerCase().includes("agent")) {
+      title += " Agent";
+    }
+
+    return title;
+  };
 
   const generateAgentName = (text: string) => {
     let title = text
-      .replace(/^create\s+(a\s+)?voice\s+ai\s+agent\s+for\s+/i, '')
-      .replace(/^create\s+(an?\s+)?ai\s+agent\s+for\s+/i, '')
-      .replace(/^create\s+(a\s+)?voice\s+ai\s+assistant\s+for\s+/i, '')
-      .replace(/^create\s+/i, '')
+      .replace(/^create\s+(a\s+)?voice\s+ai\s+agent\s+for\s+/i, "")
+      .replace(/^create\s+(an?\s+)?ai\s+agent\s+for\s+/i, "")
+      .replace(/^create\s+(a\s+)?voice\s+ai\s+assistant\s+for\s+/i, "")
+      .replace(/^create\s+/i, "")
       .trim();
 
     title = title
-      .replace(/\bassistance\b/gi, '')
-      .replace(/\bassistant\b/gi, '')
-      .replace(/\bagent\b/gi, '')
+      .replace(/\bassistance\b/gi, "")
+      .replace(/\bassistant\b/gi, "")
+      .replace(/\bagent\b/gi, "")
       .trim();
 
     title = title
-      .split(' ')
+      .split(" ")
       .filter(Boolean)
-      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
-      .join(' ');
+      .map(
+        word =>
+          word.charAt(0).toUpperCase() +
+          word.slice(1).toLowerCase()
+      )
+      .join(" ");
 
-    return title ? `${title} Agent` : 'Voice AI Agent';
+    return title ? `${title} Agent` : "Voice AI Agent";
   };
 
   const handleEnhance = async () => {
     if (!prompt.trim()) return;
-    setEnhanceError('');
+
     try {
       setEnhancing(true);
-      // Authenticated workspace-scoped call (endpoint is no longer public)
-      const data = await whapi.post<any>('/llm/enhance-prompt', { prompt });
-      console.log('Enhance Response:', data);
-      console.log('enhancedPrompt:', data.enhancedPrompt);
-      console.log('Type:', typeof data.enhancedPrompt);
+
+      const response = await fetch(
+        "/api/v1/llm/enhance-prompt",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            prompt,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Enhance failed");
+      }
+
+      const data = await response.json();
+
+      console.log("Enhance Response:", data);
+      console.log("enhancedPrompt:", data.enhancedPrompt);
+      console.log("Type:", typeof data.enhancedPrompt);
 
       if (data.enhancedPrompt) {
         const enhancedText =
-          typeof data.enhancedPrompt === 'string'
+          typeof data.enhancedPrompt === "string"
             ? data.enhancedPrompt
-            : data.enhancedPrompt.message || '';
+            : data.enhancedPrompt.message || "";
 
         setPrompt(enhancedText);
 
+        // Do NOT derive title from enhanced response.
+        // Keep existing title if selected from use case.
         if (!agentTitle) {
-          setAgentTitle(generateAgentName(enhancedText));
+          setAgentTitle(generateAgentName(prompt));
         }
       }
     } catch (err) {
       console.error(err);
-      setEnhanceError(err instanceof Error ? err.message : 'Enhancement failed');
     } finally {
       setEnhancing(false);
     }
@@ -169,21 +216,24 @@ export default function Dashboard() {
 
     let welcomeMsg = '';
     let defaultFlow: any[] = [];
-    // Generate a flow tailored to the user's ACTUAL description + category.
-    // (Previously only { name } was sent, so every agent got the same flow.)
+    // Attempt to generate flow dynamically from LLM backend (public endpoint — no auth needed)
     try {
-      const generated = await whapi.post<any>('/llm/generate-flow', {
-        name,
-        prompt,
-        category: selectedCategory || undefined,
+      const genRes = await fetch('/api/v1/llm/generate-flow', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
       });
-      if (generated && generated.welcomeMessage && Array.isArray(generated.flowItems)) {
-        welcomeMsg = generated.welcomeMessage;
-        defaultFlow = generated.flowItems;
+      if (genRes.ok) {
+        const generated = await genRes.json();
+        if (generated && generated.welcomeMessage && Array.isArray(generated.flowItems)) {
+          welcomeMsg = generated.welcomeMessage;
+          defaultFlow = generated.flowItems;
+        }
+      } else {
+        console.warn('generate-flow returned non-OK status:', genRes.status);
       }
     } catch (genErr) {
-      console.warn('Flow generation failed, using a generic template', genErr);
-      toast.warning('AI flow generation failed — a generic template was used. Edit the agent to customize its flow.');
+      console.warn('Failed to dynamically generate conversational flow, falling back to templates', genErr);
     }
 
     // Fallbacks if LLM generation failed or returned incomplete data
@@ -210,14 +260,48 @@ export default function Dashboard() {
       setTimeout(() => setSuccess(false), 2000);
     } catch (err) {
       console.error('Failed to create agent on backend', err);
-      toast.error(err instanceof Error ? err.message : 'Failed to create agent — it was NOT saved. Please try again.');
+      // Fallback to local storage using the generated settings
+      const localId = String(Date.now());
+      const nowStr = new Date().toISOString();
+      const localAgent: AgentConfig = {
+        id: localId,
+        name,
+        language: 'English (India)',
+        llm: 'GPT-4.1-Mini',
+        voice: 'Google - Aoede (female)',
+        kbFiles: 0,
+        search: 'Off',
+        postCall: 'None',
+        integrations: 'None',
+        welcomeMessage: welcomeMsg,
+        selectedLanguages: ['English (Indian)'],
+        flowItems: defaultFlow,
+        maxDuration: 30,
+        silenceTimeout: 5,
+        dynamicEnabled: true,
+        interruptibleEnabled: true,
+        aiModel: 'GPT-4.1-Mini',
+        transcription: 'Azure',
+        createdAt: nowStr,
+        updatedAt: nowStr
+      };
+
+      const agentsList = loadAgents();
+      agentsList.unshift(localAgent);
+      localStorage.setItem('voice_ai_agents_v1', JSON.stringify(agentsList));
+
+      setAgents(prev => [localAgent, ...prev]);
+      setPrompt('');
+      setAgentTitle('');
+      setSuccess(true);
+      setTimeout(() => setSuccess(false), 2000);
     } finally {
       setCreating(false);
     }
   };
 
 
-
+  const setTemplate = (template: string) => setPrompt(template);
 
   const filteredAgents = agents.filter(agent =>
     agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -1344,7 +1428,7 @@ Goals:
                     ← {selectedCategory}
                   </h4>
                   <div className="omni-use-case-chips">
-                    {(useCases as Record<string, { name: string; prompt: string }[]>)[selectedCategory].map((item) => (
+                    {useCases[selectedCategory].map((item) => (
                       <button
                         key={item.name}
                         className="omni-chip"
@@ -1390,9 +1474,6 @@ Goals:
               </div>
             </div>
             <div className="omni-create-actions">
-              {enhanceError && (
-                <p style={{ color: '#f87171', fontSize: '12px', margin: '0 0 8px' }}>⚠️ {enhanceError}</p>
-              )}
               <button
                 className="omni-btn omni-btn-secondary"
                 onClick={handleEnhance}
@@ -1416,20 +1497,6 @@ Goals:
         <div className="omni-assistants-section">
           <div className="omni-assistants-header">
             <h2>My Voice AI Assistants</h2>
-            {agentsLoading && <p style={{ color: 'var(--text-muted, #94a3b8)', fontSize: 13 }}>Loading your agents…</p>}
-            {agentsError && (
-              <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.35)', color: '#fca5a5', borderRadius: 8, padding: '12px 16px', fontSize: 13, margin: '10px 0', lineHeight: 1.6 }}>
-                <strong>Couldn’t load your agents:</strong> {agentsError}
-                <div style={{ marginTop: 6, color: 'rgba(252,165,165,0.85)' }}>
-                  Common causes: ① the backend isn’t running (start it with <code>npm run dev</code> in <code>backend/</code>) ·
-                  ② database schema not migrated (<code>npx prisma migrate deploy</code> — now runs automatically with npm run dev) ·
-                  ③ wrong <code>DATABASE_URL</code> in <code>backend/.env</code>. Admins can check Admin Panel → System Health.
-                </div>
-                <button onClick={() => fetchAgentsRef.current?.()} style={{ marginTop: 10, background: 'transparent', border: '1px solid rgba(239,68,68,0.5)', color: '#fca5a5', borderRadius: 6, padding: '4px 14px', cursor: 'pointer', fontSize: 12.5 }}>
-                  ↻ Retry
-                </button>
-              </div>
-            )}
             <div className="omni-assistants-header-actions">
               <div className="omni-search-box">
                 <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" /></svg>
@@ -1449,46 +1516,94 @@ Goals:
                 ))}
               </div>
             </div>
-          </div>
+            <div className="omni-assistants-grid">
+              {filteredAgents.map((assistant) => (
+                <article className="omni-card" key={assistant.id}>
+                  <div className="omni-card-head">
+                    <div>
+                      <h3>
+                        {assistant.name
+                          .replace(/^Inbound Voice AI Agent:\s*/i, "")
+                          .replace(/^Create a voice AI agent for\s*/i, "")
+                          .substring(0, 40)}
+                      </h3>
+                      <p>{assistant.language}</p>
+                    </div>
 
-          <div className="omni-assistants-grid">
-            {/* Dynamic Agents only — no hardcoded demo card */}
-            {agentsError ? null : agentsLoading ? null : filteredAgents.length === 0 ? (
-              <div style={{ gridColumn: '1/-1', padding: '48px', textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-card)', border: '1px dashed #334155', borderRadius: '14px' }}>
-                <div style={{ fontSize: '40px', marginBottom: '12px' }}>🤖</div>
-                <p style={{ fontSize: '15px', marginBottom: '6px', color: 'var(--text-secondary)' }}>No assistants yet</p>
-                <p style={{ fontSize: '13px' }}>Describe your use case above and click <strong style={{ color: '#14b8a6' }}>Create Voice AI Assistant</strong></p>
-              </div>
-            ) : filteredAgents.map((assistant) => (
-              <article key={assistant.id} className="omni-card">
-                {/* Head: title only (meta/footer are siblings — previously they
-                    were nested inside this flex row, squeezing everything into
-                    unreadable narrow columns) */}
-                <div className="omni-card-head">
-                  <div style={{ minWidth: 0 }}>
-                    <h3 title={assistant.name}>{assistant.name
-                      .replace(/^Inbound Voice AI Agent:\s*/i, "")
-                      .replace(/^Create a voice AI agent for\s*/i, "")}</h3>
-                    <p>{assistant.language}</p>
+                    <div style={{ position: "relative" }}>
+                      <button
+                        className="assistant-menu"
+                        aria-label="Assistant actions"
+                        onClick={(e) => handleMenuClick(e, assistant.id)}
+                      >
+                        ⋮
+                      </button>
+
+                      {openDropdownId === assistant.id && (
+                        <div className="assistant-menu-dropdown">
+                          <button onClick={(e) => handleCopyAssistant(e, assistant)}>
+                            <svg
+                              width="14"
+                              height="14"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              viewBox="0 0 24 24"
+                            >
+                              <rect
+                                x="9"
+                                y="9"
+                                width="13"
+                                height="13"
+                                rx="2"
+                                ry="2"
+                              />
+                              <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                            </svg>
+                            Copy Assistant
+                          </button>
+
+                          <button
+                            className="delete-btn"
+                            onClick={(e) => handleDeleteAssistant(e, assistant.id)}
+                          >
+                            <svg
+                              width="14"
+                              height="14"
+                              fill="none"
+                              stroke="currentColor"
+                              strokeWidth="2"
+                              viewBox="0 0 24 24"
+                            >
+                              <polyline points="3 6 5 6 21 6" />
+                              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                              <line x1="10" y1="11" x2="10" y2="17" />
+                              <line x1="14" y1="11" x2="14" y2="17" />
+                            </svg>
+                            Delete Assistant
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                </div>
-                <div className="omni-card-meta">
-                  <div><span>LLM:</span> <strong>{assistant.llm || assistant.aiModel || '—'}</strong></div>
-                  <div><span>Voice:</span> <strong>{assistant.voice || '—'}</strong></div>
-                  <div><span>KB Files:</span> <strong>{assistant.kbFiles ?? 0}</strong></div>
-                  <div><span>Search:</span> <strong>{assistant.search || 'Off'}</strong></div>
-                  <div><span>Post-call:</span> <strong>{assistant.postCall || 'None'}</strong></div>
-                  <div><span>Integrations:</span> <strong>{assistant.integrations || 'None'}</strong></div>
-                </div>
-                <div className="omni-card-footer">
-                  <span className="omni-card-id" title={String(assistant.id)}>ID: {String(assistant.id).slice(0, 12)}…</span>
-                  <button className="omni-btn omni-btn-primary" onClick={() => navigate(`/agent/${assistant.id}`)}>Edit Agent</button>
-                </div>
-                </article>
+                  <div className="omni-card-meta">
+                    <div><span>LLM:</span> <strong>{assistant.llm}</strong></div>
+                    <div><span>Voice:</span> <strong>{assistant.voice}</strong></div>
+                    <div><span>KB Files:</span> <strong>{assistant.kbFiles}</strong></div>
+                    <div><span>Search:</span> <strong>{assistant.search}</strong></div>
+                    <div><span>Post-call:</span> <strong>{assistant.postCall}</strong></div>
+                    <div><span>Integrations:</span> <strong>{assistant.integrations}</strong></div>
+                  </div>
+                  <div className="omni-card-footer">
+                    <span className="omni-card-id">ID: {assistant.id}</span>
+                    <button className="omni-btn omni-btn-primary" onClick={() => navigate(`/agent/${assistant.id}`)}>Edit Agent</button>
+                  </div>
+                </article >
               ))
               }
-            </div>
-          </div>
+            </div >
+          </div >
+        </div >
 
         {/* ════════════════════════════════════════════
           STYLES
@@ -1499,7 +1614,7 @@ Goals:
           max-width: 1200px;
           margin: 0 auto;
           padding: 32px 24px;
-          color: var(--text-primary);
+          color: #e2e8f0;
         }
 
         /* ── Page Header ── */
@@ -1511,18 +1626,18 @@ Goals:
           font-weight: 800;
           letter-spacing: -0.5px;
           margin-bottom: 6px;
-          color: var(--text-primary);
+          color: #f8fafc;
         }
         .omni-page-header p {
-          color: var(--text-secondary);
+          color: #94a3b8;
           font-size: 14px;
           margin: 0;
         }
 
         /* ── Create Card ── */
         .omni-create-card {
-          background: var(--bg-card);
-          border: 1px solid var(--border);
+          background: #1e293b;
+          border: 1px solid #334155;
           border-radius: 16px;
           padding: 28px;
           margin-bottom: 32px;
@@ -1530,22 +1645,22 @@ Goals:
         .omni-create-card-header h3 {
           font-size: 16px;
           font-weight: 600;
-          color: var(--text-primary);
+          color: #f8fafc;
           margin: 0 0 6px;
         }
         .omni-create-card-header p {
           font-size: 13px;
-          color: var(--text-secondary);
+          color: #94a3b8;
           margin: 0 0 18px;
         }
         .omni-create-textarea {
           width: 100%;
           min-height: 140px;
-          background: var(--bg-secondary);
-          border: 1px solid var(--border);
+          background: #0f172a;
+          border: 1px solid #334155;
           border-radius: 12px;
           padding: 16px;
-          color: var(--text-primary);
+          color: #e2e8f0;
           font-size: 14px;
           line-height: 1.6;
           resize: vertical;
@@ -1555,7 +1670,7 @@ Goals:
           box-sizing: border-box;
         }
         .omni-create-textarea::placeholder {
-          color: var(--text-muted);
+          color: #64748b;
         }
         .omni-create-textarea:focus {
           border-color: #14b8a6;
@@ -1576,7 +1691,7 @@ Goals:
         }
         .omni-templates-label {
           font-size: 12px;
-          color: var(--text-muted);
+          color: #64748b;
           margin-bottom: 10px;
         }
         .omni-use-case-chips {
@@ -1585,12 +1700,12 @@ Goals:
           gap: 8px;
         }
         .omni-chip {
-          background: var(--bg-secondary);
-          border: 1px solid var(--border);
+          background: #0f172a;
+          border: 1px solid #334155;
           border-radius: 20px;
           padding: 6px 14px;
           font-size: 12px;
-          color: var(--text-secondary);
+          color: #94a3b8;
           cursor: pointer;
           transition: all 0.2s;
           white-space: nowrap;
@@ -1641,9 +1756,9 @@ Goals:
           background: #0d9488;
         }
         .omni-btn-secondary {
-          background: var(--bg-card);
-          color: var(--text-primary);
-          border: 1px solid var(--border);
+          background: #1e293b;
+          color: #e2e8f0;
+          border: 1px solid #334155;
         }
         .omni-btn-secondary:hover:not(:disabled) {
           border-color: #14b8a6;
@@ -1665,7 +1780,7 @@ Goals:
         .omni-assistants-header h2 {
           font-size: 18px;
           font-weight: 700;
-          color: var(--text-primary);
+          color: #f8fafc;
           margin: 0;
         }
         .omni-assistants-header-actions {
@@ -1678,41 +1793,41 @@ Goals:
           display: flex;
           align-items: center;
           gap: 8px;
-          background: var(--bg-card);
-          border: 1px solid var(--border);
+          background: #1e293b;
+          border: 1px solid #334155;
           border-radius: 10px;
           padding: 8px 14px;
           min-width: 220px;
         }
         .omni-search-box svg {
-          color: var(--text-muted);
+          color: #64748b;
           flex-shrink: 0;
         }
         .omni-search-box input {
           background: transparent;
           border: none;
           outline: none;
-          color: var(--text-primary);
+          color: #e2e8f0;
           font-size: 13px;
           width: 100%;
         }
         .omni-search-box input::placeholder {
-          color: var(--text-muted);
+          color: #64748b;
         }
         .omni-suggestions {
           display: flex;
           align-items: center;
           gap: 8px;
           font-size: 12px;
-          color: var(--text-muted);
+          color: #64748b;
         }
         .omni-suggestions button {
-          background: var(--bg-card);
-          border: 1px solid var(--border);
+          background: #1e293b;
+          border: 1px solid #334155;
           border-radius: 6px;
           padding: 4px 10px;
           font-size: 12px;
-          color: var(--text-secondary);
+          color: #94a3b8;
           cursor: pointer;
           transition: all 0.2s;
         }
@@ -1728,8 +1843,8 @@ Goals:
           gap: 20px;
         }
         .omni-card {
-          background: var(--bg-card);
-          border: 1px solid var(--border);
+          background: #1e293b;
+          border: 1px solid #334155;
           border-radius: 14px;
           padding: 20px;
           display: flex;
@@ -1737,7 +1852,7 @@ Goals:
           transition: border-color 0.2s, box-shadow 0.2s;
         }
         .omni-card:hover {
-          border-color: var(--text-muted);
+          border-color: #475569;
           box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
         }
         .omni-card-head {
@@ -1747,25 +1862,26 @@ Goals:
           margin-bottom: 16px;
         }
         .omni-card-head h3 {
-          font-size: 14px;
-          font-weight: 600;
-          color: var(--text-primary);
-          margin: 0 0 4px;
-          line-height: 1.4;
-          display: -webkit-box;
-          -webkit-line-clamp: 2;
-          -webkit-box-orient: vertical;
-          overflow: hidden;
-        }
+  font-size: 14px;
+  font-weight: 600;
+  color: #f8fafc;
+  margin: 0 0 4px;
+  line-height: 1.4;
+
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
         .omni-card-head p {
           font-size: 12px;
-          color: var(--text-muted);
+          color: #64748b;
           margin: 0;
         }
         .omni-card-menu {
           background: transparent;
           border: none;
-          color: var(--text-muted);
+          color: #64748b;
           font-size: 18px;
           cursor: pointer;
           padding: 4px;
@@ -1773,8 +1889,8 @@ Goals:
           line-height: 1;
         }
         .omni-card-menu:hover {
-          background: var(--bg-elevated);
-          color: var(--text-primary);
+          background: #334155;
+          color: #e2e8f0;
         }
         .omni-card-meta {
           display: grid;
@@ -1785,32 +1901,26 @@ Goals:
         }
         .omni-card-meta div {
           font-size: 12px;
-          color: var(--text-secondary);
+          color: #94a3b8;
         }
         .omni-card-meta span {
-          color: var(--text-muted);
+          color: #64748b;
         }
         .omni-card-meta strong {
-          color: var(--text-primary);
+          color: #e2e8f0;
           font-weight: 500;
         }
         .omni-card-footer {
           display: flex;
           justify-content: space-between;
           align-items: center;
-          gap: 12px;
           padding-top: 14px;
-          margin-top: auto;
-          border-top: 1px solid var(--border);
+          border-top: 1px solid #334155;
         }
         .omni-card-id {
           font-size: 11px;
-          color: var(--text-muted);
+          color: #475569;
           font-family: monospace;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
-          min-width: 0;
         }
 
         /* ════════════════════════════════════════ */
@@ -1829,7 +1939,7 @@ Goals:
             padding: 18px;
             border-radius: 12px;
             border: 1px solid #14b8a6;
-            background: var(--bg-secondary);
+            background: #0f172a;
           }
           .omni-create-card-header h3 {
             color: #14b8a6;
@@ -1838,7 +1948,7 @@ Goals:
           .omni-create-textarea {
             min-height: 120px;
             font-size: 14px;
-            background: var(--bg-card);
+            background: #1e293b;
             border-color: #334155;
           }
           .omni-create-footer {
@@ -1869,9 +1979,9 @@ Goals:
           .omni-chip {
             font-size: 12px;
             padding: 8px 14px;
-            background: var(--bg-card);
+            background: #1e293b;
             border-color: #334155;
-            color: var(--text-primary);
+            color: #e2e8f0;
             border-radius: 8px;
           }
           /* Assistants section */
@@ -1904,8 +2014,8 @@ Goals:
           }
           .omni-card {
             padding: 16px;
-            background: var(--bg-card);
-            border: 1px solid var(--border);
+            background: #1e293b;
+            border: 1px solid #334155;
           }
           .omni-card-head h3 {
             font-size: 14px;

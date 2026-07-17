@@ -11,46 +11,6 @@ import {
   DEFAULT_TEMPERATURE,
   ALLOWED_MODELS,
 } from "../constants/llmModels.js";
-import prisma from "../config/prisma.js";
-
-/**
- * Agents store a human-friendly model label (e.g. "GPT-4.1-Mini",
- * "Gemini 2.5 Flash"). Normalize it into a { provider, model } pair that the
- * LLM factory understands. Returns {} when the label is unknown so callers
- * can fall back to defaults.
- */
-export const mapAgentModel = (label) => {
-  if (!label || typeof label !== "string") return {};
-  const norm = label.trim().toLowerCase().replace(/\s+/g, "-");
-
-  // Exact match against known model IDs first
-  for (const [provider, models] of Object.entries(ALLOWED_MODELS)) {
-    if (models.includes(norm)) return { provider, model: norm };
-  }
-
-  // Heuristic mapping for label variants
-  if (norm.includes("gemini")) {
-    return { provider: "gemini", model: norm.includes("lite") ? "gemini-2.5-flash-lite" : "gemini-2.5-flash" };
-  }
-  if (norm.startsWith("azure")) {
-    const m = ALLOWED_MODELS.azure.find((x) => norm.includes(x.replace("azure-", ""))) || "azure-gpt-4o-mini";
-    return { provider: "azure", model: m };
-  }
-  if (norm.includes("llama")) {
-    return { provider: "custom", model: "llama-3.3-70b-versatile" };
-  }
-  if (norm.includes("gpt")) {
-    const m = ALLOWED_MODELS.openai.find((x) => norm.includes(x)) ||
-      (norm.includes("4.1-nano") ? "gpt-4.1-nano"
-        : norm.includes("4.1") ? "gpt-4.1-mini"
-        : norm.includes("4o-mini") ? "gpt-4o-mini"
-        : norm.includes("4o") ? "gpt-4o"
-        : norm.includes("5.1") ? "gpt-5.1"
-        : "gpt-4o-mini");
-    return { provider: "openai", model: m };
-  }
-  return {};
-};
 
 /**
  * Generate LLM response
@@ -92,40 +52,15 @@ export const generateResponse = async (req, res) => {
 
     logger.info(`[${requestId}] Processing LLM request for agent: ${agentId}`);
 
-    // Load the agent's stored configuration so agentId actually drives behavior.
-    // Request-body overrides still win (useful for testing), then agent config,
-    // then environment defaults.
-    let agentRecord = null;
-    try {
-      const workspaceId = req.params?.workspaceId;
-      agentRecord = await prisma.agent.findFirst({
-        where: workspaceId ? { id: agentId, workspaceId } : { id: agentId },
-      });
-    } catch (dbErr) {
-      logger.warn(`[${requestId}] Could not load agent config from DB: ${dbErr.message}`);
-    }
-
-    if (req.params?.workspaceId && !agentRecord) {
-      return res.status(404).json({ error: 'Agent not found in this workspace' });
-    }
-
-    const fromAgent = mapAgentModel(agentRecord?.aiModel);
-
+    // TODO: Fetch agent configuration from database
+    // For now, using request parameters
     const agentConfig = {
-      provider:
-        provider ||
-        fromAgent.provider ||
-        process.env.DEFAULT_LLM_PROVIDER ||
-        "gemini",
+      provider: provider || process.env.DEFAULT_LLM_PROVIDER || "gemini",
 
-      model:
-        model ||
-        fromAgent.model ||
-        process.env.DEFAULT_LLM_MODEL ||
-        "gemini-2.5-flash",
+      model: model || process.env.DEFAULT_LLM_MODEL || "gemini-2.5-flash",
 
       temperature:
-        temperature ??
+        temperature ?? 
         (process.env.DEFAULT_LLM_TEMPERATURE ? parseFloat(process.env.DEFAULT_LLM_TEMPERATURE) : DEFAULT_TEMPERATURE),
     };
 
@@ -342,7 +277,7 @@ export const validateLLMConfig = (req, res) => {
 };
 
 export const generateAgentFlow = async (req, res) => {
-  const { name, prompt: userPrompt, category, provider: reqProvider, model: reqModel } = req.body;
+  const { name } = req.body;
   if (!name || typeof name !== "string") {
     logger.warn("Missing required field 'name' for generateAgentFlow");
     return res.status(400).json({
@@ -350,13 +285,11 @@ export const generateAgentFlow = async (req, res) => {
     });
   }
 
-  // Request override → env default → gemini. (Flow generation happens before
-  // the agent exists, so there is no agent record to read a model from yet.)
-  const provider = reqProvider || process.env.DEFAULT_LLM_PROVIDER || "gemini";
-  const model = reqModel || process.env.DEFAULT_LLM_MODEL || "gemini-2.5-flash";
+  const provider = process.env.DEFAULT_LLM_PROVIDER || "gemini";
+  const model = process.env.DEFAULT_LLM_MODEL || "gemini-2.5-flash";
   const temperature = 0.2;
 
-  logger.info(`Generating personalized flow for agent: ${name} via ${provider}/${model}`);
+  logger.info(`Generating personalized flow for agent: ${name}`);
 
   let llmProvider;
   try {
@@ -364,14 +297,13 @@ export const generateAgentFlow = async (req, res) => {
   } catch (error) {
     logger.error("Failed to initialize LLM provider for flow generation", error);
     return res.status(500).json({
-      error: `Failed to initialize LLM provider "${provider}" — is its API key (e.g. GEMINI_API_KEY / OPENAI_API_KEY) set in backend/.env? Detail: ${error.message}`,
+      error: "Failed to initialize LLM provider",
     });
   }
 
   const systemPrompt = "You are an expert AI architect. Generate highly personalized voice assistant configurations in clean, valid JSON format.";
   const prompt = `Generate a personalized conversational flow configuration for a voice assistant.
-Assistant Name: "${name}"
-${category ? `Use-case category: "${category}"\n` : ''}${userPrompt ? `The user's full description of this assistant's purpose, personality, and behavior (BASE THE ENTIRE FLOW ON THIS — every stage, question, and rule must be tailored to it):\n\"\"\"${String(userPrompt).slice(0, 4000)}\"\"\"\n` : ''}
+Assistant Name/Purpose: "${name}"
 
 Keep your chain of thought/reasoning extremely brief (under 5 sentences), then immediately output the raw JSON object inside a \`\`\`json markdown block. Do not waste tokens explaining.
 
@@ -553,11 +485,8 @@ Provide 4 to 8 logical, structured conversational steps (flow items) that cover 
     res.json(parsed);
   } catch (error) {
     logger.error("Error generating agent flow", error);
-    const keyHint = /api.?key/i.test(error.message || '')
-      ? ' — check that the provider\'s API key is set in backend/.env'
-      : '';
-    res.status(502).json({
-      error: `Flow generation via ${provider}/${model} failed: ${error.message || 'unknown error'}${keyHint}`,
+    res.status(500).json({
+      error: error.message || "Failed to generate agent flow",
     });
   }
 };

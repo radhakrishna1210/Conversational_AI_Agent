@@ -57,16 +57,4 @@ router.get('/analytics/agent-creation',    authenticate, isAdmin, ctrl.getAgentC
 router.get('/analytics/top-workspaces',    authenticate, isAdmin, ctrl.getTopWorkspaces);
 router.get('/analytics/recent-users',      authenticate, isAdmin, ctrl.getRecentUsers);
 
-
-// ─── Sprint-2 admin additions ─────────────────────────────────────────────────
-import * as platform from '../controllers/platform.controller.js';
-import { listAppointments } from '../controllers/appointment.controller.js';
-
-router.get('/appointments', authenticate, isAdmin, listAppointments);
-router.get('/plans', authenticate, isAdmin, platform.adminListPlans);
-router.post('/plans', authenticate, isAdmin, platform.adminUpsertPlan);
-router.delete('/plans/:id', authenticate, isAdmin, platform.adminDeletePlan);
-router.post('/wallets/credit', authenticate, isAdmin, platform.adminCreditWallet);
-router.get('/health', authenticate, isAdmin, platform.adminHealth);
-
 export default router;

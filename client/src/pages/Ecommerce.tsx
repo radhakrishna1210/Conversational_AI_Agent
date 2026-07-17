@@ -8,6 +8,7 @@ import {
   Headphones,
   Package,
   Repeat2,
+  ShieldCheck,
   ShoppingBag,
   ShoppingCart,
   Sparkles,

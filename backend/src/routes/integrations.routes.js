@@ -9,13 +9,11 @@ const router = Router({ mergeParams: true });
 router.get('/', ctrl.getDashboard);
 router.get('/logs', ctrl.getLogs);
 router.get('/events', ctrl.events);
-router.get('/providers', ctrl.getProviders);
 router.get('/:provider', validate(integrationProviderParamSchema, 'params'), ctrl.getIntegration);
 router.post('/:provider/connect', validate(integrationProviderParamSchema, 'params'), validate(integrationConnectSchema), ctrl.connect);
-router.post('/:provider/connect-token', validate(integrationProviderParamSchema, 'params'), ctrl.connectWithToken);
 router.post('/:provider/disconnect', validate(integrationProviderParamSchema, 'params'), ctrl.disconnect);
 router.patch('/:provider/settings', authorize('Admin'), validate(integrationProviderParamSchema, 'params'), validate(integrationSettingsSchema), ctrl.saveSettings);
-router.post('/:provider/sync', validate(integrationProviderParamSchema, 'params'), ctrl.sync);
+router.post('/:provider/sync', authorize('Admin'), validate(integrationProviderParamSchema, 'params'), ctrl.sync);
 router.post('/custom-api/test', authorize('Admin'), validate(integrationCustomApiSchema), ctrl.testCustomApi);
 
 export default router;

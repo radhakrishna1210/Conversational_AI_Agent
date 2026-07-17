@@ -1,7 +1,7 @@
 import { useParams, useNavigate } from 'react-router-dom';
 
 import { useEffect, useState, useRef } from 'react';
-import { AgentConfig, getDefaultFlowItems } from '../lib/agentStore';
+import { AgentConfig, getAgent, saveAgent, getDefaultFlowItems } from '../lib/agentStore';
 
 import { whapi } from '../lib/whapi';
 import { integrationsApi } from '../lib/integrationsApi';
@@ -42,6 +42,24 @@ const LANGUAGES_LIST = [
   'Japanese', 'Korean', 'Portuguese', 'Russian', 'Arabic', 'Italian'
 ];
 
+const VOICES_BY_PROVIDER = {
+  google: [
+    { id: 'aoede', name: 'Aoede', gender: 'female', accents: ['feminine', 'premium', 'chirp3'] },
+    { id: 'achernar', name: 'Achernar', gender: 'female', accents: ['feminine', 'premium', 'chirp3'] },
+    { id: 'algenib', name: 'Algenib', gender: 'male', accents: ['masculine', 'premium', 'chirp3'] },
+    { id: 'algieba', name: 'Algieba', gender: 'male', accents: ['masculine', 'premium', 'chirp3'] },
+    { id: 'alnilam', name: 'Alnilam', gender: 'male', accents: ['masculine', 'premium', 'chirp3'] }
+  ],
+  elevenlabs: [
+    { id: 'bella', name: 'Bella', gender: 'female', accents: ['professional', 'narration'] },
+    { id: 'matilda', name: 'Matilda', gender: 'female', accents: ['professional', 'narration'] },
+    { id: 'adam', name: 'Adam', gender: 'male', accents: ['professional', 'narration'] }
+  ],
+  cartesia: [
+    { id: 'dante', name: 'Dante', gender: 'male', accents: ['smooth', 'natural'] },
+    { id: 'ivy', name: 'Ivy', gender: 'female', accents: ['smooth', 'natural'] }
+  ]
+};
 
 const AI_MODELS = ['GPT-4.1-Mini', 'GPT-4-Turbo', 'Claude-3-Opus', 'Gemini-Pro', 'Llama-2-70B'];
 const POST_CALL_TRIGGER_OPTIONS = ['Completed', 'Voicemail Detected', 'No Answer', 'Busy', 'Failed'];
@@ -130,7 +148,7 @@ export default function EditAgent() {
   const [isSttModelDropdownOpen, setIsSttModelDropdownOpen] = useState(false);
   const [isSttLanguageDropdownOpen, setIsSttLanguageDropdownOpen] = useState(false);
   
-  const [, setVoiceProvider] = useState('google'); // provider tracked for future UI filtering
+  const [voiceProvider, setVoiceProvider] = useState('google');
   const [agentName, setAgentName] = useState('');
   const [agentNotFound, setAgentNotFound] = useState(false);
   const [postCallConfigs, setPostCallConfigs] = useState<PostCallConfig[]>([createDefaultPostCallConfig()]);
@@ -148,24 +166,18 @@ export default function EditAgent() {
   };
   
   // KB state
+  interface KnowledgeDocumentItem {
+    id: string;
+    title: string;
+    fileName: string;
+    contentText: string;
+    chunkCount: number;
+    createdAt: string;
+  }
   const [kbUrls, setKbUrls] = useState<string[]>([]);
   const [kbUrlInput, setKbUrlInput] = useState('');
-  // Server-backed KB (unified with the sidebar Files page — issue #14)
-  interface KbRecord { id: string; fileName: string; sizeBytes: number; hasText: boolean }
-  const [kbFiles, setKbFiles] = useState<KbRecord[]>([]);
-  const [kbText, setKbText] = useState('');
-  const [kbUploading, setKbUploading] = useState(false);
-
-  const refreshKb = async () => {
-    if (!agentId) return;
-    try {
-      const res = await whapi.get<{ files: KbRecord[] }>(`/files?agentId=${agentId}`);
-      setKbFiles(res?.files ?? []);
-      const kt = await whapi.get<{ kbText: string }>(`/agents/${agentId}/kb-text`);
-      setKbText(kt?.kbText ?? '');
-    } catch (e) { console.error('KB load failed', e); }
-  };
-  useEffect(() => { refreshKb(); /* eslint-disable-line react-hooks/exhaustive-deps */ }, [agentId]);
+  const [kbDocuments, setKbDocuments] = useState<KnowledgeDocumentItem[]>([]);
+  const [kbLoading, setKbLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleAddKbUrl = () => {
@@ -179,33 +191,55 @@ export default function EditAgent() {
     setKbUrls(kbUrls.filter(u => u !== url));
   };
 
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (!e.target.files?.length) return;
-    const files = Array.from(e.target.files);
-    e.target.value = '';
-    setKbUploading(true);
-    for (const f of files) {
-      try {
-        const form = new FormData();
-        form.append('file', f);
-        if (agentId) form.append('agentId', agentId);
-        const res = await whapi.postForm<{ file: KbRecord; textExtracted: boolean }>('/files', form);
-        toast.success(`${f.name} uploaded${res?.textExtracted ? '' : ' (no text could be extracted — it will not ground answers)'}`);
-      } catch (err) {
-        toast.error(err instanceof Error ? `${f.name}: ${err.message}` : `Failed to upload ${f.name}`);
-      }
+  const loadKnowledgeDocuments = async () => {
+    if (!agentId) return;
+    setKbLoading(true);
+    try {
+      const result = await whapi.get<{ documents: KnowledgeDocumentItem[] }>('/knowledge');
+      setKbDocuments(result.documents || []);
+    } catch (error) {
+      console.error('Failed to load knowledge base documents', error);
+    } finally {
+      setKbLoading(false);
     }
-    setKbUploading(false);
-    refreshKb();
   };
 
-  const removeKbFile = async (id: string) => {
+  useEffect(() => {
+    if (activeTab === 'kb') {
+      void loadKnowledgeDocuments();
+    }
+  }, [activeTab, agentId]);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files ? Array.from(e.target.files) : [];
+    if (!files.length) return;
+
     try {
-      await whapi.del(`/files/${id}`);
-      setKbFiles(prev => prev.filter(f => f.id !== id));
-      refreshKb();
-    } catch (err) {
-      toast.error('Failed to delete file');
+      setKbLoading(true);
+      for (const file of files) {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('title', file.name.replace(/\.[^.]+$/, ''));
+        await whapi.postForm('/knowledge/upload', formData);
+      }
+      await loadKnowledgeDocuments();
+    } catch (error) {
+      console.error('Knowledge upload failed', error);
+    } finally {
+      setKbLoading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const removeKbFile = async (documentId: string) => {
+    try {
+      setKbLoading(true);
+      await whapi.delete(`/knowledge/${documentId}`);
+      setKbDocuments((prev) => prev.filter((doc) => doc.id !== documentId));
+    } catch (error) {
+      console.error('Knowledge delete failed', error);
+    } finally {
+      setKbLoading(false);
     }
   };
   
@@ -214,6 +248,7 @@ export default function EditAgent() {
   const [chatMessages, setChatMessages] = useState<{ role: string, content: string }[]>([]);
   const [userMessage, setUserMessage] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const chatSessionIdRef = useRef<string>('');
 
   // Top-bar button states
   const [showWebCallModal, setShowWebCallModal] = useState(false);
@@ -228,6 +263,48 @@ export default function EditAgent() {
   const [isAskAILoading, setIsAskAILoading] = useState(false);
   const [webCallActive, setWebCallActive] = useState(false);
   const [webCallStatus, setWebCallStatus] = useState<'idle' | 'connecting' | 'connected' | 'ended'>('idle');
+  const [webCallTranscript, setWebCallTranscript] = useState<{ role: 'user' | 'assistant' | 'system'; text: string }[]>([]);
+  const [webCallInput, setWebCallInput] = useState('');
+  const [webCallError, setWebCallError] = useState('');
+  const [webCallListening, setWebCallListening] = useState(false);
+  const [webCallSpeaking, setWebCallSpeaking] = useState(false);
+  const [webCallVoiceId, setWebCallVoiceId] = useState<string | null>(null);
+  const [webCallVoiceName, setWebCallVoiceName] = useState('');
+  const [webCallVoiceEnabled, setWebCallVoiceEnabled] = useState(true);
+  const recognitionRef = useRef<any>(null);
+  const micStreamRef = useRef<MediaStream | null>(null);
+  const webCallAudioRef = useRef<HTMLAudioElement | null>(null);
+  const webCallInputRef = useRef('');
+  const webCallActiveRef = useRef(false);
+  const webCallSpeakingRef = useRef(false);
+
+  useEffect(() => {
+    webCallInputRef.current = webCallInput;
+  }, [webCallInput]);
+
+  useEffect(() => {
+    webCallActiveRef.current = webCallActive;
+  }, [webCallActive]);
+
+  useEffect(() => {
+    webCallSpeakingRef.current = webCallSpeaking;
+  }, [webCallSpeaking]);
+
+  useEffect(() => {
+    return () => {
+      try {
+        recognitionRef.current?.stop?.();
+        recognitionRef.current?.abort?.();
+      } catch {}
+      if (micStreamRef.current) {
+        micStreamRef.current.getTracks().forEach((track) => track.stop());
+      }
+      if (webCallAudioRef.current) {
+        webCallAudioRef.current.pause();
+        webCallAudioRef.current = null;
+      }
+    };
+  }, []);
 
 
   useEffect(() => {
@@ -268,12 +345,31 @@ export default function EditAgent() {
           return;
         }
       } catch (err) {
-        console.error('Failed to fetch agent from backend', err);
+        console.error('Failed to fetch from backend, trying local storage', err);
+      }
+
+      // Fallback to local storage
+      const localAgent = getAgent(agentId);
+      if (!localAgent) {
         setAgentNotFound(true);
         setIsLoading(false);
         return;
       }
-
+      setAgentName(localAgent.name);
+      setWelcomeMessage(localAgent.welcomeMessage);
+      setSelectedLanguages(localAgent.selectedLanguages || ['English (Indian)']);
+      setVoice(localAgent.voice || 'Google - Aoede (female)');
+      setAiModel(localAgent.aiModel || 'GPT-4.1-Mini');
+      setTranscription(localAgent.transcription || 'Azure');
+      setMaxSilenceBeforeHangup((localAgent as any).maxSilenceBeforeHangup ?? 15);
+      setEndCallMessage((localAgent as any).endCallMessage ?? 'Goodbye and thank you for calling.');
+      setTransferNumber((localAgent as any).transferNumber ?? '');
+      setTransferCondition((localAgent as any).transferCondition ?? '');
+      setFillerWords((localAgent as any).fillerWords ?? false);
+      setSpeakingRate((localAgent as any).speakingRate ?? 1.0);
+      setAmbientSound((localAgent as any).ambientSound ?? 'None');
+      setPostCallConfigs((localAgent as any).postCallConfigs?.length ? (localAgent as any).postCallConfigs : [createDefaultPostCallConfig()]);
+      setFlowItems((localAgent as any).flowItems || getDefaultFlowItems(localAgent.name || ''));
       setIsLoading(false);
     };
 
@@ -305,17 +401,18 @@ export default function EditAgent() {
       interruptibleEnabled,
       postCallConfigs,
       kbUrls,
-      kbFiles: kbFiles.map(f => f.fileName)
+      kbFiles: kbDocuments.map((doc) => doc.fileName)
     };
 
     try {
       await whapi.put(`/agents/${agentId}`, agentData);
-      toast.success('Agent saved');
     } catch (err) {
       console.error('Failed to save to backend', err);
-      toast.error(err instanceof Error ? `Save failed: ${err.message}` : 'Save failed — changes were NOT stored.');
     }
 
+    // Still save to local storage as backup/sync
+    saveAgent({ ...agentData, id: agentId!, selectedLanguages } as any);
+    
     setIsSaving(false);
   };
 
@@ -452,298 +549,21 @@ export default function EditAgent() {
     setIsTyping(true);
 
     try {
-      const chatTestInstructions = `# Chat Test Assistant Instructions
-
-You are the Chat Test Environment for this AI Agent.
-
-Your responsibility is to simulate the exact behavior of the deployed agent and validate that the agent follows its configured instructions, conversation flow, knowledge base, variables, business rules, and integrations.
-
-## Primary Objective
-
-Act exactly as the configured agent would act in production.
-
-The purpose of this chat is to test the agent's behavior before deployment.
-
-Never bypass configured instructions.
-
-Never ignore defined conversation flows.
-
-Never invent information not present in the knowledge base.
-
-Never assume tool execution if no tool is available.
-
----
-
-## Agent Configuration Priority
-
-Always follow this order:
-
-1. Agent Instructions
-2. Conversation Flow
-3. Knowledge Base
-4. Variables & Memory
-5. Business Rules
-6. Integrations & Tools
-7. User Message
-
-If conflicts occur, higher-priority instructions take precedence.
-
----
-
-## Conversation Flow Enforcement
-
-For every user message:
-
-1. Identify current flow stage.
-2. Determine expected next action.
-3. Check required information.
-4. Continue only according to flow rules.
-
-Examples:
-
-* Greeting Flow
-* Qualification Flow
-* FAQ Flow
-* Product Inquiry Flow
-* Appointment Booking Flow
-* Support Flow
-* Escalation Flow
-* Feedback Collection Flow
-* Closing Flow
-
-Do not skip mandatory stages.
-
-Do not jump ahead in the workflow.
-
-Do not collect unnecessary information.
-
----
-
-## Knowledge Base Rules
-
-When answering questions:
-
-* Search available knowledge first.
-* Use only information present in the configured knowledge base.
-* Keep responses accurate and grounded.
-
-If information cannot be found:
-
-Respond with:
-
-"I couldn't find that information in the configured knowledge base."
-
-Do not hallucinate.
-
-Do not generate unsupported facts.
-
----
-
-## Variable Tracking
-
-Maintain conversation state throughout the session.
-
-Track:
-
-* Name
-* Email
-* Phone
-* Company
-* Product Interest
-* Booking Preferences
-* Support Details
-* Any custom variables defined for the agent
-
-Reuse previously collected information.
-
-Never ask for information that has already been collected unless verification is required.
-
----
-
-## Lead Qualification Testing
-
-If the flow requires qualification:
-
-Collect required fields.
-
-Validate:
-
-* Completeness
-* Format
-* Eligibility Criteria
-
-Only mark a lead as qualified when all required conditions are satisfied.
-
-If information is missing, request only the missing fields.
-
----
-
-## Appointment Booking Testing
-
-Before booking:
-
-Collect:
-
-* Date
-* Time
-* Time Zone
-* Contact Details
-
-Generate a confirmation summary.
-
-Require explicit user confirmation before proceeding.
-
-Never assume confirmation.
-
----
-
-## Tool & Integration Validation
-
-When a workflow requires a tool:
-
-1. Verify prerequisites.
-2. Validate collected inputs.
-3. Execute configured action.
-4. Return actual results.
-
-If the tool is unavailable:
-
-State that the requested action cannot be completed due to unavailable integration.
-
-Never fabricate successful execution.
-
-Never generate fake booking IDs, order IDs, confirmations, or API responses.
-
----
-
-## Error Handling
-
-For ambiguous requests:
-
-Ask for clarification.
-
-For unsupported requests:
-
-State that the request is outside the agent's configured capabilities.
-
-For missing required data:
-
-Request only the specific missing information.
-
----
-
-## Escalation Rules
-
-Escalate when:
-
-* User requests a human agent.
-* User repeatedly expresses frustration.
-* Request falls outside available knowledge.
-* Business rules require human review.
-
-When escalation occurs:
-
-Inform the user that the conversation should be transferred to a human representative.
-
----
-
-## Memory & Context
-
-Maintain awareness of:
-
-* Previous user responses
-* Current flow stage
-* Collected variables
-* Pending actions
-* Completed actions
-
-Use context throughout the conversation.
-
-Avoid repetitive questions.
-
----
-
-## Response Quality Standards
-
-Responses must be:
-
-* Accurate
-* Professional
-* Context-aware
-* Flow-compliant
-* Knowledge-grounded
-* Concise
-* Action-oriented
-
-Avoid:
-
-* Hallucinations
-* Guessing
-* Contradictory responses
-* Flow violations
-* Unverified claims
-
----
-
-## Internal Validation Checklist
-
-Before every response verify:
-
-✓ Agent instructions followed
-
-✓ Flow followed correctly
-
-✓ Knowledge base checked
-
-✓ Required variables collected
-
-✓ Business rules satisfied
-
-✓ Tool requirements validated
-
-✓ Memory updated
-
-✓ Response aligned with current stage
-
-Only then generate the response.
-
----
-
-## Final Rule
-
-The Chat Test environment must behave exactly like the live agent.
-
-Every response must reflect:
-
-* Agent Instructions
-* Flow Logic
-* Knowledge Base Content
-* Variables
-* Integrations
-* Business Rules
-
-The goal is to accurately test real-world agent behavior before deployment.
-
----
-
-# Current Agent Configuration
-
-Welcome Message: ${welcomeMessage}
-
-Conversation Flow (follow these stages IN ORDER — each stage's full instructions below):
-${flowItems.filter(f => f.enabled).map((f, i) => `## Stage ${i + 1}: ${f.title}\n${f.body || '(no additional instructions)'}`).join('\n\n')}
-
-Knowledge Base (ONLY use facts found here; if the answer isn't here, say you don't have that information):
-${kbText || '(no knowledge base documents uploaded — say you have no reference documents if asked about specifics)'}`;
-
-      const response = await whapi.post<{ message: string }>('/llm/generate', {
-        agentId,
+      if (!chatSessionIdRef.current) {
+        chatSessionIdRef.current = window.crypto?.randomUUID?.() ?? `chat-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      }
+
+      const response = await whapi.post<{ reply: string; detectedLanguage?: string }>(`/agents/${agentId}/chat`, {
         message: userMessage,
-        systemPrompt: chatTestInstructions,
-        useFallback: true,
+        selectedLanguages: selectedLanguages.length > 0 ? selectedLanguages : ['English (Indian)'],
+        welcomeMessage,
+        chatHistory: newMessages.slice(0, -1).slice(-10).map((msg) => ({
+          role: msg.role,
+          text: msg.content,
+        })),
       });
 
-      setChatMessages([...newMessages, { role: 'assistant', content: response.message }]);
+      setChatMessages([...newMessages, { role: 'assistant', content: response.reply }]);
     } catch (err) {
       console.error('Chat failed', err);
       setChatMessages([...newMessages, { role: 'assistant', content: 'Error: Failed to get response from AI.' }]);
@@ -757,19 +577,16 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
     setIsAskAILoading(true);
     setAskAIResponse('');
     try {
-      // No hardcoded provider/model: the backend resolves the agent's own
-      // configured model (mapAgentModel) and falls back to the default
-      // provider (Gemini) — previously this forced openai/gpt-4o and failed
-      // whenever OPENAI_API_KEY was absent, even though Gemini worked.
       const response = await whapi.post<{ message: string }>('/llm/generate', {
         agentId,
         message: askAIInput,
         systemPrompt: `You are an AI assistant helping configure an AI voice agent. The agent is named "${agentName}" and its welcome message is: "${welcomeMessage}". Provide helpful, concise suggestions for improving or configuring this agent.`,
-        useFallback: true,
+        provider: 'openai',
+        model: 'gpt-4o'
       });
       setAskAIResponse(response.message);
     } catch (err) {
-      setAskAIResponse(err instanceof Error ? `AI request failed: ${err.message}` : 'Failed to get AI response.');
+      setAskAIResponse('Failed to get AI response. Please check your backend connection.');
     } finally {
       setIsAskAILoading(false);
     }
@@ -788,17 +605,352 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
     }
   };
 
+  const stopBrowserWebCall = () => {
+    try {
+      recognitionRef.current?.stop?.();
+      recognitionRef.current?.abort?.();
+    } catch {}
+    if (micStreamRef.current) {
+      micStreamRef.current.getTracks().forEach((track) => track.stop());
+      micStreamRef.current = null;
+    }
+    if (webCallAudioRef.current) {
+      webCallAudioRef.current.pause();
+      webCallAudioRef.current = null;
+    }
+    window.speechSynthesis?.cancel?.();
+    setWebCallListening(false);
+    setWebCallSpeaking(false);
+  };
+
+  const appendWebCallMessage = (role: 'user' | 'assistant' | 'system', text: string) => {
+    setWebCallTranscript((prev) => [...prev, { role, text }]);
+  };
+
+  const replaceLastWebCallMessage = (role: 'assistant' | 'system', text: string) => {
+    setWebCallTranscript((prev) => {
+      if (prev.length === 0) return prev;
+      const next = [...prev];
+      next[next.length - 1] = { ...next[next.length - 1], role, text };
+      return next;
+    });
+  };
+
+  const splitSpeechText = (text: string, maxChars = 260) => {
+    const cleaned = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!cleaned) return [];
+
+    const sentences = cleaned.match(/[^.!?]+[.!?]*/g) || [cleaned];
+    const chunks: string[] = [];
+    let current = '';
+
+    for (const sentence of sentences) {
+      const next = current ? `${current} ${sentence.trim()}` : sentence.trim();
+      if (next.length <= maxChars) {
+        current = next;
+        continue;
+      }
+
+      if (current) {
+        chunks.push(current.trim());
+        current = '';
+      }
+
+      if (sentence.trim().length <= maxChars) {
+        current = sentence.trim();
+        continue;
+      }
+
+      const words = sentence.trim().split(/\s+/);
+      let wordBuffer = '';
+      for (const word of words) {
+        const candidate = wordBuffer ? `${wordBuffer} ${word}` : word;
+        if (candidate.length > maxChars && wordBuffer) {
+          chunks.push(wordBuffer.trim());
+          wordBuffer = word;
+        } else {
+          wordBuffer = candidate;
+        }
+      }
+      if (wordBuffer) {
+        current = wordBuffer.trim();
+      }
+    }
+
+    if (current) chunks.push(current.trim());
+    return chunks.filter(Boolean);
+  };
+
+  const sanitizeSpeechText = (text: string) => {
+    return String(text || '')
+      .replace(/```[\s\S]*?```/g, ' ')
+      .replace(/\*\*(.*?)\*\*/g, '$1')
+      .replace(/\*(.*?)\*/g, '$1')
+      .replace(/`([^`]+)`/g, '$1')
+      .replace(/^\s*[-*]\s+/gm, '')
+      .replace(/^\s*\d+\.\s+/gm, '')
+      .replace(/\[(.*?)\]\((.*?)\)/g, '$1')
+      .replace(/[#_>]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
+  const buildWebCallHistory = () => {
+    return webCallTranscript
+      .filter((item) => item.role === 'user' || item.role === 'assistant')
+      .slice(-10)
+      .map((item) => ({ role: item.role, text: item.text }));
+  };
+
+  const requestVoiceAudioBlob = async (voiceId: string, text: string) => {
+    const token = localStorage.getItem('token') || '';
+    const response = await fetch(`/api/v1/voices/${voiceId}/preview`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ text }),
+    });
+
+    if (!response.ok) {
+      const message = await response.text().catch(() => '');
+      throw new Error(message || `Voice playback failed (${response.status})`);
+    }
+
+    return response.blob();
+  };
+
+  const speakWebCallText = async (text: string, overrideVoiceId?: string | null): Promise<number> => {
+    if (!text) return 0;
+    const voiceIdToUse = overrideVoiceId ?? webCallVoiceId;
+    const voiceText = sanitizeSpeechText(text);
+
+    if (!webCallVoiceEnabled || !voiceIdToUse) {
+      if (!window.speechSynthesis) return;
+      window.speechSynthesis.cancel();
+      const utterance = new SpeechSynthesisUtterance(voiceText);
+      utterance.rate = speakingRate || 1;
+      utterance.pitch = 1;
+      utterance.onstart = () => {
+        setWebCallSpeaking(true);
+        setWebCallListening(false);
+      };
+      utterance.onend = () => {
+        setWebCallSpeaking(false);
+        if (webCallActiveRef.current) startRecognition();
+      };
+      utterance.onerror = () => {
+        setWebCallSpeaking(false);
+        if (webCallActiveRef.current) startRecognition();
+      };
+      window.speechSynthesis.speak(utterance);
+      const estimatedSeconds = Math.max(2.2, text.trim().split(/\s+/).length * 0.42 / Math.max(speakingRate || 1, 0.5));
+      return estimatedSeconds;
+    }
+
+    try {
+      setWebCallSpeaking(true);
+      setWebCallListening(false);
+      if (webCallAudioRef.current) {
+        webCallAudioRef.current.pause();
+        webCallAudioRef.current = null;
+      }
+
+      const blob = await requestVoiceAudioBlob(voiceIdToUse, voiceText);
+      const audio = new Audio(URL.createObjectURL(blob));
+      webCallAudioRef.current = audio;
+      const totalDuration = await new Promise<number>((resolve) => {
+        const fallbackSeconds = Math.max(2.2, voiceText.trim().split(/\s+/).length * 0.34 / Math.max(speakingRate || 1, 0.5));
+        audio.onloadedmetadata = () => {
+          resolve(Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : fallbackSeconds);
+        };
+        audio.onended = () => resolve(Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : fallbackSeconds);
+        audio.onerror = () => resolve(fallbackSeconds);
+        void audio.play().catch(() => resolve(fallbackSeconds));
+      });
+      setWebCallSpeaking(false);
+      if (webCallActiveRef.current) startRecognition();
+      return totalDuration || Math.max(2.2, voiceText.trim().split(/\s+/).length * 0.34);
+    } catch (error: any) {
+      const fallbackText = voiceText;
+      setWebCallError('');
+      setWebCallSpeaking(false);
+      if (window.speechSynthesis && fallbackText) {
+        try {
+          window.speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(fallbackText);
+          utterance.rate = speakingRate || 1;
+          utterance.pitch = 1;
+          utterance.onend = () => {
+            if (webCallActiveRef.current) startRecognition();
+          };
+          utterance.onerror = () => {
+            if (webCallActiveRef.current) startRecognition();
+          };
+          window.speechSynthesis.speak(utterance);
+          return Math.max(2.2, fallbackText.trim().split(/\s+/).length * 0.35);
+        } catch {}
+      }
+      setWebCallError(error?.message || 'Failed to play selected voice');
+      if (webCallActiveRef.current) startRecognition();
+      return 0;
+    }
+  };
+
+  const animateAssistantText = (text: string, durationSeconds: number) => {
+    const tokens = text.split(/(\s+)/);
+    let index = 0;
+    let current = '';
+    const totalMs = Math.max(1400, durationSeconds * 1000);
+    const intervalMs = Math.max(28, Math.min(120, Math.round(totalMs / Math.max(tokens.length, 1))));
+    replaceLastWebCallMessage('assistant', '');
+    const timer = window.setInterval(() => {
+      current += tokens[index] ?? '';
+      replaceLastWebCallMessage('assistant', current.trimStart());
+      index += 1;
+      if (index >= tokens.length) {
+        window.clearInterval(timer);
+      }
+    }, intervalMs);
+  };
+
+  const sendWebCallMessage = async (message: string) => {
+    const trimmed = message.trim();
+    if (!trimmed) return;
+
+    appendWebCallMessage('user', trimmed);
+    setWebCallError('');
+    setWebCallStatus('connected');
+
+    try {
+      const response = await whapi.post<{ reply: string; detectedLanguage?: string }>(`/agents/${agentId}/chat`, {
+        message: trimmed,
+        selectedLanguages,
+        welcomeMessage,
+        flowItems,
+        voice,
+        chatHistory: buildWebCallHistory(),
+      });
+
+      const replyText = response?.reply || 'Sorry, I did not catch that.';
+      appendWebCallMessage('assistant', '');
+      const duration = await speakWebCallText(replyText);
+      animateAssistantText(replyText, duration);
+    } catch (err: any) {
+      const messageText = err?.message || 'Failed to generate response';
+      setWebCallError(messageText);
+      appendWebCallMessage('system', `Error: ${messageText}`);
+    }
+  };
+
+  const startRecognition = async () => {
+    if (!webCallActive) return;
+
+    const RecognitionCtor = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!RecognitionCtor) {
+      setWebCallError('Speech recognition is not supported in this browser.');
+      return;
+    }
+
+    try {
+      if (!micStreamRef.current) {
+        micStreamRef.current = await navigator.mediaDevices.getUserMedia({ audio: true });
+      }
+    } catch (err: any) {
+      setWebCallError(err?.message || 'Microphone permission is required for web call.');
+      setWebCallStatus('ended');
+      return;
+    }
+
+    try {
+      recognitionRef.current?.stop?.();
+    } catch {}
+
+    const recognition = new RecognitionCtor();
+    recognitionRef.current = recognition;
+    recognition.lang = 'en-US';
+    recognition.interimResults = true;
+    recognition.continuous = false;
+
+    let finalTranscript = '';
+
+    recognition.onstart = () => {
+      setWebCallListening(true);
+      setWebCallStatus('connected');
+    };
+
+    recognition.onresult = (event: any) => {
+      let interim = '';
+      for (let i = event.resultIndex; i < event.results.length; i += 1) {
+        const transcript = event.results[i][0].transcript;
+        if (event.results[i].isFinal) {
+          finalTranscript += transcript;
+        } else {
+          interim += transcript;
+        }
+      }
+      setWebCallInput((finalTranscript || interim).trim());
+    };
+
+    recognition.onerror = (event: any) => {
+      setWebCallError(event?.error || 'Speech recognition error');
+      setWebCallListening(false);
+    };
+
+    recognition.onend = async () => {
+      setWebCallListening(false);
+      const spoken = (finalTranscript || webCallInputRef.current).trim();
+      if (!spoken || !webCallActiveRef.current || webCallSpeakingRef.current) return;
+      setWebCallInput('');
+      await sendWebCallMessage(spoken);
+    };
+
+    try {
+      recognition.start();
+    } catch (err: any) {
+      setWebCallError(err?.message || 'Unable to start speech recognition');
+    }
+  };
+
+  const startBrowserWebCall = async () => {
+    let resolvedVoiceId: string | null = null;
+    try {
+      const voiceResponse = await whapi.get<{ id: string; name?: string }>(`/agents/${agentId}/voice`);
+      resolvedVoiceId = voiceResponse.id;
+      setWebCallVoiceId(voiceResponse.id);
+      setWebCallVoiceName(voiceResponse.name || '');
+    } catch {
+      setWebCallVoiceId(null);
+      setWebCallVoiceName('');
+    }
+
+    const initialText = welcomeMessage?.trim() || `Hello, I am ${agentName || 'your assistant'}. How can I help you today?`;
+    appendWebCallMessage('assistant', '');
+    setWebCallStatus('connected');
+    const initialDuration = await speakWebCallText(initialText, resolvedVoiceId);
+    animateAssistantText(initialText, initialDuration);
+    await startRecognition();
+  };
+
   const handleStartWebCall = () => {
-    setWebCallStatus('connecting');
+    setWebCallError('');
+    setWebCallTranscript([]);
+    setWebCallInput('');
     setWebCallActive(true);
-    setTimeout(() => setWebCallStatus('connected'), 1500);
+    setWebCallStatus('connecting');
+    void startBrowserWebCall();
   };
 
   const handleEndWebCall = () => {
+    stopBrowserWebCall();
     setWebCallStatus('ended');
     setTimeout(() => {
       setWebCallActive(false);
       setWebCallStatus('idle');
+      setWebCallError('');
+      setWebCallTranscript([]);
+      setWebCallInput('');
     }, 1000);
   };
 
@@ -816,7 +968,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
 
   if (isLoading) {
     return (
-      <div style={{ width: '100%', minHeight: '100vh', background: '#0f0f0f', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
+      <div style={{ width: '100%', minHeight: '100vh', background: '#0f0f0f', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
           <div style={{ width: '40px', height: '40px', border: '3px solid #1a1a1a', borderTopColor: '#00bcd4', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
           <span style={{ fontSize: '14px', color: '#999' }}>Loading agent configuration...</span>
@@ -831,7 +983,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
   }
 
   return (
-    <div style={{ width: '100%', minHeight: '100vh', background: '#0f0f0f', color: 'var(--text-primary)', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
+    <div style={{ width: '100%', minHeight: '100vh', background: '#0f0f0f', color: '#fff', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
       {/* Language Configuration Modal */}
       {showLanguageModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
@@ -855,7 +1007,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
               ))}
             </div>
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowLanguageModal(false)} style={{ padding: '10px 20px', background: 'transparent', border: '1px solid #333', color: 'var(--text-primary)', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>Cancel</button>
+              <button onClick={() => setShowLanguageModal(false)} style={{ padding: '10px 20px', background: 'transparent', border: '1px solid #333', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>Cancel</button>
               <button onClick={() => setShowLanguageModal(false)} style={{ padding: '10px 20px', background: '#00bcd4', color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>Done</button>
             </div>
           </div>
@@ -908,7 +1060,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
       {/* Transcription Configuration Modal (Speech-to-Text) */}
       {showTranscriptionModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: 'var(--bg-secondary)', border: '1px solid #1a1a1a', borderRadius: '8px', padding: '30px', maxWidth: '900px', width: '90%' }}>
+          <div style={{ background: '#0a0a0a', border: '1px solid #1a1a1a', borderRadius: '8px', padding: '30px', maxWidth: '900px', width: '90%' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
               <h2 style={{ fontSize: '18px', fontWeight: '600', margin: 0 }}>Speech-to-Text Configuration</h2>
               <button onClick={() => setShowTranscriptionModal(false)} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '24px' }}>X</button>
@@ -934,7 +1086,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                       borderRadius: '6px', 
                       cursor: 'pointer',
                       fontSize: '13px',
-                      color: 'var(--text-primary)'
+                      color: '#fff'
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -956,7 +1108,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                             padding: '10px 14px', 
                             cursor: 'pointer',
                             fontSize: '13px',
-                            color: 'var(--text-primary)',
+                            color: '#fff',
                             background: sttProvider === provider ? '#1a1a1a' : 'transparent'
                           }}
                           onMouseEnter={(e) => e.currentTarget.style.background = '#1a1a1a'}
@@ -966,7 +1118,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                             <MicIcon />
                             <span>{provider}</span>
                           </div>
-                          {sttProvider === provider && <span style={{ color: 'var(--text-primary)', fontSize: '12px' }}>OK</span>}
+                          {sttProvider === provider && <span style={{ color: '#fff', fontSize: '12px' }}>OK</span>}
                         </div>
                       ))}
                     </div>
@@ -998,7 +1150,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px', fontSize: '11px', color: '#999' }}>
                     <span>0ms</span>
-                    <span style={{ color: 'var(--text-primary)' }}>{sttSilenceTimeoutMs}ms</span>
+                    <span style={{ color: '#fff' }}>{sttSilenceTimeoutMs}ms</span>
                     <span>1500ms</span>
                   </div>
                 </div>
@@ -1043,7 +1195,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                     justifyContent: 'space-between', 
                     padding: '14px', 
                     background: '#0f0f0f', 
-                    border: '1px solid var(--border)', 
+                    border: '1px solid #222', 
                     borderRadius: '6px', 
                     cursor: 'pointer' 
                   }}
@@ -1074,7 +1226,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                         <div 
                           key={model} 
                           onClick={() => { setSttModel(model); setIsSttModelDropdownOpen(false); }}
-                          style={{ padding: '10px 14px', cursor: 'pointer', fontSize: '13px', color: 'var(--text-primary)', background: sttModel === model ? '#1a1a1a' : 'transparent' }}
+                          style={{ padding: '10px 14px', cursor: 'pointer', fontSize: '13px', color: '#fff', background: sttModel === model ? '#1a1a1a' : 'transparent' }}
                           onMouseEnter={(e) => e.currentTarget.style.background = '#1a1a1a'}
                           onMouseLeave={(e) => e.currentTarget.style.background = sttModel === model ? '#1a1a1a' : 'transparent'}
                         >
@@ -1100,7 +1252,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                         <div 
                           key={lang} 
                           onClick={() => { setSttLanguage(lang); setIsSttLanguageDropdownOpen(false); }}
-                          style={{ padding: '10px 14px', cursor: 'pointer', fontSize: '13px', color: 'var(--text-primary)', background: sttLanguage === lang ? '#1a1a1a' : 'transparent' }}
+                          style={{ padding: '10px 14px', cursor: 'pointer', fontSize: '13px', color: '#fff', background: sttLanguage === lang ? '#1a1a1a' : 'transparent' }}
                           onMouseEnter={(e) => e.currentTarget.style.background = '#1a1a1a'}
                           onMouseLeave={(e) => e.currentTarget.style.background = sttLanguage === lang ? '#1a1a1a' : 'transparent'}
                         >
@@ -1133,34 +1285,55 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
       {/* Web Call Modal */}
       {showWebCallModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: '#1a1a1a', borderRadius: '12px', padding: '40px', maxWidth: '420px', width: '90%', textAlign: 'center', border: '1px solid #333' }}>
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '10px' }}>
-              <button onClick={() => { setShowWebCallModal(false); setWebCallActive(false); setWebCallStatus('idle'); }} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '20px' }}>✕</button>
+          <div style={{ background: '#1a1a1a', borderRadius: '12px', padding: '28px', maxWidth: '560px', width: '92%', border: '1px solid #333' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', marginBottom: '14px' }}>
+              <div>
+                <h3 style={{ fontSize: '18px', fontWeight: 700, margin: 0, color: '#fff' }}>Web Call Test</h3>
+                <p style={{ fontSize: '13px', color: '#999', margin: '6px 0 0' }}>Test your agent in the browser with text or voice.</p>
+              </div>
+              <button onClick={() => { setShowWebCallModal(false); handleEndWebCall(); }} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '20px', lineHeight: 1 }}>X</button>
             </div>
-            <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: webCallStatus === 'connected' ? 'rgba(76,175,80,0.2)' : webCallStatus === 'connecting' ? 'rgba(255,152,0,0.2)' : 'rgba(0,188,212,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px', border: webCallStatus === 'connected' ? '2px solid #4caf50' : '2px solid #00bcd4', transition: 'all 0.3s' }}>
-              <span style={{ fontSize: '36px' }}>{webCallStatus === 'connected' ? '🎙️' : webCallStatus === 'connecting' ? '⏳' : '🌐'}</span>
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px', color: '#cfd3d7', fontSize: '13px', flexWrap: 'wrap' }}>
+              <div style={{ width: '10px', height: '10px', borderRadius: '999px', background: webCallStatus === 'connected' ? '#22c55e' : webCallStatus === 'connecting' ? '#f59e0b' : '#0ea5e9' }} />
+              <span>{webCallStatus === 'idle' ? 'Ready to start' : webCallStatus === 'connecting' ? 'Connecting...' : webCallStatus === 'connected' ? 'Connected' : 'Ended'}</span>
+              {(webCallListening || webCallSpeaking) && <span style={{ color: '#8aa4ff' }}>{webCallListening ? 'Listening' : 'Speaking'}</span>}
+              <button onClick={() => setWebCallVoiceEnabled((prev) => !prev)} style={{ marginLeft: 'auto', padding: '8px 12px', borderRadius: '999px', border: '1px solid #333', background: webCallVoiceEnabled ? 'rgba(0,188,212,0.16)' : '#111', color: '#fff', cursor: 'pointer', fontSize: '12px', fontWeight: 600 }}>{webCallVoiceEnabled ? 'Voice On' : 'Voice Off'}</button>
             </div>
-            <h3 style={{ fontSize: '18px', fontWeight: '600', margin: '0 0 8px', color: 'var(--text-primary)' }}>
-              {webCallStatus === 'idle' ? 'Web Call Test' : webCallStatus === 'connecting' ? 'Connecting...' : webCallStatus === 'connected' ? 'Call Connected' : 'Call Ended'}
-            </h3>
-            <p style={{ fontSize: '13px', color: '#999', marginBottom: '24px' }}>
-              {webCallStatus === 'idle' ? `Test your agent "${agentName}" with a browser-based voice call.` : webCallStatus === 'connecting' ? 'Setting up audio connection...' : webCallStatus === 'connected' ? 'Speak into your microphone to interact with the agent.' : 'The test call has ended.'}
-            </p>
-            {!webCallActive ? (
-              <button
-                onClick={handleStartWebCall}
-                style={{ padding: '14px 32px', background: '#00bcd4', color: '#000', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '600' }}
-              >🎤 Start Web Call</button>
-            ) : webCallStatus === 'connected' ? (
-              <button
-                onClick={handleEndWebCall}
-                style={{ padding: '14px 32px', background: '#ef4444', color: 'var(--text-primary)', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '600' }}
-              >📞 End Call</button>
-            ) : null}
+
+            {webCallError && <div style={{ padding: '12px 14px', borderRadius: '10px', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.35)', color: '#fca5a5', fontSize: '13px', marginBottom: '14px' }}>{webCallError}</div>}
+
+            <div style={{ height: '240px', overflowY: 'auto', background: '#0f0f0f', border: '1px solid #2a2a2a', borderRadius: '12px', padding: '14px', display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '14px' }}>
+              {webCallTranscript.length === 0 ? (
+                <div style={{ color: '#6b7280', fontSize: '13px', margin: 'auto', textAlign: 'center' }}>Start the call to see the conversation here.</div>
+              ) : (
+                webCallTranscript.map((item, index) => (
+                  <div key={item.role + '-' + index} style={{ alignSelf: item.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '82%', padding: '10px 12px', borderRadius: '12px', background: item.role === 'user' ? '#14b8a6' : item.role === 'assistant' ? '#1f2937' : 'rgba(239,68,68,0.15)', color: item.role === 'user' ? '#081b1b' : '#f3f4f6', border: item.role === 'assistant' ? '1px solid #30363d' : 'none', whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: '13px', lineHeight: 1.45 }}>{item.text}</div>
+                ))
+              )}
+            </div>
+
+            {webCallActive && <div style={{ display: 'flex', gap: '10px', marginBottom: '14px' }}>
+              <input type="text" value={webCallInput} onChange={(e) => setWebCallInput(e.target.value)} placeholder="Type a message..." style={{ flex: 1, background: '#0f0f0f', border: '1px solid #2a2a2a', color: '#fff', borderRadius: '10px', padding: '12px 14px', fontSize: '13px', outline: 'none' }} onKeyDown={(e) => { if (e.key === 'Enter') { void sendWebCallMessage(webCallInput); } }} />
+              <button onClick={() => void sendWebCallMessage(webCallInput)} disabled={!webCallInput.trim()} style={{ padding: '12px 18px', borderRadius: '10px', border: 'none', background: '#00bcd4', color: '#001014', fontWeight: 700, cursor: webCallInput.trim() ? 'pointer' : 'not-allowed', opacity: webCallInput.trim() ? 1 : 0.55 }}>Send</button>
+            </div>}
+
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                {!webCallActive ? (
+                  <button onClick={handleStartWebCall} style={{ padding: '14px 28px', background: '#00bcd4', color: '#000', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 700 }}>Start Web Call</button>
+                ) : (
+                  <>
+                    <button onClick={() => void startRecognition()} disabled={!webCallVoiceEnabled || webCallListening || webCallSpeaking} style={{ padding: '14px 22px', background: '#111827', color: '#fff', border: '1px solid #333', borderRadius: '8px', cursor: !webCallVoiceEnabled || webCallListening || webCallSpeaking ? 'not-allowed' : 'pointer', fontSize: '14px', fontWeight: 600, opacity: !webCallVoiceEnabled || webCallListening || webCallSpeaking ? 0.6 : 1 }}>Listen Again</button>
+                    <button onClick={handleEndWebCall} style={{ padding: '14px 22px', background: '#ef4444', color: '#fff', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: 700 }}>End Call</button>
+                  </>
+                )}
+              </div>
+              <div style={{ color: '#7c8794', fontSize: '12px' }}>{webCallVoiceName ? ('Voice: ' + webCallVoiceName) : ' '}</div>
+            </div>
           </div>
         </div>
       )}
-
       {/* Phone Call Modal */}
       {showPhoneCallModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
@@ -1177,11 +1350,11 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                 value={phoneTestNumber}
                 onChange={e => setPhoneTestNumber(e.target.value)}
                 placeholder="+1 (555) 123-4567"
-                style={{ width: '100%', background: '#0f0f0f', border: '1px solid #333', borderRadius: '8px', padding: '12px 14px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
+                style={{ width: '100%', background: '#0f0f0f', border: '1px solid #333', borderRadius: '8px', padding: '12px 14px', color: '#fff', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
               />
             </div>
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowPhoneCallModal(false)} style={{ padding: '10px 20px', background: 'transparent', border: '1px solid #333', color: 'var(--text-primary)', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>Cancel</button>
+              <button onClick={() => setShowPhoneCallModal(false)} style={{ padding: '10px 20px', background: 'transparent', border: '1px solid #333', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>Cancel</button>
               <button
                 onClick={handlePhoneCall}
                 disabled={!phoneTestNumber.trim()}
@@ -1193,7 +1366,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
       )}
 
       {/* Header */}
-      <div style={{ background: 'var(--bg-secondary)', borderBottom: '1px solid #1a1a1a', padding: '12px 24px', display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+      <div style={{ background: '#0a0a0a', borderBottom: '1px solid #1a1a1a', padding: '12px 24px', display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
         <button onClick={() => navigate('/dashboard')} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '18px', padding: 0 }}>{'<'}</button>
         
         <input
@@ -1202,10 +1375,10 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
           onChange={(e) => setAgentName(e.target.value)}
           style={{
             padding: '8px 12px',
-            background: 'var(--bg-elevated)',
-            border: '1px solid var(--border)',
+            background: '#111',
+            border: '1px solid #222',
             borderRadius: '6px',
-            color: 'var(--text-primary)',
+            color: '#fff',
             fontSize: '14px',
             fontWeight: '600',
             outline: 'none',
@@ -1224,15 +1397,15 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
           {/* Ask AI Button */}
           <button
             onClick={() => { setShowAskAIModal(true); setAskAIResponse(''); setAskAIInput(''); }}
-            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', background: '#ff9800', color: 'var(--text-primary)', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', transition: 'opacity 0.2s' }}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', background: '#ff9800', color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', transition: 'opacity 0.2s' }}
             onMouseEnter={e => e.currentTarget.style.opacity = '0.85'}
             onMouseLeave={e => e.currentTarget.style.opacity = '1'}
           >✨ Ask AI</button>
           
           {/* Test With Buttons */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '12px', color: 'var(--text-primary)', fontWeight: '500' }}>Test with</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-elevated)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border)' }}>
+            <span style={{ fontSize: '12px', color: '#fff', fontWeight: '500' }}>Test with</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#111', padding: '4px', borderRadius: '8px', border: '1px solid #222' }}>
               <button
                 onClick={() => setActiveTab('chat')}
                 style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', background: activeTab === 'chat' ? '#00bcd4' : '#0f0f0f', color: activeTab === 'chat' ? '#000' : '#00bcd4', border: activeTab === 'chat' ? 'none' : '1px solid #00bcd4', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', transition: 'all 0.2s' }}
@@ -1256,7 +1429,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
           <div style={{ position: 'relative' }}>
             <button
               onClick={() => setShowDeployDropdown(prev => !prev)}
-              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', background: deployStatus === 'done' ? '#2e7d32' : deployStatus === 'deploying' ? '#444' : '#1a1a1a', color: 'var(--text-primary)', border: '1px solid #333', borderRadius: '6px', cursor: deployStatus === 'deploying' ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: '500', transition: 'all 0.3s' }}
+              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', background: deployStatus === 'done' ? '#2e7d32' : deployStatus === 'deploying' ? '#444' : '#1a1a1a', color: '#fff', border: '1px solid #333', borderRadius: '6px', cursor: deployStatus === 'deploying' ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: '500', transition: 'all 0.3s' }}
               disabled={deployStatus === 'deploying'}
             >
               {deployStatus === 'deploying' ? '⏳ Deploying...' : deployStatus === 'done' ? '✅ Deployed!' : '🚀 Deploy'} <span style={{ fontSize: '10px', opacity: 0.7 }}>▼</span>
@@ -1264,10 +1437,10 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
             {showDeployDropdown && (
               <div style={{ position: 'absolute', top: '110%', right: 0, background: '#1a1a1a', border: '1px solid #333', borderRadius: '8px', minWidth: '200px', zIndex: 200, overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}>
                 <div style={{ padding: '8px 0' }}>
-                  <div onClick={handleDeploy} style={{ padding: '10px 16px', cursor: 'pointer', fontSize: '13px', color: 'var(--text-primary)', display: 'flex', gap: '10px', alignItems: 'center' }} onMouseEnter={e => e.currentTarget.style.background = '#222'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                  <div onClick={handleDeploy} style={{ padding: '10px 16px', cursor: 'pointer', fontSize: '13px', color: '#fff', display: 'flex', gap: '10px', alignItems: 'center' }} onMouseEnter={e => e.currentTarget.style.background = '#222'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                     <span>🚀</span> Save & Deploy
                   </div>
-                  <div onClick={() => { handleSave(); setShowDeployDropdown(false); }} style={{ padding: '10px 16px', cursor: 'pointer', fontSize: '13px', color: 'var(--text-primary)', display: 'flex', gap: '10px', alignItems: 'center' }} onMouseEnter={e => e.currentTarget.style.background = '#222'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                  <div onClick={() => { handleSave(); setShowDeployDropdown(false); }} style={{ padding: '10px 16px', cursor: 'pointer', fontSize: '13px', color: '#fff', display: 'flex', gap: '10px', alignItems: 'center' }} onMouseEnter={e => e.currentTarget.style.background = '#222'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                     <span>💾</span> Save Draft
                   </div>
                   <div style={{ height: '1px', background: '#333', margin: '4px 0' }} />
@@ -1280,7 +1453,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
           </div>
 
           {/* UI / Code Toggle */}
-          <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: '20px', padding: '2px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', background: '#111', border: '1px solid #222', borderRadius: '20px', padding: '2px' }}>
             <div
               onClick={() => setViewMode('ui')}
               style={{ padding: '4px 12px', background: viewMode === 'ui' ? '#333' : 'transparent', color: viewMode === 'ui' ? '#fff' : '#666', borderRadius: '18px', fontSize: '11px', fontWeight: '600', cursor: 'pointer', transition: 'all 0.2s' }}
@@ -1295,8 +1468,8 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
             onClick={toggleDarkMode}
             title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
             style={{
-              background: 'var(--bg-elevated)',
-              border: '1px solid var(--border)',
+              background: '#111',
+              border: '1px solid #222',
               color: '#999',
               cursor: 'pointer',
               display: 'flex',
@@ -1339,7 +1512,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {agentNotFound && (
-              <div style={{ padding: '40px', background: '#1a1a1a', border: '1px solid #333', borderRadius: '12px', margin: '20px 30px', color: 'var(--text-primary)' }}>
+              <div style={{ padding: '40px', background: '#1a1a1a', border: '1px solid #333', borderRadius: '12px', margin: '20px 30px', color: '#fff' }}>
                 <h2 style={{ margin: 0, fontSize: '18px' }}>Agent not found</h2>
                 <p style={{ color: '#999', marginTop: '10px' }}>The assistant you are trying to edit does not exist or has been removed. Return to the dashboard to select a different assistant.</p>
                 <button onClick={() => navigate('/dashboard')} style={{ marginTop: '16px', padding: '10px 18px', background: '#00bcd4', color: '#000', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Back to Dashboard</button>
@@ -1347,7 +1520,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
             )}
 
       {/* Tabs */}
-      <div style={{ display: 'flex', borderBottom: '1px solid #1a1a1a', background: 'var(--bg-secondary)', padding: '0 24px', gap: '24px', overflowX: 'auto', alignItems: 'center' }}>
+      <div style={{ display: 'flex', borderBottom: '1px solid #1a1a1a', background: '#0a0a0a', padding: '0 24px', gap: '24px', overflowX: 'auto', alignItems: 'center' }}>
         <div style={{ display: 'flex', gap: '24px', flex: 1 }}>
           {[
             { id: 'details', label: 'Assistant Details' },
@@ -1381,12 +1554,12 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
         </div>
         
         {/* Search Bar */}
-        <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: '6px', padding: '6px 12px', minWidth: '200px' }}>
+        <div style={{ display: 'flex', alignItems: 'center', background: '#111', border: '1px solid #222', borderRadius: '6px', padding: '6px 12px', minWidth: '200px' }}>
           <span style={{ color: '#666', marginRight: '8px', fontSize: '14px' }}>S</span>
           <input 
             type="text" 
             placeholder="Search or jump to..." 
-            style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', width: '100%' }}
+            style={{ background: 'transparent', border: 'none', color: '#fff', fontSize: '13px', outline: 'none', width: '100%' }}
           />
           <div style={{ background: '#222', color: '#999', fontSize: '10px', padding: '2px 6px', borderRadius: '4px', marginLeft: '8px' }}>Ctrl+K</div>
         </div>
@@ -1395,7 +1568,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
       {/* Content */}
       {viewMode === 'code' ? (
         <div style={{ padding: '30px 24px' }}>
-          <div style={{ fontSize: '15px', fontWeight: '700', marginBottom: '18px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ fontSize: '15px', fontWeight: '700', marginBottom: '18px', color: '#f5f5f5', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '16px' }}>{'{ }'}</span> Agent Configuration (JSON)
           </div>
           <textarea
@@ -1414,16 +1587,16 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
               interruptibleEnabled,
               postCallConfigs
             }, null, 2)}
-            style={{ width: '100%', minHeight: '500px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '8px', padding: '20px', color: '#00bcd4', fontSize: '13px', fontFamily: 'monospace', resize: 'vertical', outline: 'none', boxSizing: 'border-box' }}
+            style={{ width: '100%', minHeight: '500px', background: '#0a0a0a', border: '1px solid #222', borderRadius: '8px', padding: '20px', color: '#00bcd4', fontSize: '13px', fontFamily: 'monospace', resize: 'vertical', outline: 'none', boxSizing: 'border-box' }}
           />
           <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
             <button
               onClick={() => { navigator.clipboard.writeText(JSON.stringify({ name: agentName, welcomeMessage, aiModel, voice, transcription, languages: selectedLanguages, flowItems, maxDuration, silenceTimeout, dynamicEnabled, interruptibleEnabled, postCallConfigs }, null, 2)); alert('Copied to clipboard!'); }}
-              style={{ padding: '10px 20px', background: '#1a1a1a', border: '1px solid #333', color: 'var(--text-primary)', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}
+              style={{ padding: '10px 20px', background: '#1a1a1a', border: '1px solid #333', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}
             >📋 Copy JSON</button>
             <button
               onClick={() => { const blob = new Blob([JSON.stringify({ name: agentName, welcomeMessage, aiModel, voice, transcription, languages: selectedLanguages, flowItems, maxDuration, silenceTimeout, dynamicEnabled, interruptibleEnabled, postCallConfigs }, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${agentName.replace(/\s+/g, '_')}_config.json`; a.click(); URL.revokeObjectURL(url); }}
-              style={{ padding: '10px 20px', background: '#1a1a1a', border: '1px solid #333', color: 'var(--text-primary)', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}
+              style={{ padding: '10px 20px', background: '#1a1a1a', border: '1px solid #333', color: '#fff', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}
             >⬇️ Download JSON</button>
           </div>
         </div>
@@ -1432,10 +1605,10 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
         {activeTab === 'details' && (
           <>
             {/* Assistant Settings */}
-            <div style={{ fontSize: '15px', fontWeight: '700', marginBottom: '18px', display: 'flex', alignItems: 'center', color: 'var(--text-primary)' }}>
+            <div style={{ fontSize: '15px', fontWeight: '700', marginBottom: '18px', display: 'flex', alignItems: 'center', color: '#f5f5f5' }}>
               Assistant Settings <InfoIcon />
             </div>
-            <div style={{ background: '#0c0c0c', border: '1px solid var(--border)', borderRadius: '16px', padding: '24px 30px 20px', marginBottom: '20px' }}>
+            <div style={{ background: '#0c0c0c', border: '1px solid #222', borderRadius: '16px', padding: '24px 30px 20px', marginBottom: '20px' }}>
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '14px', marginBottom: '0' }}>
               {[
                 { icon: 'O', label: 'Languages', value: selectedLanguages.length > 0 ? selectedLanguages.join(', ') : 'No languages selected', onClick: () => setShowLanguageModal(true) },
@@ -1448,7 +1621,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                     <span>{item.icon}</span>
                   </div>
                   <div style={{ flex: 1, overflow: 'hidden' }}>
-                    <div style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: '700', marginBottom: '4px' }}>{item.label}</div>
+                    <div style={{ fontSize: '14px', color: '#fff', fontWeight: '700', marginBottom: '4px' }}>{item.label}</div>
                     <div style={{ fontSize: '12px', color: '#b3b3b3', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.value}</div>
                   </div>
                   <InfoIcon />
@@ -1458,9 +1631,9 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
             </div>
 
             {/* Welcome Message */}
-            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '16px', padding: '0', marginBottom: '20px', overflow: 'hidden' }}>
+            <div style={{ background: '#0b0b0b', border: '1px solid #222', borderRadius: '16px', padding: '0', marginBottom: '20px', overflow: 'hidden' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 30px', borderBottom: '1px solid #1c1c1c' }}>
-                <div style={{ display: 'flex', alignItems: 'center', fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', fontSize: '16px', fontWeight: '700', color: '#fff' }}>
                   <span style={{ color: '#11c7cf', marginRight: '10px', fontWeight: '700' }}>[]</span> Welcome Message <InfoIcon />
                 </div>
                 <div style={{ display: 'flex', gap: '24px', fontSize: '12px' }}>
@@ -1486,7 +1659,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                     width: '100%',
                     minHeight: '142px',
                     background: '#1a1a1a',
-                    border: '1px solid var(--border)',
+                    border: '1px solid #2a2a2a',
                     borderRadius: '10px',
                     padding: '14px 16px',
                     color: '#f1f1f1',
@@ -1503,9 +1676,9 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
             </div>
 
             {/* Conversational Flow */}
-            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '16px', padding: '0' }}>
+            <div style={{ background: '#0b0b0b', border: '1px solid #222', borderRadius: '16px', padding: '0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 30px', borderBottom: '1px solid #1c1c1c' }}>
-                <div style={{ display: 'flex', alignItems: 'center', fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', fontSize: '16px', fontWeight: '700', color: '#fff' }}>
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#11c7cf" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '10px' }}>
                     <line x1="8" y1="6" x2="21" y2="6"></line>
                     <line x1="8" y1="12" x2="21" y2="12"></line>
@@ -1516,7 +1689,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                   </svg>
                   Conversational Flow <InfoIcon />
                 </div>
-                <button onClick={addFlowItem} style={{ padding: '10px 18px', background: 'transparent', border: '1px solid #2d2d2d', borderRadius: '10px', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '13px', fontWeight: '700' }}>+ Add Section</button>
+                <button onClick={addFlowItem} style={{ padding: '10px 18px', background: 'transparent', border: '1px solid #2d2d2d', borderRadius: '10px', color: '#fff', cursor: 'pointer', fontSize: '13px', fontWeight: '700' }}>+ Add Section</button>
               </div>
               <div style={{ padding: '16px 30px 20px' }}>
                 {flowItems.map((item, index) => {
@@ -1563,7 +1736,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                         </div>
 
                         {/* Number */}
-                        <span style={{ fontSize: '14px', fontWeight: '700', width: '22px', color: 'var(--text-primary)' }}>{index + 1}.</span>
+                        <span style={{ fontSize: '14px', fontWeight: '700', width: '22px', color: '#fff' }}>{index + 1}.</span>
 
                         {/* Editable Title Input Styled Cleanly */}
                         <input
@@ -1576,7 +1749,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                             padding: '6px 8px',
                             fontSize: '14px',
                             fontWeight: '600',
-                            color: 'var(--text-primary)',
+                            color: '#fff',
                             background: 'transparent',
                             outline: 'none',
                             cursor: 'text',
@@ -1607,7 +1780,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                         {/* Right Actions */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginLeft: '12px' }}>
                           {/* Toggle ON/OFF Switch Block */}
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#b3b3b3', fontWeight: '700', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: '8px', padding: '0 10px', height: '32px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#b3b3b3', fontWeight: '700', background: '#111', border: '1px solid #222', borderRadius: '8px', padding: '0 10px', height: '32px' }}>
                             <span style={{ color: item.enabled ? '#fff' : '#666', minWidth: '24px' }}>{item.enabled ? 'ON' : 'OFF'}</span>
                             <div
                               onClick={() => toggleFlowItem(item.id)}
@@ -1678,7 +1851,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                               width: '100%',
                               minHeight: '120px',
                               background: '#141414',
-                              border: '1px solid var(--border)',
+                              border: '1px solid #222',
                               borderRadius: '8px',
                               padding: '12px',
                               color: '#e5e5e5',
@@ -1723,7 +1896,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                 { id: 'response', title: 'Response Behavior', subtitle: 'Filler phrases and personality style' },
                 { id: 'ambient', title: 'Ambient Sound', subtitle: 'Add background music or noise to calls' }
               ].map((section, i) => (
-                <div key={section.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '14px', overflow: 'hidden' }}>
+                <div key={section.id} style={{ background: '#0b0b0b', border: '1px solid #222', borderRadius: '14px', overflow: 'hidden' }}>
                   <div 
                     onClick={() => setExpandedConfigSection(expandedConfigSection === section.id ? null : section.id)}
                     style={{ padding: '18px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
@@ -1733,7 +1906,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                         {i === 0 ? 'o' : i === 1 ? 'X' : i === 2 ? 'R' : i === 3 ? '=' : 'n'}
                       </div>
                       <div>
-                        <div style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '2px' }}>{section.title}</div>
+                        <div style={{ fontSize: '16px', fontWeight: '700', color: '#fff', marginBottom: '2px' }}>{section.title}</div>
                         <div style={{ fontSize: '13px', color: '#b7b7b7' }}>{section.subtitle}</div>
                       </div>
                     </div>
@@ -1745,15 +1918,15 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                       {section.id === 'silence' && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                           <div>
-                            <label style={{ display: 'block', color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Response Delay (seconds)</label>
+                            <label style={{ display: 'block', color: '#fff', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Response Delay (seconds)</label>
                             <div style={{ fontSize: '12px', color: '#888', marginBottom: '12px' }}>How long the assistant waits after the user stops speaking before replying.</div>
                             <input type="range" min="1" max="10" step="1" value={silenceTimeout} onChange={e => setSilenceTimeout(Number(e.target.value))} style={{ width: '100%', accentColor: '#12c8d0' }} />
                             <div style={{ textAlign: 'right', color: '#12c8d0', fontSize: '14px', fontWeight: '700' }}>{silenceTimeout}s</div>
                           </div>
                           <div style={{ height: '1px', background: '#222' }} />
                           <div>
-                            <label style={{ display: 'block', color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Max Silence Before Hangup (seconds)</label>
-                            <input type="number" value={maxSilenceBeforeHangup} onChange={e => setMaxSilenceBeforeHangup(Number(e.target.value))} style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: '8px', color: 'var(--text-primary)', outline: 'none' }} />
+                            <label style={{ display: 'block', color: '#fff', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Max Silence Before Hangup (seconds)</label>
+                            <input type="number" value={maxSilenceBeforeHangup} onChange={e => setMaxSilenceBeforeHangup(Number(e.target.value))} style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: '8px', color: '#fff', outline: 'none' }} />
                           </div>
                         </div>
                       )}
@@ -1761,13 +1934,13 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                       {section.id === 'endCall' && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                           <div>
-                            <label style={{ display: 'block', color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Maximum Call Duration (minutes)</label>
-                            <input type="number" min="1" max="120" value={maxDuration} onChange={e => setMaxDuration(Number(e.target.value))} style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: '8px', color: 'var(--text-primary)', outline: 'none' }} />
+                            <label style={{ display: 'block', color: '#fff', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Maximum Call Duration (minutes)</label>
+                            <input type="number" min="1" max="120" value={maxDuration} onChange={e => setMaxDuration(Number(e.target.value))} style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: '8px', color: '#fff', outline: 'none' }} />
                           </div>
                           <div>
-                            <label style={{ display: 'block', color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>End Call Message</label>
+                            <label style={{ display: 'block', color: '#fff', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>End Call Message</label>
                             <div style={{ fontSize: '12px', color: '#888', marginBottom: '12px' }}>The message the agent will speak right before ending the call intentionally.</div>
-                            <input type="text" value={endCallMessage} onChange={e => setEndCallMessage(e.target.value)} style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: '8px', color: 'var(--text-primary)', outline: 'none' }} />
+                            <input type="text" value={endCallMessage} onChange={e => setEndCallMessage(e.target.value)} style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: '8px', color: '#fff', outline: 'none' }} />
                           </div>
                         </div>
                       )}
@@ -1775,13 +1948,13 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                       {section.id === 'transfer' && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                           <div>
-                            <label style={{ display: 'block', color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Transfer Phone Number</label>
-                            <input type="text" placeholder="+1234567890" value={transferNumber} onChange={e => setTransferNumber(e.target.value)} style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: '8px', color: 'var(--text-primary)', outline: 'none' }} />
+                            <label style={{ display: 'block', color: '#fff', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Transfer Phone Number</label>
+                            <input type="text" placeholder="+1234567890" value={transferNumber} onChange={e => setTransferNumber(e.target.value)} style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: '8px', color: '#fff', outline: 'none' }} />
                           </div>
                           <div>
-                            <label style={{ display: 'block', color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Transfer Condition Prompt</label>
+                            <label style={{ display: 'block', color: '#fff', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Transfer Condition Prompt</label>
                             <div style={{ fontSize: '12px', color: '#888', marginBottom: '12px' }}>When should the agent initiate a hand-off? e.g., "When the user asks to speak to a human or gets angry"</div>
-                            <textarea value={transferCondition} onChange={e => setTransferCondition(e.target.value)} style={{ width: '100%', minHeight: '80px', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: '8px', color: 'var(--text-primary)', outline: 'none', resize: 'vertical' }} />
+                            <textarea value={transferCondition} onChange={e => setTransferCondition(e.target.value)} style={{ width: '100%', minHeight: '80px', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: '8px', color: '#fff', outline: 'none', resize: 'vertical' }} />
                           </div>
                         </div>
                       )}
@@ -1790,7 +1963,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div>
-                              <div style={{ color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600' }}>Use Filler Words</div>
+                              <div style={{ color: '#fff', fontSize: '14px', fontWeight: '600' }}>Use Filler Words</div>
                               <div style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>Add "umm", "ahh" to make the agent sound more human.</div>
                             </div>
                             <div onClick={() => setFillerWords(!fillerWords)} style={{ width: '42px', height: '24px', background: fillerWords ? '#12c8d0' : '#333', borderRadius: '999px', position: 'relative', cursor: 'pointer' }}>
@@ -1799,7 +1972,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                           </div>
                           <div style={{ height: '1px', background: '#222' }} />
                           <div>
-                            <label style={{ display: 'block', color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Speaking Rate (Speed)</label>
+                            <label style={{ display: 'block', color: '#fff', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Speaking Rate (Speed)</label>
                             <input type="range" min="0.5" max="2.0" step="0.1" value={speakingRate} onChange={e => setSpeakingRate(Number(e.target.value))} style={{ width: '100%', accentColor: '#12c8d0' }} />
                             <div style={{ textAlign: 'right', color: '#12c8d0', fontSize: '14px', fontWeight: '700' }}>{speakingRate}x</div>
                           </div>
@@ -1808,7 +1981,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
 
                       {section.id === 'ambient' && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                          <label style={{ display: 'block', color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600' }}>Select Background Noise</label>
+                          <label style={{ display: 'block', color: '#fff', fontSize: '14px', fontWeight: '600' }}>Select Background Noise</label>
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
                             {['None', 'Office', 'Call Center', 'Static', 'Cafe', 'Street'].map(sound => (
                               <div 
@@ -1854,40 +2027,35 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
           >
             <div style={{ background: '#072122', border: '1px solid #113638', borderRadius: '16px', padding: '28px 28px 36px', marginBottom: '22px' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '16px', padding: '34px 30px 30px' }}>
-                  <div style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '10px' }}>Upload PDFs{kbUploading ? ' — uploading…' : ''}</div>
-                  <div style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '16px' }}>Add PDF files to your assistant's knowledge base</div>
+                <div style={{ background: '#0b0b0b', border: '1px solid #2a2a2a', borderRadius: '16px', padding: '34px 30px 30px' }}>
+                  <div style={{ fontSize: '18px', fontWeight: '700', color: '#fff', marginBottom: '10px' }}>Upload PDFs</div>
+                  <div style={{ fontSize: '14px', color: '#c5c5c5', marginBottom: '16px' }}>Add PDF files to your assistant's knowledge base</div>
                   <div 
                     onClick={() => fileInputRef.current?.click()}
                     style={{ border: '2px dashed #323232', borderRadius: '14px', minHeight: '168px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '18px', cursor: 'pointer' }}
                   >
                     <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".pdf" multiple style={{ display: 'none' }} />
                     <div style={{ width: '54px', height: '54px', borderRadius: '18px', background: '#062d2f', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#12c8d0', fontSize: '20px', marginBottom: '16px' }}>^</div>
-                    <div style={{ fontSize: '17px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '10px' }}>Drag and drop a file here, or click to select</div>
+                    <div style={{ fontSize: '17px', fontWeight: '700', color: '#fff', marginBottom: '10px' }}>Drag and drop a file here, or click to select</div>
                     <div style={{ fontSize: '13px', color: '#b7b7b7' }}>Supported formats: PDF (max 10MB)</div>
                   </div>
-                  {kbFiles.length > 0 && (
+                  {kbDocuments.length > 0 && (
                     <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {kbFiles.map((file) => (
-                        <div key={file.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-elevated)', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                          <span style={{ fontSize: '13px', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: 8 }}>
-                            {file.fileName}
-                            <span style={{ color: 'var(--text-muted)', marginLeft: 8, fontSize: 11 }}>
-                              {(file.sizeBytes / 1024).toFixed(0)} KB{file.hasText ? '' : ' · no text extracted'}
-                            </span>
-                          </span>
-                          <button onClick={(e) => { e.stopPropagation(); removeKbFile(file.id); }} style={{ background: 'none', border: 'none', color: '#ff6f6f', cursor: 'pointer', fontSize: '12px' }}>Remove</button>
+                      {kbDocuments.map((doc) => (
+                        <div key={doc.id} style={{ display: 'flex', justifyContent: 'space-between', background: '#111', padding: '8px 12px', borderRadius: '8px', border: '1px solid #222' }}>
+                          <span style={{ fontSize: '13px', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.title || doc.fileName}</span>
+                          <button onClick={(e) => { e.stopPropagation(); void removeKbFile(doc.id); }} style={{ background: 'none', border: 'none', color: '#ff6f6f', cursor: 'pointer', fontSize: '12px' }}>Remove</button>
                         </div>
                       ))}
                     </div>
                   )}
                 </div>
 
-                <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '16px', padding: '34px 30px 30px' }}>
-                  <div style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '10px' }}>Website Knowledge Base</div>
-                  <div style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '12px' }}>Add website content to your assistant's knowledge base</div>
+                <div style={{ background: '#0b0b0b', border: '1px solid #2a2a2a', borderRadius: '16px', padding: '34px 30px 30px' }}>
+                  <div style={{ fontSize: '18px', fontWeight: '700', color: '#fff', marginBottom: '10px' }}>Website Knowledge Base</div>
+                  <div style={{ fontSize: '14px', color: '#c5c5c5', marginBottom: '12px' }}>Add website content to your assistant's knowledge base</div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-                    <label style={{ display: 'block', fontSize: '14px', fontWeight: '700', color: 'var(--text-primary)' }}>Website URL</label>
+                    <label style={{ display: 'block', fontSize: '14px', fontWeight: '700', color: '#fff' }}>Website URL</label>
                     <InfoIcon />
                   </div>
                   <input
@@ -1902,7 +2070,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                       background: '#171717',
                       border: '1px solid #2e2e2e',
                       borderRadius: '8px',
-                      color: 'var(--text-primary)',
+                      color: '#fff',
                       fontSize: '14px',
                       outline: 'none',
                       marginBottom: '20px'
@@ -1914,8 +2082,8 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                   {kbUrls.length > 0 && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       {kbUrls.map((url, i) => (
-                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', background: 'var(--bg-elevated)', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                          <span style={{ fontSize: '13px', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{url}</span>
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', background: '#111', padding: '8px 12px', borderRadius: '8px', border: '1px solid #222' }}>
+                          <span style={{ fontSize: '13px', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{url}</span>
                           <button onClick={() => removeKbUrl(url)} style={{ background: 'none', border: 'none', color: '#ff6f6f', cursor: 'pointer', fontSize: '12px' }}>Remove</button>
                         </div>
                       ))}
@@ -1928,7 +2096,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
             <div style={{ background: '#281509', border: '1px solid #b65912', borderRadius: '14px', padding: '18px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '20px' }}>
               <div>
                 <div style={{ fontSize: '15px', fontWeight: '700', color: '#ffd95f', marginBottom: '6px' }}>Low Storage Space Warning</div>
-                <div style={{ fontSize: '14px', color: '#ffd066' }}>You only have {Math.max(0, 5.0 - kbFiles.reduce((acc, file) => acc + file.sizeBytes, 0) / (1024 * 1024)).toFixed(1)} MB of knowledge base storage remaining. Consider upgrading your account to avoid upload restrictions.</div>
+                <div style={{ fontSize: '14px', color: '#ffd066' }}>You have {kbDocuments.length} document{kbDocuments.length === 1 ? '' : 's'} stored in the knowledge base. Consider upgrading your account if you need more storage.</div>
               </div>
               <button style={{ padding: '10px 18px', background: '#ff6f6f', border: 'none', borderRadius: '10px', color: '#1f0d0d', fontSize: '14px', fontWeight: '700', cursor: 'pointer' }}>
                 Upgrade
@@ -1994,7 +2162,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
             <div
               style={{
                 background: 'linear-gradient(180deg, #111 0%, #0f0f0f 100%)',
-                border: '1px solid var(--border)',
+                border: '1px solid #222',
                 borderRadius: '14px',
                 padding: '22px',
                 display: 'flex',
@@ -2006,15 +2174,15 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
 
               <div
                 style={{
-                  background: 'var(--bg-elevated)',
-                  border: '1px solid var(--border)',
+                  background: '#111',
+                  border: '1px solid #222',
                   borderRadius: '12px',
                   padding: '18px 20px'
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
                   <div>
-                    <div style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '4px' }}>Web Search</div>
+                    <div style={{ fontSize: '16px', fontWeight: '700', color: '#f5f5f5', marginBottom: '4px' }}>Web Search</div>
                     <div style={{ fontSize: '13px', color: '#8d8d8d' }}>Allow your bot to search the web for information</div>
                   </div>
 
@@ -2051,13 +2219,13 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
 
               <div
                 style={{
-                  background: 'var(--bg-elevated)',
-                  border: '1px solid var(--border)',
+                  background: '#111',
+                  border: '1px solid #222',
                   borderRadius: '12px',
                   padding: '18px 20px'
                 }}
               >
-                <div style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '12px' }}>Integration</div>
+                <div style={{ fontSize: '16px', fontWeight: '700', color: '#f5f5f5', marginBottom: '12px' }}>Integration</div>
                 <div
                   style={{
                     border: '1px dashed #333',
@@ -2079,13 +2247,13 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
 
               <div
                 style={{
-                  background: 'var(--bg-elevated)',
-                  border: '1px solid var(--border)',
+                  background: '#111',
+                  border: '1px solid #222',
                   borderRadius: '12px',
                   padding: '18px 20px'
                 }}
               >
-                <div style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '14px' }}>Connect New Integrations</div>
+                <div style={{ fontSize: '16px', fontWeight: '700', color: '#f5f5f5', marginBottom: '14px' }}>Connect New Integrations</div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '14px' }}>
                   {integrations.map((integration) => {
@@ -2108,7 +2276,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                         }}
                         style={{
                           background: '#171717',
-                          border: '1px solid var(--border)',
+                          border: '1px solid #2a2a2a',
                           borderRadius: '12px',
                           minHeight: '220px',
                           padding: '16px',
@@ -2152,14 +2320,8 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                             onClick={async () => {
                               try {
                                 const callbackUrl = `${window.location.origin}/api/v1/integrations/${integration.provider}/callback`;
-                                const { authorizationUrl, connected } = await integrationsApi.connect(integration.provider, callbackUrl);
-                                if (authorizationUrl) {
-                                  window.location.href = authorizationUrl;
-                                } else if (connected) {
-                                  toast.success(`${integration.name ?? integration.provider} connected`);
-                                } else {
-                                  toast.error('This integration requires additional configuration.');
-                                }
+                                const { authorizationUrl } = await integrationsApi.connect(integration.provider, callbackUrl);
+                                window.location.href = authorizationUrl;
                               } catch (error) {
                                 toast.error(error instanceof Error ? error.message : 'Failed to begin OAuth');
                               }
@@ -2211,7 +2373,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                   background: 'transparent',
                   border: '1px solid #333333',
                   borderRadius: '10px',
-                  color: 'var(--text-primary)',
+                  color: '#ffffff',
                   cursor: 'pointer',
                   fontSize: '13px',
                   fontWeight: '600'
@@ -2226,7 +2388,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                 key={config.id}
                 style={{
                   background: '#171717',
-                  border: '1px solid var(--border)',
+                  border: '1px solid #2a2a2a',
                   borderRadius: '14px',
                   padding: '30px 30px 24px',
                   marginTop: '2px'
@@ -2234,7 +2396,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '20px', marginBottom: '32px' }}>
                   <div>
-                    <div style={{ fontSize: '17px', lineHeight: 1.2, fontWeight: '700', color: 'var(--text-primary)', marginBottom: '24px' }}>Delivery Method</div>
+                    <div style={{ fontSize: '17px', lineHeight: 1.2, fontWeight: '700', color: '#ffffff', marginBottom: '24px' }}>Delivery Method</div>
                     <select
                       value={config.deliveryMethod}
                       onChange={(e) => updatePostCallConfig(config.id, { deliveryMethod: e.target.value })}
@@ -2266,7 +2428,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                       padding: '0 20px',
                       height: '44px',
                       background: '#0e0e0e',
-                      border: '1px solid var(--border)',
+                      border: '1px solid #2a2a2a',
                       borderRadius: '9px',
                       color: postCallConfigs.length === 1 ? '#666666' : '#ff4d4f',
                       cursor: postCallConfigs.length === 1 ? 'not-allowed' : 'pointer',
@@ -2280,7 +2442,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
 
                 <div style={{ marginBottom: '30px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-                    <div style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)' }}>Trigger based on Call Status</div>
+                    <div style={{ fontSize: '16px', fontWeight: '700', color: '#ffffff' }}>Trigger based on Call Status</div>
                     <div style={{ width: '18px', height: '18px', borderRadius: '999px', border: '1px solid #585858', color: '#a6a6a6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: '600' }}>i</div>
                   </div>
 
@@ -2311,7 +2473,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                 </div>
 
                 <div style={{ marginBottom: '30px' }}>
-                  <div style={{ fontSize: '17px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '18px' }}>Including</div>
+                  <div style={{ fontSize: '17px', fontWeight: '700', color: '#ffffff', marginBottom: '18px' }}>Including</div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 14px' }}>
                     {[
                       {
@@ -2372,7 +2534,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                           >
                             ON
                           </div>
-                          <div style={{ fontSize: '15px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '6px', lineHeight: 1.2 }}>{item.title}</div>
+                          <div style={{ fontSize: '15px', fontWeight: '700', color: '#ffffff', marginBottom: '6px', lineHeight: 1.2 }}>{item.title}</div>
                           <div style={{ fontSize: '13px', color: '#a9a9a9', lineHeight: 1.45 }}>{item.description}</div>
                         </button>
                       );
@@ -2381,7 +2543,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                 </div>
 
                 <div>
-                  <div style={{ fontSize: '17px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '6px' }}>Extracted Variables</div>
+                  <div style={{ fontSize: '17px', fontWeight: '700', color: '#ffffff', marginBottom: '6px' }}>Extracted Variables</div>
                   <div style={{ fontSize: '13px', color: '#9a9a9a', marginBottom: '20px', lineHeight: 1.45 }}>
                     Specify what variables you want to extract from the conversation. For each variable, provide a name and a description of how to extract it.
                   </div>
@@ -2413,7 +2575,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                             background: '#202020',
                             border: '1px solid #2d2d2d',
                             borderRadius: '8px',
-                            color: 'var(--text-primary)',
+                            color: '#ffffff',
                             fontSize: '14px',
                             outline: 'none'
                           }}
@@ -2430,7 +2592,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                             background: '#202020',
                             border: '1px solid #2d2d2d',
                             borderRadius: '8px',
-                            color: 'var(--text-primary)',
+                            color: '#ffffff',
                             fontSize: '14px',
                             outline: 'none'
                           }}
@@ -2441,7 +2603,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                             width: '60px',
                             height: '44px',
                             background: '#0f0f0f',
-                            border: '1px solid var(--border)',
+                            border: '1px solid #2a2a2a',
                             borderRadius: '9px',
                             color: '#ff4d4f',
                             fontSize: '18px',
@@ -2506,7 +2668,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                 flexWrap: 'wrap'
               }}
             >
-              <div style={{ fontSize: '22px', fontWeight: '700', color: 'var(--text-primary)', paddingLeft: '20px' }}>Recent Calls</div>
+              <div style={{ fontSize: '22px', fontWeight: '700', color: '#ffffff', paddingLeft: '20px' }}>Recent Calls</div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#cbcbcb', fontSize: '13px', paddingRight: '2px' }}>
@@ -2538,9 +2700,9 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                       height: '44px',
                       padding: '0 16px',
                       background: '#111111',
-                      border: '1px solid var(--border)',
+                      border: '1px solid #2a2a2a',
                       borderRadius: '10px',
-                      color: 'var(--text-primary)',
+                      color: '#ffffff',
                       fontSize: '14px',
                       outline: 'none'
                     }}
@@ -2554,9 +2716,9 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                     height: '44px',
                     padding: '0 18px',
                     background: '#101010',
-                    border: '1px solid var(--border)',
+                    border: '1px solid #2a2a2a',
                     borderRadius: '10px',
-                    color: 'var(--text-primary)',
+                    color: '#ffffff',
                     fontSize: '14px',
                     fontWeight: '600',
                     cursor: 'pointer'
@@ -2593,7 +2755,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                 >
                   Call
                 </div>
-                <div style={{ fontSize: '18px', lineHeight: 1.2, fontWeight: '700', color: 'var(--text-primary)', marginBottom: '10px' }}>No call history</div>
+                <div style={{ fontSize: '18px', lineHeight: 1.2, fontWeight: '700', color: '#ffffff', marginBottom: '10px' }}>No call history</div>
                 <div style={{ fontSize: '15px', lineHeight: 1.6, color: '#a0a0a0' }}>
                   You haven't made any calls with this assistant yet.
                   <br />
@@ -2664,7 +2826,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                   value={userMessage} 
                   onChange={(e) => setUserMessage(e.target.value)} 
                   placeholder="Type your message..." 
-                  style={{ flex: 1, background: '#0f0f0f', border: '1px solid #333', borderRadius: '8px', padding: '10px 14px', color: 'var(--text-primary)', fontSize: '13px' }}
+                  style={{ flex: 1, background: '#0f0f0f', border: '1px solid #333', borderRadius: '8px', padding: '10px 14px', color: '#fff', fontSize: '13px' }}
                 />
                 <button type="submit" disabled={isTyping || !userMessage.trim()} style={{ background: '#00bcd4', color: '#000', border: 'none', borderRadius: '8px', padding: '0 16px', fontWeight: 'bold', cursor: 'pointer', opacity: (isTyping || !userMessage.trim()) ? 0.6 : 1 }}>Send</button>
               </form>

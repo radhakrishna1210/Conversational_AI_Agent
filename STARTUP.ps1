@@ -31,9 +31,6 @@ if (-not (Test-Path "backend")) {
 Write-Host "[*] Setting up Backend...`n" -ForegroundColor Yellow
 
 Push-Location backend
-# Ensure DB client + schema are in sync (safe every run)
-npx prisma generate
-npx prisma migrate deploy
 
 if (-not (Test-Path "node_modules")) {
     Write-Host "[*] Installing backend dependencies..." -ForegroundColor Yellow
@@ -72,9 +69,7 @@ Write-Host "`n" -ForegroundColor Gray
 Write-Host "[!] IMPORTANT: You need TWO PowerShell windows`n" -ForegroundColor Yellow
 
 Write-Host "WINDOW 1 - Start Backend:` `n" -ForegroundColor Cyan
-Write-Host "  cd backend
-npx prisma generate
-npx prisma migrate deploy`n  npm run dev`n" -ForegroundColor Gray
+Write-Host "  cd backend`n  npm run dev`n" -ForegroundColor Gray
 
 Write-Host "WINDOW 2 - Start Frontend:` `n" -ForegroundColor Cyan
 Write-Host "  cd client`n  npm run dev`n" -ForegroundColor Gray

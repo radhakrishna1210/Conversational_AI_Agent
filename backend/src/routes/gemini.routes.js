@@ -14,7 +14,7 @@ import {
   resetRateLimit,
 } from "../controllers/gemini.controller.js";
 
-const router = express.Router({ mergeParams: true });
+const router = express.Router();
 
 /**
  * POST /api/gemini/generate

@@ -4,10 +4,6 @@ import { workspaceContext } from '../middleware/workspaceContext.js';
 import { mockLLMService } from '../services/llm/mock.service.js';
 import { getLLMProviderWithFallback } from '../services/llm.factory.js';
 import logger from '../lib/logger.js';
-import { rateLimit } from '../middleware/rateLimit.js';
-import kbFileRoutes from './kbFile.routes.js';
-import * as platform from '../controllers/platform.controller.js';
-import * as kbCtrl from '../controllers/kbFile.controller.js';
 
 import authRoutes from './auth.routes.js';
 import adminRoutes from './admin.routes.js';
@@ -17,6 +13,7 @@ import metaOauthRoutes from './metaOauth.routes.js';
 import apiKeyRoutes from './apiKey.routes.js';
 import webhookRoutes from './webhook.routes.js';
 import templateRoutes from './template.routes.js';
+import knowledgeRoutes from './knowledge.routes.js';
 import contactRoutes from './contact.routes.js';
 import campaignRoutes from './campaign.routes.js';
 import conversationRoutes from './conversation.routes.js';
@@ -39,6 +36,7 @@ import reportIssueRoutes from './reportIssue.routes.js';
 import { getHealth as getGeminiHealth, getMetrics as getGeminiMetrics } from '../controllers/gemini.controller.js';
 import { getHealth as getOpenAIHealth, getMetrics as getOpenAIMetrics } from '../controllers/openai.controller.js';
 import { getHealth as getAzureHealth, getMetrics as getAzureMetrics } from '../controllers/azure.controller.js';
+import { generateAgentFlow , enhancePrompt} from '../controllers/llm.controller.js';
 
 const router = Router();
 
@@ -47,21 +45,18 @@ router.get('/config', (_req, res) => {
   res.json({ metaAppId: process.env.META_APP_ID ?? null });
 });
 
-// Public (rate-limited where they trigger real work)
+// Public
 router.use('/auth', authRoutes);
-router.use('/contact-form', rateLimit({ windowMs: 60_000, max: 10, keyPrefix: 'contact' }), contactFormRoutes);
-router.use('/appointments', rateLimit({ windowMs: 60_000, max: 10, keyPrefix: 'appt' }), appointmentRoutes);
-router.use('/report-issue', rateLimit({ windowMs: 60_000, max: 10, keyPrefix: 'issue' }), reportIssueRoutes);
-// NOTE: agent, voice, and LLM prompt routes are intentionally NOT mounted here.
-// They perform data mutations / paid model work and now live exclusively under
-// the authenticated workspace router below (see `ws`).
+router.use('/contact-form', contactFormRoutes);
+router.use('/appointments', appointmentRoutes);
+router.use('/report-issue', reportIssueRoutes);
+router.use('/agents', agentRoutes);
+router.use('/voices', voiceRoutes);
+router.use('/voice', voiceRoutes);
 router.use('/integrations', integrationsPublicRoutes);
-router.get('/config/plans', platform.listPlansPublic);
 
-
-// Public AI Assistant chat — marketing-site helper. No auth, but strictly
-// rate-limited per IP so it can't be used for free compute.
-router.post('/assistant/chat', rateLimit({ windowMs: 60_000, max: 8, keyPrefix: 'assistant' }), async (req, res) => {
+// Public AI Assistant chat — no auth required, always works
+router.post('/assistant/chat', async (req, res) => {
   try {
     const { message, systemPrompt } = req.body;
     if (!message || typeof message !== 'string' || !message.trim()) {
@@ -91,8 +86,9 @@ router.post('/assistant/chat', rateLimit({ windowMs: 60_000, max: 8, keyPrefix: 
   }
 });
 
-// generate-flow / enhance-prompt trigger real LLM calls and are now served only
-// through the authenticated workspace router (/workspaces/:id/llm/...).
+// Public LLM — generate-flow needs no auth (only takes a name, returns AI config)
+router.post('/llm/generate-flow', generateAgentFlow);
+router.post('/llm/enhance-prompt', enhancePrompt);
 
 // Admin (authenticate + isAdmin enforced inside admin.routes.js)
 router.use('/admin', adminRoutes);
@@ -110,6 +106,7 @@ ws.use('/whatsapp', whatsappRoutes);
 ws.use('/meta/oauth', metaOauthRoutes);
 ws.use('/api-keys', apiKeyRoutes);
 ws.use('/templates', templateRoutes);
+ws.use('/knowledge', knowledgeRoutes);
 ws.use('/contacts', contactRoutes);
 ws.use('/campaigns', campaignRoutes);
 ws.use('/conversations', conversationRoutes);
@@ -121,13 +118,8 @@ ws.use('/gemini', geminiRoutes);
 ws.use('/openai', openaiRoutes);
 ws.use('/azure', azureRoutes);
 ws.use('/agents', agentRoutes);
-ws.use('/voices', voiceRoutes); // single canonical mount (duplicate '/voice' removed)
 ws.use('/integrations', integrationsRoutes);
 ws.use('/notifications', notificationRoutes);
-ws.use('/files', kbFileRoutes);
-ws.get('/wallet', platform.getWallet);
-ws.get('/agents/:agentId/kb-text', kbCtrl.agentKbText);
-ws.post('/agents/:agentId/post-call/test', platform.testPostCall);
 
 
 router.use('/workspaces/:workspaceId', ws);

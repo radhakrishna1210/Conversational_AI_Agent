@@ -51,7 +51,3 @@ node-portable/
 
 .eslintcache
 
--e 
-# secrets
-backend/.env
-client/.env

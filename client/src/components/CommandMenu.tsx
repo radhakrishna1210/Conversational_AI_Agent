@@ -22,8 +22,7 @@ import {
   CreditCard,
   Key,
 } from "lucide-react";
-import { AgentConfig } from "../lib/agentStore";
-import { whapi } from "../lib/whapi";
+import { loadAgents, AgentConfig } from "../lib/agentStore";
 
 export function CommandMenu({ open, setOpen }: { open: boolean, setOpen: (open: boolean) => void }) {
   const [agents, setAgents] = useState<AgentConfig[]>([]);
@@ -31,11 +30,7 @@ export function CommandMenu({ open, setOpen }: { open: boolean, setOpen: (open: 
 
   useEffect(() => {
     if (open) {
-      // Live agents from the server (the old localStorage cache listed
-      // phantom agents that don't exist in the backend).
-      whapi.get<AgentConfig[]>('/agents')
-        .then(a => setAgents(Array.isArray(a) ? a : []))
-        .catch(() => setAgents([]));
+      setAgents(loadAgents());
     }
   }, [open]);
 
@@ -47,7 +42,7 @@ export function CommandMenu({ open, setOpen }: { open: boolean, setOpen: (open: 
   return (
     <>
       <CommandDialog open={open} onOpenChange={setOpen}>
-        <CommandInput autoFocus placeholder="Type a command or search..." />
+        <CommandInput placeholder="Type a command or search..." />
         <CommandList>
           <CommandEmpty>No results found.</CommandEmpty>
           

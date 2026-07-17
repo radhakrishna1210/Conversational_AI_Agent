@@ -8,9 +8,6 @@ const isApiKey = (token) => API_KEY_PREFIXES.some((p) => token?.startsWith(p));
 
 export const authenticate = async (req, res, next) => {
   const authHeader = req.headers.authorization;
-  // Tokens are accepted ONLY via the Authorization header. Query-string tokens leak
-  // through logs, redirects, proxies, and browser history. SSE clients now use
-  // fetch-based streaming (see client/src/lib/sseClient.ts) which sends real headers.
   const token = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null;
 
   if (!token) {

@@ -39,11 +39,6 @@ if not exist "node_modules" (
     call npm install > nul 2>&1
 )
 
-REM Ensure DB client + schema are in sync (safe to run every time)
-echo [*] Syncing database schema (prisma generate + migrate deploy)...
-call npx prisma generate
-call npx prisma migrate deploy
-
 if not exist ".env" (
     if exist ".env.template" (
         copy .env.template .env > nul
@@ -77,7 +72,7 @@ echo [!] IMPORTANT: You need TWO terminal windows
 echo.
 echo TERMINAL 1 - Start Backend:
 echo   cd backend
-echo   npm run dev   (prisma generate + migrate deploy run automatically)
+echo   npm run dev
 echo.
 echo TERMINAL 2 - Start Frontend:
 echo   cd client

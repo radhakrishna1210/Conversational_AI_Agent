@@ -15,7 +15,7 @@ import {
   getAssistantsList,
 } from '../controllers/analytics.controller.js';
 
-const router = Router({ mergeParams: true });
+const router = Router();
 
 // ─── WhatsApp / Chatbot routes ────────────────────────────────────────────────
 router.get('/overview',            getOverview);

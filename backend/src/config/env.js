@@ -6,38 +6,14 @@ const required = (key) => {
 
 const optional = (key, fallback = '') => process.env[key] ?? fallback;
 
-// ── Config sanity (guards against corrupted .env files) ──────────────────────
-// A duplicated/mangled .env (e.g. DATABASE_URL redefined as "file:./dev.db",
-// or JSON_BODY_LIMIT concatenated with other vars) previously caused confusing
-// runtime failures. Validate the critical values up front and fail LOUDLY.
-const validatedDatabaseUrl = (() => {
-  const url = required('DATABASE_URL');
-  if (!/^postgres(ql)?:\/\//.test(url)) {
-    throw new Error(
-      `FATAL: DATABASE_URL is not a Postgres connection string (got "${url.slice(0, 40)}..."). ` +
-      `Check backend/.env for duplicate DATABASE_URL definitions (e.g. a leftover "file:./dev.db" dev block) ` +
-      `and keep exactly ONE postgresql:// value.`
-    );
-  }
-  return url;
-})();
-
-const sanitizedBodyLimit = (() => {
-  const raw = optional('JSON_BODY_LIMIT', '2mb');
-  if (/^\d+(kb|mb|gb)$/i.test(raw.trim())) return raw.trim();
-  console.warn(
-    `[env] JSON_BODY_LIMIT="${raw.slice(0, 30)}..." is malformed (corrupted .env line?). Falling back to "2mb".`
-  );
-  return '2mb';
-})();
-
 export const env = {
   NODE_ENV: optional('NODE_ENV', 'development'),
   PORT: parseInt(optional('PORT', '4000'), 10),
   USE_MOCK_AUTH: optional('USE_MOCK_AUTH', 'false'),
 
-  DATABASE_URL: validatedDatabaseUrl,
+  DATABASE_URL: required('DATABASE_URL'),
   REDIS_URL: optional('REDIS_URL', ''),
+  USE_MOCK_AUTH: optional('USE_MOCK_AUTH', 'false'),
 
   JWT_ACCESS_SECRET: required('JWT_ACCESS_SECRET'),
   JWT_REFRESH_SECRET: required('JWT_REFRESH_SECRET'),
@@ -56,22 +32,11 @@ export const env = {
 
   ENCRYPTION_KEY: optional('ENCRYPTION_KEY'),
 
-  JSON_BODY_LIMIT: sanitizedBodyLimit,
-
-  SMTP_HOST: optional('SMTP_HOST'),
-  SMTP_PORT: parseInt(optional('SMTP_PORT', '587'), 10),
-  SMTP_SECURE: optional('SMTP_SECURE', 'false') === 'true',
-  SMTP_USER: optional('SMTP_USER'),
-  SMTP_PASSWORD: optional('SMTP_PASSWORD'),
-  EMAIL_FROM: optional('EMAIL_FROM'),
-  EMAIL_FROM_NAME: optional('EMAIL_FROM_NAME', 'Voice AI Platform'),
-
   CLIENT_URL: optional('CLIENT_URL', 'http://localhost:5173'),
   CHATFLOW_PRO_URL: optional('CHATFLOW_PRO_URL', 'http://localhost:8080'),
 
   GOOGLE_CLIENT_ID: optional('GOOGLE_CLIENT_ID'),
   GOOGLE_CLIENT_SECRET: optional('GOOGLE_CLIENT_SECRET'),
-  GOOGLE_AUTH_REDIRECT_URI: optional('GOOGLE_AUTH_REDIRECT_URI'),
   GOOGLE_REDIRECT_URI: optional('GOOGLE_REDIRECT_URI'),
 
   CAL_CLIENT_ID: optional('CAL_CLIENT_ID'),
@@ -81,8 +46,6 @@ export const env = {
   CALENDLY_CLIENT_ID: optional('CALENDLY_CLIENT_ID'),
   CALENDLY_CLIENT_SECRET: optional('CALENDLY_CLIENT_SECRET'),
   CALENDLY_REDIRECT_URI: optional('CALENDLY_REDIRECT_URI'),
-  CALENDLY_PERSONAL_TOKEN: optional('CALENDLY_PERSONAL_TOKEN'),
-  CALENDLY_WEBHOOK_SIGNING_KEY: optional('CALENDLY_WEBHOOK_SIGNING_KEY'),
 
   SALESFORCE_CLIENT_ID: optional('SALESFORCE_CLIENT_ID'),
   SALESFORCE_CLIENT_SECRET: optional('SALESFORCE_CLIENT_SECRET'),
@@ -112,6 +75,7 @@ export const env = {
 
   UPLOAD_DIR: optional('UPLOAD_DIR', 'uploads'),
   MAX_FILE_SIZE_MB: parseInt(optional('MAX_FILE_SIZE_MB', '10'), 10),
+  JSON_BODY_LIMIT: optional('JSON_BODY_LIMIT', '2mb'),
 
   ADMIN_EMAIL: optional('ADMIN_EMAIL', ''),
 

@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { safeSet } from '@/lib/authStorage';
 import { Link } from "react-router-dom";
 
 export default function Login() {
@@ -39,14 +38,13 @@ export default function Login() {
         return;
       }
 
-      // Persist via authStorage — writes to localStorage with automatic
-      // sessionStorage fallback (Safari/incognito), matching how the rest of
-      // the app now reads auth state.
-      safeSet('token', data.accessToken);
-      safeSet('refreshToken', data.refreshToken);
-      safeSet('userName', data.user.name);
-      safeSet('userEmail', data.user.email);
-      if (data.workspace?.id) safeSet('workspaceId', data.workspace.id);
+      localStorage.setItem('token', data.accessToken);
+      localStorage.setItem('refreshToken', data.refreshToken);
+      localStorage.setItem('userName', data.user.name);
+      localStorage.setItem('userEmail', data.user.email);
+      if (data.workspace?.id) {
+        localStorage.setItem('workspaceId', data.workspace.id);
+      }
 
       setStatus('success');
       setTimeout(() => window.location.href = "/dashboard", 1500);
@@ -202,7 +200,7 @@ export default function Login() {
             <div>
               <div className="login-password-header">
                 <label className="login-label" style={{ marginBottom: 0 }}>Password</label>
-                <Link to="/forgot-password" className="login-forgot-link">Forgot password?</Link>
+                <a href="#" className="login-forgot-link">Forgot password?</a>
               </div>
               <div style={{ position: 'relative' }}>
                 <input

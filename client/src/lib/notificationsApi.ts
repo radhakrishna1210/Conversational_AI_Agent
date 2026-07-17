@@ -1,7 +1,25 @@
 const BASE = '/api/v1';
 
-import { getAuth } from './authStorage';
-import { openSseStream, type SseHandle } from './sseClient';
+function getAuth() {
+  const token = localStorage.getItem('token') ?? '';
+  let workspaceId = localStorage.getItem('workspaceId') ?? '';
+
+  if (workspaceId === 'undefined' || workspaceId === 'null') workspaceId = '';
+
+  if (!workspaceId && token) {
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      if (payload.workspaceId) {
+        workspaceId = payload.workspaceId;
+        localStorage.setItem('workspaceId', workspaceId);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return { token, workspaceId };
+}
 
 function authHeaders(): Record<string, string> {
   const { token } = getAuth();
@@ -84,18 +102,8 @@ export const notificationsApi = {
     if (!res.ok) throw new Error('Failed to clear notifications');
   },
 
-  /**
-   * Open the real-time notification stream. Authenticates via the
-   * Authorization header (fetch-based SSE) — the bearer token is never
-   * placed in the URL.
-   */
-  openStream: (onEvent: (event: string, data: string) => void, onError?: (err: unknown) => void): SseHandle | null => {
+  streamUrl: (): string => {
     const { token, workspaceId } = getAuth();
-    if (!token || !workspaceId) return null;
-    return openSseStream(`${BASE}/workspaces/${workspaceId}/notifications/stream`, {
-      headers: { Authorization: `Bearer ${token}` },
-      onEvent,
-      onError,
-    });
+    return `${BASE}/workspaces/${workspaceId}/notifications/stream?token=${encodeURIComponent(token)}`;
   },
 };

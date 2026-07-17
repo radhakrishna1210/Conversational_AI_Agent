@@ -1,5 +1,5 @@
 ﻿import { Link } from 'react-router-dom';
-import { Check, ArrowRight, Play, Webhook, Globe } from 'lucide-react';
+import { Check, ChevronRight, ArrowRight, Play, Settings, Webhook, Globe } from 'lucide-react';
 
 
 function CustomApiLogo() {

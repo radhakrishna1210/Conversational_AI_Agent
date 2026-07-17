@@ -9,14 +9,6 @@ const resolveRole = (email) => (env.ADMIN_EMAIL && email === env.ADMIN_EMAIL ? '
 const makeSlug = (name) =>
   name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') + '-' + Date.now().toString(36);
 
-const resolveGoogleName = (name, email) => {
-  const trimmedName = typeof name === 'string' ? name.trim() : '';
-  if (trimmedName) return trimmedName;
-
-  const localPart = typeof email === 'string' ? email.split('@')[0].trim() : '';
-  return localPart || 'Google User';
-};
-
 export const registerUser = async ({ name, email, password, workspaceName }) => {
   const passwordHash = await hashPassword(password);
 
@@ -138,29 +130,20 @@ export const logout = async (rawToken) => {
 };
 
 export const loginOrRegisterWithGoogle = async ({ googleId, email, name, avatarUrl }) => {
-  const resolvedName = resolveGoogleName(name, email);
-
   let user = await prisma.user.findUnique({ where: { googleId } });
 
   if (!user) {
     // Try to link to existing account with same email
     user = await prisma.user.findUnique({ where: { email } });
     if (user) {
-      user = await prisma.user.update({
-        where: { id: user.id },
-        data: {
-          googleId,
-          name: user.name?.trim() ? user.name : resolvedName,
-          avatarUrl: avatarUrl ?? user.avatarUrl,
-        },
-      });
+      user = await prisma.user.update({ where: { id: user.id }, data: { googleId, avatarUrl: avatarUrl ?? user.avatarUrl } });
     } else {
-      user = await prisma.user.create({ data: { googleId, email, name: resolvedName, avatarUrl } });
+      user = await prisma.user.create({ data: { googleId, email, name, avatarUrl } });
       // Auto-create a workspace for new Google users
       await prisma.workspace.create({
         data: {
-          name: `${resolvedName}'s Workspace`,
-          slug: makeSlug(resolvedName),
+          name: `${name}'s Workspace`,
+          slug: makeSlug(name),
           members: { create: { userId: user.id, role: resolveRole(email) } },
           settings: { create: {} },
         },

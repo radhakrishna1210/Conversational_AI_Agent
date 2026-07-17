@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom";
-import { Check, ArrowRight, Play } from "lucide-react";
+import { Check, ChevronRight, ArrowRight, Play } from "lucide-react";
 
 /* -------------------------------------------------------------------------- */
 /*                                   LOGO                                     */

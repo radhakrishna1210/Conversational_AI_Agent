@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { notificationsApi, type Notification } from '@/lib/notificationsApi';
-import { getAuth } from '@/lib/authStorage';
-import type { SseHandle } from '@/lib/sseClient';
 
 export function useNotifications(enabled = true) {
   const [notifications, setNotifications] = useState<Notification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const streamRef = useRef<SseHandle | null>(null);
+  const eventSourceRef = useRef<EventSource | null>(null);
 
   const fetchNotifications = useCallback(async () => {
     if (!enabled) return;
@@ -27,50 +25,61 @@ export function useNotifications(enabled = true) {
 
   const connectSSE = useCallback(() => {
     if (!enabled) return;
-    const { token, workspaceId } = getAuth();
+    const workspaceId = localStorage.getItem('workspaceId');
+    const token = localStorage.getItem('token');
     if (!workspaceId || !token) return;
 
-    streamRef.current?.close();
-    streamRef.current = notificationsApi.openStream((event, raw) => {
-      const data = raw ? JSON.parse(raw) : {};
-      switch (event) {
-        case 'notification:init':
-          setUnreadCount(data.unreadCount ?? 0);
-          break;
-        case 'notification:new': {
-          const n: Notification = data;
-          setNotifications((prev) => [n, ...prev]);
-          setUnreadCount((c) => c + 1);
-          break;
-        }
-        case 'notification:read':
-          setNotifications((prev) => prev.map((n) => (n.id === data.id ? { ...n, read: true } : n)));
-          setUnreadCount((c) => Math.max(0, c - 1));
-          break;
-        case 'notification:read-all':
-          setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-          setUnreadCount(0);
-          break;
-        case 'notification:deleted':
-          setNotifications((prev) => {
-            const target = prev.find((n) => n.id === data.id);
-            if (target && !target.read) setUnreadCount((c) => Math.max(0, c - 1));
-            return prev.filter((n) => n.id !== data.id);
-          });
-          break;
-        case 'notification:cleared':
-          setNotifications([]);
-          setUnreadCount(0);
-          break;
-      }
+    eventSourceRef.current?.close();
+    const es = new EventSource(notificationsApi.streamUrl());
+    eventSourceRef.current = es;
+
+    es.addEventListener('notification:init', (e) => {
+      const data = JSON.parse(e.data);
+      setUnreadCount(data.unreadCount ?? 0);
     });
+
+    es.addEventListener('notification:new', (e) => {
+      const n: Notification = JSON.parse(e.data);
+      setNotifications((prev) => [n, ...prev]);
+      setUnreadCount((c) => c + 1);
+    });
+
+    es.addEventListener('notification:read', (e) => {
+      const { id } = JSON.parse(e.data);
+      setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, read: true } : n)));
+      setUnreadCount((c) => Math.max(0, c - 1));
+    });
+
+    es.addEventListener('notification:read-all', () => {
+      setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+      setUnreadCount(0);
+    });
+
+    es.addEventListener('notification:deleted', (e) => {
+      const { id } = JSON.parse(e.data);
+      setNotifications((prev) => {
+        const target = prev.find((n) => n.id === id);
+        if (target && !target.read) setUnreadCount((c) => Math.max(0, c - 1));
+        return prev.filter((n) => n.id !== id);
+      });
+    });
+
+    es.addEventListener('notification:cleared', () => {
+      setNotifications([]);
+      setUnreadCount(0);
+    });
+
+    es.onerror = () => {
+      es.close();
+      setTimeout(connectSSE, 5000);
+    };
   }, [enabled]);
 
   useEffect(() => {
     if (!enabled) return;
     fetchNotifications();
     connectSSE();
-    return () => streamRef.current?.close();
+    return () => eventSourceRef.current?.close();
   }, [enabled, fetchNotifications, connectSSE]);
 
   const markRead = useCallback(async (id: string) => {

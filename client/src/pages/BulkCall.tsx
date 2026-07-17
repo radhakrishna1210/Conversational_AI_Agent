@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getWorkspaceId, getToken } from '@/lib/authStorage';
 import { whapi } from '../lib/whapi';
 
 type BulkCampaign = {
@@ -42,13 +41,7 @@ export default function BulkCall() {
   }, [agents]);
 
   useEffect(() => {
-    // Shared recovery: reads local/session storage and falls back to decoding
-    // the JWT, so the page loads even when localStorage was cleared or blocked.
-    const wsId = getWorkspaceId();
-    setWorkspaceId(wsId);
-    if (!wsId) {
-      setError('Your session is missing workspace context. Please sign in again.');
-    }
+    setWorkspaceId(localStorage.getItem('workspaceId') ?? '');
   }, []);
 
   useEffect(() => {
@@ -57,7 +50,7 @@ export default function BulkCall() {
     const load = async () => {
       setLoading(true);
       try {
-        const token = getToken();
+        const token = localStorage.getItem('token');
         if (!token) {
           setError('Not authenticated. Please sign in.');
           setLoading(false);
@@ -170,7 +163,7 @@ export default function BulkCall() {
           <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>Create, monitor, and manage your bulk voice campaigns.</p>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
-          <div style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 14px', fontSize: '12px', fontWeight: 600, color: 'var(--text-primary)' }}>
+          <div style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '8px 14px', fontSize: '12px', fontWeight: 600, color: 'white' }}>
             Total Concurrent Limit: 1
           </div>
           <button className="btn btn-primary" style={{ display: 'flex', alignItems: 'center', gap: '8px' }} onClick={() => setShowModal(true)}>

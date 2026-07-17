@@ -1,19 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
-
-interface PlanDto { id: string; name: string; priceUsd: number; perMinuteUsd: number; includedMinutes: number; kbStorageMb: number; features: string[] }
 
 export default function Pricing() {
   const [activeTab, setActiveTab] = useState('Plans');
-  // Live plans from the admin-managed source of truth (falls back to nothing
-  // rather than stale hardcoded numbers if the API is unreachable).
-  const [plans, setPlans] = useState<PlanDto[] | null>(null);
-  useEffect(() => {
-    fetch('/api/v1/config/plans')
-      .then(r => r.json())
-      .then(d => { if (Array.isArray(d?.plans)) setPlans(d.plans); })
-      .catch(() => setPlans([]));
-  }, []);
 
   return (
     <>
@@ -54,26 +43,35 @@ export default function Pricing() {
             </div>
 
             <div className="plan-cards animate-me">
-              {plans === null ? (
-                <div style={{ color: 'var(--text-muted)', padding: 24 }}>Loading plans…</div>
-              ) : plans.length === 0 ? (
-                <div style={{ color: 'var(--text-muted)', padding: 24 }}>Plans are temporarily unavailable — please try again shortly.</div>
-              ) : (
-                plans.filter(p => p.priceUsd > 0).slice(0, 4).map((p, i) => (
-                  <div key={p.id} className={`plan-card ${i === 1 ? 'featured' : ''}`}>
-                    <div className="plan-name" style={i === 1 ? { color: 'var(--teal)' } : undefined}>{p.name}</div>
-                    <div className="plan-price">
-                      <span className="price-amount">${p.priceUsd}</span>
-                      <span className="price-period">/month</span>
-                    </div>
-                    <div className="plan-desc">{p.features[0] || ''}</div>
-                    <div className="plan-feature"><span className="label">Cost</span><span className="value">${p.perMinuteUsd.toFixed(3)}/min</span></div>
-                    <div className="plan-feature"><span className="label">Minutes</span><span className="value">~{p.includedMinutes} minutes</span></div>
-                    <div className="plan-feature"><span className="label">Knowledge base</span><span className="value">{p.kbStorageMb} MB</span></div>
-                    <Link to="/signup"><button className={`btn ${i === 1 ? 'btn-primary' : 'btn-secondary'} plan-btn`}>Get Started</button></Link>
-                  </div>
-                ))
-              )}
+              {/* Early Deployers (Featured) */}
+              <div className="plan-card featured">
+                <div className="plan-badge">9% OFF</div>
+                <div className="plan-name" style={{color:'var(--teal)'}}>Early deployers</div>
+                <div className="plan-price">
+                  <span className="price-old">$10</span>
+                  <span className="price-amount">$36</span>
+                  <span className="price-period">/month</span>
+                </div>
+                <div className="plan-desc">Best for users doing a POC with a live voice AI agent.</div>
+                <div className="plan-feature"><span className="label">Cost</span><span className="value">$0.085/min</span></div>
+                <div className="plan-feature"><span className="label">Minutes</span><span className="value">~471 minutes</span></div>
+                <div className="plan-feature"><span className="label">Knowledge base</span><span className="value">50 MB</span></div>
+                <button className="btn btn-primary plan-btn">Upgrade</button>
+              </div>
+
+              {/* Growth */}
+              <div className="plan-card">
+                <div className="plan-name">Growth</div>
+                <div className="plan-price">
+                  <span className="price-amount">$200</span>
+                  <span className="price-period">/month</span>
+                </div>
+                <div className="plan-desc">Best for users scaling post-POC voice AI usage.</div>
+                <div className="plan-feature"><span className="label">Cost</span><span className="value">$0.070/min</span></div>
+                <div className="plan-feature"><span className="label">Minutes</span><span className="value">~2857 minutes</span></div>
+                <div className="plan-feature"><span className="label">Knowledge base</span><span className="value">100 MB</span></div>
+                <button className="btn btn-secondary plan-btn">Upgrade</button>
+              </div>
 
               {/* Enterprise */}
               <div className="plan-card" style={{borderColor: 'rgba(139,92,246,0.4)'}}>

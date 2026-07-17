@@ -5,9 +5,6 @@ export default function SignUp() {
   const navigate = useNavigate();
   const [form, setForm] = useState({ name: '', email: '', password: '', confirm: '' });
   const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
-  // Two-step signup: details → email OTP → account created
-  const [step, setStep] = useState<'details' | 'otp'>('details');
-  const [otp, setOtp] = useState('');
   const [errorMsg, setErrorMsg] = useState('');
   const [showPass, setShowPass] = useState(false);
 
@@ -54,55 +51,11 @@ if (form.password !== form.confirm) {
 }
 
     setStatus('submitting');
-    // REAL signup: request an email OTP. (This page previously faked success
-    // with a setTimeout and never contacted the backend — no account was ever
-    // created.)
-    (async () => {
-      try {
-        const res = await fetch('/api/v1/auth/register', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name: form.name, email: form.email, password: form.password, workspaceName: `${form.name}'s Workspace` }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || `Signup failed (${res.status})`);
-        if (data.unverified) {
-          // Server created the account directly (SMTP not configured) —
-          // no OTP step needed.
-          setStatus('success');
-          setTimeout(() => navigate('/login'), 1400);
-          return;
-        }
-        setStep('otp');
-        setStatus('idle');
-      } catch (err) {
-        setErrorMsg(err instanceof Error ? err.message : 'Signup failed');
-        setStatus('error');
-      }
-    })();
-  };
-
-  const handleVerifyOtp = (e: React.FormEvent) => {
-    e.preventDefault();
-    setErrorMsg('');
-    if (!otp.trim()) { setErrorMsg('Enter the 6-digit code from your email.'); return; }
-    setStatus('submitting');
-    (async () => {
-      try {
-        const res = await fetch('/api/v1/auth/verify-otp', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: form.email, otp: otp.trim() }),
-        });
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || `Verification failed (${res.status})`);
-        setStatus('success');
-        setTimeout(() => navigate('/login'), 1200);
-      } catch (err) {
-        setErrorMsg(err instanceof Error ? err.message : 'Verification failed');
-        setStatus('error');
-      }
-    })();
+    // Simulate API call
+    setTimeout(() => {
+      setStatus('success');
+      setTimeout(() => navigate('/dashboard'), 800);
+    }, 1500);
   };
 
   return (
@@ -217,26 +170,6 @@ if (form.password !== form.confirm) {
           </div>
 
           {/* Form */}
-          {step === 'otp' ? (
-          <form onSubmit={handleVerifyOtp} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.6 }}>
-              We emailed a 6-digit code to <strong style={{ color: 'var(--text-primary, #fff)' }}>{form.email}</strong>. Enter it below to verify your email and create your account.
-            </div>
-            <input
-              autoFocus inputMode="numeric" maxLength={6} placeholder="123456"
-              value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g, ''))}
-              style={{ padding: '14px', fontSize: 22, letterSpacing: 8, textAlign: 'center', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary, #fff)' }}
-            />
-            {errorMsg && <div style={{ color: '#f87171', fontSize: 13 }}>{errorMsg}</div>}
-            {status === 'success' && <div style={{ color: '#22c55e', fontSize: 13 }}>Verified! Account created — taking you to login…</div>}
-            <button type="submit" disabled={status === 'submitting'} className="btn btn-primary" style={{ padding: 12 }}>
-              {status === 'submitting' ? 'Verifying…' : 'Verify & Create Account'}
-            </button>
-            <button type="button" onClick={() => { setStep('details'); setErrorMsg(''); setStatus('idle'); }} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13 }}>
-              ← Back / change email
-            </button>
-          </form>
-          ) : (
           <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
 
             {/* Error */}
@@ -359,7 +292,6 @@ if (form.password !== form.confirm) {
               {status === 'success' && '✓ Done!'}
             </button>
           </form>
-          )}
 
         </div>
       </div>

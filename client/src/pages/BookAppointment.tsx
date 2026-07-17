@@ -334,7 +334,7 @@ if (form.useCase.trim().length < 20) {
                 type="submit" 
                 className="btn btn-primary btn-lg" 
                 disabled={status !== 'idle'}
-                style={{}}
+                style={{ background: status === 'success' ? '#22c55e' : '' }}
               >
                 {status === 'submitting' ? 'Booking...' : 'Book Appointment'}
               </button>

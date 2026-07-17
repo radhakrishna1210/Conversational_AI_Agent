@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { safeGet, safeSet, decodeJwtPayload, clearAuth, isAdminRole } from '@/lib/authStorage';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Bot,
@@ -85,8 +84,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [sidebarOpen]);
 
   const handleLogout = () => {
-    try { sessionStorage.setItem('loggedOut', '1'); } catch { /* blocked */ }
-    clearAuth(); // clears token/workspace/user keys from BOTH storages
+    sessionStorage.setItem('loggedOut', '1');
+    localStorage.removeItem('token');
+    localStorage.removeItem('refreshToken');
+    localStorage.removeItem('workspaceId');
+    localStorage.removeItem('userName');
+    localStorage.removeItem('userEmail');
+    localStorage.removeItem('userRole');
     navigate('/login');
   };
 
@@ -99,13 +103,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         .toUpperCase()
         .substring(0, 2) || 'U';
       setUser({ name, email, initials, plan, role });
-      safeSet('userName', name);
-      safeSet('userEmail', email);
-      if (role) safeSet('userRole', role);
+      localStorage.setItem('userName', name);
+      localStorage.setItem('userEmail', email);
+      if (role) localStorage.setItem('userRole', role);
     };
 
     const fetchMe = async () => {
-      const token = safeGet('token');
+      const token = localStorage.getItem('token');
       if (!token) return;
       try {
         const res = await fetch('/api/v1/auth/me', {
@@ -116,39 +120,37 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           const u = data.user;
           const name = u.name || u.email?.split('@')[0] || 'User';
 
-          // Extract role from JWT token payload since /auth/me doesn't return it directly
-          let role = u.role || '';
-          try {
-            const payload = decodeJwtPayload(token) ?? {};
-            if (!role && payload.role) role = payload.role;
-          } catch (_) {}
+          buildUser(name, u.email || '', u.plan || '', u.role || '');
 
-          buildUser(name, u.email || '', u.plan || '', role);
-
-          if (u.workspaceId && !safeGet('workspaceId')) {
-            safeSet('workspaceId', u.workspaceId);
+          buildUser(name, u.email || '', u.plan || '');
+          if (u.workspaceId && !localStorage.getItem('workspaceId')) {
+            localStorage.setItem('workspaceId', u.workspaceId);
           }
+
           return;
         }
       } catch (_) {}
 
-      // Fallback: decode JWT directly
-      const token2 = safeGet('token');
+      const token2 = localStorage.getItem('token');
       if (token2) {
         try {
-          const payload = decodeJwtPayload(token2) ?? {};
+          const payload = JSON.parse(atob(token2.split('.')[1]));
           const name = payload.name || payload.email?.split('@')[0] || 'User';
+
           buildUser(name, payload.email || '', payload.plan || '', payload.role || '');
-          if (payload.workspaceId && !safeGet('workspaceId')) {
-            safeSet('workspaceId', payload.workspaceId);
+
+          buildUser(name, payload.email || '', payload.plan || '');
+          if (payload.workspaceId && !localStorage.getItem('workspaceId')) {
+            localStorage.setItem('workspaceId', payload.workspaceId);
           }
+
           return;
         } catch (_) {}
       }
 
-      const cachedName = safeGet('userName') || 'User';
-      const cachedEmail = safeGet('userEmail') || '';
-      const cachedRole = safeGet('userRole') || '';
+      const cachedName = localStorage.getItem('userName') || 'User';
+      const cachedEmail = localStorage.getItem('userEmail') || '';
+      const cachedRole = localStorage.getItem('userRole') || '';
       buildUser(cachedName, cachedEmail, '', cachedRole);
     };
 
@@ -156,8 +158,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, []);
 
   useEffect(() => {
-    const token = safeGet('token');
-    const workspaceId = safeGet('workspaceId');
+    const token = localStorage.getItem('token');
+    const workspaceId = localStorage.getItem('workspaceId');
     if (!token || !workspaceId) return;
 
     fetch(`/api/v1/workspaces/${workspaceId}/notifications/unread-count`, {
@@ -208,6 +210,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <span className="sidebar-text">Voice AI Assistants</span>
               </div>
             </Link>
+            <Link to="/voice_assistant" style={{textDecoration: 'none'}}>
+              <div className={`sidebar-item ${path === '/voice_assistant' ? 'active' : ''}`}>
+                <span className="sidebar-icon">🔊</span>
+                <span className="sidebar-text">Real-time TTS</span>
+                <span className="badge-new">Live</span>
+              </div>
+            </Link>
             <Link to="/clone_voice" style={{textDecoration: 'none'}}>
               <div className={`sidebar-item ${path === '/clone_voice' ? 'active' : ''}`}>
                 <span className="sidebar-icon"><Mic size={16} /></span>
@@ -230,7 +239,6 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </div>
             </Link>
           </div>
-
 
           <div className="sidebar-section">
             <div className="sidebar-category">OPERATIONS & MONITORING</div>
@@ -273,6 +281,11 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                 <span className="sidebar-text">WhatsApp</span>
               </div>
             </Link>
+
+            <div className="sidebar-item">
+              <span className="sidebar-icon"><MessageCircle size={16} /></span>
+              <span className="sidebar-text">WhaBridge</span>
+            </div>
           </div>
 
           <div className="sidebar-section">
@@ -303,7 +316,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="sidebar-section">
             <div className="sidebar-category">ACCOUNT & BILLING</div>
 
-            {isAdminRole(user.role) && (
+            {user.role === 'Admin' && (
               <Link to="/admin">
                 <div className={`sidebar-item ${path === '/admin' ? 'active' : ''}`} style={{ position: 'relative' }}>
                   <span className="sidebar-icon"><Shield size={16} /></span>
@@ -475,6 +488,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
                   <div style={{ padding: '6px 0', borderBottom: '1px solid var(--dropdown-border)' }}>
                     {[
+                      { to: '/profile', label: 'Profile', icon: <><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></> },
                       { to: '/settings', label: 'Settings', icon: <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></> },
                       { to: '/billing', label: 'Billing', icon: <><rect x="1" y="4" width="22" height="16" rx="2" ry="2"/><line x1="1" y1="10" x2="23" y2="10"/></> },
                     ].map(item => (

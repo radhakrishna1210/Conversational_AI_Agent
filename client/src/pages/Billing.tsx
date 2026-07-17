@@ -1,35 +1,4 @@
-import { useEffect, useState } from 'react';
-import { whapi } from '../lib/whapi';
-interface PlanDto { id: string; name: string; priceUsd: number; perMinuteUsd: number; includedMinutes: number; kbStorageMb: number; features: string[]; sortOrder: number }
-interface WalletDto { balanceCents: number; currency: string; transactions: { id: string; amountCents: number; type: string; note: string | null; createdAt: string }[]; topUpAvailable: boolean; topUpUnavailableReason?: string }
-
 export default function Billing() {
-  const [wallet, setWallet] = useState<WalletDto | null>(null);
-  const [plans, setPlans] = useState<PlanDto[]>([]);
-  const [loadError, setLoadError] = useState<string | null>(null);
-  const [showTopUp, setShowTopUp] = useState(false);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const w = await whapi.get<WalletDto>('/wallet');
-        setWallet(w);
-      } catch (e) {
-        setLoadError(e instanceof Error ? e.message : 'Failed to load wallet');
-      }
-      try {
-        const res = await fetch('/api/v1/config/plans');
-        const data = await res.json();
-        if (Array.isArray(data?.plans)) setPlans(data.plans);
-      } catch { /* plans stay empty; grid shows fallback message */ }
-    })();
-  }, []);
-
-  const balanceUsd = wallet ? (wallet.balanceCents / 100) : null;
-  const currentPlan = plans[0]?.name ?? 'Free';
-  const perMin = plans.find(p => p.name === currentPlan)?.perMinuteUsd ?? 0.114;
-  const minutesLeft = balanceUsd != null && perMin > 0 ? (balanceUsd / perMin) : null;
-
   return (
     <>
       <div className="billing-page-header" style={{ marginBottom: '32px' }}>
@@ -65,12 +34,8 @@ export default function Billing() {
           <h4 style={{ color: 'var(--text-secondary)', fontSize: '12px', fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
             💲 Current Balance
           </h4>
-          <div className="stat-value" style={{ fontSize: '24px', fontWeight: 700, color: 'var(--teal)', marginBottom: '8px' }}>
-            {balanceUsd == null ? '—' : `$ ${balanceUsd.toFixed(2)}`}
-          </div>
-          <div style={{ color: 'var(--text-muted)', fontSize: '11px' }}>
-            {loadError ? `Couldn’t load balance: ${loadError}` : minutesLeft == null ? 'Live balance from your workspace wallet' : `~ ${minutesLeft.toFixed(1)} minutes left at $${perMin}/min`}
-          </div>
+          <div className="stat-value" style={{ fontSize: '24px', fontWeight: 700, color: 'var(--teal)', marginBottom: '8px' }}>$ 1.200</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: '11px' }}>~ 10.45 Minutes left</div>
         </div>
 
         <div className="billing-stat-card" style={{ 
@@ -90,14 +55,14 @@ export default function Billing() {
       {/* Voice AI Pricing Section */}
       <div className="billing-pricing-section" style={{ position: 'relative', marginBottom: '48px' }}>
         <div className="billing-pricing-header" style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <h2 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '12px', color: 'var(--text-primary)' }}>Voice AI Pricing</h2>
+          <h2 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '12px', color: 'white' }}>Voice AI Pricing</h2>
           <span style={{ 
             background: 'rgba(255,255,255,0.1)', 
             padding: '4px 12px', 
             borderRadius: '12px', 
             fontSize: '11px', 
             fontWeight: 600,
-            color: 'var(--text-primary)'
+            color: 'white'
           }}>Billed monthly</span>
         </div>
 
@@ -113,59 +78,60 @@ export default function Billing() {
           fontSize: '13px',
           fontWeight: 600,
           cursor: 'pointer'
-        }} onClick={() => setShowTopUp(true)}>
-          + Top Up Credits
+        }}>
+          + Top Up Credits. (UPI Available)
         </button>
 
-        {showTopUp && (
-          <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }} onClick={() => setShowTopUp(false)}>
-            <div style={{ background: 'var(--bg-card, #111827)', border: '1px solid var(--border)', borderRadius: 12, padding: 28, maxWidth: 420, width: '92%' }} onClick={e => e.stopPropagation()}>
-              <h3 style={{ marginBottom: 10, fontSize: 17 }}>Top up credits</h3>
-              {wallet?.topUpAvailable ? (
-                <p style={{ color: 'var(--text-secondary)', fontSize: 14 }}>Choose a payment method to continue.</p>
-              ) : (
-                <p style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.6 }}>
-                  {wallet?.topUpUnavailableReason || 'Online payments are not configured yet.'}
-                  <br /><br />
-                  Your live balance and full transaction ledger are tracked server-side; once a payment gateway (UPI/Stripe/Razorpay) is connected, top-ups will appear here instantly.
-                </p>
-              )}
-              <button onClick={() => setShowTopUp(false)} style={{ marginTop: 16, width: '100%', padding: '10px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-primary, #fff)', cursor: 'pointer' }}>Close</button>
+        <div className="billing-pricing-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: '16px', marginBottom: '24px' }}>
+          {/* Plan 1 */}
+          <PricingCard 
+            name="Starter" 
+            price="15" 
+            desc="Best for quick experimentations" 
+            cost="0.104" mins="144" extra="0.104" kb="5" 
+          />
+          {/* Plan 2 */}
+          <PricingCard 
+            name="Jump Starter" 
+            price="30" 
+            desc="Best for building and sharing voice AI demos." 
+            cost="0.095" mins="316" extra="0.095" kb="10" 
+          />
+          {/* Plan 3 (Highlight) */}
+          <PricingCard 
+            name="Early deployers" 
+            price="36" 
+            oldPrice="40"
+            badge="10% OFF"
+            desc="Best for users doing a POC with a live voice AI agent." 
+            cost="0.085" mins="471" extra="0.085" kb="50" 
+            highlight
+          />
+          {/* Plan 4 */}
+          <PricingCard 
+            name="Growth" 
+            price="200" 
+            desc="Best for users scaling post-POC voice AI usage." 
+            cost="0.070" mins="2857" extra="0.070" kb="100" 
+          />
+          {/* Plan 5 (Enterprise) */}
+          <div style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '24px', display: 'flex', flexDirection: 'column', background: 'rgba(255,255,255,0.02)' }}>
+            <div style={{ textAlign: 'center', marginBottom: '24px' }}>
+              <div className="plan-name" style={{ fontSize: '14px', fontWeight: 700, marginBottom: '8px', color: 'white' }}>Enterprise</div>
+              <div className="plan-price" style={{ fontSize: '24px', fontWeight: 800, color: 'white' }}>Custom <span style={{ fontSize: '12px', fontWeight: 500, color: 'var(--text-muted)' }}>pricing</span></div>
+              <div style={{ fontSize: '11px', color: 'var(--teal)', marginTop: '8px' }}>(As low as $0.05/min or ₹4.0/min)</div>
             </div>
-          </div>
-        )}
-
-        {/* Transaction ledger */}
-        {wallet && wallet.transactions.length > 0 && (
-          <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 18, marginBottom: 24 }}>
-            <h4 style={{ fontSize: 14, marginBottom: 10 }}>Recent transactions</h4>
-            {wallet.transactions.slice(0, 8).map(t => (
-              <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
-                <span style={{ color: 'var(--text-secondary)' }}>{new Date(t.createdAt).toLocaleString()} · {t.type}{t.note ? ` — ${t.note}` : ''}</span>
-                <span style={{ color: t.amountCents >= 0 ? '#22c55e' : '#f87171', fontWeight: 600 }}>{t.amountCents >= 0 ? '+' : ''}{(t.amountCents / 100).toFixed(2)}</span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        <div className="billing-pricing-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px', marginBottom: '24px' }}>
-          {plans.length === 0 ? (
-            <div style={{ gridColumn: '1 / -1', color: 'var(--text-muted)', fontSize: 13 }}>
-              Plans are loading… (managed by your admin in Admin Panel → Plans)
+            <p style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', marginBottom: '24px', lineHeight: 1.5, flexGrow: 1 }}>
+              Launch at scale with volume-based discounts.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '32px', fontSize: '11px', color: 'white' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Agent Training from Recording</span><span style={{color:'var(--teal)'}}>✓</span></div>
+              <div style={{ display: 'flex', justifyContent: 'space-between' }}><span>Dedicated support</span><span style={{color:'var(--teal)'}}>✓</span></div>
             </div>
-          ) : plans.map((p, i) => (
-            <PricingCard
-              key={p.id}
-              name={p.name}
-              price={String(p.priceUsd)}
-              desc={p.features[0] || ''}
-              cost={p.perMinuteUsd.toFixed(3)}
-              mins={String(p.includedMinutes)}
-              kb={`${p.kbStorageMb} MB knowledge base`}
-              extra={p.features.slice(1).join(' · ')}
-              highlight={i === 2}
-            />
-          ))}
+            <button className="btn" style={{ background: 'transparent', border: '1px solid var(--teal)', color: 'var(--teal)', width: '100%', padding: '10px', fontSize: '13px' }}>
+              ✉️ Contact Us
+            </button>
+          </div>
         </div>
 
         {/* Flexible Model Selection Banner */}
@@ -181,14 +147,14 @@ export default function Billing() {
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <span style={{ color: 'var(--teal)', fontSize: '20px' }}>⚙️</span>
             <div>
-              <div style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: '14px', marginBottom: '4px' }}>Flexible Model Selection</div>
+              <div style={{ color: 'white', fontWeight: 600, fontSize: '14px', marginBottom: '4px' }}>Flexible Model Selection</div>
               <div style={{ color: 'var(--text-muted)', fontSize: '12px' }}>You can use any combination of supported models for your Voice AI agents.</div>
             </div>
           </div>
           <button style={{ 
             background: 'transparent', 
             border: '1px solid var(--text-muted)', 
-            color: 'var(--text-primary)', 
+            color: 'white', 
             padding: '6px 12px', 
             borderRadius: '6px', 
             fontSize: '11px', 
@@ -203,7 +169,7 @@ export default function Billing() {
       {/* Chatbot Pricing */}
       <div className="billing-chatbot-section" style={{ marginBottom: '48px' }}>
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <h2 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '8px', color: 'var(--text-primary)' }}>Chatbot Pricing</h2>
+          <h2 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '8px', color: 'white' }}>Chatbot Pricing</h2>
           <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Simple per-message pricing for all plans</p>
         </div>
         
@@ -216,18 +182,18 @@ export default function Billing() {
           overflow: 'hidden'
         }}>
           <div style={{ padding: '24px', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>-</div>
-          <div style={{ padding: '24px', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)', textAlign: 'center', fontWeight: 700, color: 'var(--text-primary)' }}>Starter</div>
-          <div style={{ padding: '24px', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)', textAlign: 'center', fontWeight: 700, color: 'var(--text-primary)' }}>Jump Starter</div>
-          <div style={{ padding: '24px', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)', textAlign: 'center', fontWeight: 700, color: 'var(--text-primary)' }}>Early deployers</div>
-          <div style={{ padding: '24px', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)', textAlign: 'center', fontWeight: 700, color: 'var(--text-primary)' }}>Growth</div>
-          <div style={{ padding: '24px', borderBottom: '1px solid var(--border)', textAlign: 'center', fontWeight: 700, color: 'var(--text-primary)' }}>Enterprise</div>
+          <div style={{ padding: '24px', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)', textAlign: 'center', fontWeight: 700, color: 'white' }}>Starter</div>
+          <div style={{ padding: '24px', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)', textAlign: 'center', fontWeight: 700, color: 'white' }}>Jump Starter</div>
+          <div style={{ padding: '24px', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)', textAlign: 'center', fontWeight: 700, color: 'white' }}>Early deployers</div>
+          <div style={{ padding: '24px', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)', textAlign: 'center', fontWeight: 700, color: 'white' }}>Growth</div>
+          <div style={{ padding: '24px', borderBottom: '1px solid var(--border)', textAlign: 'center', fontWeight: 700, color: 'white' }}>Enterprise</div>
 
-          <div style={{ padding: '24px', borderRight: '1px solid var(--border)', color: 'var(--text-primary)', fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center' }}>Cost</div>
-          <div style={{ padding: '24px', borderRight: '1px solid var(--border)', textAlign: 'center', color: 'var(--text-primary)', fontSize: '12px' }}>$ 0.005 / message</div>
-          <div style={{ padding: '24px', borderRight: '1px solid var(--border)', textAlign: 'center', color: 'var(--text-primary)', fontSize: '12px' }}>$ 0.005 / message</div>
-          <div style={{ padding: '24px', borderRight: '1px solid var(--border)', textAlign: 'center', color: 'var(--text-primary)', fontSize: '12px' }}>$ 0.005 / message</div>
-          <div style={{ padding: '24px', borderRight: '1px solid var(--border)', textAlign: 'center', color: 'var(--text-primary)', fontSize: '12px' }}>$ 0.005 / message</div>
-          <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-primary)', fontSize: '12px' }}>custom</div>
+          <div style={{ padding: '24px', borderRight: '1px solid var(--border)', color: 'white', fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center' }}>Cost</div>
+          <div style={{ padding: '24px', borderRight: '1px solid var(--border)', textAlign: 'center', color: 'white', fontSize: '12px' }}>$ 0.005 / message</div>
+          <div style={{ padding: '24px', borderRight: '1px solid var(--border)', textAlign: 'center', color: 'white', fontSize: '12px' }}>$ 0.005 / message</div>
+          <div style={{ padding: '24px', borderRight: '1px solid var(--border)', textAlign: 'center', color: 'white', fontSize: '12px' }}>$ 0.005 / message</div>
+          <div style={{ padding: '24px', borderRight: '1px solid var(--border)', textAlign: 'center', color: 'white', fontSize: '12px' }}>$ 0.005 / message</div>
+          <div style={{ padding: '24px', textAlign: 'center', color: 'white', fontSize: '12px' }}>custom</div>
         </div>
         </div>
       </div>
@@ -235,7 +201,7 @@ export default function Billing() {
       {/* Features Table */}
       <div className="billing-features-section" style={{ marginBottom: '48px' }}>
         <div style={{ textAlign: 'center', marginBottom: '32px' }}>
-          <h2 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '8px', color: 'var(--text-primary)' }}>Features</h2>
+          <h2 style={{ fontSize: '24px', fontWeight: 700, marginBottom: '8px', color: 'white' }}>Features</h2>
           <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>Compare features across all plans</p>
         </div>
 
@@ -248,12 +214,12 @@ export default function Billing() {
           background: 'rgba(255,255,255,0.01)'
         }}>
           {/* Header Row */}
-          <div style={{ padding: '24px 16px', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)', fontWeight: 700, color: 'var(--text-primary)', textAlign: 'center' }}>Features</div>
-          <div style={{ padding: '24px 16px', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)', fontWeight: 700, color: 'var(--text-primary)', textAlign: 'center' }}>Starter</div>
-          <div style={{ padding: '24px 16px', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)', fontWeight: 700, color: 'var(--text-primary)', textAlign: 'center' }}>Jump Starter</div>
-          <div style={{ padding: '24px 16px', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)', fontWeight: 700, color: 'var(--text-primary)', textAlign: 'center' }}>Early deployers</div>
-          <div style={{ padding: '24px 16px', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)', fontWeight: 700, color: 'var(--text-primary)', textAlign: 'center' }}>Growth</div>
-          <div style={{ padding: '24px 16px', borderBottom: '1px solid var(--border)', fontWeight: 700, color: 'var(--text-primary)', textAlign: 'center' }}>Enterprise</div>
+          <div style={{ padding: '24px 16px', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)', fontWeight: 700, color: 'white', textAlign: 'center' }}>Features</div>
+          <div style={{ padding: '24px 16px', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)', fontWeight: 700, color: 'white', textAlign: 'center' }}>Starter</div>
+          <div style={{ padding: '24px 16px', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)', fontWeight: 700, color: 'white', textAlign: 'center' }}>Jump Starter</div>
+          <div style={{ padding: '24px 16px', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)', fontWeight: 700, color: 'white', textAlign: 'center' }}>Early deployers</div>
+          <div style={{ padding: '24px 16px', borderRight: '1px solid var(--border)', borderBottom: '1px solid var(--border)', fontWeight: 700, color: 'white', textAlign: 'center' }}>Growth</div>
+          <div style={{ padding: '24px 16px', borderBottom: '1px solid var(--border)', fontWeight: 700, color: 'white', textAlign: 'center' }}>Enterprise</div>
 
           {/* Feature Rows */}
           <FeatureRow name="OmniCRM" vals={['x', 'x', 'x', 'x', 'v']} />
@@ -449,7 +415,7 @@ function PricingCard({ name, price, oldPrice, badge, desc, cost, mins, extra, kb
       position: 'relative'
     }}>
       <div style={{ textAlign: 'center', marginBottom: '24px' }}>
-        <div className="plan-name" style={{ fontSize: '14px', fontWeight: 700, marginBottom: '8px', color: 'var(--text-primary)' }}>{name}</div>
+        <div className="plan-name" style={{ fontSize: '14px', fontWeight: 700, marginBottom: '8px', color: 'white' }}>{name}</div>
         
         {badge && (
           <div style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', gap: '8px', marginBottom: '4px' }}>
@@ -458,14 +424,14 @@ function PricingCard({ name, price, oldPrice, badge, desc, cost, mins, extra, kb
           </div>
         )}
 
-        <div className="plan-price" style={{ fontSize: '28px', fontWeight: 800, color: 'var(--text-primary)' }}>
+        <div className="plan-price" style={{ fontSize: '28px', fontWeight: 800, color: 'white' }}>
           <span style={{ fontSize: '20px', verticalAlign: 'top' }}>$ </span>{price} <span style={{ fontSize: '12px', fontWeight: 500, color: 'var(--text-muted)' }}>/month</span>
         </div>
       </div>
       
       <p style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', marginBottom: '24px', lineHeight: 1.5, flexGrow: 1 }}>{desc}</p>
       
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '32px', fontSize: '11px', color: 'var(--text-primary)' }}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '32px', fontSize: '11px', color: 'white' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>Cost</span><span>$ {cost}/min</span></div>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>Minutes</span><span>~ {mins} minutes</span></div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -491,7 +457,7 @@ function FeatureRow({ name, vals, noBorder }: any) {
 
   return (
     <>
-      <div style={{ padding: '16px', borderRight: '1px solid var(--border)', borderBottom: noBorder ? 'none' : '1px solid rgba(255,255,255,0.05)', color: 'var(--text-primary)', fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center' }}>
+      <div style={{ padding: '16px', borderRight: '1px solid var(--border)', borderBottom: noBorder ? 'none' : '1px solid rgba(255,255,255,0.05)', color: 'white', fontSize: '12px', fontWeight: 600, display: 'flex', alignItems: 'center' }}>
         {name}
       </div>
       {vals.map((v: string, i: number) => (

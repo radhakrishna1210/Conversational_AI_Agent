@@ -1,26 +1,29 @@
 const BASE = '/api/v1';
 
-import { getAuth, clearAuth } from './authStorage';
-export { getAuth };
+function getAuth() {
+  const token = localStorage.getItem('token') ?? '';
+  let workspaceId = localStorage.getItem('workspaceId') ?? '';
+  
+  if (workspaceId === 'undefined' || workspaceId === 'null') {
+    workspaceId = '';
+  }
+  
+  // Auto-recover workspaceId from token if it's missing in localStorage
+  if (!workspaceId && token) {
+    try {
+      const payload = JSON.parse(atob(token.split('.')[1]));
+      if (payload.workspaceId) {
+        workspaceId = payload.workspaceId;
+        localStorage.setItem('workspaceId', workspaceId);
+      }
+    } catch (_) {}
+  }
+
+  return { token, workspaceId };
+}
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const { token, workspaceId } = getAuth();
-
-  if (!workspaceId) {
-    // No hard navigation from inside a library call (a transient storage miss
-    // used to bounce logged-in users to /login mid-page). If there is no token
-    // at all the route guard will redirect; here we just fail the request
-    // with a clear, catchable error.
-    if (!token) {
-      const err = new Error('Not logged in.');
-      (err as any).code = 'NO_AUTH';
-      throw err;
-    }
-    const err = new Error('Your session is missing workspace context. Please log out and back in.');
-    (err as any).code = 'NO_WORKSPACE';
-    throw err;
-  }
-
   const url = `${BASE}/workspaces/${workspaceId}${path}`;
   const headers: Record<string, string> = {};
 
@@ -48,10 +51,8 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     }
     
     if (res.status === 401) {
-      // Session genuinely expired/invalid — centralized logout is correct here
-      // (unlike the removed pre-request workspace redirect, which fired on
-      // transient storage misses). Clear BOTH storages, not just localStorage.
-      clearAuth();
+      localStorage.removeItem('token');
+      localStorage.removeItem('workspaceId');
       window.location.href = '/login';
     }
     

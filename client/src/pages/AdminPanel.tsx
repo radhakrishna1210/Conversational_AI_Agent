@@ -1,11 +1,10 @@
 ﻿import { useState, useEffect, useCallback } from 'react';
-import { safeGet } from '@/lib/authStorage';
 import {
   Users, Bot, Phone, BarChart3, TrendingUp, RefreshCw,
   Search, Filter, Plus, Trash2, UserCheck, UserX,
   PowerOff, RotateCcw, Globe, ChevronDown, X, Check,
   AlertCircle, Shield, Ban, ChevronLeft, ChevronRight,
-  Eye, CreditCard, Bug
+  Eye, CreditCard, MoreVertical, Bug
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -74,7 +73,7 @@ interface Workspace {
 const API = (path: string) => `/api/v1/admin${path}`;
 
 async function apiFetch(path: string, opts?: RequestInit) {
-  const token = safeGet('token');
+  const token = localStorage.getItem('token');
   const res = await fetch(API(path), {
     ...opts,
     headers: {
@@ -119,7 +118,7 @@ function MiniBarChart({ data, valueKey, color = '#0eb39e' }: {
 }) {
   if (!data.length) return <div style={{ height: 80, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#555', fontSize: 12 }}>No data</div>;
 
-  const values = data.map((d) => (d as unknown as Record<string, number>)[valueKey] ?? 0);
+  const values = data.map((d) => (d as Record<string, number>)[valueKey] ?? 0);
   const max = Math.max(...values, 1);
 
   return (
@@ -167,7 +166,7 @@ function StatCard({ icon, label, value, sub, color = '#0eb39e' }: {
         <span style={{ fontSize: 13, color: 'var(--text-secondary)', fontWeight: 600 }}>{label}</span>
         <span style={{ color }}>{icon}</span>
       </div>
-      <div style={{ fontSize: 28, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-1px' }}>{value}</div>
+      <div style={{ fontSize: 28, fontWeight: 800, color: 'white', letterSpacing: '-1px' }}>{value}</div>
       {sub && <div style={{ fontSize: 12, color: 'var(--text-secondary)', marginTop: 4 }}>{sub}</div>}
     </div>
   );
@@ -241,11 +240,11 @@ function AssignModal({ number, workspaces, onClose, onAssign }: {
         padding: 28, width: 420, maxWidth: '90vw',
       }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Assign Number</h3>
+          <h3 style={{ fontSize: 16, fontWeight: 700, color: 'white', margin: 0 }}>Assign Number</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><X size={18} /></button>
         </div>
         <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 20 }}>
-          Assign <strong style={{ color: 'var(--text-primary)' }}>{number.phoneNumber}</strong> to a workspace
+          Assign <strong style={{ color: 'white' }}>{number.phoneNumber}</strong> to a workspace
         </p>
         <div style={{ position: 'relative', marginBottom: 20 }}>
           <select
@@ -253,7 +252,7 @@ function AssignModal({ number, workspaces, onClose, onAssign }: {
             onChange={(e) => setSelected(e.target.value)}
             style={{
               width: '100%', padding: '10px 36px 10px 14px', background: '#161b22',
-              border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)',
+              border: '1px solid var(--border)', borderRadius: 8, color: 'white',
               fontSize: 13, appearance: 'none', cursor: 'pointer',
             }}
           >
@@ -310,7 +309,7 @@ function AddNumberModal({ onClose, onAdd }: {
     <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
       <div style={{ background: '#0d1117', border: '1px solid var(--border)', borderRadius: 14, padding: 28, width: 460, maxWidth: '90vw' }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Add Number to Pool</h3>
+          <h3 style={{ fontSize: 16, fontWeight: 700, color: 'white', margin: 0 }}>Add Number to Pool</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><X size={18} /></button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -322,7 +321,7 @@ function AddNumberModal({ onClose, onAdd }: {
                 value={form[f.key]}
                 onChange={(e) => set(f.key, e.target.value)}
                 placeholder={f.placeholder}
-                style={{ width: '100%', padding: '9px 14px', background: '#161b22', border: '1px solid var(--border)', borderRadius: 7, color: 'var(--text-primary)', fontSize: 13, boxSizing: 'border-box' }}
+                style={{ width: '100%', padding: '9px 14px', background: '#161b22', border: '1px solid var(--border)', borderRadius: 7, color: 'white', fontSize: 13, boxSizing: 'border-box' }}
               />
             </div>
           ))}
@@ -436,11 +435,11 @@ function AnalyticsTab() {
         ].map((chart) => (
           <div key={chart.key} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, padding: '18px 20px' }}>
             <div style={{ marginBottom: 4 }}>
-              <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)' }}>{chart.title}</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: 'white' }}>{chart.title}</div>
               <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{chart.sub}</div>
             </div>
             <div style={{ fontSize: 22, fontWeight: 800, color: chart.color, margin: '8px 0' }}>
-              {chart.data.reduce((s, d) => s + ((d as unknown as Record<string, number>)[chart.key] ?? 0), 0)}
+              {chart.data.reduce((s, d) => s + ((d as Record<string, number>)[chart.key] ?? 0), 0)}
             </div>
             <MiniBarChart data={chart.data} valueKey={chart.key} color={chart.color} />
           </div>
@@ -453,7 +452,7 @@ function AnalyticsTab() {
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
           <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}>
             <TrendingUp size={15} style={{ color: '#0eb39e' }} />
-            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>Top Workspaces by Agents</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: 'white' }}>Top Workspaces by Agents</span>
           </div>
           <div style={{ maxHeight: 340, overflowY: 'auto' }}>
             {topWs.length === 0 ? (
@@ -462,7 +461,7 @@ function AnalyticsTab() {
               <div key={w.id} style={{ display: 'flex', alignItems: 'center', padding: '12px 20px', borderBottom: '1px solid rgba(255,255,255,0.04)', gap: 12 }}>
                 <span style={{ width: 22, height: 22, borderRadius: '50%', background: 'rgba(14,179,158,0.12)', color: '#0eb39e', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.name}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.name}</div>
                   <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{w.planName} · {w.memberCount} members</div>
                 </div>
                 <div style={{ textAlign: 'right', flexShrink: 0 }}>
@@ -478,7 +477,7 @@ function AnalyticsTab() {
         <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
           <div style={{ padding: '16px 20px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 8 }}>
             <Users size={15} style={{ color: '#818cf8' }} />
-            <span style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>Recent Signups</span>
+            <span style={{ fontSize: 14, fontWeight: 700, color: 'white' }}>Recent Signups</span>
           </div>
           <div style={{ maxHeight: 340, overflowY: 'auto' }}>
             {recentUsers.length === 0 ? (
@@ -489,7 +488,7 @@ function AnalyticsTab() {
                   {u.name.charAt(0).toUpperCase()}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.name}</div>
+                  <div style={{ fontSize: 13, fontWeight: 600, color: 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.name}</div>
                   <div style={{ fontSize: 11, color: 'var(--text-secondary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.email}</div>
                 </div>
                 <div style={{ textAlign: 'right', flexShrink: 0 }}>
@@ -599,7 +598,7 @@ function NumberPoolTab() {
           <div key={s.label} style={{ padding: '8px 18px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
             <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.color, display: 'inline-block' }} />
             <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{s.label}</span>
-            <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--text-primary)' }}>{s.value}</span>
+            <span style={{ fontSize: 15, fontWeight: 800, color: 'white' }}>{s.value}</span>
           </div>
         ))}
       </div>
@@ -613,7 +612,7 @@ function NumberPoolTab() {
             placeholder="Search by number..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            style={{ width: '100%', padding: '9px 14px 9px 34px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, boxSizing: 'border-box' }}
+            style={{ width: '100%', padding: '9px 14px 9px 34px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, color: 'white', fontSize: 13, boxSizing: 'border-box' }}
           />
         </div>
 
@@ -681,7 +680,7 @@ function NumberPoolTab() {
                     onMouseOut={(e) => (e.currentTarget.style.background = 'transparent')}
                   >
                     <td style={{ padding: '13px 16px' }}>
-                      <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontFamily: 'monospace', fontSize: 13 }}>{num.phoneNumber}</div>
+                      <div style={{ fontWeight: 700, color: 'white', fontFamily: 'monospace', fontSize: 13 }}>{num.phoneNumber}</div>
                       {num.displayName && <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>{num.displayName}</div>}
                     </td>
                     <td style={{ padding: '13px 16px', color: 'var(--text-secondary)', fontSize: 12 }}>{countryFlag(num.phoneNumber)}</td>
@@ -694,7 +693,7 @@ function NumberPoolTab() {
                     <td style={{ padding: '13px 16px' }}>
                       {num.workspace ? (
                         <div>
-                          <div style={{ color: 'var(--text-primary)', fontWeight: 600 }}>{num.workspace.name}</div>
+                          <div style={{ color: 'white', fontWeight: 600 }}>{num.workspace.name}</div>
                           <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>/{num.workspace.slug}</div>
                         </div>
                       ) : <span style={{ color: '#555', fontSize: 12 }}>—</span>}
@@ -830,7 +829,7 @@ function UserDetailModal({ userId, onClose, onAction }: {
         <ToastContainer toasts={toasts} />
         {/* Header */}
         <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>User Details</h3>
+          <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'white' }}>User Details</h3>
           <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><X size={18} /></button>
         </div>
 
@@ -846,7 +845,7 @@ function UserDetailModal({ userId, onClose, onAction }: {
                 {user.name.charAt(0).toUpperCase()}
               </div>
               <div style={{ flex: 1 }}>
-                <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--text-primary)' }}>{user.name}</div>
+                <div style={{ fontSize: 17, fontWeight: 700, color: 'white' }}>{user.name}</div>
                 <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{user.email}</div>
                 <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
                   <span style={{ padding: '2px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, ...planColor(user.planName) }}>{user.planName}</span>
@@ -865,7 +864,7 @@ function UserDetailModal({ userId, onClose, onAction }: {
               <div key={m.workspace.id} style={{ marginBottom: 16, padding: 16, background: 'rgba(255,255,255,0.02)', borderRadius: 10, border: '1px solid var(--border)' }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 12 }}>
                   <div>
-                    <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)' }}>{m.workspace.name}</div>
+                    <div style={{ fontSize: 14, fontWeight: 700, color: 'white' }}>{m.workspace.name}</div>
                     <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>/{m.workspace.slug} · {m.role}</div>
                   </div>
                   <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--text-secondary)' }}>
@@ -898,7 +897,7 @@ function UserDetailModal({ userId, onClose, onAction }: {
                 <div style={{ position: 'relative', flex: 1 }}>
                   <CreditCard size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#555' }} />
                   <select value={selectedPlan} onChange={e => setSelectedPlan(e.target.value)}
-                    style={{ width: '100%', padding: '8px 10px 8px 30px', background: '#161b22', border: '1px solid var(--border)', borderRadius: 7, color: 'var(--text-primary)', fontSize: 13, appearance: 'none' }}>
+                    style={{ width: '100%', padding: '8px 10px 8px 30px', background: '#161b22', border: '1px solid var(--border)', borderRadius: 7, color: 'white', fontSize: 13, appearance: 'none' }}>
                     {PLANS.map(p => <option key={p} value={p}>{p}</option>)}
                   </select>
                 </div>
@@ -918,7 +917,7 @@ function UserDetailModal({ userId, onClose, onAction }: {
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                   {showBanInput && (
                     <input value={banReason} onChange={e => setBanReason(e.target.value)} placeholder="Ban reason (optional)"
-                      style={{ padding: '8px 12px', background: '#161b22', border: '1px solid var(--border)', borderRadius: 7, color: 'var(--text-primary)', fontSize: 12, width: 180 }} />
+                      style={{ padding: '8px 12px', background: '#161b22', border: '1px solid var(--border)', borderRadius: 7, color: 'white', fontSize: 12, width: 180 }} />
                   )}
                   <button onClick={() => showBanInput ? act(() => apiFetch(`/users/${user.id}/ban`, { method: 'PATCH', body: JSON.stringify({ reason: banReason }) }), 'User banned') : setShowBanInput(true)}
                     style={{ padding: '8px 16px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 7, color: '#f87171', fontWeight: 700, fontSize: 12, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -985,7 +984,7 @@ function UserManagementTab() {
         <div style={{ position: 'relative', flex: 1, minWidth: 220 }}>
           <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: '#555' }} />
           <input type="text" placeholder="Search name or email..." value={search} onChange={e => { setSearch(e.target.value); setPage(1); }}
-            style={{ width: '100%', padding: '9px 14px 9px 34px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, boxSizing: 'border-box' }} />
+            style={{ width: '100%', padding: '9px 14px 9px 34px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, color: 'white', fontSize: 13, boxSizing: 'border-box' }} />
         </div>
 
         <div style={{ position: 'relative' }}>
@@ -1050,7 +1049,7 @@ function UserManagementTab() {
                         {u.name.charAt(0).toUpperCase()}
                       </div>
                       <div>
-                        <div style={{ fontWeight: 600, color: 'var(--text-primary)' }}>{u.name}</div>
+                        <div style={{ fontWeight: 600, color: 'white' }}>{u.name}</div>
                         <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{u.email}</div>
                       </div>
                     </div>
@@ -1072,7 +1071,7 @@ function UserManagementTab() {
                   <td style={{ padding: '13px 16px' }}>
                     {u.workspace ? (
                       <div>
-                        <div style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: 12 }}>{u.workspace.name}</div>
+                        <div style={{ color: 'white', fontWeight: 600, fontSize: 12 }}>{u.workspace.name}</div>
                         <div style={{ fontSize: 10, color: 'var(--text-secondary)' }}>/{u.workspace.slug}</div>
                       </div>
                     ) : <span style={{ color: '#555', fontSize: 12 }}>—</span>}
@@ -1154,7 +1153,7 @@ function ReportIssuesTab() {
     setLoading(true);
     setError('');
     try {
-      const token = safeGet('token');
+      const token = localStorage.getItem('token');
       const res = await fetch('/api/v1/report-issue', {
         headers: { Authorization: `Bearer ${token}` },
       });
@@ -1187,7 +1186,7 @@ function ReportIssuesTab() {
             placeholder="Search issues..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            style={{ width: '100%', padding: '9px 14px 9px 34px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, boxSizing: 'border-box' }}
+            style={{ width: '100%', padding: '9px 14px 9px 34px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, color: 'white', fontSize: 13, boxSizing: 'border-box' }}
           />
         </div>
         <button
@@ -1238,7 +1237,7 @@ function ReportIssuesTab() {
               >
                 <Bug size={15} style={{ color: '#f59e0b', flexShrink: 0 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: 'white', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                     {issue.issueTitle}
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--text-secondary)', marginTop: 2 }}>
@@ -1284,17 +1283,13 @@ function ReportIssuesTab() {
 // ─── Main AdminPanel Page ─────────────────────────────────────────────────────
 
 export default function AdminPanel() {
-  const [tab, setTab] = useState<'analytics' | 'numbers' | 'users' | 'issues' | 'appointments' | 'plans' | 'wallets' | 'health'>('analytics');
+  const [tab, setTab] = useState<'analytics' | 'numbers' | 'users' | 'issues'>('analytics');
 
   const tabs = [
     { id: 'analytics' as const, label: 'Analytics', icon: <BarChart3 size={15} /> },
     { id: 'users' as const, label: 'User Management', icon: <Users size={15} /> },
     { id: 'numbers' as const, label: 'Number Pools', icon: <Phone size={15} /> },
     { id: 'issues' as const, label: 'Report Issues', icon: <Bug size={15} /> },
-    { id: 'appointments' as const, label: 'Appointments', icon: <CreditCard size={15} /> },
-    { id: 'plans' as const, label: 'Plans & Pricing', icon: <TrendingUp size={15} /> },
-    { id: 'wallets' as const, label: 'Wallet Credits', icon: <CreditCard size={15} /> },
-    { id: 'health' as const, label: 'System Health', icon: <Shield size={15} /> },
   ];
 
   return (
@@ -1308,7 +1303,7 @@ export default function AdminPanel() {
       <div style={{ marginBottom: 28 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
           <Shield size={22} style={{ color: '#0eb39e' }} />
-          <h1 style={{ fontSize: 26, fontWeight: 800, letterSpacing: '-0.5px', margin: 0, color: 'var(--text-primary)' }}>Admin Panel</h1>
+          <h1 style={{ fontSize: 26, fontWeight: 800, letterSpacing: '-0.5px', margin: 0, color: 'white' }}>Admin Panel</h1>
           <span style={{ padding: '3px 10px', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 20, fontSize: 10, fontWeight: 800, color: '#f87171', letterSpacing: '0.5px' }}>ADMIN ONLY</span>
         </div>
         <p style={{ color: 'var(--text-secondary)', fontSize: 14, margin: 0 }}>
@@ -1348,169 +1343,6 @@ export default function AdminPanel() {
       {tab === 'numbers' && <NumberPoolTab />}
       {tab === 'users' && <UserManagementTab />}
       {tab === 'issues' && <ReportIssuesTab />}
-      {tab === 'appointments' && <AppointmentsTab />}
-      {tab === 'plans' && <PlansTab />}
-      {tab === 'wallets' && <WalletCreditTab />}
-      {tab === 'health' && <SystemHealthTab />}
     </>
-  );
-}
-
-
-// ─── Sprint-2 admin tabs ──────────────────────────────────────────────────────
-
-function AppointmentsTab() {
-  const [rows, setRows] = useState<any[]>([]);
-  const [err, setErr] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await fetch(API('/appointments'), { headers: { Authorization: `Bearer ${safeGet('token')}` } });
-        const data = await res.json();
-        if (!res.ok) throw new Error(data.error || `Failed (${res.status})`);
-        setRows(Array.isArray(data) ? data : data.appointments ?? []);
-      } catch (e) { setErr(e instanceof Error ? e.message : 'Failed to load'); }
-      finally { setLoading(false); }
-    })();
-  }, []);
-  if (loading) return <p style={{ color: 'var(--text-muted)' }}>Loading appointments…</p>;
-  if (err) return <p style={{ color: '#f87171' }}>Couldn’t load appointments: {err}</p>;
-  if (!rows.length) return <p style={{ color: 'var(--text-muted)' }}>No appointment bookings submitted yet.</p>;
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-      {rows.map((a: any) => (
-        <div key={a.id} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '14px 16px', fontSize: 13 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-            <strong style={{ color: 'var(--text-primary, #fff)' }}>{a.name} — {a.email} · {a.phone}</strong>
-            <span style={{ color: 'var(--text-muted)' }}>{new Date(a.createdAt).toLocaleString()}</span>
-          </div>
-          <div style={{ color: 'var(--text-secondary)' }}>
-            {a.projectType} · {a.role} · {a.industry} · vol: {a.callVolume} · {a.userType}
-          </div>
-          <div style={{ color: 'var(--text-secondary)', marginTop: 4 }}>Use case: {a.useCase} — Reason: {a.reason}</div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function PlansTab() {
-  const [plans, setPlans] = useState<any[]>([]);
-  const [err, setErr] = useState<string | null>(null);
-  const [saving, setSaving] = useState<string | null>(null);
-  const hdrs = () => ({ Authorization: `Bearer ${safeGet('token')}`, 'Content-Type': 'application/json' });
-  const load = async () => {
-    try {
-      const res = await fetch(API('/plans'), { headers: hdrs() });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || `Failed (${res.status})`);
-      setPlans(data.plans ?? []);
-    } catch (e) { setErr(e instanceof Error ? e.message : 'Failed'); }
-  };
-  useEffect(() => { load(); }, []);
-  const save = async (p: any) => {
-    setSaving(p.id);
-    try {
-      const res = await fetch(API('/plans'), { method: 'POST', headers: hdrs(), body: JSON.stringify(p) });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Save failed');
-      await load();
-    } catch (e) { alert(e instanceof Error ? e.message : 'Save failed'); }
-    finally { setSaving(null); }
-  };
-  const upd = (id: string, k: string, v: any) => setPlans(prev => prev.map(p => p.id === id ? { ...p, [k]: v } : p));
-  if (err) return <p style={{ color: '#f87171' }}>Couldn’t load plans: {err}</p>;
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>These values drive the public Pricing page and Billing — edits go live immediately.</p>
-      {plans.length === 0 && !err && (
-        <p style={{ color: 'var(--text-muted)', fontSize: 13, padding: '18px 0' }}>
-          No plans found yet. Plans auto-seed on first load of the public pricing page (or on backend start) — if this stays empty, the database schema likely isn’t migrated (see System Health tab).
-        </p>
-      )}
-      {plans.map(p => (
-        <div key={p.id} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 16, display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1fr 1fr auto', gap: 10, alignItems: 'center', fontSize: 13 }}>
-          <input value={p.name} onChange={e => upd(p.id, 'name', e.target.value)} style={adminInput} />
-          <label style={lbl}>$/mo <input type="number" value={p.priceUsd} onChange={e => upd(p.id, 'priceUsd', Number(e.target.value))} style={adminInput} /></label>
-          <label style={lbl}>$/min <input type="number" step="0.001" value={p.perMinuteUsd} onChange={e => upd(p.id, 'perMinuteUsd', Number(e.target.value))} style={adminInput} /></label>
-          <label style={lbl}>mins <input type="number" value={p.includedMinutes} onChange={e => upd(p.id, 'includedMinutes', Number(e.target.value))} style={adminInput} /></label>
-          <label style={lbl}>KB MB <input type="number" value={p.kbStorageMb} onChange={e => upd(p.id, 'kbStorageMb', Number(e.target.value))} style={adminInput} /></label>
-          <button onClick={() => save(p)} disabled={saving === p.id} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid var(--teal, #14b8a6)', background: 'transparent', color: 'var(--teal, #14b8a6)', cursor: 'pointer' }}>
-            {saving === p.id ? 'Saving…' : 'Save'}
-          </button>
-        </div>
-      ))}
-    </div>
-  );
-}
-const adminInput: React.CSSProperties = { width: '100%', padding: '7px 9px', background: 'var(--bg-secondary, #0f172a)', border: '1px solid var(--border, #334155)', borderRadius: 6, color: 'var(--text-primary, #fff)', fontSize: 13 };
-const lbl: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, color: 'var(--text-muted)', fontSize: 11 };
-
-function WalletCreditTab() {
-  const [workspaceId, setWorkspaceId] = useState('');
-  const [amount, setAmount] = useState('');
-  const [note, setNote] = useState('');
-  const [msg, setMsg] = useState<string | null>(null);
-  const credit = async () => {
-    setMsg(null);
-    const cents = Math.round(Number(amount) * 100);
-    if (!workspaceId.trim() || !Number.isFinite(cents) || cents === 0) { setMsg('Enter a workspace ID and a non-zero USD amount.'); return; }
-    try {
-      const res = await fetch(API('/wallets/credit'), {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${safeGet('token')}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspaceId: workspaceId.trim(), amountCents: cents, note: note.trim() || undefined }),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || 'Credit failed');
-      setMsg(`Done — new balance: $${(data.balanceCents / 100).toFixed(2)}`);
-      setAmount(''); setNote('');
-    } catch (e) { setMsg(e instanceof Error ? e.message : 'Credit failed'); }
-  };
-  return (
-    <div style={{ maxWidth: 480, display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>Manually credit (positive) or debit (negative) a workspace wallet — every change is recorded in the transaction ledger the user sees on Billing.</p>
-      <input placeholder="Workspace ID" value={workspaceId} onChange={e => setWorkspaceId(e.target.value)} style={adminInput} />
-      <input placeholder="Amount in USD (e.g. 25 or -5)" value={amount} onChange={e => setAmount(e.target.value)} style={adminInput} />
-      <input placeholder="Note (optional)" value={note} onChange={e => setNote(e.target.value)} style={adminInput} />
-      <button onClick={credit} style={{ padding: '10px', borderRadius: 8, border: '1px solid var(--teal, #14b8a6)', background: 'transparent', color: 'var(--teal, #14b8a6)', cursor: 'pointer' }}>Apply credit</button>
-      {msg && <div style={{ fontSize: 13, color: msg.startsWith('Done') ? '#4ade80' : '#f87171' }}>{msg}</div>}
-    </div>
-  );
-}
-
-function SystemHealthTab() {
-  const [health, setHealth] = useState<any | null>(null);
-  const [err, setErr] = useState<string | null>(null);
-  const load = async () => {
-    setErr(null);
-    try {
-      const res = await fetch(API('/health'), { headers: { Authorization: `Bearer ${safeGet('token')}` } });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error || `Failed (${res.status})`);
-      setHealth(data);
-    } catch (e) { setErr(e instanceof Error ? e.message : 'Failed'); }
-  };
-  useEffect(() => { load(); const t = setInterval(load, 15000); return () => clearInterval(t); }, []);
-  if (err) return <p style={{ color: '#f87171' }}>Health check failed: {err}</p>;
-  if (!health) return <p style={{ color: 'var(--text-muted)' }}>Checking system health…</p>;
-  const Pill = ({ ok, label }: { ok: boolean; label: string }) => (
-    <span style={{ padding: '3px 10px', borderRadius: 12, fontSize: 12, fontWeight: 700, marginRight: 8,
-      background: ok ? 'rgba(34,197,94,0.12)' : 'rgba(239,68,68,0.12)', color: ok ? '#4ade80' : '#f87171',
-      border: `1px solid ${ok ? 'rgba(34,197,94,0.3)' : 'rgba(239,68,68,0.3)'}` }}>{label}</span>
-  );
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 14, fontSize: 14 }}>
-      <div><strong>Database:</strong> <Pill ok={health.db === 'connected'} label={health.db} /></div>
-      <div><strong>Redis:</strong> <span style={{ color: 'var(--text-secondary)' }}>{health.redis}</span></div>
-      <div>
-        <strong>Providers:</strong>{' '}
-        {Object.entries(health.providers || {}).map(([k, v]) => <Pill key={k} ok={Boolean(v)} label={`${k}${v ? '' : ' (no key)'}`} />)}
-      </div>
-      <div style={{ color: 'var(--text-muted)', fontSize: 12 }}>
-        JSON body limit: {health.jsonBodyLimit} · NODE_ENV: {health.nodeEnv} · refreshed {new Date(health.time).toLocaleTimeString()} (auto-refreshes every 15s)
-      </div>
-    </div>
   );
 }

@@ -13,7 +13,7 @@ import {
     enhancePrompt,
 } from "../controllers/llm.controller.js";
 
-const router = express.Router({ mergeParams: true });
+const router = express.Router();
 
 /**
  * Generate LLM Response

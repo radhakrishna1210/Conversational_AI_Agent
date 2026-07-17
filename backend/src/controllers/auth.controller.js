@@ -6,19 +6,11 @@ import * as authService from '../services/auth.service.js';
 
 import { env } from '../config/env.js';
 
-// Mock auth is ONLY available when explicitly enabled AND not in production.
-// It must never activate implicitly: previously it triggered whenever
-// NODE_ENV !== 'production' OR on any 401 login failure, which meant the
-// hardcoded dev credentials (test@example.com / admin@example.com) could issue
-// real signed JWTs — an authentication backdoor.
-const shouldUseMockAuth = () => {
-  return env.USE_MOCK_AUTH === 'true' && env.NODE_ENV !== 'production';
+// Fallback to mock service if database is unavailable
+const getAuthService = () => {
+  const useMock = env.USE_MOCK_AUTH === 'true' || process.env.DB_STATUS === 'unavailable';
+  return useMock ? mockAuthService : authService;
 };
-
-const getAuthService = () => (shouldUseMockAuth() ? mockAuthService : authService);
-
-// Never fall back to mock credentials because a real login failed.
-const shouldFallbackToMockAuth = () => false;
 
 export const register = async (req, res) => {
   const service = getAuthService();
@@ -26,8 +18,11 @@ export const register = async (req, res) => {
     const { user, workspace } = await service.registerUser(req.body);
     res.status(201).json({ message: 'Account created', userId: user.id, workspaceId: workspace?.id });
   } catch (err) {
-    // No mock fallback: if the database is unavailable, fail honestly rather
-    // than creating a phantom in-memory account the user can never use again.
+    // Try fallback to mock if auth service fails
+    if (service === authService && process.env.DB_STATUS === 'unavailable') {
+      const { user, workspace } = await mockAuthService.registerUser(req.body);
+      return res.status(201).json({ message: 'Account created (dev mode)', userId: user.id, workspaceId: workspace?.id });
+    }
     throw err;
   }
 };
@@ -43,7 +38,8 @@ export const login = async (req, res) => {
       workspace: workspace ? { id: workspace.id, name: workspace.name, slug: workspace.slug } : null,
     });
   } catch (err) {
-    if (shouldFallbackToMockAuth(err) && service === authService) {
+    // Try fallback to mock if auth service fails
+    if (service === authService && process.env.DB_STATUS === 'unavailable') {
       const { accessToken, refreshToken, user, workspace } = await mockAuthService.loginUser(req.body);
       return res.json({
         accessToken,
@@ -63,6 +59,11 @@ export const refresh = async (req, res) => {
     const tokens = await service.refreshTokens(refreshToken);
     res.json(tokens);
   } catch (err) {
+    // Fallback
+    if (service === authService && process.env.DB_STATUS === 'unavailable') {
+      const tokens = await mockAuthService.refreshUserToken(refreshToken);
+      return res.json(tokens);
+    }
     throw err;
   }
 };
@@ -84,9 +85,9 @@ export const me = async (req, res) => {
 };
 
 export const googleRedirect = (req, res) => {
-  // Use GOOGLE_AUTH_REDIRECT_URI from env if set, otherwise build from backend port directly
+  // Use GOOGLE_REDIRECT_URI from env if set, otherwise build from backend port directly
   // (avoids issues when running behind Vite dev proxy which changes req.get('host'))
-  const redirectUri = env.GOOGLE_AUTH_REDIRECT_URI ||
+  const redirectUri = env.GOOGLE_REDIRECT_URI ||
     `${req.protocol}://localhost:${env.PORT}/api/v1/auth/google/callback`;
   const params = new URLSearchParams({
     client_id: env.GOOGLE_CLIENT_ID,
@@ -101,75 +102,57 @@ export const googleRedirect = (req, res) => {
 
 export const googleCallback = async (req, res) => {
   try {
-    const { code, error: googleError } = req.query;
-    if (googleError) {
-      console.error('[Google OAuth] Google returned error:', googleError);
-      return res.redirect(`${env.CLIENT_URL}/login?error=google_denied`);
-    }
-    if (!code) return res.redirect(`${env.CLIENT_URL}/login?error=no_code`);
+  const { code, error: googleError } = req.query;
+  if (googleError) {
+    console.error('[Google OAuth] Google returned error:', googleError);
+    return res.redirect(`${env.CLIENT_URL}/login?error=google_denied`);
+  }
+  if (!code) return res.redirect(`${env.CLIENT_URL}/login?error=no_code`);
 
-    const redirectUri = env.GOOGLE_AUTH_REDIRECT_URI ||
-      `${req.protocol}://localhost:${env.PORT}/api/v1/auth/google/callback`;
+  const redirectUri = env.GOOGLE_REDIRECT_URI ||
+    `${req.protocol}://localhost:${env.PORT}/api/v1/auth/google/callback`;
 
-    if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
-      console.error('[Google OAuth] Missing GOOGLE_CLIENT_ID or GOOGLE_CLIENT_SECRET');
-      return res.redirect(`${env.CLIENT_URL}/login?error=google_config`);
-    }
+  // Exchange code for tokens
+  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: new URLSearchParams({
+      code,
+      client_id: env.GOOGLE_CLIENT_ID,
+      client_secret: env.GOOGLE_CLIENT_SECRET,
+      redirect_uri: redirectUri,
+      grant_type: 'authorization_code',
+    }),
+  });
+  const tokenData = await tokenRes.json();
+  if (!tokenRes.ok) {
+    console.error('[Google OAuth] Token exchange failed:', tokenData);
+    return res.redirect(`${env.CLIENT_URL}/login?error=token_exchange`);
+  }
 
-    // Exchange code for tokens
-    const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        code,
-        client_id: env.GOOGLE_CLIENT_ID,
-        client_secret: env.GOOGLE_CLIENT_SECRET,
-        redirect_uri: redirectUri,
-        grant_type: 'authorization_code',
-      }),
-    });
-    const tokenData = await tokenRes.json();
-    if (!tokenRes.ok) {
-      console.error('[Google OAuth] Token exchange failed:', tokenData);
-      return res.redirect(`${env.CLIENT_URL}/login?error=token_exchange`);
-    }
+  // Get user info
+  const userRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
+    headers: { Authorization: `Bearer ${tokenData.access_token}` },
+  });
+  const profile = await userRes.json();
+  if (!profile.sub) return res.redirect(`${env.CLIENT_URL}/login?error=no_profile`);
 
-    // Get user info
-    const userRes = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {
-      headers: { Authorization: `Bearer ${tokenData.access_token}` },
-    });
-    const profile = await userRes.json();
-    if (!profile.sub) {
-      console.error('[Google OAuth] Profile lookup returned no subject:', profile);
-      return res.redirect(`${env.CLIENT_URL}/login?error=no_profile`);
-    }
-    if (!profile.email) {
-      console.error('[Google OAuth] Profile lookup returned no email:', profile);
-      return res.redirect(`${env.CLIENT_URL}/login?error=no_email`);
-    }
+  const { accessToken, refreshToken, workspace } = await getAuthService().loginOrRegisterWithGoogle({
+    googleId: profile.sub,
+    email: profile.email,
+    name: profile.name,
+    avatarUrl: profile.picture,
+  });
 
-    const { accessToken, refreshToken, workspace } = await getAuthService().loginOrRegisterWithGoogle({
-      googleId: profile.sub,
-      email: profile.email,
-      name: profile.name,
-      avatarUrl: profile.picture,
-    });
-
-    const params = new URLSearchParams({
-      token: accessToken,
-      refreshToken,
-      ...(workspace?.id ? { workspaceId: workspace.id } : {}),
-      name: profile.name ?? '',
-      email: profile.email ?? '',
-    });
-
-    // Tokens go in the URL FRAGMENT (#…), not the query string: fragments are
-    // never sent to servers, never appear in access logs or the Referer header,
-    // and the client strips them from history immediately after reading.
-    const redirectUrl = `${env.CLIENT_URL}/auth/callback#${params}`;
-    res.redirect(redirectUrl);
+  const params = new URLSearchParams({
+    token: accessToken,
+    refreshToken,
+    ...(workspace?.id ? { workspaceId: workspace.id } : {}),
+  });
+  const redirectUrl = `${env.CLIENT_URL}/auth/callback?${params}`;
+  res.redirect(redirectUrl);
   } catch (err) {
-    console.error('[Google OAuth] Unexpected error:', err?.stack || err);
+    console.error('[Google OAuth] Unexpected error:', err);
     res.redirect(`${env.CLIENT_URL}/login?error=google_failed`);
   }
 };

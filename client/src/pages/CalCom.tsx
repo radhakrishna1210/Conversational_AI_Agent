@@ -1,5 +1,5 @@
 import { Link } from 'react-router-dom';
-import { Check, ArrowRight } from 'lucide-react';
+import { Check, ChevronRight, ArrowRight } from 'lucide-react';
 
 const responsiveStyles = `
   @media (max-width: 600px) {

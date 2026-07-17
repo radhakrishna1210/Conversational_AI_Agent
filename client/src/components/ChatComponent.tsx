@@ -1,6 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
 
-import { getAuth } from '@/lib/authStorage';
 interface Message {
   id: string;
   type: 'user' | 'assistant';
@@ -21,6 +20,7 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const sessionIdRef = useRef<string>('');
 
   // Scroll to bottom on new messages
   useEffect(() => {
@@ -38,6 +38,17 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
       }]);
     }
   }, [welcomeMessage]);
+
+  useEffect(() => {
+    if (sessionIdRef.current) return;
+    const key = 'chat_session_id';
+    let stored = localStorage.getItem(key);
+    if (!stored) {
+      stored = (window.crypto?.randomUUID?.() ?? `chat-${Date.now()}-${Math.random().toString(36).slice(2)}`);
+      localStorage.setItem(key, stored);
+    }
+    sessionIdRef.current = stored;
+  }, []);
 
   const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -59,29 +70,36 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
       timestamp: new Date(),
     };
 
-    setMessages(prev => [...prev, userMessage]);
+    const updatedMessages = [...messages, userMessage];
+    setMessages(updatedMessages);
     setInputValue('');
     setLoading(true);
     setError('');
 
     try {
-      // Call the authenticated, workspace-scoped agent chat endpoint.
-      // (The unauthenticated /api/v1/agents/... mount was removed for security.)
-      const { token, workspaceId } = getAuth();
+      // Call backend chat endpoint
+      const token = localStorage.getItem('token');
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
       };
       if (token) {
         headers['Authorization'] = `Bearer ${token}`;
       }
+      if (sessionIdRef.current) {
+        headers['x-session-id'] = sessionIdRef.current;
+      }
 
-      const response = await fetch(`/api/v1/workspaces/${workspaceId}/agents/${agentId}/chat`, {
+      const response = await fetch(`/api/v1/agents/${agentId}/chat`, {
         method: 'POST',
         headers,
         body: JSON.stringify({
           message: trimmedInput,
           selectedLanguages,
           welcomeMessage,
+          chatHistory: updatedMessages.slice(0, -1).slice(-10).map((msg) => ({
+            role: msg.type,
+            text: msg.text,
+          })),
         }),
       });
 

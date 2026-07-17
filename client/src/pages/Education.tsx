@@ -10,6 +10,7 @@ import {
   MapPin,
   PhoneCall,
   Sparkles,
+  Users,
   Bell,
   type LucideIcon,
 } from 'lucide-react';
