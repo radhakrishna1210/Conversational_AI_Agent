@@ -120,15 +120,20 @@ export const adminCreditWallet = async (req, res) => {
  * Execute an agent's postCallConfigs against a call/chat result.
  * Supported delivery methods: webhook (POST JSON), email (SMTP).
  * Returns per-config delivery results — failures are reported, never hidden.
+ *
+ * NOTE: postCallConfigs is stored inside the agent's `settings` JSON column
+ * (via splitAgentPayload in agent.controller.js), NOT as a direct column.
  */
 export const executePostCall = async (agentId, workspaceId, payload) => {
   const agent = await prisma.agent.findFirst({ where: { id: agentId, workspaceId } });
   if (!agent) return { executed: 0, results: [], error: 'Agent not found' };
 
+  // postCallConfigs lives inside agent.settings, not as a top-level column
   let configs = [];
   try {
-    const parsed = JSON.parse(agent.postCallConfigs ?? '[]');
-    configs = Array.isArray(parsed) ? parsed : [];
+    const settings = safeJson(agent.settings, {});
+    const raw = settings?.postCallConfigs ?? [];
+    configs = Array.isArray(raw) ? raw : [];
   } catch { configs = []; }
   if (configs.length === 0) return { executed: 0, results: [] };
 

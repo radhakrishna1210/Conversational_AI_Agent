@@ -200,6 +200,28 @@ export const chat = async (req, res) => {
       'Chat request received'
     );
 
+    // Load KB files grounding text for this agent
+    let kbGrounding = '';
+    try {
+      const kbRows = await prisma.kbFile.findMany({
+        where: { workspaceId: agent?.workspaceId ?? req.params.workspaceId, OR: [{ agentId }, { agentId: null }], textContent: { not: null } },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+      });
+      const budget = 12_000;
+      let used = 0;
+      const sections = [];
+      for (const f of kbRows) {
+        if (used >= budget) break;
+        const slice = (f.textContent || '').slice(0, Math.min(4000, budget - used));
+        used += slice.length;
+        sections.push(`### ${f.fileName}\n${slice}`);
+      }
+      if (sections.length > 0) kbGrounding = `# KNOWLEDGE BASE\nOnly use facts from the sources below. If the answer isn't here, say you don't have that information.\n\n${sections.join('\n\n')}`;
+    } catch (e) {
+      logger.warn({ e: e.message }, 'KB grounding load failed — proceeding without KB');
+    }
+
     // Build the agent's real persona from its configured flow items so that
     // agent configuration actually drives behavior (previously ignored).
     const enabledFlow = (Array.isArray(flowItems) ? flowItems : [])
@@ -210,6 +232,7 @@ export const chat = async (req, res) => {
     const systemPrompt = `You are "${agentContext.name}", a voice assistant speaking with a caller in real time.
 
 ${enabledFlow ? `# AGENT CONFIGURATION\n${enabledFlow}\n` : `# CONTEXT\n${agentContext.welcomeMessage}\n`}
+${kbGrounding ? `\n${kbGrounding}\n` : ''}
 # VOICE & HUMAN-LIKE STYLE (very important — your words will be spoken aloud)
 - Speak like a warm, attentive human on a phone call: short sentences, contractions, natural rhythm.
 - Keep turns brief (1–3 sentences). Never read out lists, markdown, URLs, or code.
