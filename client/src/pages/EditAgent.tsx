@@ -166,9 +166,18 @@ export default function EditAgent() {
   };
   
   // KB state
+  interface KnowledgeDocumentItem {
+    id: string;
+    title: string;
+    fileName: string;
+    contentText: string;
+    chunkCount: number;
+    createdAt: string;
+  }
   const [kbUrls, setKbUrls] = useState<string[]>([]);
   const [kbUrlInput, setKbUrlInput] = useState('');
-  const [kbFiles, setKbFiles] = useState<File[]>([]);
+  const [kbDocuments, setKbDocuments] = useState<KnowledgeDocumentItem[]>([]);
+  const [kbLoading, setKbLoading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleAddKbUrl = () => {
@@ -182,15 +191,56 @@ export default function EditAgent() {
     setKbUrls(kbUrls.filter(u => u !== url));
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      const newFiles = Array.from(e.target.files);
-      setKbFiles([...kbFiles, ...newFiles]);
+  const loadKnowledgeDocuments = async () => {
+    if (!agentId) return;
+    setKbLoading(true);
+    try {
+      const result = await whapi.get<{ documents: KnowledgeDocumentItem[] }>('/knowledge');
+      setKbDocuments(result.documents || []);
+    } catch (error) {
+      console.error('Failed to load knowledge base documents', error);
+    } finally {
+      setKbLoading(false);
     }
   };
 
-  const removeKbFile = (index: number) => {
-    setKbFiles(kbFiles.filter((_, i) => i !== index));
+  useEffect(() => {
+    if (activeTab === 'kb') {
+      void loadKnowledgeDocuments();
+    }
+  }, [activeTab, agentId]);
+
+  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files ? Array.from(e.target.files) : [];
+    if (!files.length) return;
+
+    try {
+      setKbLoading(true);
+      for (const file of files) {
+        const formData = new FormData();
+        formData.append('file', file);
+        formData.append('title', file.name.replace(/\.[^.]+$/, ''));
+        await whapi.postForm('/knowledge/upload', formData);
+      }
+      await loadKnowledgeDocuments();
+    } catch (error) {
+      console.error('Knowledge upload failed', error);
+    } finally {
+      setKbLoading(false);
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
+
+  const removeKbFile = async (documentId: string) => {
+    try {
+      setKbLoading(true);
+      await whapi.delete(`/knowledge/${documentId}`);
+      setKbDocuments((prev) => prev.filter((doc) => doc.id !== documentId));
+    } catch (error) {
+      console.error('Knowledge delete failed', error);
+    } finally {
+      setKbLoading(false);
+    }
   };
   
   // Chat test state
@@ -351,7 +401,7 @@ export default function EditAgent() {
       interruptibleEnabled,
       postCallConfigs,
       kbUrls,
-      kbFiles: kbFiles.map(f => f.name)
+      kbFiles: kbDocuments.map((doc) => doc.fileName)
     };
 
     try {
@@ -586,6 +636,65 @@ export default function EditAgent() {
     });
   };
 
+  const splitSpeechText = (text: string, maxChars = 260) => {
+    const cleaned = String(text || '').replace(/\s+/g, ' ').trim();
+    if (!cleaned) return [];
+
+    const sentences = cleaned.match(/[^.!?]+[.!?]*/g) || [cleaned];
+    const chunks: string[] = [];
+    let current = '';
+
+    for (const sentence of sentences) {
+      const next = current ? `${current} ${sentence.trim()}` : sentence.trim();
+      if (next.length <= maxChars) {
+        current = next;
+        continue;
+      }
+
+      if (current) {
+        chunks.push(current.trim());
+        current = '';
+      }
+
+      if (sentence.trim().length <= maxChars) {
+        current = sentence.trim();
+        continue;
+      }
+
+      const words = sentence.trim().split(/\s+/);
+      let wordBuffer = '';
+      for (const word of words) {
+        const candidate = wordBuffer ? `${wordBuffer} ${word}` : word;
+        if (candidate.length > maxChars && wordBuffer) {
+          chunks.push(wordBuffer.trim());
+          wordBuffer = word;
+        } else {
+          wordBuffer = candidate;
+        }
+      }
+      if (wordBuffer) {
+        current = wordBuffer.trim();
+      }
+    }
+
+    if (current) chunks.push(current.trim());
+    return chunks.filter(Boolean);
+  };
+
+  const sanitizeSpeechText = (text: string) => {
+    return String(text || '')
+      .replace(/```[\s\S]*?```/g, ' ')
+      .replace(/\*\*(.*?)\*\*/g, '$1')
+      .replace(/\*(.*?)\*/g, '$1')
+      .replace(/`([^`]+)`/g, '$1')
+      .replace(/^\s*[-*]\s+/gm, '')
+      .replace(/^\s*\d+\.\s+/gm, '')
+      .replace(/\[(.*?)\]\((.*?)\)/g, '$1')
+      .replace(/[#_>]+/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  };
+
   const buildWebCallHistory = () => {
     return webCallTranscript
       .filter((item) => item.role === 'user' || item.role === 'assistant')
@@ -593,19 +702,34 @@ export default function EditAgent() {
       .map((item) => ({ role: item.role, text: item.text }));
   };
 
-  const resolveVoiceAudioUrl = (voiceId: string, text: string) => {
-    const path = `/api/v1/voices/${voiceId}/preview?text=${encodeURIComponent(text)}`;
-    return path;
+  const requestVoiceAudioBlob = async (voiceId: string, text: string) => {
+    const token = localStorage.getItem('token') || '';
+    const response = await fetch(`/api/v1/voices/${voiceId}/preview`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ text }),
+    });
+
+    if (!response.ok) {
+      const message = await response.text().catch(() => '');
+      throw new Error(message || `Voice playback failed (${response.status})`);
+    }
+
+    return response.blob();
   };
 
   const speakWebCallText = async (text: string, overrideVoiceId?: string | null): Promise<number> => {
     if (!text) return 0;
     const voiceIdToUse = overrideVoiceId ?? webCallVoiceId;
+    const voiceText = sanitizeSpeechText(text);
 
     if (!webCallVoiceEnabled || !voiceIdToUse) {
       if (!window.speechSynthesis) return;
       window.speechSynthesis.cancel();
-      const utterance = new SpeechSynthesisUtterance(text);
+      const utterance = new SpeechSynthesisUtterance(voiceText);
       utterance.rate = speakingRate || 1;
       utterance.pitch = 1;
       utterance.onstart = () => {
@@ -633,32 +757,42 @@ export default function EditAgent() {
         webCallAudioRef.current = null;
       }
 
-      const token = localStorage.getItem('token') || '';
-      const res = await fetch(resolveVoiceAudioUrl(voiceIdToUse, text), {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
-
-      if (!res.ok) {
-        throw new Error(`Voice playback failed (${res.status})`);
-      }
-
-      const blob = await res.blob();
+      const blob = await requestVoiceAudioBlob(voiceIdToUse, voiceText);
       const audio = new Audio(URL.createObjectURL(blob));
       webCallAudioRef.current = audio;
-      const duration = Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : 0;
-      audio.onended = () => {
-        setWebCallSpeaking(false);
-        if (webCallActiveRef.current) startRecognition();
-      };
-      audio.onerror = () => {
-        setWebCallSpeaking(false);
-        if (webCallActiveRef.current) startRecognition();
-      };
-      await audio.play();
-      return duration || Math.max(2.2, text.trim().split(/\s+/).length * 0.28);
-    } catch (error: any) {
-      setWebCallError(error?.message || 'Failed to play selected voice');
+      const totalDuration = await new Promise<number>((resolve) => {
+        const fallbackSeconds = Math.max(2.2, voiceText.trim().split(/\s+/).length * 0.34 / Math.max(speakingRate || 1, 0.5));
+        audio.onloadedmetadata = () => {
+          resolve(Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : fallbackSeconds);
+        };
+        audio.onended = () => resolve(Number.isFinite(audio.duration) && audio.duration > 0 ? audio.duration : fallbackSeconds);
+        audio.onerror = () => resolve(fallbackSeconds);
+        void audio.play().catch(() => resolve(fallbackSeconds));
+      });
       setWebCallSpeaking(false);
+      if (webCallActiveRef.current) startRecognition();
+      return totalDuration || Math.max(2.2, voiceText.trim().split(/\s+/).length * 0.34);
+    } catch (error: any) {
+      const fallbackText = voiceText;
+      setWebCallError('');
+      setWebCallSpeaking(false);
+      if (window.speechSynthesis && fallbackText) {
+        try {
+          window.speechSynthesis.cancel();
+          const utterance = new SpeechSynthesisUtterance(fallbackText);
+          utterance.rate = speakingRate || 1;
+          utterance.pitch = 1;
+          utterance.onend = () => {
+            if (webCallActiveRef.current) startRecognition();
+          };
+          utterance.onerror = () => {
+            if (webCallActiveRef.current) startRecognition();
+          };
+          window.speechSynthesis.speak(utterance);
+          return Math.max(2.2, fallbackText.trim().split(/\s+/).length * 0.35);
+        } catch {}
+      }
+      setWebCallError(error?.message || 'Failed to play selected voice');
       if (webCallActiveRef.current) startRecognition();
       return 0;
     }
@@ -1905,12 +2039,12 @@ export default function EditAgent() {
                     <div style={{ fontSize: '17px', fontWeight: '700', color: '#fff', marginBottom: '10px' }}>Drag and drop a file here, or click to select</div>
                     <div style={{ fontSize: '13px', color: '#b7b7b7' }}>Supported formats: PDF (max 10MB)</div>
                   </div>
-                  {kbFiles.length > 0 && (
+                  {kbDocuments.length > 0 && (
                     <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                      {kbFiles.map((file, i) => (
-                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', background: '#111', padding: '8px 12px', borderRadius: '8px', border: '1px solid #222' }}>
-                          <span style={{ fontSize: '13px', color: '#fff' }}>{file.name}</span>
-                          <button onClick={(e) => { e.stopPropagation(); removeKbFile(i); }} style={{ background: 'none', border: 'none', color: '#ff6f6f', cursor: 'pointer', fontSize: '12px' }}>Remove</button>
+                      {kbDocuments.map((doc) => (
+                        <div key={doc.id} style={{ display: 'flex', justifyContent: 'space-between', background: '#111', padding: '8px 12px', borderRadius: '8px', border: '1px solid #222' }}>
+                          <span style={{ fontSize: '13px', color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{doc.title || doc.fileName}</span>
+                          <button onClick={(e) => { e.stopPropagation(); void removeKbFile(doc.id); }} style={{ background: 'none', border: 'none', color: '#ff6f6f', cursor: 'pointer', fontSize: '12px' }}>Remove</button>
                         </div>
                       ))}
                     </div>
@@ -1962,7 +2096,7 @@ export default function EditAgent() {
             <div style={{ background: '#281509', border: '1px solid #b65912', borderRadius: '14px', padding: '18px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '20px' }}>
               <div>
                 <div style={{ fontSize: '15px', fontWeight: '700', color: '#ffd95f', marginBottom: '6px' }}>Low Storage Space Warning</div>
-                <div style={{ fontSize: '14px', color: '#ffd066' }}>You only have {Math.max(0, 5.0 - kbFiles.reduce((acc, file) => acc + file.size, 0) / (1024 * 1024)).toFixed(1)} MB of knowledge base storage remaining. Consider upgrading your account to avoid upload restrictions.</div>
+                <div style={{ fontSize: '14px', color: '#ffd066' }}>You have {kbDocuments.length} document{kbDocuments.length === 1 ? '' : 's'} stored in the knowledge base. Consider upgrading your account if you need more storage.</div>
               </div>
               <button style={{ padding: '10px 18px', background: '#ff6f6f', border: 'none', borderRadius: '10px', color: '#1f0d0d', fontSize: '14px', fontWeight: '700', cursor: 'pointer' }}>
                 Upgrade

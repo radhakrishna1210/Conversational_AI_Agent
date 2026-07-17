@@ -108,6 +108,7 @@ model Workspace {
   integrationSettings IntegrationSetting[]
   customApiConfigs CustomApiConfig[]
   notifications    Notification[]
+  knowledgeDocuments KnowledgeDocument[]
 }
 
 model WorkspaceMember {
@@ -426,8 +427,29 @@ model Agent {
   createdAt        DateTime @default(now())
   updatedAt        DateTime @updatedAt
 
-  workspace        Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  agentVoice       AgentVoice?
+    workspace        Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+    agentVoice       AgentVoice?
+  }
+
+model KnowledgeDocument {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  title         String
+  fileName      String
+  mimeType      String
+  filePath      String
+  contentText   String   @default("")
+  contentHash   String
+  chunkCount    Int      @default(0)
+  source        String   @default("upload")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  workspace     Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, title])
+  @@index([workspaceId, createdAt])
+  @@unique([workspaceId, contentHash])
 }
 
 model Integration {

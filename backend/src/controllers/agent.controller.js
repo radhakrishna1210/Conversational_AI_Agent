@@ -1,6 +1,7 @@
 import prisma from '../config/prisma.js';
 import * as sarvamService from '../services/sarvam.service.js';
 import { geminiService } from '../services/gemini.service.js';
+import * as knowledgeService from '../services/knowledge.service.js';
 import logger from '../lib/logger.js';
 import fetch from 'node-fetch';
 
@@ -358,11 +359,21 @@ Session rules:
 - Prefer carrying forward the known details instead of re-confirming them.
 - If enough details are known, move to the next action immediately.`;
 
+    let knowledgeMatches = [];
+    if (agent?.workspaceId) {
+      knowledgeMatches = await knowledgeService.findRelevantKnowledge(agent.workspaceId, message, 4);
+      if (!knowledgeMatches.length) {
+        knowledgeMatches = await knowledgeService.getKnowledgeSnapshot(agent.workspaceId, 3);
+      }
+    }
+    const knowledgeContext = knowledgeService.buildKnowledgeContext(knowledgeMatches);
+    const knowledgePrompt = `\n\nKnowledge base context:\n${knowledgeContext}\n\nKnowledge rules:\n- If the workspace has uploaded knowledge documents, answer using only the knowledge base context above.\n- If the knowledge base does not contain the answer, say you could not find it in the uploaded documents and ask the user to upload or clarify.\n- Do not invent facts beyond the uploaded documents.\n- If there are no uploaded knowledge documents, keep the answer general and mention that no knowledge base is available yet.`;
+
     // Generate response using Gemini
     const response = await geminiService.generateResponse({
       message,
       model: 'gemini-2.5-flash',
-      systemPrompt,
+      systemPrompt: `${systemPrompt}${knowledgePrompt}`,
       chatHistory: incomingHistory,
     });
 

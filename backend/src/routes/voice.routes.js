@@ -16,5 +16,6 @@ router.get('/:id', voiceCtrl.get);
 
 // ─── Audio preview ────────────────────────────────────────────────────────────
 router.get('/:id/preview', voiceCtrl.preview);
+router.post('/:id/preview', voiceCtrl.preview);
 
 export default router;
