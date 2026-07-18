@@ -28,6 +28,10 @@ interface ExtractedVariable {
 interface PostCallConfig {
   id: string;
   deliveryMethod: string;
+  /** webhook URL — required when deliveryMethod === 'Webhook' */
+  url: string;
+  /** email address — required when deliveryMethod === 'Email' */
+  email: string;
   triggerStatuses: string[];
   includeCallSummary: boolean;
   includeFullConversation: boolean;
@@ -50,6 +54,8 @@ const POST_CALL_DELIVERY_OPTIONS = ['Email', 'Webhook', 'CRM', 'Slack', 'WhatsAp
 const createDefaultPostCallConfig = (): PostCallConfig => ({
   id: Date.now().toString(),
   deliveryMethod: '',
+  url: '',
+  email: '',
   triggerStatuses: ['Completed', 'Voicemail Detected'],
   includeCallSummary: true,
   includeFullConversation: true,
@@ -134,6 +140,14 @@ export default function EditAgent() {
   const [agentName, setAgentName] = useState('');
   const [agentNotFound, setAgentNotFound] = useState(false);
   const [postCallConfigs, setPostCallConfigs] = useState<PostCallConfig[]>([createDefaultPostCallConfig()]);
+  const [testingPostCall, setTestingPostCall] = useState<Record<string, 'idle' | 'loading' | 'done' | 'error'>>({});
+  const [testPostCallResults, setTestPostCallResults] = useState<Record<string, string>>({});
+  // Integrations tab — separate from dynamicEnabled (Details tab)
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  // Recent Calls tab
+  interface CallRecord { id: string; direction?: string; status?: string; duration?: number; startedAt?: string; lastMessageAt?: string; unreadCount?: number; contact?: { id?: string; name?: string; phoneNumber?: string } }
+  const [recentCalls, setRecentCalls] = useState<CallRecord[]>([]);
+  const [callsLoading, setCallsLoading] = useState(false);
 
   // Collapse/Expand state for conversational flow items (first item expanded by default)
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({
@@ -166,6 +180,25 @@ export default function EditAgent() {
     } catch (e) { console.error('KB load failed', e); }
   };
   useEffect(() => { refreshKb(); /* eslint-disable-line react-hooks/exhaustive-deps */ }, [agentId]);
+
+  const loadRecentCalls = async () => {
+    setCallsLoading(true);
+    try {
+      // conversations endpoint returns { data: [...], total: N }
+      const res = await whapi.get<{ data?: CallRecord[]; conversations?: CallRecord[] }>('/conversations?limit=50');
+      const list = (res as any)?.data ?? (res as any)?.conversations ?? (Array.isArray(res) ? res : []);
+      setRecentCalls(list);
+    } catch (e) {
+      console.error('Failed to load recent calls', e);
+      setRecentCalls([]);
+    }
+    setCallsLoading(false);
+  };
+
+  useEffect(() => {
+    if (activeTab === 'calls') loadRecentCalls();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleAddKbUrl = () => {
@@ -257,6 +290,16 @@ export default function EditAgent() {
           setInterruptibleEnabled(agent.interruptibleEnabled ?? true);
           setFlowItems((agent.flowItems as any) || getDefaultFlowItems(agent.name || ''));
           setPostCallConfigs(savedPostCallConfigs?.length ? savedPostCallConfigs : [createDefaultPostCallConfig()]);
+          // KB URLs saved in agent settings
+          setKbUrls((agent as any).kbUrls ?? []);
+          // Integrations tab
+          setWebSearchEnabled((agent as any).webSearchEnabled ?? false);
+          // STT settings
+          setSttProvider((agent as any).sttProvider ?? 'Sarvam');
+          setSttSilenceTimeoutMs((agent as any).sttSilenceTimeoutMs ?? 470);
+          setSttNoiseReducer((agent as any).sttNoiseReducer ?? true);
+          setSttModel((agent as any).sttModel ?? 'Saaras V3');
+          setSttLanguage((agent as any).sttLanguage ?? 'Multi');
           if (agent.voice?.toLowerCase().startsWith('google')) {
             setVoiceProvider('google');
           } else if (agent.voice?.toLowerCase().startsWith('eleven')) {
@@ -305,7 +348,15 @@ export default function EditAgent() {
       interruptibleEnabled,
       postCallConfigs,
       kbUrls,
-      kbFiles: kbFiles.map(f => f.fileName)
+      kbFiles: kbFiles.map(f => f.fileName),
+      // STT settings
+      sttProvider,
+      sttSilenceTimeoutMs,
+      sttNoiseReducer,
+      sttModel,
+      sttLanguage,
+      // Integrations
+      webSearchEnabled,
     };
 
     try {
@@ -367,6 +418,48 @@ export default function EditAgent() {
 
   const removePostCallConfig = (configId: string) => {
     setPostCallConfigs((prev) => prev.filter((config) => config.id !== configId));
+  };
+
+  const handleTestPostCall = async (configId: string) => {
+    if (!agentId) return;
+    // Save first so the backend reads the latest configs
+    setIsSaving(true);
+    try {
+      const agentData = {
+        name: agentName, welcomeMessage, aiModel, voice, transcription,
+        languages: selectedLanguages, flowItems, maxDuration, silenceTimeout,
+        maxSilenceBeforeHangup, endCallMessage, transferNumber, transferCondition,
+        fillerWords, speakingRate, ambientSound, dynamicEnabled, interruptibleEnabled,
+        postCallConfigs, kbUrls, kbFiles: kbFiles.map(f => f.fileName)
+      };
+      await whapi.put(`/agents/${agentId}`, agentData);
+    } catch {
+      toast.error('Save before test failed');
+      setIsSaving(false);
+      return;
+    }
+    setIsSaving(false);
+
+    setTestingPostCall(prev => ({ ...prev, [configId]: 'loading' }));
+    try {
+      const res = await whapi.post<{ executed: number; results: { method: string; target?: string; ok: boolean; error?: string; status?: number }[] }>(
+        `/agents/${agentId}/post-call/test`,
+        { summary: 'Test delivery triggered from the Edit Agent UI.' }
+      );
+      const allOk = res?.results?.every(r => r.ok);
+      const summary = res?.results?.map(r =>
+        `${r.method}${r.target ? ` → ${r.target}` : ''}: ${r.ok ? '✓ delivered' : `✗ ${r.error ?? 'failed'}`}`
+      ).join('\n') ?? 'No configs executed.';
+      setTestPostCallResults(prev => ({ ...prev, [configId]: summary }));
+      setTestingPostCall(prev => ({ ...prev, [configId]: allOk ? 'done' : 'error' }));
+      if (allOk) toast.success('Test delivery sent successfully');
+      else toast.error('Test delivery completed with errors — see details below');
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : 'Test failed';
+      setTestPostCallResults(prev => ({ ...prev, [configId]: msg }));
+      setTestingPostCall(prev => ({ ...prev, [configId]: 'error' }));
+      toast.error(`Test failed: ${msg}`);
+    }
   };
 
   const updatePostCallConfig = (configId: string, updates: Partial<PostCallConfig>) => {
@@ -1861,10 +1954,10 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                     onClick={() => fileInputRef.current?.click()}
                     style={{ border: '2px dashed #323232', borderRadius: '14px', minHeight: '168px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '18px', cursor: 'pointer' }}
                   >
-                    <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".pdf" multiple style={{ display: 'none' }} />
+                    <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".pdf,.txt,.md,.csv,.json,.docx" multiple style={{ display: 'none' }} />
                     <div style={{ width: '54px', height: '54px', borderRadius: '18px', background: '#062d2f', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#12c8d0', fontSize: '20px', marginBottom: '16px' }}>^</div>
                     <div style={{ fontSize: '17px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '10px' }}>Drag and drop a file here, or click to select</div>
-                    <div style={{ fontSize: '13px', color: '#b7b7b7' }}>Supported formats: PDF (max 10MB)</div>
+                    <div style={{ fontSize: '13px', color: '#b7b7b7' }}>Supported formats: PDF, TXT, MD, CSV, JSON, DOCX (max 10MB)</div>
                   </div>
                   {kbFiles.length > 0 && (
                     <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -1925,15 +2018,22 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
               </div>
             </div>
 
+            {(() => {
+              const usedMb = kbFiles.reduce((acc, file) => acc + file.sizeBytes, 0) / (1024 * 1024);
+              const remainingMb = Math.max(0, 5.0 - usedMb);
+              if (usedMb === 0 || remainingMb > 1.0) return null;
+              return (
             <div style={{ background: '#281509', border: '1px solid #b65912', borderRadius: '14px', padding: '18px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '20px' }}>
               <div>
                 <div style={{ fontSize: '15px', fontWeight: '700', color: '#ffd95f', marginBottom: '6px' }}>Low Storage Space Warning</div>
-                <div style={{ fontSize: '14px', color: '#ffd066' }}>You only have {Math.max(0, 5.0 - kbFiles.reduce((acc, file) => acc + file.sizeBytes, 0) / (1024 * 1024)).toFixed(1)} MB of knowledge base storage remaining. Consider upgrading your account to avoid upload restrictions.</div>
+                <div style={{ fontSize: '14px', color: '#ffd066' }}>You only have {remainingMb.toFixed(1)} MB of knowledge base storage remaining. Consider upgrading your account to avoid upload restrictions.</div>
               </div>
-              <button style={{ padding: '10px 18px', background: '#ff6f6f', border: 'none', borderRadius: '10px', color: '#1f0d0d', fontSize: '14px', fontWeight: '700', cursor: 'pointer' }}>
+              <button onClick={() => window.location.href='/billing'} style={{ padding: '10px 18px', background: '#ff6f6f', border: 'none', borderRadius: '10px', color: '#1f0d0d', fontSize: '14px', fontWeight: '700', cursor: 'pointer' }}>
                 Upgrade
               </button>
             </div>
+              );
+            })()}
           </div>
         )}
 
@@ -2019,17 +2119,17 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                   </div>
 
                   <div
-                    onClick={() => setDynamicEnabled(!dynamicEnabled)}
+                    onClick={() => setWebSearchEnabled(!webSearchEnabled)}
                     style={{
                       width: '52px',
                       height: '30px',
-                      background: dynamicEnabled ? 'linear-gradient(90deg, #00b894, #00caa1)' : '#232323',
-                      border: dynamicEnabled ? '1px solid #00d2a8' : '1px solid #333',
+                      background: webSearchEnabled ? 'linear-gradient(90deg, #00b894, #00caa1)' : '#232323',
+                      border: webSearchEnabled ? '1px solid #00d2a8' : '1px solid #333',
                       borderRadius: '999px',
                       position: 'relative',
                       cursor: 'pointer',
                       transition: 'all 0.25s ease',
-                      boxShadow: dynamicEnabled ? '0 0 0 3px rgba(0, 212, 168, 0.14)' : 'none',
+                      boxShadow: webSearchEnabled ? '0 0 0 3px rgba(0, 212, 168, 0.14)' : 'none',
                       flexShrink: 0
                     }}
                   >
@@ -2041,7 +2141,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                         borderRadius: '50%',
                         position: 'absolute',
                         top: '2px',
-                        left: dynamicEnabled ? '26px' : '2px',
+                        left: webSearchEnabled ? '26px' : '2px',
                         transition: 'left 0.25s ease'
                       }}
                     />
@@ -2151,7 +2251,8 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                           <button
                             onClick={async () => {
                               try {
-                                const callbackUrl = `${window.location.origin}/api/v1/integrations/${integration.provider}/callback`;
+                                const backendOrigin = window.location.origin.replace(':5173', ':4000').replace(':5174', ':4000');
+                                const callbackUrl = `${backendOrigin}/api/v1/integrations/${integration.provider}/callback`;
                                 const { authorizationUrl, connected } = await integrationsApi.connect(integration.provider, callbackUrl);
                                 if (authorizationUrl) {
                                   window.location.href = authorizationUrl;
@@ -2232,12 +2333,12 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                   marginTop: '2px'
                 }}
               >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '20px', marginBottom: '32px' }}>
-                  <div>
-                    <div style={{ fontSize: '17px', lineHeight: 1.2, fontWeight: '700', color: 'var(--text-primary)', marginBottom: '24px' }}>Delivery Method</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '20px', marginBottom: '24px' }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: '17px', lineHeight: 1.2, fontWeight: '700', color: 'var(--text-primary)', marginBottom: '14px' }}>Delivery Method</div>
                     <select
                       value={config.deliveryMethod}
-                      onChange={(e) => updatePostCallConfig(config.id, { deliveryMethod: e.target.value })}
+                      onChange={(e) => updatePostCallConfig(config.id, { deliveryMethod: e.target.value, url: '', email: '' })}
                       style={{
                         width: '310px',
                         height: '42px',
@@ -2251,32 +2352,142 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                       }}
                     >
                       <option value="">Select delivery method</option>
-                      {POST_CALL_DELIVERY_OPTIONS.map((option) => (
-                        <option key={option} value={option}>
-                          {option}
-                        </option>
-                      ))}
+                      <option value="Webhook">Webhook</option>
+                      <option value="Email">Email</option>
+                      <option value="CRM" disabled>CRM (coming soon)</option>
+                      <option value="Slack" disabled>Slack (coming soon)</option>
+                      <option value="WhatsApp" disabled>WhatsApp (coming soon)</option>
                     </select>
+
+                    {/* Webhook URL input */}
+                    {config.deliveryMethod === 'Webhook' && (
+                      <div style={{ marginTop: '14px' }}>
+                        <div style={{ fontSize: '13px', color: '#a0a0a0', marginBottom: '8px' }}>Webhook URL <span style={{ color: '#ff6b6b' }}>*</span></div>
+                        <input
+                          type="url"
+                          value={config.url}
+                          onChange={(e) => updatePostCallConfig(config.id, { url: e.target.value })}
+                          placeholder="https://your-server.com/webhook"
+                          style={{
+                            width: '400px',
+                            height: '42px',
+                            padding: '0 16px',
+                            background: '#181818',
+                            border: config.url && !/^https?:\/\/.+/.test(config.url) ? '1px solid #ff4d4f' : '1px solid #2d2d2d',
+                            borderRadius: '9px',
+                            color: '#ffffff',
+                            fontSize: '14px',
+                            outline: 'none',
+                            boxSizing: 'border-box'
+                          }}
+                        />
+                        {config.url && !/^https?:\/\/.+/.test(config.url) && (
+                          <div style={{ fontSize: '12px', color: '#ff4d4f', marginTop: '4px' }}>Enter a valid URL starting with http:// or https://</div>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Email address input */}
+                    {config.deliveryMethod === 'Email' && (
+                      <div style={{ marginTop: '14px' }}>
+                        <div style={{ fontSize: '13px', color: '#a0a0a0', marginBottom: '8px' }}>Recipient Email <span style={{ color: '#ff6b6b' }}>*</span></div>
+                        <input
+                          type="email"
+                          value={config.email}
+                          onChange={(e) => updatePostCallConfig(config.id, { email: e.target.value })}
+                          placeholder="recipient@example.com"
+                          style={{
+                            width: '400px',
+                            height: '42px',
+                            padding: '0 16px',
+                            background: '#181818',
+                            border: config.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(config.email) ? '1px solid #ff4d4f' : '1px solid #2d2d2d',
+                            borderRadius: '9px',
+                            color: '#ffffff',
+                            fontSize: '14px',
+                            outline: 'none',
+                            boxSizing: 'border-box'
+                          }}
+                        />
+                        {config.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(config.email) && (
+                          <div style={{ fontSize: '12px', color: '#ff4d4f', marginTop: '4px' }}>Enter a valid email address</div>
+                        )}
+                      </div>
+                    )}
                   </div>
 
-                  <button
-                    onClick={() => removePostCallConfig(config.id)}
-                    disabled={postCallConfigs.length === 1}
-                    style={{
-                      padding: '0 20px',
-                      height: '44px',
-                      background: '#0e0e0e',
-                      border: '1px solid var(--border)',
-                      borderRadius: '9px',
-                      color: postCallConfigs.length === 1 ? '#666666' : '#ff4d4f',
-                      cursor: postCallConfigs.length === 1 ? 'not-allowed' : 'pointer',
-                      fontSize: '14px',
-                      fontWeight: '600'
-                    }}
-                  >
-                    Remove
-                  </button>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'flex-end' }}>
+                    <button
+                      onClick={() => removePostCallConfig(config.id)}
+                      disabled={postCallConfigs.length === 1}
+                      style={{
+                        padding: '0 20px',
+                        height: '44px',
+                        background: '#0e0e0e',
+                        border: '1px solid var(--border)',
+                        borderRadius: '9px',
+                        color: postCallConfigs.length === 1 ? '#666666' : '#ff4d4f',
+                        cursor: postCallConfigs.length === 1 ? 'not-allowed' : 'pointer',
+                        fontSize: '14px',
+                        fontWeight: '600'
+                      }}
+                    >
+                      Remove
+                    </button>
+
+                    {/* Test Delivery Button */}
+                    <button
+                      onClick={() => handleTestPostCall(config.id)}
+                      disabled={
+                        !config.deliveryMethod ||
+                        (config.deliveryMethod === 'Webhook' && !config.url) ||
+                        (config.deliveryMethod === 'Email' && !config.email) ||
+                        testingPostCall[config.id] === 'loading'
+                      }
+                      title={
+                        !config.deliveryMethod ? 'Select a delivery method first' :
+                        config.deliveryMethod === 'Webhook' && !config.url ? 'Enter a webhook URL first' :
+                        config.deliveryMethod === 'Email' && !config.email ? 'Enter an email address first' :
+                        'Send a test delivery now'
+                      }
+                      style={{
+                        padding: '0 20px',
+                        height: '44px',
+                        background: testingPostCall[config.id] === 'done' ? '#0bbfcb22' : testingPostCall[config.id] === 'error' ? '#ff4d4f22' : '#0bbfcb18',
+                        border: `1px solid ${testingPostCall[config.id] === 'done' ? '#0bbfcb' : testingPostCall[config.id] === 'error' ? '#ff4d4f' : '#0bbfcb55'}`,
+                        borderRadius: '9px',
+                        color: testingPostCall[config.id] === 'done' ? '#0bbfcb' : testingPostCall[config.id] === 'error' ? '#ff4d4f' : (!config.deliveryMethod || (config.deliveryMethod === 'Webhook' && !config.url) || (config.deliveryMethod === 'Email' && !config.email)) ? '#555' : '#0bbfcb',
+                        cursor: (!config.deliveryMethod || (config.deliveryMethod === 'Webhook' && !config.url) || (config.deliveryMethod === 'Email' && !config.email) || testingPostCall[config.id] === 'loading') ? 'not-allowed' : 'pointer',
+                        fontSize: '13px',
+                        fontWeight: '600',
+                        whiteSpace: 'nowrap'
+                      }}
+                    >
+                      {testingPostCall[config.id] === 'loading' ? '⏳ Sending...' :
+                       testingPostCall[config.id] === 'done' ? '✓ Sent' :
+                       testingPostCall[config.id] === 'error' ? '✗ Failed' :
+                       '▶ Test Delivery'}
+                    </button>
+                  </div>
                 </div>
+
+                {/* Test result details */}
+                {testPostCallResults[config.id] && (
+                  <div style={{
+                    marginBottom: '20px',
+                    padding: '14px 16px',
+                    background: testingPostCall[config.id] === 'done' ? '#0bbfcb10' : '#ff4d4f10',
+                    border: `1px solid ${testingPostCall[config.id] === 'done' ? '#0bbfcb44' : '#ff4d4f44'}`,
+                    borderRadius: '10px',
+                    fontSize: '13px',
+                    color: testingPostCall[config.id] === 'done' ? '#0bbfcb' : '#ff7b7b',
+                    whiteSpace: 'pre-wrap',
+                    fontFamily: 'monospace',
+                    lineHeight: 1.6
+                  }}>
+                    {testPostCallResults[config.id]}
+                  </div>
+                )}
 
                 <div style={{ marginBottom: '30px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
@@ -2502,54 +2713,16 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                 justifyContent: 'space-between',
                 alignItems: 'center',
                 gap: '18px',
-                marginBottom: '54px',
+                marginBottom: '24px',
                 flexWrap: 'wrap'
               }}
             >
               <div style={{ fontSize: '22px', fontWeight: '700', color: 'var(--text-primary)', paddingLeft: '20px' }}>Recent Calls</div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#cbcbcb', fontSize: '13px', paddingRight: '2px' }}>
-                  <span>Filters</span>
-                  <span
-                    style={{
-                      width: '18px',
-                      height: '18px',
-                      borderRadius: '999px',
-                      border: '1px solid #565656',
-                      color: '#9c9c9c',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '11px',
-                      fontWeight: '600'
-                    }}
-                  >
-                    ?
-                  </span>
-                </div>
-
-                {['All directions', 'All statuses', 'All durations'].map((label) => (
-                  <select
-                    key={label}
-                    defaultValue={label}
-                    style={{
-                      width: '216px',
-                      height: '44px',
-                      padding: '0 16px',
-                      background: '#111111',
-                      border: '1px solid var(--border)',
-                      borderRadius: '10px',
-                      color: 'var(--text-primary)',
-                      fontSize: '14px',
-                      outline: 'none'
-                    }}
-                  >
-                    <option>{label}</option>
-                  </select>
-                ))}
-
                 <button
+                  onClick={loadRecentCalls}
+                  disabled={callsLoading}
                   style={{
                     height: '44px',
                     padding: '0 18px',
@@ -2559,48 +2732,110 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                     color: 'var(--text-primary)',
                     fontSize: '14px',
                     fontWeight: '600',
-                    cursor: 'pointer'
+                    cursor: callsLoading ? 'not-allowed' : 'pointer',
+                    opacity: callsLoading ? 0.6 : 1
                   }}
                 >
-                  Refresh
+                  {callsLoading ? '⏳ Loading...' : '↻ Refresh'}
                 </button>
               </div>
             </div>
 
-            <div
-              style={{
-                flex: 1,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                paddingBottom: '140px'
-              }}
-            >
-              <div style={{ textAlign: 'center', maxWidth: '420px' }}>
-                <div
-                  style={{
-                    width: '64px',
-                    height: '64px',
-                    margin: '0 auto 22px',
-                    borderRadius: '999px',
-                    border: '1px solid #303030',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: '#8c8c8c',
-                    fontSize: '28px'
-                  }}
-                >
-                  Call
-                </div>
-                <div style={{ fontSize: '18px', lineHeight: 1.2, fontWeight: '700', color: 'var(--text-primary)', marginBottom: '10px' }}>No call history</div>
-                <div style={{ fontSize: '15px', lineHeight: 1.6, color: '#a0a0a0' }}>
-                  You haven't made any calls with this assistant yet.
-                  <br />
-                  Start a call to see your history here.
+            {callsLoading ? (
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666', fontSize: '14px' }}>
+                Loading call history...
+              </div>
+            ) : recentCalls.length > 0 ? (
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {recentCalls.map((call) => (
+                  <div
+                    key={call.id}
+                    style={{
+                      background: '#111',
+                      border: '1px solid var(--border)',
+                      borderRadius: '12px',
+                      padding: '16px 20px',
+                      display: 'grid',
+                      gridTemplateColumns: '1fr 120px 120px 140px',
+                      alignItems: 'center',
+                      gap: '12px'
+                    }}
+                  >
+                    <div>
+                      <div style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)' }}>
+                        {call.contact?.name ?? call.contact?.phoneNumber ?? 'Unknown caller'}
+                      </div>
+                      {call.contact?.phoneNumber && call.contact?.name && (
+                        <div style={{ fontSize: '12px', color: '#666', marginTop: '2px' }}>{call.contact.phoneNumber}</div>
+                      )}
+                    </div>
+                    <div style={{
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      padding: '4px 10px',
+                      borderRadius: '999px',
+                      textAlign: 'center',
+                      background: call.direction === 'inbound' ? '#0a1f3a' : '#0a2e1a',
+                      color: call.direction === 'inbound' ? '#7fbfff' : '#78f5ad',
+                      border: `1px solid ${call.direction === 'inbound' ? '#1a5a9a' : '#1a5a3a'}`
+                    }}>
+                      {call.direction ?? 'conversation'}
+                    </div>
+                    <div style={{
+                      fontSize: '12px',
+                      fontWeight: '600',
+                      padding: '4px 10px',
+                      borderRadius: '999px',
+                      textAlign: 'center',
+                      background: call.status === 'resolved' ? '#0a2e1a' : call.status === 'open' ? '#0a1f3a' : '#1a1a0a',
+                      color: call.status === 'resolved' ? '#78f5ad' : call.status === 'open' ? '#7fbfff' : '#ffd066',
+                      border: `1px solid ${call.status === 'resolved' ? '#1a5a3a' : call.status === 'open' ? '#1a5a9a' : '#5a5a1a'}`
+                    }}>
+                      {call.status ?? 'unknown'}
+                    </div>
+                    <div style={{ fontSize: '12px', color: '#888', textAlign: 'right' }}>
+                      {(call.lastMessageAt || call.startedAt) ? new Date(call.lastMessageAt ?? call.startedAt!).toLocaleString() : '—'}
+                      {call.unreadCount ? <span style={{ marginLeft: '8px', color: '#0bbfcb' }}>{call.unreadCount} unread</span> : ''}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div
+                style={{
+                  flex: 1,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  paddingBottom: '80px'
+                }}
+              >
+                <div style={{ textAlign: 'center', maxWidth: '420px' }}>
+                  <div
+                    style={{
+                      width: '64px',
+                      height: '64px',
+                      margin: '0 auto 22px',
+                      borderRadius: '999px',
+                      border: '1px solid #303030',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      color: '#8c8c8c',
+                      fontSize: '28px'
+                    }}
+                  >
+                    📞
+                  </div>
+                  <div style={{ fontSize: '18px', lineHeight: 1.2, fontWeight: '700', color: 'var(--text-primary)', marginBottom: '10px' }}>No call history</div>
+                  <div style={{ fontSize: '15px', lineHeight: 1.6, color: '#a0a0a0' }}>
+                    You haven't made any calls with this assistant yet.
+                    <br />
+                    Start a call to see your history here.
+                  </div>
                 </div>
               </div>
-            </div>
+            )}
           </div>
         )}
       </div>
