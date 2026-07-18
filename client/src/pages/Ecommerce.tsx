@@ -14,6 +14,7 @@ import {
   Truck,
   type LucideIcon,
 } from 'lucide-react';
+import Navbar from '../components/Navbar';
 
 const heroPoints = [
   {
@@ -114,39 +115,12 @@ export default function EcommercePage() {
   const [openFaq, setOpenFaq] = useState<number | null>(0);
 
   return (
-    <main className="min-h-screen bg-[#050505] text-white" style={{ fontFamily: 'var(--font-main)' }}>
+    <main className="min-h-screen bg-white text-black dark:bg-[#050505] dark:text-white" style={{ fontFamily: 'var(--font-main)' }}>
       <div className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(14,179,158,0.18),transparent_28%),radial-gradient(circle_at_top_right,rgba(14,179,158,0.12),transparent_26%),linear-gradient(180deg,#090909_0%,#050505_100%)]" />
-        <div className="absolute inset-x-0 top-[88px] h-[460px] bg-[radial-gradient(circle_at_50%_0%,rgba(14,179,158,0.12),transparent_60%)]" />
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-transparent dark:bg-[radial-gradient(circle_at_top_left,rgba(14,179,158,0.18),transparent_28%),radial-gradient(circle_at_top_right,rgba(14,179,158,0.12),transparent_26%),linear-gradient(180deg,#090909_0%,#050505_100%)]" />
+        <div className="absolute inset-x-0 top-[88px] h-[460px] bg-gradient-to-b from-transparent to-transparent dark:bg-[radial-gradient(circle_at_50%_0%,rgba(14,179,158,0.12),transparent_60%)]" />
 
-        <header className="sticky top-0 z-40 border-b border-white/6 bg-[rgba(5,5,5,0.82)] backdrop-blur-xl">
-          <div className="mx-auto flex h-[82px] max-w-[1480px] items-center justify-between px-6 lg:px-10">
-            <Link to="/" className="flex items-center gap-2 text-[18px] font-black tracking-[-0.04em] text-white">
-              <span className="text-[#21e4ef]">OMNI</span>
-              <span>DIMENSION</span>
-            </Link>
-
-            <nav className="hidden items-center gap-8 text-[15px] text-white/70 xl:flex">
-              <NavButton label="Solutions" />
-              <NavButton label="Whitelabel" />
-              <NavLink to="/pricing" label="Pricing" />
-              <NavButton label="Resources" />
-              <NavButton label="Contact Us" />
-            </nav>
-
-            <div className="flex items-center gap-5 text-sm font-medium">
-              <Link to="/dashboard" className="hidden text-white/65 transition-colors hover:text-white md:block">
-                Dashboard
-              </Link>
-              <Link
-                to="/login"
-                className="rounded-[10px] border border-[#0eb39e] bg-transparent px-4 py-2.5 text-white transition-colors hover:bg-[#0eb39e]/10"
-              >
-                Sign Out
-              </Link>
-            </div>
-          </div>
-        </header>
+        <Navbar />
 
         <section className="relative mx-auto max-w-[1480px] px-6 pb-20 pt-6 lg:px-10 lg:pb-24 lg:pt-10">
           <div className="grid gap-10 lg:grid-cols-[1.04fr_0.96fr] lg:gap-12">
@@ -156,29 +130,29 @@ export default function EcommercePage() {
               transition={{ duration: 0.7, ease: 'easeOut' }}
               className="pt-14 lg:pt-20"
             >
-              <div className="mb-8 inline-flex items-center gap-2 rounded-full border border-[#0eb39e]/30 bg-[#0eb39e]/8 px-5 py-2 text-[14px] text-[#20d8df] shadow-[0_0_0_1px_rgba(14,179,158,0.05)]">
+              <div className="mb-8 inline-flex items-center gap-2 rounded-full border border-[#0eb39e]/30 dark:border-[#0eb39e]/30 bg-[#0eb39e]/8 dark:bg-[#0eb39e]/8 px-5 py-2 text-[14px] text-[#0eb39e] dark:text-[#20d8df] shadow-[0_0_0_1px_rgba(14,179,158,0.05)] transition-colors">
                 <ShoppingCart className="h-4 w-4" />
                 E-commerce Voice AI Solutions
               </div>
 
-              <h1 className="max-w-[720px] text-[46px] font-extrabold leading-[1.06] tracking-[-0.05em] text-white lg:text-[58px]">
-                Never Miss a <span className="text-[#21c7d0]">Sale</span> with Voice AI
+              <h1 className="max-w-[720px] text-[46px] font-extrabold leading-[1.06] tracking-[-0.05em] text-black dark:text-white lg:text-[58px]">
+                Never Miss a <span className="text-[#0eb39e] dark:text-[#21c7d0]">Sale</span> with Voice AI
               </h1>
 
-              <p className="mt-7 max-w-[700px] text-[18px] leading-[1.75] text-white/70">
+              <p className="mt-7 max-w-[700px] text-[18px] leading-[1.75] text-gray-700 dark:text-white/70">
                 Handle order inquiries, product support, returns, and customer notifications with intelligent voice assistants.
                 Turn every call into a sales opportunity.
               </p>
 
               <div className="mt-12 space-y-6">
                 {heroPoints.map((point) => (
-                  <div key={point.title} className="flex gap-4 text-[17px] leading-[1.6] text-white/70">
+                  <div key={point.title} className="flex gap-4 text-[17px] leading-[1.6] text-gray-700 dark:text-white/70">
                     <div className="mt-2.5 flex h-5 w-[2px] shrink-0 flex-col justify-between">
-                      <span className="h-[18px] w-[2px] rounded-full bg-[#19cfd4]" />
-                      <span className="h-[18px] w-[2px] rounded-full bg-[#19cfd4] opacity-70" />
+                      <span className="h-[18px] w-[2px] rounded-full bg-[#0eb39e] dark:bg-[#19cfd4]" />
+                      <span className="h-[18px] w-[2px] rounded-full bg-[#0eb39e] dark:bg-[#19cfd4] opacity-70" />
                     </div>
                     <p>
-                      <strong className="font-semibold text-white">{point.title}</strong> - {point.description}
+                      <strong className="font-semibold text-black dark:text-white">{point.title}</strong> - {point.description}
                     </p>
                   </div>
                 ))}
@@ -191,21 +165,21 @@ export default function EcommercePage() {
               transition={{ duration: 0.7, ease: 'easeOut', delay: 0.05 }}
               className="pt-2 lg:pt-4"
             >
-              <div className="rounded-[28px] border border-[#0eb39e]/18 bg-[#081112] p-6 shadow-[0_30px_80px_rgba(0,0,0,0.45)] lg:p-8">
+              <div className="rounded-[28px] border border-[#0eb39e]/18 bg-white dark:bg-[#081112] p-6 shadow-lg dark:shadow-[0_30px_80px_rgba(0,0,0,0.45)] lg:p-8 transition-colors">
                 <div className="mb-6 flex items-center gap-3">
-                  <Sparkles className="h-5 w-5 text-[#19cfd4]" />
-                  <h2 className="text-[30px] font-extrabold tracking-[-0.03em] text-white lg:text-[34px]">
-                    Create your <span className="text-[#21c7d0]">Free</span> Voice AI Assistant
+                  <Sparkles className="h-5 w-5 text-[#0eb39e] dark:text-[#19cfd4]" />
+                  <h2 className="text-[30px] font-extrabold tracking-[-0.03em] text-black dark:text-white lg:text-[34px]">
+                    Create your <span className="text-[#0eb39e] dark:text-[#21c7d0]">Free</span> Voice AI Assistant
                   </h2>
                 </div>
 
                 <textarea
                   rows={6}
-                  className="min-h-[174px] w-full rounded-[8px] border border-[#17393b] bg-[#050808] px-4 py-4 text-[14px] leading-[1.55] text-white/70 outline-none transition-colors placeholder:text-white/36 focus:border-[#19cfd4]/80"
+                  className="min-h-[174px] w-full rounded-[8px] border border-gray-300 dark:border-[#17393b] bg-white dark:bg-[#050808] px-4 py-4 text-[14px] leading-[1.55] text-gray-700 dark:text-white/70 outline-none transition-colors placeholder:text-gray-500 dark:placeholder:text-white/36 focus:border-[#0eb39e] dark:focus:border-[#19cfd4]/80 focus:ring-1 focus:ring-[#0eb39e] dark:focus:ring-[#19cfd4]"
                   placeholder="Example: Create an e-commerce assistant that handles order inquiries, provides product support, processes returns, and notifies customers about restocked items..."
                 />
 
-                <div className="mt-4 text-[12px] font-semibold text-white/42">Quick Start Templates:</div>
+                <div className="mt-4 text-[12px] font-semibold text-gray-500 dark:text-white/42">Quick Start Templates:</div>
                 <div className="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2">
                   {ecommerceTemplates.map((template) => (
                     <TemplateChip key={template.label} label={template.label} icon={template.icon} />
@@ -215,7 +189,7 @@ export default function EcommercePage() {
                 <motion.button
                   whileHover={{ scale: 1.015 }}
                   whileTap={{ scale: 0.985 }}
-                  className="mt-6 flex h-[46px] w-full items-center justify-center gap-2 rounded-[6px] bg-[#0f8d90] text-[18px] font-medium text-white transition-colors hover:bg-[#18a6aa]"
+                  className="mt-6 flex h-[46px] w-full items-center justify-center gap-2 rounded-[6px] bg-[#0eb39e] dark:bg-[#0f8d90] text-[18px] font-medium text-white transition-colors hover:bg-[#0cd4bc] dark:hover:bg-[#18a6aa]"
                 >
                   Create Free Agent
                   <ChevronRight className="h-5 w-5" />

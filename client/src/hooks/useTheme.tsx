@@ -16,16 +16,26 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
     if (saved === '0') {
       setDarkMode(false);
       document.documentElement.classList.add('light');
+      document.documentElement.classList.remove('dark');
     } else {
       setDarkMode(true);
       document.documentElement.classList.remove('light');
+      document.documentElement.classList.add('dark');
     }
   }, []);
 
   const toggleDarkMode = () => {
     const next = !darkMode;
     setDarkMode(next);
-    document.documentElement.classList.toggle('light', !next);
+    if (next) {
+      // Dark mode enabled
+      document.documentElement.classList.remove('light');
+      document.documentElement.classList.add('dark');
+    } else {
+      // Light mode enabled
+      document.documentElement.classList.add('light');
+      document.documentElement.classList.remove('dark');
+    }
     localStorage.setItem('darkMode', next ? '1' : '0');
   };
 
