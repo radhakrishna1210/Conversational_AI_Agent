@@ -5,44 +5,73 @@ import logger from '../lib/logger.js';
 let redis = null;
 let bullConnection = null;
 
+// Track quota exhaustion to stop all retry attempts immediately
+let _quotaExceeded = false;
+
+const makeRetryStrategy = () => (times) => {
+  if (_quotaExceeded) return null; // Stop immediately on quota error
+  if (times > 3) {
+    logger.warn(`Redis connection failed after ${times} attempts. Falling back to memory mode.`);
+    return null;
+  }
+  return Math.min(times * 100, 3000);
+};
+
+const isQuotaError = (err) =>
+  err?.message?.includes('max requests limit exceeded') ||
+  err?.message?.includes('ERR max requests');
+
 if (env.REDIS_URL) {
   try {
     const redisOptions = {
       maxRetriesPerRequest: null, // Required by BullMQ
       enableReadyCheck: false,
-      retryStrategy(times) {
-        // If we've tried 3 times and keep failing, give up to avoid blocking the event loop
-        if (times > 3) {
-          logger.warn(`Redis connection failed after ${times} attempts. Falling back to memory mode.`);
-          return null; 
-        }
-        return Math.min(times * 100, 3000);
-      },
+      retryStrategy: makeRetryStrategy(),
     };
 
     redis = new Redis(env.REDIS_URL, redisOptions);
 
     redis.on('connect', () => logger.info('✅ Redis connected'));
-    
+
     redis.on('error', (err) => {
-      if (err.message.includes('max requests limit exceeded')) {
-        logger.error('❌ Redis quota exceeded (Upstash). Switching to fallback mode.');
-        redis.disconnect();
+      if (isQuotaError(err)) {
+        if (!_quotaExceeded) {
+          _quotaExceeded = true;
+          logger.error('❌ Upstash Redis quota exhausted (500k request limit). Switching to in-memory fallback. Redis features (rate limiting, BullMQ) will be disabled until the quota resets.');
+        }
+        try { redis.disconnect(); } catch (_) {}
         redis = null;
-        bullConnection = null;
+        // Also tear down the bull connection
+        if (bullConnection?.connection) {
+          try { bullConnection.connection.disconnect(); } catch (_) {}
+          bullConnection = null;
+        }
       } else {
         logger.error({ err: err.message }, '⚠️ Redis error');
       }
     });
 
-    // BullMQ requires a separate connection config object
-    bullConnection = { 
-      connection: new Redis(env.REDIS_URL, redisOptions) 
-    };
-    
-    // Also handle errors for the bull connection
-    bullConnection.connection.on('error', () => {
-      bullConnection = null;
+    // BullMQ requires a separate connection instance
+    const bullRedis = new Redis(env.REDIS_URL, { ...redisOptions, retryStrategy: makeRetryStrategy() });
+
+    bullConnection = { connection: bullRedis };
+
+    bullRedis.on('error', (err) => {
+      if (isQuotaError(err)) {
+        if (!_quotaExceeded) {
+          _quotaExceeded = true;
+          logger.error('❌ Upstash Redis quota exhausted (BullMQ connection). Switching to in-memory fallback.');
+        }
+        try { bullRedis.disconnect(); } catch (_) {}
+        bullConnection = null;
+        // Also tear down the main connection
+        if (redis) {
+          try { redis.disconnect(); } catch (_) {}
+          redis = null;
+        }
+      } else {
+        logger.warn({ err: err.message }, '⚠️ BullMQ Redis error');
+      }
     });
 
   } catch (error) {

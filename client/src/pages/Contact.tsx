@@ -108,13 +108,13 @@ if (formData.useCase.trim().length < 10) {
 
   if (status === 'success') {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#050505] text-white pt-20 pb-12 px-4 sm:px-6 lg:px-8" style={{ background: 'radial-gradient(ellipse at center, rgba(14,179,158,0.05) 0%, #000 60%)' }}>
-        <div className="mx-auto max-w-2xl w-full rounded-2xl p-10 text-center" style={{ background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.05)' }}>
+      <div className="min-h-screen flex items-center justify-center pt-20 pb-12 px-4 sm:px-6 lg:px-8" style={{ backgroundColor: 'var(--bg-primary)', background: 'radial-gradient(ellipse at center, rgba(14,179,158,0.05) 0%, var(--bg-primary) 60%)' }}>
+        <div className="mx-auto max-w-2xl w-full rounded-2xl p-10 text-center" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
           <div className="w-16 h-16 rounded-full mx-auto flex items-center justify-center mb-6" style={{ background: 'rgba(14,179,158,0.1)', border: '2px solid rgba(14,179,158,0.2)' }}>
              <Check size={32} style={{ color: 'var(--teal)' }} />
           </div>
-          <h2 className="text-3xl font-bold mb-4">Thank You!</h2>
-          <p className="text-[#888] mb-8">
+          <h2 className="text-3xl font-bold mb-4" style={{ color: 'var(--text-primary)' }}>Thank You!</h2>
+          <p className="mb-8" style={{ color: 'var(--text-secondary)' }}>
             Thank you for taking the time to contact us. We look forward to connecting with you soon.
           </p>
           <button
@@ -122,8 +122,8 @@ if (formData.useCase.trim().length < 10) {
               setStatus('idle');
               setFormData({ name: '', email: '', phone: '', callVolume: '', helpWith: '', useCase: '', heardAbout: '' });
             }}
-            className="rounded-lg px-6 py-3 font-semibold text-white transition bg-transparent"
-            style={{ border: '1px solid rgba(255,255,255,0.1)' }}
+            className="rounded-lg px-6 py-3 font-semibold transition bg-transparent"
+            style={{ border: '1px solid var(--border)', color: 'var(--text-primary)' }}
           >
             Submit Another Request
           </button>
@@ -133,7 +133,7 @@ if (formData.useCase.trim().length < 10) {
   }
 
   return (
-    <div className="min-h-screen pt-12 pb-16 px-4 sm:px-6 lg:px-8" style={{ backgroundColor: '#0e1015' }}>
+    <div className="min-h-screen pt-12 pb-16 px-4 sm:px-6 lg:px-8" style={{ backgroundColor: 'var(--bg-primary)' }}>
       
       {rootElement && status === 'calendly' && (
         <PopupModal
@@ -150,16 +150,16 @@ if (formData.useCase.trim().length < 10) {
 
       <div className="mx-auto max-w-3xl">
         <div className="mb-10 text-center">
-          <h1 className="text-4xl font-bold text-white tracking-tight">Contact Us</h1>
-          <p className="mt-4 text-[#888] text-lg">Thank you for taking the time to contact us. We look forward to connecting with you soon.</p>
+          <h1 className="text-4xl font-bold tracking-tight" style={{ color: 'var(--text-primary)' }}>Contact Us</h1>
+          <p className="mt-4 text-lg" style={{ color: 'var(--text-secondary)' }}>Thank you for taking the time to contact us. We look forward to connecting with you soon.</p>
         </div>
 
-        <div className="contact-form-card rounded-2xl p-8" style={{ background: '#0e1015', border: '1px solid rgba(255,255,255,0.05)' }}>
+        <div className="contact-form-card rounded-2xl p-8" style={{ background: 'var(--bg-card)', border: '1px solid var(--border)' }}>
           <form className="space-y-6" onSubmit={handleSubmit}>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {/* Name */}
               <div>
-                <label className="block text-sm font-medium text-white mb-2">Name <span className="text-red-500">*</span></label>
+                <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>Name <span className="text-red-500">*</span></label>
                 <input
                   type="text"
                   required
@@ -174,15 +174,15 @@ if (formData.useCase.trim().length < 10) {
     });
   }
 }}
-                  className="block w-full rounded-lg bg-[#000000] px-4 py-3 text-sm text-white focus:outline-none"
-                  style={{ border: '1px solid rgba(255,255,255,0.1)' }}
+                  className="block w-full rounded-lg px-4 py-3 text-sm focus:outline-none"
+                  style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
                   placeholder="John Smith"
                 />
               </div>
 
               {/* Email */}
               <div>
-                <label className="block text-sm font-medium text-white mb-2">Email <span className="text-red-500">*</span></label>
+                <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>Email <span className="text-red-500">*</span></label>
                 <input
                   type="email"
                   required
@@ -194,8 +194,8 @@ if (formData.useCase.trim().length < 10) {
                   onBlur={(e) => {
                     if (!validateEmail(e.target.value)) setEmailError('Please use a business email address.');
                   }}
-                  className={`block w-full rounded-lg bg-[#000000] px-4 py-3 text-sm text-white focus:outline-none focus:ring-1 focus:ring-[var(--teal)] focus:border-[var(--teal)] transition-all ${emailError ? 'border-red-500' : 'border-[rgba(255,255,255,0.1)]'}`}
-                  style={{ borderWidth: '1px' }}
+                  className={`block w-full rounded-lg px-4 py-3 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--teal)] focus:border-[var(--teal)] transition-all ${emailError ? 'border-red-500' : ''}`}
+                  style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-primary)', borderWidth: '1px', borderColor: 'var(--border)' }}
                   placeholder="john@company.com"
                 />
                 {emailError && <p className="mt-2 text-sm text-red-500">{emailError}</p>}
@@ -203,26 +203,26 @@ if (formData.useCase.trim().length < 10) {
 
               {/* Phone */}
               <div className="contact-phone-input">
-                <label className="block text-sm font-medium text-white mb-2">Phone Number <span className="text-red-500">*</span></label>
+                <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>Phone Number <span className="text-red-500">*</span></label>
                 <PhoneInput
                   international
                   defaultCountry="US"
                   value={formData.phone}
                   onChange={(val) => setFormData({...formData, phone: val || ''})}
-                  className="block w-full rounded-lg bg-[#000000] px-4 py-3 text-sm text-white focus-within:ring-1 focus-within:ring-[var(--teal)] focus-within:border-[var(--teal)] transition-all"
-                  style={{ border: '1px solid rgba(255,255,255,0.1)' }}
+                  className="block w-full rounded-lg px-4 py-3 text-sm focus-within:ring-1 focus-within:ring-[var(--teal)] focus-within:border-[var(--teal)] transition-all"
+                  style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
                 />
               </div>
 
               {/* Monthly Call Volume */}
               <div>
-                <label className="block text-sm font-medium text-white mb-2">Monthly Call Volume <span className="text-red-500">*</span></label>
+                <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>Monthly Call Volume <span className="text-red-500">*</span></label>
                 <select
                   required
                   value={formData.callVolume}
                   onChange={(e) => setFormData({...formData, callVolume: e.target.value})}
-                  className="block w-full rounded-lg bg-[#000000] px-4 py-3 text-sm text-[#888] focus:outline-none appearance-none"
-                  style={{ border: '1px solid rgba(255,255,255,0.1)' }}
+                  className="block w-full rounded-lg px-4 py-3 text-sm focus:outline-none appearance-none"
+                  style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
                 >
                   <option value="" disabled>Select volume</option>
                   <option value="Not sure">Not sure, I am just getting started</option>
@@ -236,13 +236,13 @@ if (formData.useCase.trim().length < 10) {
 
             {/* Help With */}
             <div>
-              <label className="block text-sm font-medium text-white mb-2">What can we help you with? <span className="text-red-500">*</span></label>
+              <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>What can we help you with? <span className="text-red-500">*</span></label>
               <select
                 required
                 value={formData.helpWith}
                 onChange={(e) => setFormData({...formData, helpWith: e.target.value})}
-                className="block w-full rounded-lg bg-[#000000] px-4 py-3 text-sm text-[#888] focus:outline-none appearance-none"
-                style={{ border: '1px solid rgba(255,255,255,0.1)' }}
+                className="block w-full rounded-lg px-4 py-3 text-sm focus:outline-none appearance-none"
+                style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
               >
                 <option value="" disabled>Select an option</option>
                 <option value="pricing">Pricing enquiry</option>
@@ -256,26 +256,26 @@ if (formData.useCase.trim().length < 10) {
 
             {/* Use Case */}
             <div>
-              <label className="block text-sm font-medium text-white mb-2">Describe your use case <span className="text-red-500">*</span></label>
+              <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>Describe your use case <span className="text-red-500">*</span></label>
               <textarea
                 required
                 rows={4}
                 value={formData.useCase}
                 onChange={(e) => setFormData({...formData, useCase: e.target.value})}
-                className="block w-full rounded-lg bg-[#000000] px-4 py-3 text-sm text-white focus:outline-none resize-none"
-                style={{ border: '1px solid rgba(255,255,255,0.1)' }}
+                className="block w-full rounded-lg px-4 py-3 text-sm focus:outline-none resize-none"
+                style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
                 placeholder="I'd like to discuss pricing for my team..."
               />
             </div>
 
             {/* Hear About */}
             <div>
-              <label className="block text-sm font-medium text-white mb-2">How did you hear about us? <span className="text-[#888]">(optional)</span></label>
+              <label className="block text-sm font-medium mb-2" style={{ color: 'var(--text-primary)' }}>How did you hear about us? <span style={{ color: 'var(--text-secondary)' }}>(optional)</span></label>
               <select
                 value={formData.heardAbout}
                 onChange={(e) => setFormData({...formData, heardAbout: e.target.value})}
-                className="block w-full rounded-lg bg-[#000000] px-4 py-3 text-sm text-[#888] focus:outline-none appearance-none"
-                style={{ border: '1px solid rgba(255,255,255,0.1)' }}
+                className="block w-full rounded-lg px-4 py-3 text-sm focus:outline-none appearance-none"
+                style={{ backgroundColor: 'var(--bg-secondary)', color: 'var(--text-secondary)', border: '1px solid var(--border)' }}
               >
                 <option value="" disabled>Select a channel</option>
                 <option value="instagram">Instagram</option>
@@ -294,7 +294,7 @@ if (formData.useCase.trim().length < 10) {
             )}
 
             <div className="pt-4 pb-2">
-               <p className="text-[#888] text-sm mb-6">
+               <p className="text-sm mb-6" style={{ color: 'var(--text-secondary)' }}>
                  This site is protected by reCAPTCHA and the Google <a href="#" className="text-[var(--teal)]">Privacy Policy</a> and <a href="#" className="text-[var(--teal)]">Terms of Service</a> apply.
                </p>
                 <button

@@ -1308,13 +1308,13 @@ Goals:
         </div>
 
         {/* Create Agent Card */}
-        <div className="omni-create-card">
+        <div className="omni-create-card" style={{ background: 'var(--bg-card)' }}>
           <div className="omni-create-card-header">
             <h3>Create a new voice AI assistant</h3>
             <p>Describe the type of voice AI assistant you want to create</p>
           </div>
           <textarea
-            className="omni-create-textarea"
+            className="omni-create-textarea create-textarea"
             placeholder="Describe your voice AI assistant's purpose, personality, and how it should handle"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
@@ -1327,7 +1327,7 @@ Goals:
                   Object.keys(useCases).map((category) => (
                     <button
                       key={category}
-                      className="omni-chip"
+                      className="omni-chip chip"
                       onClick={() => setSelectedCategory(category)}
                     >
                       {category}
@@ -1347,7 +1347,7 @@ Goals:
                     {(useCases as Record<string, { name: string; prompt: string }[]>)[selectedCategory].map((item) => (
                       <button
                         key={item.name}
-                        className="omni-chip"
+                        className="omni-chip chip"
                         onClick={() => {
                           setPrompt(item.prompt);
                           setAgentTitle(item.name);

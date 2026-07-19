@@ -259,9 +259,8 @@ export default function LeadGenerationPage() {
                       {faq.question}
                     </span>
                     <ChevronDown
-                      className={`h-5 w-5 shrink-0 text-[#0eb39e] dark:text-[#19cfd4] transition-transform duration-300 ${
-                        isOpen ? 'rotate-180' : ''
-                      }`}
+                      className={`h-5 w-5 shrink-0 text-[#0eb39e] dark:text-[#19cfd4] transition-transform duration-300 ${isOpen ? 'rotate-180' : ''
+                        }`}
                     />
                   </button>
 

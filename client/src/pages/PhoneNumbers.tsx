@@ -14,7 +14,7 @@ export default function PhoneNumbers() {
         <div style={{ 
           border: '1px solid var(--border)', 
           borderRadius: '8px', 
-          background: 'rgba(255,255,255,0.02)',
+          background: 'var(--bg-card)',
           padding: '32px',
           display: 'flex',
           flexDirection: 'column'
@@ -80,7 +80,7 @@ export default function PhoneNumbers() {
         <div style={{ 
           border: '1px solid var(--border)', 
           borderRadius: '8px', 
-          background: 'rgba(255,255,255,0.02)',
+          background: 'var(--bg-card)',
           padding: '32px',
           display: 'flex',
           flexDirection: 'column'
