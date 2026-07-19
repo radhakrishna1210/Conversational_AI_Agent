@@ -61,6 +61,18 @@ const server = app.listen(env.PORT, () => {
   logger.info(`Server running on http://localhost:${env.PORT} [${env.NODE_ENV}]`);
 });
 
+// Handle port conflicts gracefully — critical for `--watch` restarts where
+// the previous process may still be releasing the port.
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    logger.error(`Port ${env.PORT} is already in use. If running with --watch, the previous instance may still be shutting down. Retrying...`);
+    process.exit(0); // Exit cleanly so --watch retries instead of looping on a fatal crash
+  } else {
+    logger.fatal({ err }, 'Server error');
+    process.exit(1);
+  }
+});
+
 // SSE keepalive heartbeat
 setInterval(() => {}, SSE_KEEPALIVE_INTERVAL_MS);
 
@@ -78,10 +90,13 @@ const shutdown = async (signal) => {
 process.on('SIGTERM', () => shutdown('SIGTERM'));
 process.on('SIGINT', () => shutdown('SIGINT'));
 process.on('uncaughtException', (err) => {
+  console.error('FATAL UNCAUGHT EXCEPTION:', err);
   logger.fatal({ err }, 'Uncaught exception');
   process.exit(1);
 });
 process.on('unhandledRejection', (reason) => {
+  console.error('FATAL UNHANDLED REJECTION:', reason);
   logger.error({ reason }, 'Unhandled promise rejection');
 });
 // Watched reload triggered by .env fix
+

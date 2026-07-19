@@ -185,42 +185,42 @@ export default function Home() {
           </div>
 
           <div className="features-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "24px" }}>
-            <div className="core-feature-card animate-me">
+            <div className="core-feature-card animate-me" style={{ background: 'var(--bg-card)' }}>
               <div className="core-feature-icon-wrapper">
                 <Languages size={24} />
               </div>
               <h3>Multi-Language</h3>
               <p>Serve users in हिंदी, தமிழ், Español, 日本語, and more</p>
             </div>
-            <div className="core-feature-card animate-me">
+            <div className="core-feature-card animate-me" style={{ background: 'var(--bg-card)' }}>
               <div className="core-feature-icon-wrapper">
                 <ArrowUpRight size={24} />
               </div>
               <h3>Scale Outbound</h3>
               <p>Automate lead gen, reminders & collections</p>
             </div>
-            <div className="core-feature-card animate-me">
+            <div className="core-feature-card animate-me" style={{ background: 'var(--bg-card)' }}>
               <div className="core-feature-icon-wrapper">
                 <PhoneIncoming size={24} />
               </div>
               <h3>24/7 Inbound</h3>
               <p>Handle bookings and inquiries around the clock</p>
             </div>
-            <div className="core-feature-card animate-me">
+            <div className="core-feature-card animate-me" style={{ background: 'var(--bg-card)' }}>
               <div className="core-feature-icon-wrapper">
                 <Plug size={24} />
               </div>
               <h3>Connect Stack</h3>
               <p>Integrate with CRM, Sheets, Slack, n8n</p>
             </div>
-            <div className="core-feature-card animate-me">
+            <div className="core-feature-card animate-me" style={{ background: 'var(--bg-card)' }}>
               <div className="core-feature-icon-wrapper">
                 <Wand2 size={24} />
               </div>
               <h3>Quick Training</h3>
               <p>Train AI with your own call recordings</p>
             </div>
-            <div className="core-feature-card animate-me">
+            <div className="core-feature-card animate-me" style={{ background: 'var(--bg-card)' }}>
               <div className="core-feature-icon-wrapper">
                 <Phone size={24} />
               </div>
@@ -524,7 +524,7 @@ export default function Home() {
         <div style={{fontWeight:600, fontSize:'14px', color:'var(--text-primary)', background:'var(--bg-card)', border:'1px solid var(--border)', padding:'6px 12px', borderRadius:'16px', backdropFilter:'blur(4px)', boxShadow:'var(--shadow-topbar)'}}>
           Ask Kevin
         </div>
-        <div style={{background:'var(--bg-secondary)', width:'48px', height:'48px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', boxShadow:'0 8px 30px rgba(0,0,0,0.3)', border:'1px solid var(--border)'}}>
+        <div style={{background:'var(--bg-card)', width:'48px', height:'48px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', boxShadow:'0 8px 30px rgba(0,0,0,0.15)', border:'1px solid var(--border)'}}>
           <svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
             <path d="M8 6h3.5C14.5 6 17 8.5 17 11s-2.5 5-5.5 5H8V6z" fill="var(--teal)"/>
           </svg>

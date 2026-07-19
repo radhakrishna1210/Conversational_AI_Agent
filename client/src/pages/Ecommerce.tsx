@@ -233,7 +233,7 @@ export default function EcommercePage() {
               return (
                 <div
                   key={faq.question}
-                  className="overflow-hidden rounded-[16px] border border-[#0d3133] bg-[#060707] transition-colors hover:border-[#0eb39e]/60"
+                  className="overflow-hidden rounded-[16px] border border-[#0d3133] bg-white text-black transition-colors hover:border-[#0eb39e]/60 dark:border-[#0d3133] dark:bg-[#060707] dark:text-white"
                 >
                   <button
                     id={questionId}
@@ -243,13 +243,12 @@ export default function EcommercePage() {
                     aria-expanded={isOpen}
                     aria-controls={answerId}
                   >
-                    <span className="max-w-[86%] text-[21px] font-semibold tracking-[-0.03em] text-white">
+                    <span className="max-w-[86%] text-[21px] font-semibold tracking-[-0.03em] text-black dark:text-white">
                       {faq.question}
                     </span>
                     <ChevronDown
-                      className={`h-5 w-5 shrink-0 text-[#19cfd4] transition-transform duration-300 ${
-                        isOpen ? 'rotate-180' : ''
-                      }`}
+                      className={`h-5 w-5 shrink-0 text-[#19cfd4] transition-transform duration-300 ${isOpen ? 'rotate-180' : ''
+                        }`}
                     />
                   </button>
 
@@ -262,7 +261,7 @@ export default function EcommercePage() {
                     transition={{ duration: 0.28, ease: 'easeOut' }}
                     className="overflow-hidden"
                   >
-                    <div className="px-7 pb-6 pt-0 text-[15px] leading-[1.8] text-white/65">
+                    <div className="px-7 pb-6 pt-0 text-[15px] leading-[1.8] text-gray-700 dark:text-white/65">
                       {faq.answer}
                     </div>
                   </motion.div>
@@ -289,30 +288,13 @@ export default function EcommercePage() {
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}
           whileHover={{ scale: 1.06 }}
-          className="fixed bottom-6 right-6 z-50 flex items-center gap-3 rounded-full bg-[#15254a] px-5 py-3 text-[16px] font-semibold text-[#c7f9ff] shadow-[0_18px_40px_rgba(0,0,0,0.45)] transition-transform"
+          className="fixed bottom-6 right-6 z-50 flex items-center gap-3 rounded-full border border-[#0eb39e]/20 bg-white px-5 py-3 text-[16px] font-semibold text-black shadow-[0_18px_40px_rgba(0,0,0,0.15)] transition-transform dark:border-[#19cfd4]/30 dark:bg-[#15254a] dark:text-[#c7f9ff] dark:shadow-[0_18px_40px_rgba(0,0,0,0.45)]"
         >
           <span className="flex h-7 w-7 items-center justify-center rounded-full border border-[#19cfd4]/50 text-[18px] text-[#19cfd4]">O</span>
           Ask Kevin
         </motion.button>
       </div>
     </main>
-  );
-}
-
-function NavButton({ label }: { label: string }) {
-  return (
-    <button type="button" className="inline-flex items-center gap-1.5 text-white/55 transition-colors hover:text-white">
-      <span>{label}</span>
-      <ChevronDown className="h-3 w-3 opacity-75" />
-    </button>
-  );
-}
-
-function NavLink({ to, label }: { to: string; label: string }) {
-  return (
-    <Link to={to} className="text-white/55 transition-colors hover:text-white">
-      {label}
-    </Link>
   );
 }
 
@@ -340,21 +322,21 @@ function FeatureCard({
   tags: string[];
 }) {
   return (
-    <div className="rounded-[22px] border border-[#0d3133] bg-[#060707] p-8 shadow-[0_10px_30px_rgba(0,0,0,0.25)]">
+    <div className="rounded-[22px] border border-gray-200 bg-white p-8 shadow-[0_10px_30px_rgba(0,0,0,0.08)] dark:border-[#0d3133] dark:bg-[#060707] dark:shadow-[0_10px_30px_rgba(0,0,0,0.25)]">
       <div className="flex items-start gap-5">
         <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[14px] bg-[#0c2526] text-[#19cfd4] shadow-[inset_0_0_0_1px_rgba(25,207,212,0.06)]">
           <Icon className="h-7 w-7" />
         </div>
 
         <div className="min-w-0 flex-1">
-          <h3 className="text-[25px] font-extrabold tracking-[-0.04em] text-white">{title}</h3>
-          <p className="mt-4 max-w-[520px] text-[16px] leading-[1.8] text-white/58">{description}</p>
+          <h3 className="text-[25px] font-extrabold tracking-[-0.04em] text-black dark:text-white">{title}</h3>
+          <p className="mt-4 max-w-[520px] text-[16px] leading-[1.8] text-gray-700 dark:text-white/58">{description}</p>
 
           <div className="mt-7 flex flex-wrap gap-3">
             {tags.map((tag) => (
               <span
                 key={tag}
-                className="rounded-full border border-[#0d4e4f] bg-[#071313] px-4 py-2 text-[13px] text-[#1dcdd5]"
+                className="rounded-full border border-[#0d4e4f] bg-[#f4fcfc] px-4 py-2 text-[13px] text-[#0f8d90] dark:border-[#0d4e4f] dark:bg-[#071313] dark:text-[#1dcdd5]"
               >
                 {tag}
               </span>

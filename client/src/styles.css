@@ -148,11 +148,12 @@ html.light {
   --bg-elevated:   #f8fafd;
   --bg-hover:      rgba(14, 179, 158, 0.07);
 
-  /* Sidebar stays deep navy for contrast */
-  --sidebar-bg:        #14213d;
-  --sidebar-border:    rgba(255,255,255,0.08);
-  --sidebar-item-active-bg: rgba(14,179,158,0.18);
+  /* Sidebar stays light in light mode */
+  --sidebar-bg:        #ffffff;
+  --sidebar-border:    var(--border);
+  --sidebar-item-active-bg: rgba(14, 179, 158, 0.10);
   --sidebar-item-active-border: #0eb39e;
+
 
   /* Topbar */
   --topbar-bg:     rgba(255,255,255,0.96);
@@ -504,22 +505,23 @@ html.light [style*="background:rgba(255, 255, 255, 0.03)"] {
 }
 
 
-/* Sidebar: force deep navy background + keep icons/text white */
+/* Sidebar: force light background + keep icons/text dark */
 html.light .sidebar {
-  background: #14213d !important;
-  border-right-color: rgba(255,255,255,0.08) !important;
+  background: var(--bg-secondary) !important;
+  border-right-color: var(--border) !important;
 }
 html.light .sidebar-header {
-  border-bottom-color: rgba(255,255,255,0.08) !important;
+  border-bottom-color: var(--border) !important;
 }
 html.light .sidebar-bottom {
-  border-top-color: rgba(255,255,255,0.08) !important;
+  border-top-color: var(--border) !important;
 }
-html.light .sidebar-item { color: rgba(255,255,255,0.5); }
-html.light .sidebar-item:hover { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.9); }
-html.light .sidebar-item.active { background: rgba(14,179,158,0.18); color: #0eb39e; }
-html.light .sidebar-category { color: rgba(255,255,255,0.22); }
-html.light .sidebar-content-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); }
+html.light .sidebar-item { color: var(--text-secondary); }
+html.light .sidebar-item:hover { background: var(--bg-hover); color: var(--text-primary); }
+html.light .sidebar-item.active { background: var(--sidebar-item-active-bg); color: var(--teal); }
+html.light .sidebar-category { color: var(--text-muted); }
+html.light .sidebar-content-scroll::-webkit-scrollbar-thumb { background: var(--border); }
+
 
 /* Dashboard main area */
 html.light .dashboard-layout { background: var(--bg-primary); }
@@ -529,6 +531,35 @@ html.light .create-assistant-box {
   background: #ffffff;
   border-color: var(--border);
   box-shadow: var(--shadow-card);
+}
+
+/* Dashboard Create Agent card (omni-create-card) */
+html.light .omni-create-card {
+  background: #ffffff !important;
+  border-color: var(--border) !important;
+  color: var(--text-primary) !important;
+}
+html.light .omni-create-card h3,
+html.light .omni-create-card p {
+  color: var(--text-primary) !important;
+}
+html.light .omni-create-textarea {
+  background: #f8fafd !important;
+  border-color: var(--border) !important;
+  color: var(--text-primary) !important;
+}
+html.light .omni-create-textarea::placeholder {
+  color: var(--text-muted) !important;
+}
+html.light .omni-chip {
+  background: #f1f5f9 !important;
+  border-color: #cbd5e1 !important;
+  color: #334155 !important;
+}
+html.light .omni-chip:hover {
+  background: #e2e8f0 !important;
+  border-color: var(--teal) !important;
+  color: var(--teal) !important;
 }
 
 /* Textarea */
@@ -598,6 +629,18 @@ html.light .dropdown-menu {
   box-shadow: 0 12px 40px rgba(15,23,42,0.12);
 }
 html.light .close-btn:hover { color: var(--text-primary); }
+
+/* Hero "Create Agent" container in light mode */
+html.light .hero-input-wrapper {
+  background: var(--bg-card);
+  border-color: var(--border);
+  box-shadow: 0 4px 24px rgba(14, 179, 158, 0.08), 0 1px 4px rgba(15, 23, 42, 0.08);
+}
+html.light .hero-input-wrapper:focus-within {
+  border-color: var(--teal);
+  box-shadow: 0 0 0 3px var(--teal-light), 0 4px 24px rgba(14, 179, 158, 0.12);
+}
+
 
 /* ── Dark mode explicit safety rules ── */
 /* Ensure sidebar is always dark when NOT in light mode */
@@ -967,7 +1010,7 @@ p {
 .hero-input-wrapper {
   max-width: 900px;
   margin: 0 auto 24px;
-  background: #000000;
+  background: var(--bg-card);
   border: 1px solid rgba(14, 179, 158, 0.15);
   border-radius: 8px;
   padding: 4px;
@@ -985,7 +1028,7 @@ p {
   width: 100%;
   background: transparent;
   border: none;
-  color: white;
+  color: var(--text-primary);
   padding: 24px;
   font-size: 14px;
   font-family: inherit;
@@ -1202,7 +1245,7 @@ p {
   font-size: 20px;
   font-weight: 700;
   margin-bottom: 12px;
-  color: #fff;
+  color: var(--text-primary);
 }
 
 .core-feature-card p {
@@ -2548,11 +2591,12 @@ html.light .topbar-icon-btn:hover {
   display: flex;
   justify-content: center;
   gap: 8px;
-  background: rgba(255,255,255,0.05);
+  background: var(--bg-elevated);
   padding: 4px;
   border-radius: 30px;
   width: fit-content;
   margin: 0 auto 40px;
+  border: 1px solid var(--border);
 }
 
 .pricing-tab {
@@ -2568,7 +2612,7 @@ html.light .topbar-icon-btn:hover {
 
 .pricing-tab.active {
   background: var(--bg-card);
-  color: white;
+  color: var(--text-primary);
   box-shadow: 0 2px 4px rgba(0,0,0,0.2);
 }
 
@@ -2663,7 +2707,7 @@ html.light .topbar-icon-btn:hover {
 
 .plan-feature .value {
   font-weight: 600;
-  color: white;
+  color: var(--text-primary);
 }
 
 .plan-btn {
@@ -2685,7 +2729,7 @@ html.light .topbar-icon-btn:hover {
   padding: 16px;
   border-bottom: 1px solid var(--border);
   font-weight: 600;
-  color: white;
+  color: var(--text-primary);
 }
 
 .feature-table th:first-child {
@@ -2694,13 +2738,13 @@ html.light .topbar-icon-btn:hover {
 
 .feature-table td {
   padding: 16px;
-  border-bottom: 1px solid rgba(255,255,255,0.05);
+  border-bottom: 1px solid var(--border);
   color: var(--text-secondary);
 }
 
 .feature-table td:first-child {
   text-align: left;
-  color: white;
+  color: var(--text-primary);
 }
 
 .check-yes {
