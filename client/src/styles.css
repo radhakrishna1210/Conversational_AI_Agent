@@ -4043,3 +4043,598 @@ html:not(.light) .notification-panel-footer {
     display: none !important;
   }
 }
+
+/* ═══════════════════════════════════════════
+   API KEYS PAGE — append to index.css
+   Uses existing design tokens only (--bg-card, --teal, --border, etc.)
+   ═══════════════════════════════════════════ */
+
+.apikeys-header {
+  margin-bottom: 24px;
+}
+
+.apikeys-header h1 {
+  font-size: 28px;
+  letter-spacing: -0.6px;
+  color: var(--text-primary);
+  margin-bottom: 6px;
+}
+
+.apikeys-header p {
+  font-size: 14px;
+  color: var(--text-secondary);
+}
+
+.apikeys-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 24px;
+  box-shadow: var(--shadow-card);
+}
+
+.apikeys-card + .apikeys-card {
+  margin-top: 24px;
+}
+
+.apikeys-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 20px;
+}
+
+.apikeys-card-head-left {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+
+.apikeys-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  border: 1px solid rgba(14, 179, 158, 0.22);
+  border-radius: 10px;
+  background: var(--teal-light);
+  color: var(--teal);
+}
+
+.apikeys-card-head h2 {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 3px;
+}
+
+.apikeys-card-head p {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* ── table ── */
+.apikeys-table-wrap {
+  overflow-x: auto;
+}
+
+.apikeys-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+
+.apikeys-table th {
+  text-align: left;
+  padding: 0 0 12px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  border-bottom: 1px solid var(--border);
+}
+
+.apikeys-table td {
+  padding: 14px 0;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+  vertical-align: middle;
+}
+
+.apikeys-table tr:last-child td {
+  border-bottom: none;
+}
+
+.apikeys-table td.apikeys-name {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.apikeys-key-cell {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.apikeys-key-code {
+  font-family: 'Space Grotesk', monospace;
+  font-size: 13px;
+  color: var(--text-secondary);
+  letter-spacing: 0.3px;
+}
+
+.apikeys-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.apikeys-icon-btn:hover {
+  background: var(--bg-hover);
+  color: var(--teal);
+}
+
+.apikeys-row-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.apikeys-row-actions .btn {
+  padding: 7px 12px;
+  font-size: 12px;
+}
+
+.apikeys-danger-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(248, 113, 113, 0.10);
+  color: var(--error);
+  border: 1px solid rgba(248, 113, 113, 0.25);
+  border-radius: var(--radius-sm);
+  padding: 7px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  transition: background 0.15s;
+}
+
+.apikeys-danger-btn:hover {
+  background: rgba(248, 113, 113, 0.18);
+}
+
+.apikeys-danger-btn:disabled,
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.apikeys-empty,
+.apikeys-loading {
+  text-align: center;
+  padding: 48px 0;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+/* ── doc card links ── */
+.apikeys-doc-links {
+  display: flex;
+  gap: 10px;
+  margin-top: 18px;
+  flex-wrap: wrap;
+}
+
+.apikeys-doc-links .btn svg {
+  margin-right: 2px;
+}
+
+/* ── modals ── */
+.apikeys-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 8, 16, 0.65);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  animation: apikeysFadeIn 0.15s ease;
+}
+
+@keyframes apikeysFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.apikeys-modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 26px;
+  width: 420px;
+  max-width: 90vw;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+}
+
+.apikeys-modal-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 18px;
+}
+
+.apikeys-modal-head h3 {
+  font-size: 16px;
+  color: var(--text-primary);
+}
+
+.apikeys-env-toggle {
+  display: flex;
+  gap: 8px;
+}
+
+.apikeys-env-btn {
+  flex: 1;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 9px 0;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  transition: border-color 0.15s, color 0.15s, background 0.15s;
+}
+
+.apikeys-env-btn.active {
+  border-color: var(--teal);
+  color: var(--teal);
+  background: var(--teal-light);
+}
+
+.apikeys-warning-box {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+
+.apikeys-warning-box svg {
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.apikeys-warning-box.warn svg { color: #f59e0b; }
+.apikeys-warning-box.danger svg { color: var(--error); }
+
+.apikeys-warning-box h4 {
+  font-size: 15px;
+  color: var(--text-primary);
+  margin-bottom: 3px;
+}
+
+.apikeys-warning-box p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+}
+
+.apikeys-key-reveal {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 12px 14px;
+}
+
+.apikeys-key-reveal code {
+  flex: 1;
+  font-family: 'Space Grotesk', monospace;
+  font-size: 13px;
+  color: var(--teal);
+  word-break: break-all;
+}
+
+.apikeys-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 22px;
+}
+
+/* ── mobile ── */
+@media (max-width: 768px) {
+  .apikeys-card {
+    padding: 18px;
+  }
+  .apikeys-card-head {
+    flex-direction: column;
+  }
+  .apikeys-card-head .btn {
+    width: 100%;
+    justify-content: center;
+  }
+  .apikeys-modal {
+    padding: 20px;
+  }
+  .apikeys-doc-links .btn {
+    flex: 1;
+    justify-content: center;
+  }
+}
+
+
+/* ═══════════════════════════════════════════
+   SETTINGS PAGE — append to index.css
+   Uses existing design tokens only
+   ═══════════════════════════════════════════ */
+
+.settings-page {
+  padding: 20px 32px;
+  max-width: 1000px;
+}
+
+/* ── Header ── */
+.settings-header {
+  margin-bottom: 28px;
+}
+
+.settings-header h1 {
+  font-size: 28px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  color: var(--text-primary);
+  margin: 0 0 6px 0;
+}
+
+.settings-header p {
+  font-size: 14px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+/* ── Grid ── */
+.settings-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+/* ── Card ── */
+.settings-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 24px 28px;
+  box-shadow: var(--shadow-card);
+}
+
+/* ── Card Head ── */
+.settings-card-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 24px;
+}
+
+.settings-card-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 36px;
+  height: 36px;
+  border: 1px solid rgba(14, 179, 158, 0.22);
+  border-radius: 10px;
+  background: var(--teal-light);
+  color: var(--teal);
+}
+
+.settings-card-title h2 {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin: 0 0 3px 0;
+}
+
+.settings-card-title p {
+  font-size: 13px;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+/* ── Form ── */
+.settings-form {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  margin-bottom: 24px;
+}
+
+.settings-form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+/* ── Input ── */
+.settings-input {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 14px;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.settings-input::placeholder {
+  color: var(--text-muted);
+}
+
+.settings-input:focus {
+  border-color: var(--teal-dim);
+  box-shadow: 0 0 0 3px var(--teal-light);
+}
+
+/* ── Input with eye icon ── */
+.settings-input-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.settings-input-wrap .settings-input {
+  padding-right: 40px;
+}
+
+.settings-input-eye {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 4px;
+  transition: color 0.15s;
+}
+
+.settings-input-eye:hover {
+  color: var(--text-secondary);
+}
+
+/* ── Select ── */
+.settings-select-wrap {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.settings-select-wrap svg {
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--text-muted);
+  pointer-events: none;
+}
+
+.settings-select {
+  width: 100%;
+  appearance: none;
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 36px 10px 14px;
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 14px;
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.settings-select:focus {
+  border-color: var(--teal-dim);
+  box-shadow: 0 0 0 3px var(--teal-light);
+}
+
+.settings-select option {
+  background: var(--bg-card);
+  color: var(--text-primary);
+}
+
+/* ── Hint text ── */
+.settings-hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin: 4px 0 0 0;
+  line-height: 1.5;
+}
+
+/* ── Card Footer ── */
+.settings-card-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* ── Primary Button ── */
+.settings-btn-primary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  background: var(--teal);
+  color: var(--bg-primary);
+  border: none;
+  padding: 9px 18px;
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+
+.settings-btn-primary:hover:not(:disabled) {
+  background: var(--teal-hover);
+  box-shadow: var(--shadow-glow);
+}
+
+.settings-btn-primary:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* ── Light Mode Overrides ── */
+html.light .settings-input,
+html.light .settings-select {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+html.light .settings-select option {
+  background: var(--bg-secondary);
+}
+
+/* ── Mobile ── */
+@media (max-width: 768px) {
+  .settings-page {
+    padding: 16px 20px;
+  }
+
+  .settings-card {
+    padding: 20px;
+  }
+
+  .settings-header h1 {
+    font-size: 24px;
+  }
+}
