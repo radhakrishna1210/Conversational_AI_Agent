@@ -97,14 +97,27 @@ export const getProviderStatus = async () => {
 export const streamVoicePreview = async (voiceId, text = DEFAULT_PREVIEW_TEXT) => {
   const voice = await getVoice(voiceId);
   if (!voice) throw new Error('Voice not found');
+  const { buffer, contentType } = await synthesizeVoiceToBuffer(voice, text);
+  return { stream: Readable.from(buffer), contentType };
+};
 
+/**
+ * Synthesize speech for a loaded Voice record and return the raw audio buffer.
+ * Shared by the preview endpoint and the web-call runtime.
+ * @param {object} voice – Voice row including { provider: { name } }
+ * @param {string} text
+ * @param {{ fast?: boolean }} [opts] – fast mode trades a little audio quality
+ *   for much lower latency (live calls); previews keep full quality.
+ * @returns {Promise<{ buffer: Buffer, contentType: string }>}
+ */
+export const synthesizeVoiceToBuffer = async (voice, text, opts = {}) => {
   const providerName = voice.provider?.name;
   let audioBuffer;
 
   if (providerName === 'Google') {
     audioBuffer = await googleProvider.previewVoice(voice.providerVoiceId, text);
   } else if (providerName === 'ElevenLabs') {
-    audioBuffer = await elevenLabsProvider.previewVoice(voice.providerVoiceId, text);
+    audioBuffer = await elevenLabsProvider.previewVoice(voice.providerVoiceId, text, opts);
   } else if (providerName === 'Sarvam') {
     // Sarvam requires the language code for generation
     const meta = JSON.parse(voice.metadata || '{}');
@@ -118,7 +131,7 @@ export const streamVoicePreview = async (voiceId, text = DEFAULT_PREVIEW_TEXT) =
     // with a clear, actionable message instead of a generic 500.
     const meta = JSON.parse(voice.metadata || '{}');
     if (meta.status === 'cloned' && meta.clonedProvider === 'elevenlabs' && meta.clonedVoiceId) {
-      audioBuffer = await elevenLabsProvider.previewVoice(meta.clonedVoiceId, text);
+      audioBuffer = await elevenLabsProvider.previewVoice(meta.clonedVoiceId, text, opts);
     } else {
       const err = new Error(
         'This cloned voice has only a raw sample (status: sample_only) — it cannot synthesize new text yet. Re-submit it on the Clone Voice page with ELEVENLABS_API_KEY configured to complete neural cloning.'
@@ -139,8 +152,108 @@ export const streamVoicePreview = async (voiceId, text = DEFAULT_PREVIEW_TEXT) =
     }
   }
 
-  // Convert buffer to readable stream
-  return { stream: Readable.from(audioBuffer), contentType };
+  return { buffer: audioBuffer, contentType };
+};
+
+/**
+ * Return a Node-readable audio stream for live calls. Sarvam has a dedicated
+ * low-latency HTTP streaming endpoint; other providers retain their existing
+ * synthesis behavior and are exposed as a one-chunk stream.
+ */
+export const streamSynthesizeVoice = async (voice, text, opts = {}) => {
+  if (voice.provider?.name === 'Sarvam') {
+    const meta = JSON.parse(voice.metadata || '{}');
+    const langCode = meta.language_code || 'en-IN';
+    const { body, contentType } = await sarvamProvider.streamVoice(
+      voice.providerVoiceId,
+      text,
+      langCode,
+      opts
+    );
+    return { stream: Readable.fromWeb(body), contentType };
+  }
+
+  const { buffer, contentType } = await synthesizeVoiceToBuffer(voice, text, opts);
+  return { stream: Readable.from(buffer), contentType };
+};
+
+// ─── Agent voice resolution ───────────────────────────────────────────────────
+
+const providerHasCredentials = (name) => {
+  switch (name) {
+    case 'Google':
+      return Boolean(process.env.GOOGLE_TTS_CREDENTIALS_JSON || process.env.GOOGLE_TTS_KEY_FILE);
+    case 'ElevenLabs':
+      return Boolean(process.env.ELEVENLABS_API_KEY);
+    case 'Sarvam':
+      return Boolean(process.env.SARVAM_API_KEY);
+    case 'Cartesia':
+      return Boolean(process.env.CARTESIA_API_KEY);
+    default:
+      return false;
+  }
+};
+
+// Voice rows change only on sync/UI selection; caching the resolution saves
+// ~2s of remote-DB round-trips on every single web-call turn.
+const voiceResolutionCache = new Map(); // voiceLabel -> { voice, at }
+const VOICE_CACHE_TTL_MS = 60_000;
+
+/**
+ * Resolve an agent's configured voice label (e.g. "Google - Aoede (female)")
+ * to a usable Voice row. Falls back to the first voice of a provider that
+ * actually has credentials when the configured one is unavailable — the web
+ * call must always be able to speak.
+ * @param {string} voiceLabel – Agent.voice display string
+ * @returns {Promise<object|null>} Voice row incl. { provider: { name } }
+ */
+export const resolveAgentVoice = async (voiceLabel) => {
+  const cached = voiceResolutionCache.get(voiceLabel);
+  if (cached && Date.now() - cached.at < VOICE_CACHE_TTL_MS) return cached.voice;
+  const voice = await resolveAgentVoiceUncached(voiceLabel);
+  if (voice) voiceResolutionCache.set(voiceLabel, { voice, at: Date.now() });
+  return voice;
+};
+
+const resolveAgentVoiceUncached = async (voiceLabel) => {
+  const include = { provider: { select: { name: true } } };
+
+  // Parse "Provider - Voice Name (extra)" labels
+  if (voiceLabel && typeof voiceLabel === 'string') {
+    const [providerPart, ...rest] = voiceLabel.split(' - ');
+    const namePart = rest.join(' - ').replace(/\s*\(.*\)\s*$/, '').trim();
+    if (providerPart && namePart && providerHasCredentials(providerPart.trim())) {
+      const match = await prisma.voice.findFirst({
+        where: {
+          provider: { name: { equals: providerPart.trim() } },
+          name: { contains: namePart, mode: 'insensitive' },
+        },
+        include,
+      });
+      if (match) return match;
+    }
+    // Label may also be a bare voice name from any credentialed provider
+    const byName = await prisma.voice.findFirst({
+      where: { name: { contains: voiceLabel.trim(), mode: 'insensitive' } },
+      include,
+    });
+    if (byName && providerHasCredentials(byName.provider?.name)) return byName;
+  }
+
+  // Fallback: first voice from any provider with working credentials.
+  // Prefer English/en-family voices so the default is broadly understandable.
+  for (const providerName of ['ElevenLabs', 'Cartesia', 'Google', 'Sarvam']) {
+    if (!providerHasCredentials(providerName)) continue;
+    const fallback = await prisma.voice.findFirst({
+      where: { provider: { name: providerName }, language: { startsWith: 'en' } },
+      include,
+    }) || await prisma.voice.findFirst({
+      where: { provider: { name: providerName } },
+      include,
+    });
+    if (fallback) return fallback;
+  }
+  return null;
 };
 
 // ─── AgentVoice persistence ───────────────────────────────────────────────────

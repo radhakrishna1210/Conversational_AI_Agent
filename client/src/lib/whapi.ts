@@ -57,7 +57,13 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     
     throw new Error(errMsg);
   }
-  return res.json() as Promise<T>;
+  // 204 No Content (e.g. DELETE) and other empty bodies have no JSON to
+  // parse — res.json() would throw "Unexpected end of JSON input" on an
+  // otherwise successful request.
+  if (res.status === 204) return undefined as T;
+  const text = await res.text();
+  if (!text) return undefined as T;
+  return JSON.parse(text) as T;
 }
 
 // Improve network error messages for easier debugging

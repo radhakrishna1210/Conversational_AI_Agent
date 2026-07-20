@@ -4,6 +4,7 @@
 import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
 import { sendMail, isMailerConfigured } from '../lib/mailer.js';
+import { appendCallRow } from '../services/googleSheets.service.js';
 
 // ─── PLANS ────────────────────────────────────────────────────────────────────
 // Seeded from the previously hardcoded Billing.tsx values so behavior matches
@@ -137,9 +138,25 @@ export const executePostCall = async (agentId, workspaceId, payload) => {
   } catch { configs = []; }
   if (configs.length === 0) return { executed: 0, results: [] };
 
+  // Variables extracted from this call, rendered for human-readable delivery.
+  const variables = Array.isArray(payload.variables) ? payload.variables : [];
+  const variableLines = variables.length
+    ? variables.map((v) => `- ${v.key}: ${v.value ?? '(not provided)'}`).join('\n')
+    : '(no variables extracted)';
+
   const results = [];
   for (const cfg of configs) {
-    const method = (cfg.deliveryMethod || cfg.method || '').toLowerCase();
+    const method = (cfg.deliveryMethod || cfg.method || '').toLowerCase().replace(/[\s_]/g, '');
+    // A config can restrict which call outcomes it fires on. Empty/absent means
+    // "all outcomes" so existing configs keep working unchanged.
+    const triggers = Array.isArray(cfg.triggerStatuses) ? cfg.triggerStatuses : [];
+    if (triggers.length && payload.outcome && payload.outcome !== 'test') {
+      const matches = triggers.some((t) => String(t).toLowerCase() === String(payload.outcome).toLowerCase());
+      if (!matches) {
+        results.push({ method: method || 'unknown', ok: true, skipped: true, reason: `Outcome "${payload.outcome}" is not in this config's triggers` });
+        continue;
+      }
+    }
     try {
       if (method === 'webhook' && cfg.url) {
         const r = await fetch(cfg.url, {
@@ -154,14 +171,32 @@ export const executePostCall = async (agentId, workspaceId, payload) => {
         await sendMail({
           to: cfg.email,
           subject: `Post-call summary — ${agent.name}`,
-          text: `Agent: ${agent.name}\nOutcome: ${payload.outcome ?? 'n/a'}\n\nSummary:\n${payload.summary ?? '(none)'}\n\nTranscript:\n${payload.transcript ?? '(none)'}`,
+          text: `Agent: ${agent.name}\nOutcome: ${payload.outcome ?? 'n/a'}\n\nExtracted information:\n${variableLines}\n\nSummary:\n${payload.summary ?? '(none)'}\n\nTranscript:\n${payload.transcript ?? '(none)'}`,
         });
         results.push({ method: 'email', target: cfg.email, ok: true });
+      } else if (method === 'googlesheets' && cfg.spreadsheetId) {
+        const out = await appendCallRow(
+          workspaceId,
+          cfg.spreadsheetId,
+          {
+            metadata: {
+              'Call time': payload.endedAt ?? new Date().toISOString(),
+              'Agent': agent.name,
+              'Call type': payload.callType ?? '',
+              'Outcome': payload.outcome ?? '',
+              'Duration (s)': payload.durationSec ?? '',
+              'Phone number': payload.phoneNumber ?? '',
+            },
+            variables,
+          },
+          cfg.spreadsheetTab || undefined,
+        );
+        results.push({ method: 'googlesheets', target: cfg.spreadsheetName || cfg.spreadsheetId, ok: true, ...out });
       } else {
         results.push({ method: method || 'unknown', ok: false, error: 'Unsupported or incomplete config' });
       }
     } catch (err) {
-      results.push({ method, target: cfg.url || cfg.email, ok: false, error: err.message });
+      results.push({ method, target: cfg.url || cfg.email || cfg.spreadsheetId, ok: false, error: err.message });
     }
   }
   logger.info({ agentId, results }, 'Post-call delivery executed');
@@ -171,10 +206,27 @@ export const executePostCall = async (agentId, workspaceId, payload) => {
 // POST /workspaces/:workspaceId/agents/:agentId/post-call/test
 export const testPostCall = async (req, res) => {
   const { workspaceId, agentId } = req.params;
+  // Sample values come from the agent's OWN configured variables, so the test
+  // row/email matches the shape real calls will produce (and creates the
+  // correct Google Sheet header on first run).
+  let variables = [];
+  try {
+    const agent = await prisma.agent.findFirst({ where: { id: agentId, workspaceId } });
+    const { collectExtractionDefinitions } = await import('../services/postCallExtraction.utils.js');
+    variables = collectExtractionDefinitions(agent?.settings).map((d) => ({
+      key: d.key,
+      description: d.description,
+      value: '(sample)',
+    }));
+  } catch { /* a test without variables is still a valid connectivity check */ }
+
   const out = await executePostCall(agentId, workspaceId, {
     outcome: 'test',
+    callType: 'TEST',
+    durationSec: 0,
     summary: req.body?.summary || 'This is a test post-call delivery from the platform.',
     transcript: req.body?.transcript || 'User: Hi\nAgent: Hello! This is a test transcript.',
+    variables,
     endedAt: new Date().toISOString(),
   });
   if (out.error) return res.status(404).json({ error: out.error });

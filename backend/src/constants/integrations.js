@@ -10,7 +10,11 @@ export const INTEGRATION_PROVIDERS = {
       scope: ['https://www.googleapis.com/auth/calendar', 'https://www.googleapis.com/auth/userinfo.email'],
       clientIdEnv: 'GOOGLE_CLIENT_ID',
       clientSecretEnv: 'GOOGLE_CLIENT_SECRET',
-      redirectUriEnv: 'GOOGLE_REDIRECT_URI',
+      // Per-provider: the callback route is /integrations/:provider/callback,
+      // so the three Google integrations cannot share one redirect URI.
+      // Unset by default — createOAuthConnectUrl then derives the correct
+      // per-provider callback from CLIENT_URL.
+      redirectUriEnv: 'GOOGLE_CALENDAR_REDIRECT_URI',
       extraParams: { access_type: 'offline', prompt: 'consent' },
     },
     apiBaseUrlEnv: 'GOOGLE_API_BASE_URL',
@@ -27,7 +31,7 @@ export const INTEGRATION_PROVIDERS = {
       scope: ['https://www.googleapis.com/auth/calendar', 'https://www.googleapis.com/auth/userinfo.email'],
       clientIdEnv: 'GOOGLE_CLIENT_ID',
       clientSecretEnv: 'GOOGLE_CLIENT_SECRET',
-      redirectUriEnv: 'GOOGLE_REDIRECT_URI',
+      redirectUriEnv: 'GOOGLE_MEET_REDIRECT_URI',
       extraParams: { access_type: 'offline', prompt: 'consent' },
     },
     apiBaseUrlEnv: 'GOOGLE_API_BASE_URL',
@@ -44,7 +48,7 @@ export const INTEGRATION_PROVIDERS = {
       scope: ['https://www.googleapis.com/auth/spreadsheets', 'https://www.googleapis.com/auth/drive.readonly'],
       clientIdEnv: 'GOOGLE_CLIENT_ID',
       clientSecretEnv: 'GOOGLE_CLIENT_SECRET',
-      redirectUriEnv: 'GOOGLE_REDIRECT_URI',
+      redirectUriEnv: 'GOOGLE_SHEETS_REDIRECT_URI',
       extraParams: { access_type: 'offline', prompt: 'consent' },
     },
     apiBaseUrlEnv: 'GOOGLE_API_BASE_URL',

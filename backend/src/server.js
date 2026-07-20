@@ -1,5 +1,7 @@
 import './config/env.js';
 import { mkdirSync } from 'fs';
+import http from 'http';
+import { WebSocketServer } from 'ws';
 import app from './app.js';
 import { env } from './config/env.js';
 import prisma from './config/prisma.js';
@@ -7,6 +9,9 @@ import logger from './lib/logger.js';
 import { SSE_KEEPALIVE_INTERVAL_MS, SHUTDOWN_GRACE_PERIOD_MS } from './constants/limits.js';
 import { createCampaignWorker } from './workers/campaign.worker.js';
 import { startIntegrationScheduler } from './services/integrationScheduler.service.js';
+import { startVoiceSyncScheduler } from './services/voice/voice.startup.js';
+import { handleWebCallUpgrade } from './ws/webCallRealtime.handler.js';
+import { handleTwilioMediaUpgrade } from './ws/twilioMediaRealtime.handler.js';
 
 mkdirSync(env.UPLOAD_DIR, { recursive: true });
 
@@ -56,8 +61,50 @@ if (campaignWorker) {
 }
 
 const integrationScheduler = startIntegrationScheduler();
+const voiceSyncScheduler = startVoiceSyncScheduler();
 
-const server = app.listen(env.PORT, () => {
+// Plain http.Server wrapping the Express app — needed so WebSocket upgrade
+// requests (xAI Conversational Agent: Web Call + Twilio Media Streams) can be
+// routed alongside normal HTTP without a second listener/port.
+const httpServer = http.createServer(app);
+
+const webCallWss = new WebSocketServer({ noServer: true });
+const twilioMediaWss = new WebSocketServer({ noServer: true });
+
+// /api/v1/workspaces/:workspaceId/agents/:agentId/xai-call
+const WEB_CALL_UPGRADE_PATH = /^\/api\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/xai-call$/;
+// /api/v1/twilio-media/:workspaceId/:agentId
+const TWILIO_MEDIA_UPGRADE_PATH = /^\/api\/v1\/twilio-media\/([^/]+)\/([^/]+)$/;
+
+httpServer.on('upgrade', (req, socket, head) => {
+  let pathname;
+  try {
+    pathname = new URL(req.url, `http://${req.headers.host}`).pathname;
+  } catch {
+    socket.destroy();
+    return;
+  }
+
+  const webCallMatch = pathname.match(WEB_CALL_UPGRADE_PATH);
+  if (webCallMatch) {
+    webCallWss.handleUpgrade(req, socket, head, (ws) => {
+      handleWebCallUpgrade(ws, { workspaceId: webCallMatch[1], agentId: webCallMatch[2] });
+    });
+    return;
+  }
+
+  const twilioMatch = pathname.match(TWILIO_MEDIA_UPGRADE_PATH);
+  if (twilioMatch) {
+    twilioMediaWss.handleUpgrade(req, socket, head, (ws) => {
+      handleTwilioMediaUpgrade(ws, { workspaceId: twilioMatch[1], agentId: twilioMatch[2] });
+    });
+    return;
+  }
+
+  socket.destroy();
+});
+
+const server = httpServer.listen(env.PORT, () => {
   logger.info(`Server running on http://localhost:${env.PORT} [${env.NODE_ENV}]`);
 });
 
@@ -68,6 +115,7 @@ const shutdown = async (signal) => {
   logger.info(`${signal} received — shutting down`);
   server.close(async () => {
     if (integrationScheduler?.stop) integrationScheduler.stop();
+    if (voiceSyncScheduler?.stop) voiceSyncScheduler.stop();
     await prisma.$disconnect();
     logger.info('Shutdown complete');
     process.exit(0);

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 
 import { getAuth } from '@/lib/authStorage';
+import { whapi } from '@/lib/whapi';
 interface Message {
   id: string;
   type: 'user' | 'assistant';
@@ -21,22 +22,74 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  // Recent Calls history: this chat session's server-side log entry
+  const sessionLogIdRef = useRef<string | null>(null);
+  const latestTranscriptRef = useRef<{ role: string; content: string }[]>([]);
+
+  const storeSession = async (msgs: Message[]) => {
+    const transcript = msgs
+      .filter(m => !m.text.startsWith('❌ Error:'))
+      .map(m => ({ role: m.type === 'user' ? 'user' : 'assistant', content: m.text }));
+    latestTranscriptRef.current = transcript;
+    try {
+      if (!sessionLogIdRef.current) {
+        const res = await whapi.post<{ call?: { id: string } }>(`/agents/${agentId}/calls`, {
+          type: 'CHAT', transcript, status: 'IN_PROGRESS',
+        });
+        sessionLogIdRef.current = res?.call?.id ?? null;
+      } else {
+        await whapi.patch(`/agents/${agentId}/calls/${sessionLogIdRef.current}`, { transcript });
+      }
+    } catch (e) {
+      console.error('Failed to store chat session in call history', e);
+    }
+  };
+
+  // Leaving the Chat Test tab is the end of this conversation. Finalizing the
+  // stored log triggers variable extraction against the complete transcript.
+  useEffect(() => () => {
+    const callId = sessionLogIdRef.current;
+    if (!callId) return;
+    whapi.patch(`/agents/${agentId}/calls/${callId}`, {
+      transcript: latestTranscriptRef.current,
+      status: 'COMPLETED',
+      ended: true,
+    }).catch((e) => console.error('Failed to finalize chat session', e));
+  }, [agentId]);
 
   // Scroll to bottom on new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Add welcome message on mount
+  // Add welcome message on mount. Prefer the server-rendered version, where
+  // placeholders like [Your Company Name] are resolved from the knowledge
+  // base instead of shown literally.
   useEffect(() => {
-    if (welcomeMessage && messages.length === 0) {
-      setMessages([{
+    if (!welcomeMessage || messages.length !== 0) return;
+    let cancelled = false;
+    const seed = (text: string) => {
+      if (cancelled) return;
+      setMessages(prev => (prev.length === 0 ? [{
         id: 'welcome',
-        type: 'assistant',
-        text: welcomeMessage,
+        type: 'assistant' as const,
+        text,
         timestamp: new Date(),
-      }]);
-    }
+      }] : prev));
+    };
+    (async () => {
+      try {
+        const { token, workspaceId } = getAuth();
+        const res = await fetch(`/api/v1/workspaces/${workspaceId}/agents/${agentId}/welcome`, {
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+        });
+        const data = res.ok ? await res.json() : null;
+        seed(data?.welcome || welcomeMessage);
+      } catch {
+        seed(welcomeMessage);
+      }
+    })();
+    return () => { cancelled = true; };
   }, [welcomeMessage]);
 
   const handleSendMessage = async (e: React.FormEvent) => {
@@ -65,8 +118,9 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
     setError('');
 
     try {
-      // Call the authenticated, workspace-scoped agent chat endpoint.
-      // (The unauthenticated /api/v1/agents/... mount was removed for security.)
+      // Shared agent runtime endpoint — the same server-side "brain"
+      // (conversational flow + knowledge base grounding) the Web Call uses.
+      // Full history is sent so the conversation is multi-turn and stateful.
       const { token, workspaceId } = getAuth();
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
@@ -75,14 +129,17 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
         headers['Authorization'] = `Bearer ${token}`;
       }
 
-      const response = await fetch(`/api/v1/workspaces/${workspaceId}/agents/${agentId}/chat`, {
+      const history = [...messages, userMessage]
+        .filter(m => !m.text.startsWith('❌ Error:'))
+        .map(m => ({
+          role: m.type === 'user' ? 'user' : 'assistant',
+          content: m.text,
+        }));
+
+      const response = await fetch(`/api/v1/workspaces/${workspaceId}/agents/${agentId}/converse`, {
         method: 'POST',
         headers,
-        body: JSON.stringify({
-          message: trimmedInput,
-          selectedLanguages,
-          welcomeMessage,
-        }),
+        body: JSON.stringify({ messages: history }),
       });
 
       if (!response.ok) {
@@ -114,6 +171,9 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
       };
 
       setMessages(prev => [...prev, assistantMessage]);
+      // Persist the session after every exchange so the Recent Calls tab
+      // always has the full transcript, even if the user just navigates away.
+      storeSession([...messages, userMessage, assistantMessage]);
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to send message';
       setError(errorMessage);

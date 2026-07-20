@@ -52,10 +52,11 @@ export default function Dashboard() {
   const handleDeleteAssistant = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
     setOpenDropdownId(null);
-    if (!window.confirm('Are you sure you want to delete this assistant?')) return;
+    if (!window.confirm('Delete this assistant? Its attached knowledge-base files, call history, and recordings will also be permanently deleted.')) return;
     try {
       await whapi.del(`/agents/${id}`);
       setAgents(prev => prev.filter(a => a.id !== id));
+      toast.success('Agent deleted');
     } catch (err) {
       console.error('Failed to delete on backend', err);
       toast.error(err instanceof Error ? err.message : 'Failed to delete agent on the server.');
@@ -118,8 +119,11 @@ export default function Dashboard() {
       .trim();
 
     title = title
-      .split(' ')
+      .split(/\s+/)
       .filter(Boolean)
+      // A fallback name, not a summary — long prompts must never become the
+      // agent's name wholesale.
+      .slice(0, 6)
       .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
       .join(' ');
 
@@ -169,8 +173,17 @@ export default function Dashboard() {
 
     let welcomeMsg = '';
     let defaultFlow: any[] = [];
-    // Generate a flow tailored to the user's ACTUAL description + category.
-    // (Previously only { name } was sent, so every agent got the same flow.)
+    // Full config generated from the user's ACTUAL description + category:
+    // welcome + flow, plus languages, voice (TTS), AI model and STT provider.
+    let genConfig: {
+      name?: string;
+      languages?: string[];
+      aiModel?: string;
+      transcription?: string;
+      voice?: string;
+      callDirection?: string;
+      postCallVariables?: { key: string; description: string }[];
+    } = {};
     try {
       const generated = await whapi.post<any>('/llm/generate-flow', {
         name,
@@ -180,6 +193,7 @@ export default function Dashboard() {
       if (generated && generated.welcomeMessage && Array.isArray(generated.flowItems)) {
         welcomeMsg = generated.welcomeMessage;
         defaultFlow = generated.flowItems;
+        genConfig = generated;
       }
     } catch (genErr) {
       console.warn('Flow generation failed, using a generic template', genErr);
@@ -196,11 +210,46 @@ export default function Dashboard() {
 
     try {
       const newAgent = await whapi.post<AgentConfig>('/agents', {
-        name,
+        // A title the user typed themselves wins; otherwise prefer the
+        // LLM-chosen name (short, or exactly the name the prompt mentioned)
+        // over the crude keyword fallback.
+        name: agentTitle || genConfig.name || name,
         welcomeMessage: welcomeMsg,
         flowItems: defaultFlow,
-        aiModel: 'GPT-4.1-Mini',
-        voice: 'Google - Aoede (female)',
+        aiModel: genConfig.aiModel || 'GPT-4.1-Mini',
+        voice: genConfig.voice || 'Google - Aoede (female)',
+        ...(genConfig.languages?.length ? { languages: genConfig.languages } : {}),
+        // `transcription` is the Agent column; `sttProvider` is what the live
+        // web-call runtime reads from settings — keep them in sync.
+        ...(genConfig.transcription
+          ? { transcription: genConfig.transcription, sttProvider: genConfig.transcription }
+          : {}),
+        // Inferred from the prompt: does this agent place calls (OUTBOUND)
+        // or receive them (INBOUND)? Drives the greeting style.
+        ...(genConfig.callDirection ? { callDirection: genConfig.callDirection } : {}),
+        // Post-Call tab: extraction variables tailored to the use case (e.g.
+        // appointment_date/appointment_time for a booking agent) instead of
+        // the generic defaults.
+        ...(genConfig.postCallVariables?.length
+          ? {
+              postCallConfigs: [{
+                id: Date.now().toString(),
+                deliveryMethod: '',
+                url: '',
+                email: '',
+                triggerStatuses: ['Completed', 'Voicemail Detected'],
+                includeCallSummary: true,
+                includeFullConversation: true,
+                includeSentimentAnalysis: true,
+                includeExtractedInformation: true,
+                extractedVariables: genConfig.postCallVariables.map((v) => ({
+                  id: v.key,
+                  key: v.key,
+                  description: v.description,
+                })),
+              }],
+            }
+          : {}),
       });
 
       setAgents(prev => [newAgent, ...prev]);
@@ -1482,7 +1531,16 @@ Goals:
                 </div>
                 <div className="omni-card-footer">
                   <span className="omni-card-id" title={String(assistant.id)}>ID: {String(assistant.id).slice(0, 12)}…</span>
-                  <button className="omni-btn omni-btn-primary" onClick={() => navigate(`/agent/${assistant.id}`)}>Edit Agent</button>
+                  <div style={{ display: 'flex', gap: 8 }}>
+                    <button
+                      className="omni-btn omni-btn-danger"
+                      title="Delete this assistant from your workspace"
+                      onClick={(e) => handleDeleteAssistant(e, String(assistant.id))}
+                    >
+                      Delete
+                    </button>
+                    <button className="omni-btn omni-btn-primary" onClick={() => navigate(`/agent/${assistant.id}`)}>Edit Agent</button>
+                  </div>
                 </div>
                 </article>
               ))
@@ -1648,6 +1706,15 @@ Goals:
         .omni-btn-secondary:hover:not(:disabled) {
           border-color: #14b8a6;
           color: #14b8a6;
+        }
+        .omni-btn-danger {
+          background: transparent;
+          color: #f87171;
+          border: 1px solid rgba(248,113,113,0.45);
+        }
+        .omni-btn-danger:hover:not(:disabled) {
+          background: rgba(248,113,113,0.12);
+          border-color: #f87171;
         }
 
         /* ── Assistants Section ── */

@@ -1,8 +1,17 @@
+import path from 'path';
+import fs from 'fs';
 import prisma from '../config/prisma.js';
 import * as sarvamService from '../services/sarvam.service.js';
 import { geminiService } from '../services/gemini.service.js';
+import { invalidateAgentRuntimeCaches } from '../services/agentRuntime.service.js';
 import logger from '../lib/logger.js';
 import fetch from 'node-fetch';
+import { env } from '../config/env.js';
+
+// Same storage locations the KB-file and call-log controllers write to —
+// needed so deleting an agent can also remove its files from disk.
+const KB_FILES_DIR = path.resolve(env.UPLOAD_DIR || 'uploads', 'kb-files');
+const RECORDINGS_DIR = path.resolve(env.UPLOAD_DIR || 'uploads', 'call-recordings');
 
 const safeJson = (value, fallback = []) => {
   if (value == null) return fallback;
@@ -129,6 +138,9 @@ export const updateAgent = async (req, res) => {
         settings: JSON.stringify(mergedSettings),
       },
     });
+    // A saved config (new voice, welcome, flow…) must apply to the very next
+    // call — don't let the runtime's short-TTL caches serve the old config.
+    invalidateAgentRuntimeCaches(req.params.workspaceId, agentId);
     res.json(serializeAgent(agent));
   } catch (error) {
     logger.error('Failed to update agent', error, { agentId });
@@ -137,13 +149,45 @@ export const updateAgent = async (req, res) => {
 };
 
 export const deleteAgent = async (req, res) => {
-  const { agentId } = req.params;
+  const { agentId, workspaceId } = req.params;
 
   try {
     const del = await prisma.agent.deleteMany({
-      where: { id: agentId, workspaceId: req.params.workspaceId },
+      where: { id: agentId, workspaceId },
     });
     if (del.count === 0) return res.status(404).json({ error: 'Agent not found in this workspace' });
+
+    // Purge everything that belonged to this agent: KB files LINKED to it
+    // (workspace-wide files with agentId null are kept), its call history,
+    // and both sets of stored files on disk. The agent row is already gone,
+    // so cleanup failures are logged but never fail the request.
+    try {
+      const [kbFiles, callLogs] = await Promise.all([
+        prisma.kbFile.findMany({
+          where: { workspaceId, agentId },
+          select: { storedPath: true },
+        }),
+        prisma.agentCallLog.findMany({
+          where: { workspaceId, agentId },
+          select: { recordingPath: true },
+        }),
+      ]);
+      await Promise.all([
+        prisma.kbFile.deleteMany({ where: { workspaceId, agentId } }),
+        prisma.agentCallLog.deleteMany({ where: { workspaceId, agentId } }),
+      ]);
+      for (const f of kbFiles) {
+        if (f.storedPath) fs.unlink(path.join(KB_FILES_DIR, path.basename(f.storedPath)), () => {});
+      }
+      for (const c of callLogs) {
+        if (c.recordingPath) fs.unlink(path.join(RECORDINGS_DIR, path.basename(c.recordingPath)), () => {});
+      }
+      invalidateAgentRuntimeCaches(workspaceId, agentId);
+      logger.info(`Agent ${agentId} deleted with ${kbFiles.length} KB file(s) and ${callLogs.length} call log(s)`);
+    } catch (cleanupError) {
+      logger.warn(`Agent ${agentId} deleted, but related-data cleanup failed: ${cleanupError.message}`);
+    }
+
     res.status(204).send();
   } catch (error) {
     logger.error('Failed to delete agent', error);
@@ -332,13 +376,36 @@ export const testCall = async (req, res) => {
 
   try {
     const credentials = Buffer.from(`${accountSid}:${authToken}`).toString('base64');
-    // Speak the agent's actual greeting via inline TwiML (no external URL).
-    // Full two-way conversational calling requires a media-stream server; this
-    // verifies telephony + the agent's greeting end-to-end.
-    const greeting = (agent.welcomeMessage || `Hello, this is a test call from ${agent.name}.`)
-      .replace(/[<>&]/g, ' ')
-      .slice(0, 800);
-    const twiml = `<Response><Say voice="Polly.Aditi">${greeting}</Say><Pause length="1"/><Say voice="Polly.Aditi">This was a test call. Goodbye.</Say></Response>`;
+    const agentSettings = (() => { try { return JSON.parse(agent.settings || '{}'); } catch { return {}; } })();
+    const isBundledEngine = agentSettings.voiceEngine === 'xai' || agentSettings.voiceEngine === 'elevenlabs';
+    const useBundledEngine = isBundledEngine && Boolean(env.PUBLIC_BACKEND_WS_URL);
+    if (isBundledEngine && !env.PUBLIC_BACKEND_WS_URL) {
+      logger.warn(`Agent uses the ${agentSettings.voiceEngine} Conversational Agent but PUBLIC_BACKEND_WS_URL is not configured — falling back to the greeting-only test call`);
+    }
+
+    let twiml;
+    let greeting = '';
+    // Pre-create the call log so its id can be handed to the Twilio Media
+    // Stream bridge (as a <Parameter>) for the bundled-engine branch to update in place.
+    const preCallLog = await prisma.agentCallLog.create({
+      data: { workspaceId, agentId, type: 'PHONE_CALL', status: 'INITIATED', phoneNumber: String(phoneNumber).slice(0, 32) },
+    }).catch((e) => { logger.warn(`Could not pre-create phone call log: ${e.message}`); return null; });
+
+    if (useBundledEngine) {
+      // Full two-way conversation: hand the call off to the bundled Conversational
+      // Agent bridge (backend/src/ws/twilioMediaRealtime.handler.js) via Twilio Media Streams.
+      const streamUrl = `${env.PUBLIC_BACKEND_WS_URL.replace(/\/$/, '')}/api/v1/twilio-media/${workspaceId}/${agentId}`;
+      twiml = `<Response><Connect><Stream url="${streamUrl}">${preCallLog ? `<Parameter name="callLogId" value="${preCallLog.id}" />` : ''}</Stream></Connect></Response>`;
+    } else {
+      // Speak the agent's actual greeting via inline TwiML (no external URL).
+      // Full two-way conversational calling (the modular pipeline) requires a
+      // media-stream server; this verifies telephony + the agent's greeting
+      // end-to-end. (Enable a Conversational Agent for a real two-way call.)
+      greeting = (agent.welcomeMessage || `Hello, this is a test call from ${agent.name}.`)
+        .replace(/[<>&]/g, ' ')
+        .slice(0, 800);
+      twiml = `<Response><Say voice="Polly.Aditi">${greeting}</Say><Pause length="1"/><Say voice="Polly.Aditi">This was a test call. Goodbye.</Say></Response>`;
+    }
 
     const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json`, {
       method: 'POST',
@@ -354,10 +421,20 @@ export const testCall = async (req, res) => {
 
     if (!response.ok) {
       logger.warn({ status: response.status, dataJson }, 'Twilio call request failed');
+      if (preCallLog) await prisma.agentCallLog.update({ where: { id: preCallLog.id }, data: { status: 'FAILED', endedAt: new Date() } }).catch(() => {});
       return res.status(502).json({
         success: false,
         error: `Twilio rejected the call: ${dataJson.message || response.status}. Check your Twilio number, account balance, and destination format (+countrycode...).`,
       });
+    }
+
+    // Non-bundled branch: nothing else will update this log, so record the
+    // one-way greeting now. The bundled-engine branch is finalized by the media bridge.
+    if (!useBundledEngine && preCallLog) {
+      await prisma.agentCallLog.update({
+        where: { id: preCallLog.id },
+        data: { transcript: JSON.stringify([{ role: 'assistant', content: greeting }]), endedAt: new Date() },
+      }).catch((e) => logger.warn(`Could not log phone test call: ${e.message}`));
     }
 
     return res.json({

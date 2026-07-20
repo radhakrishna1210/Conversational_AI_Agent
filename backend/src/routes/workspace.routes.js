@@ -1,4 +1,4 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import * as ctrl from '../controllers/workspace.controller.js';
 import { authorize } from '../middleware/authorize.js';
 import { validate } from '../middleware/validate.js';
@@ -7,10 +7,10 @@ import { inviteMemberSchema, updateMemberRoleSchema, workspaceUpdateSchema } fro
 const router = Router({ mergeParams: true });
 
 router.get('/', ctrl.getWorkspace);
-router.patch('/', authorize('Admin'), validate(workspaceUpdateSchema), ctrl.updateWorkspace);
+router.patch('/', authorize('Member'), validate(workspaceUpdateSchema), ctrl.updateWorkspace);
 router.get('/members', ctrl.listMembers);
-router.post('/members/invite', authorize('Admin'), validate(inviteMemberSchema), ctrl.inviteMember);
-router.patch('/members/:userId/role', authorize('Admin'), validate(updateMemberRoleSchema), ctrl.updateMemberRole);
-router.delete('/members/:userId', authorize('Admin'), ctrl.removeMember);
+router.post('/members/invite', authorize('Member'), validate(inviteMemberSchema), ctrl.inviteMember);
+router.patch('/members/:userId/role', authorize('Member'), validate(updateMemberRoleSchema), ctrl.updateMemberRole);
+router.delete('/members/:userId', authorize('Member'), ctrl.removeMember);
 
 export default router;

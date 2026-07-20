@@ -2,6 +2,8 @@ node_modules/
 .env
 uploads/*
 !uploads/.gitkeep
-prisma/migrations/
+# Prisma migrations are source code and must be deployed with the application.
+!prisma/migrations/
+!prisma/migrations/**
 dist/
 *.log

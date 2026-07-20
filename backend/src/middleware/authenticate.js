@@ -36,7 +36,7 @@ export const authenticate = async (req, res, next) => {
         data: { lastUsedAt: new Date() },
       }).catch(() => {});
 
-      req.user = { apiKeyId: apiKey.id, workspaceId: apiKey.workspaceId, role: 'Admin' };
+      req.user = { apiKeyId: apiKey.id, workspaceId: apiKey.workspaceId, role: 'Member' };
       req.authType = 'apikey';
       req.workspace = apiKey.workspace;
     } else {

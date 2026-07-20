@@ -3,13 +3,14 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { useEffect, useState, useRef } from 'react';
 import { AgentConfig, getDefaultFlowItems } from '../lib/agentStore';
 
-import { whapi } from '../lib/whapi';
+import { whapi, getAuth } from '../lib/whapi';
 import { integrationsApi } from '../lib/integrationsApi';
 import { toast } from 'sonner';
 import ChatComponent from '../components/ChatComponent';
 import AIAssistantSidebar from '../components/AIAssistantSidebar';
 import VoiceConfigModal from '../components/VoiceConfigModal';
 import { useTheme } from '../hooks/useTheme';
+import { xaiCallSocket } from '../services/xaiCallSocket';
 
 
 interface FlowItem {
@@ -32,6 +33,10 @@ interface PostCallConfig {
   url: string;
   /** email address — required when deliveryMethod === 'Email' */
   email: string;
+  /** Drive file id — required when deliveryMethod === 'Google Sheets' */
+  spreadsheetId?: string;
+  /** display name, stored so the UI can label it without a Drive round-trip */
+  spreadsheetName?: string;
   triggerStatuses: string[];
   includeCallSummary: boolean;
   includeFullConversation: boolean;
@@ -56,6 +61,8 @@ const createDefaultPostCallConfig = (): PostCallConfig => ({
   deliveryMethod: '',
   url: '',
   email: '',
+  spreadsheetId: '',
+  spreadsheetName: '',
   triggerStatuses: ['Completed', 'Voicemail Detected'],
   includeCallSummary: true,
   includeFullConversation: true,
@@ -109,6 +116,11 @@ export default function EditAgent() {
   const [voice, setVoice] = useState('Google - Aoede (female)');
   const [aiModel, setAiModel] = useState('GPT-4.1-Mini');
   const [transcription, setTranscription] = useState('Azure');
+  // 'xai' / 'elevenlabs' = a bundled speech-to-speech Conversational Agent
+  // replaces the modular Languages/Voice/AI Model/Transcription pipeline
+  // entirely for this agent's Web Call + Phone Call.
+  const [voiceEngine, setVoiceEngine] = useState<'modular' | 'xai' | 'elevenlabs'>('modular');
+  const [showXaiModal, setShowXaiModal] = useState(false);
 
   // Modal states
   const [showLanguageModal, setShowLanguageModal] = useState(false);
@@ -138,16 +150,116 @@ export default function EditAgent() {
   
   const [, setVoiceProvider] = useState('google'); // provider tracked for future UI filtering
   const [agentName, setAgentName] = useState('');
+  // INBOUND = customers call the agent; OUTBOUND = the agent calls customers.
+  const [callDirection, setCallDirection] = useState('INBOUND');
   const [agentNotFound, setAgentNotFound] = useState(false);
   const [postCallConfigs, setPostCallConfigs] = useState<PostCallConfig[]>([createDefaultPostCallConfig()]);
   const [testingPostCall, setTestingPostCall] = useState<Record<string, 'idle' | 'loading' | 'done' | 'error'>>({});
   const [testPostCallResults, setTestPostCallResults] = useState<Record<string, string>>({});
+  // Real connection status for the Integrations tab. The card list itself is
+  // static metadata; without this the cards always claimed "Ready to connect"
+  // even for providers that were already connected.
+  const [integrationStatus, setIntegrationStatus] = useState<Record<string, { connected: boolean; accountLabel?: string | null; status?: string }>>({});
+  const [disconnecting, setDisconnecting] = useState<string | null>(null);
+  const loadIntegrationStatus = async () => {
+    try {
+      const data = await integrationsApi.getDashboard();
+      const byProvider: Record<string, { connected: boolean; accountLabel?: string | null; status?: string }> = {};
+      for (const item of data?.integrations ?? []) {
+        byProvider[item.provider] = { connected: Boolean(item.connected), accountLabel: item.accountLabel, status: item.status };
+      }
+      setIntegrationStatus(byProvider);
+    } catch (err) {
+      console.error('Failed to load integration status', err);
+    }
+  };
+  useEffect(() => {
+    if (activeTab === 'integrations') loadIntegrationStatus();
+  }, [activeTab]);
+
+  // Google Sheets delivery target: spreadsheets from the connected integration.
+  const [spreadsheets, setSpreadsheets] = useState<{ id: string; name: string }[]>([]);
+  const [spreadsheetsState, setSpreadsheetsState] = useState<'idle' | 'loading' | 'error'>('idle');
+  const [spreadsheetsError, setSpreadsheetsError] = useState('');
+  const loadSpreadsheets = async () => {
+    setSpreadsheetsState('loading');
+    setSpreadsheetsError('');
+    try {
+      const res = await whapi.get<{ spreadsheets: { id: string; name: string }[] }>(
+        '/integrations/google_sheets/spreadsheets'
+      );
+      setSpreadsheets(res?.spreadsheets ?? []);
+      setSpreadsheetsState('idle');
+    } catch (err) {
+      setSpreadsheetsError(err instanceof Error ? err.message : 'Could not load spreadsheets');
+      setSpreadsheetsState('error');
+    }
+  };
+  // An agent already configured for Sheets should show real names, not just the
+  // one id it saved — fetch once, only for agents that actually use it.
+  const usesSheets = postCallConfigs.some((c) => c.deliveryMethod === 'Google Sheets');
+  useEffect(() => {
+    if (usesSheets && spreadsheets.length === 0 && spreadsheetsState === 'idle') loadSpreadsheets();
+  }, [usesSheets]);
+  // Inline "create a new spreadsheet" flow, keyed by post-call config id so
+  // each config's form is independent.
+  const [newSheetName, setNewSheetName] = useState<Record<string, string>>({});
+  const [creatingSheet, setCreatingSheet] = useState<string | null>(null);
+  // Once a sheet is chosen the picker collapses to a confirmation; this
+  // re-opens it for a config the user wants to point somewhere else.
+  const [changingSheet, setChangingSheet] = useState<Record<string, boolean>>({});
+  const createSpreadsheetFor = async (configId: string) => {
+    const title = (newSheetName[configId] ?? '').trim() || `${agentName || 'Agent'} — Call Log`;
+    setCreatingSheet(configId);
+    try {
+      const res = await whapi.post<{ spreadsheet: { id: string; name: string } }>(
+        '/integrations/google_sheets/spreadsheets',
+        { title }
+      );
+      const sheet = res?.spreadsheet;
+      if (!sheet?.id) throw new Error('The spreadsheet was not created');
+      setSpreadsheets((prev) => [{ id: sheet.id, name: sheet.name }, ...prev]);
+      setNewSheetName((prev) => ({ ...prev, [configId]: '' }));
+      setChangingSheet((prev) => ({ ...prev, [configId]: false }));
+      updatePostCallConfig(configId, { spreadsheetId: sheet.id, spreadsheetName: sheet.name });
+      toast.success(`Created and selected “${sheet.name}”`);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Could not create the spreadsheet');
+    } finally {
+      setCreatingSheet(null);
+    }
+  };
   // Integrations tab — separate from dynamicEnabled (Details tab)
   const [webSearchEnabled, setWebSearchEnabled] = useState(false);
-  // Recent Calls tab
-  interface CallRecord { id: string; direction?: string; status?: string; duration?: number; startedAt?: string; lastMessageAt?: string; unreadCount?: number; contact?: { id?: string; name?: string; phoneNumber?: string } }
+  // Recent Calls tab — per-agent interaction history (chat tests, web calls,
+  // phone test calls) with transcripts and web-call recordings.
+  interface CallRecord {
+    id: string;
+    type: string;
+    status: string;
+    durationSec: number;
+    phoneNumber?: string | null;
+    startedAt?: string;
+    endedAt?: string | null;
+    hasRecording?: boolean;
+    transcript?: { role: string; content: string }[];
+    extractionStatus?: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'SKIPPED' | 'FAILED';
+    extractionError?: string | null;
+    extractedAt?: string | null;
+    extractedData?: {
+      variables?: {
+        key: string;
+        description: string;
+        value: unknown;
+        evidence?: string | null;
+      }[];
+      skippedReason?: string;
+    };
+  }
   const [recentCalls, setRecentCalls] = useState<CallRecord[]>([]);
   const [callsLoading, setCallsLoading] = useState(false);
+  const [expandedCallId, setExpandedCallId] = useState<string | null>(null);
+  const [recordingUrls, setRecordingUrls] = useState<Record<string, string>>({});
 
   // Collapse/Expand state for conversational flow items (first item expanded by default)
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({
@@ -167,16 +279,15 @@ export default function EditAgent() {
   // Server-backed KB (unified with the sidebar Files page — issue #14)
   interface KbRecord { id: string; fileName: string; sizeBytes: number; hasText: boolean }
   const [kbFiles, setKbFiles] = useState<KbRecord[]>([]);
-  const [kbText, setKbText] = useState('');
   const [kbUploading, setKbUploading] = useState(false);
 
+  // KB text is no longer fetched client-side: the server grounds every
+  // conversation (chat + web call) in the knowledge base itself.
   const refreshKb = async () => {
     if (!agentId) return;
     try {
       const res = await whapi.get<{ files: KbRecord[] }>(`/files?agentId=${agentId}`);
       setKbFiles(res?.files ?? []);
-      const kt = await whapi.get<{ kbText: string }>(`/agents/${agentId}/kb-text`);
-      setKbText(kt?.kbText ?? '');
     } catch (e) { console.error('KB load failed', e); }
   };
   useEffect(() => { refreshKb(); /* eslint-disable-line react-hooks/exhaustive-deps */ }, [agentId]);
@@ -184,15 +295,51 @@ export default function EditAgent() {
   const loadRecentCalls = async () => {
     setCallsLoading(true);
     try {
-      // conversations endpoint returns { data: [...], total: N }
-      const res = await whapi.get<{ data?: CallRecord[]; conversations?: CallRecord[] }>('/conversations?limit=50');
-      const list = (res as any)?.data ?? (res as any)?.conversations ?? (Array.isArray(res) ? res : []);
-      setRecentCalls(list);
+      const res = await whapi.get<{ calls?: CallRecord[] }>(`/agents/${agentId}/calls?limit=100`);
+      setRecentCalls(res?.calls ?? []);
     } catch (e) {
       console.error('Failed to load recent calls', e);
       setRecentCalls([]);
     }
     setCallsLoading(false);
+  };
+
+  // Fetch a web-call recording with auth and expose it as a playable blob URL
+  const loadRecording = async (callId: string) => {
+    if (recordingUrls[callId]) return;
+    try {
+      const { token, workspaceId } = getAuth();
+      const res = await fetch(`/api/v1/workspaces/${workspaceId}/agents/${agentId}/calls/${callId}/recording`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!res.ok) throw new Error(`Recording unavailable (${res.status})`);
+      const blob = await res.blob();
+      setRecordingUrls((prev) => ({ ...prev, [callId]: URL.createObjectURL(blob) }));
+    } catch (e) {
+      console.error('Failed to load recording', e);
+      toast.error('Could not load the call recording.');
+    }
+  };
+
+  const extractCallData = async (callId: string) => {
+    setRecentCalls((prev) => prev.map((call) =>
+      call.id === callId ? { ...call, extractionStatus: 'PROCESSING', extractionError: null } : call
+    ));
+    try {
+      const res = await whapi.post<{ call?: CallRecord }>(
+        `/agents/${agentId}/calls/${callId}/extract`,
+        { force: true }
+      );
+      if (res?.call) {
+        setRecentCalls((prev) => prev.map((call) => call.id === callId ? res.call! : call));
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Extraction failed';
+      setRecentCalls((prev) => prev.map((call) =>
+        call.id === callId ? { ...call, extractionStatus: 'FAILED', extractionError: message } : call
+      ));
+      toast.error(message);
+    }
   };
 
   useEffect(() => {
@@ -261,11 +408,81 @@ export default function EditAgent() {
   const [isAskAILoading, setIsAskAILoading] = useState(false);
   const [webCallActive, setWebCallActive] = useState(false);
   const [webCallStatus, setWebCallStatus] = useState<'idle' | 'connecting' | 'connected' | 'ended'>('idle');
+  const [webCallActivity, setWebCallActivity] = useState<'listening' | 'processing' | 'speaking'>('listening');
+  const [webCallTranscript, setWebCallTranscript] = useState<{ role: string; content: string }[]>([]);
+  const [webCallError, setWebCallError] = useState('');
+  const [webCallLatency, setWebCallLatency] = useState<{ sttMs: number; llmMs: number } | null>(null);
+  // Prefetched on page load: rendered welcome + its TTS audio, so the call
+  // starts speaking instantly instead of synthesizing at call time.
+  const welcomeAudioRef = useRef<{ welcome: string; audioBase64: string; contentType: string } | null>(null);
+  // Bumped whenever the voice/welcome changes so an in-flight prefetch from
+  // the previous configuration can't land in the ref after it's stale.
+  const welcomePrefetchSeq = useRef(0);
+  const prefetchWelcomeAudio = async () => {
+    const seq = ++welcomePrefetchSeq.current;
+    try {
+      const rw = await whapi.get<{ welcome: string }>(`/agents/${agentId}/welcome`);
+      if (!rw?.welcome) return;
+      const audio = await whapi.post<{ audioBase64: string; contentType: string }>(
+        `/agents/${agentId}/speak`, { text: rw.welcome }
+      );
+      if (audio?.audioBase64 && seq === welcomePrefetchSeq.current) {
+        welcomeAudioRef.current = { welcome: rw.welcome, audioBase64: audio.audioBase64, contentType: audio.contentType };
+      }
+    } catch { /* prefetch is best-effort; call start falls back to fetching */ }
+  };
+  // Live call machinery — kept in a ref so the VAD/recorder loop never fights React renders
+  const callRef = useRef<{
+    active: boolean;
+    stream: MediaStream | null;
+    audioCtx: AudioContext | null;
+    analyser: AnalyserNode | null;
+    recorder: MediaRecorder | null;
+    vadTimer: number | null;
+    player: HTMLAudioElement | null;
+    history: { role: string; content: string }[];
+    // Full-call recording: mic + agent audio mixed into one stream
+    mixDest: MediaStreamAudioDestinationNode | null;
+    mixRecorder: MediaRecorder | null;
+    mixChunks: Blob[];
+    logId: string | null;
+    // true while this call is running through a bundled Conversational Agent
+    // (xAI or ElevenLabs, via xaiCallSocket — engine-agnostic despite the
+    // name) instead of the modular record-segment/HTTP flow.
+    bundledEngine: boolean;
+  }>({ active: false, stream: null, audioCtx: null, analyser: null, recorder: null, vadTimer: null, player: null, history: [], mixDest: null, mixRecorder: null, mixChunks: [], logId: null, bundledEngine: false });
+
+  // ─── Call history logging (Recent Calls tab) ────────────────────────────────
+  // Every test session — chat modal, Chat Test tab, web call, phone call — is
+  // stored server-side with its transcript so nothing is lost.
+  const chatLogIdRef = useRef<string | null>(null);
+  const upsertCallLog = async (
+    idRef: { current: string | null },
+    type: 'CHAT' | 'WEB_CALL' | 'PHONE_CALL',
+    transcript: { role: string; content: string }[],
+    patch: Record<string, unknown> = {}
+  ) => {
+    try {
+      if (!idRef.current) {
+        const res = await whapi.post<{ call?: { id: string } }>(`/agents/${agentId}/calls`, { type, transcript, ...patch });
+        idRef.current = res?.call?.id ?? null;
+      } else {
+        await whapi.patch(`/agents/${agentId}/calls/${idRef.current}`, { transcript, ...patch });
+      }
+    } catch (e) {
+      console.error('Failed to store call history', e);
+    }
+  };
 
 
   useEffect(() => {
     if (!agentId) return;
-    
+
+    // Warm the welcome message AND its TTS audio in the background so the
+    // Chat Test tab opens instantly and the Web Call starts speaking the
+    // moment it connects (Sarvam TTS alone costs 4-6s if done at call time).
+    prefetchWelcomeAudio();
+
     const fetchAgent = async () => {
       try {
         const agent = await whapi.get<AgentConfig>(`/agents/${agentId}`);
@@ -277,6 +494,10 @@ export default function EditAgent() {
           setVoice(agent.voice || 'Google - Aoede (female)');
           setAiModel(agent.aiModel || 'GPT-4.1-Mini');
           setTranscription(agent.transcription || 'Azure');
+          {
+            const savedEngine = (agent as any).voiceEngine;
+            setVoiceEngine(savedEngine === 'xai' || savedEngine === 'elevenlabs' ? savedEngine : 'modular');
+          }
           setMaxDuration(agent.maxDuration ?? 30);
           setSilenceTimeout(agent.silenceTimeout ?? 5);
           setMaxSilenceBeforeHangup((agent as any).maxSilenceBeforeHangup ?? 15);
@@ -289,11 +510,18 @@ export default function EditAgent() {
           setDynamicEnabled(agent.dynamicEnabled ?? true);
           setInterruptibleEnabled(agent.interruptibleEnabled ?? true);
           setFlowItems((agent.flowItems as any) || getDefaultFlowItems(agent.name || ''));
-          setPostCallConfigs(savedPostCallConfigs?.length ? savedPostCallConfigs : [createDefaultPostCallConfig()]);
+          setPostCallConfigs(savedPostCallConfigs?.length
+            ? savedPostCallConfigs.map((config: Partial<PostCallConfig>) => ({
+                ...createDefaultPostCallConfig(),
+                ...config,
+                extractedVariables: Array.isArray(config.extractedVariables) ? config.extractedVariables : [],
+              }))
+            : [createDefaultPostCallConfig()]);
           // KB URLs saved in agent settings
           setKbUrls((agent as any).kbUrls ?? []);
           // Integrations tab
           setWebSearchEnabled((agent as any).webSearchEnabled ?? false);
+          setCallDirection((agent as any).callDirection ?? 'INBOUND');
           // STT settings
           setSttProvider((agent as any).sttProvider ?? 'Sarvam');
           setSttSilenceTimeoutMs((agent as any).sttSilenceTimeoutMs ?? 470);
@@ -325,7 +553,10 @@ export default function EditAgent() {
 
 
   // Save changes to backend and local storage
-  const handleSave = async () => {
+  // `overrides` lets a caller save a value it *just* set in the same tick —
+  // React state updates aren't committed yet, so reading state alone would
+  // persist the previous value.
+  const handleSave = async (overrides: Record<string, unknown> = {}, { silent = false } = {}) => {
     setIsSaving(true);
     const agentData = {
       name: agentName,
@@ -333,6 +564,7 @@ export default function EditAgent() {
       aiModel,
       voice,
       transcription,
+      voiceEngine,
       languages: selectedLanguages,
       flowItems,
       maxDuration,
@@ -357,11 +589,24 @@ export default function EditAgent() {
       sttLanguage,
       // Integrations
       webSearchEnabled,
+      callDirection,
+      ...overrides,
     };
 
     try {
       await whapi.put(`/agents/${agentId}`, agentData);
-      toast.success('Agent saved');
+      // Auto-saves stay quiet; a failure is always surfaced.
+      if (!silent) toast.success('Agent saved');
+      // The saved config may change what the call opens with (voice, welcome
+      // text) — refresh the prefetched welcome audio to match. The server
+      // caches TTS per (voice, text), so this is a no-op when nothing changed.
+      // Skipped for silent saves: those come from the Post-Call tab, which
+      // cannot affect the greeting, and re-synthesizing on every toggle would
+      // burn a TTS round-trip for nothing.
+      if (!silent) {
+        welcomeAudioRef.current = null;
+        prefetchWelcomeAudio();
+      }
     } catch (err) {
       console.error('Failed to save to backend', err);
       toast.error(err instanceof Error ? `Save failed: ${err.message}` : 'Save failed — changes were NOT stored.');
@@ -405,11 +650,26 @@ export default function EditAgent() {
     );
   };
 
-  const handleVoiceSelect = (v: { id: string; name: string; provider: string | null }) => {
+  const handleVoiceSelect = async (v: { id: string; name: string; provider: string | null }) => {
     const displayName = `${v.provider ?? 'Unknown'} - ${v.name}`;
     setVoice(displayName);
     setSelectedVoiceId(v.id);
     setShowVoiceModal(false);
+    // The prefetched welcome audio was synthesized with the PREVIOUS voice —
+    // drop it now so a call started before the save/re-prefetch finishes falls
+    // back to fetching fresh audio instead of speaking in the old voice.
+    welcomeAudioRef.current = null;
+    welcomePrefetchSeq.current++;
+    await handleSave({ voice: displayName }); // persist immediately — refresh must not lose it
+  };
+
+  /** Why a config can't be tested/delivered yet, or null when it's ready. */
+  const postCallConfigIssue = (config: PostCallConfig): string | null => {
+    if (!config.deliveryMethod) return 'Select a delivery method first';
+    if (config.deliveryMethod === 'Webhook' && !config.url) return 'Enter a webhook URL first';
+    if (config.deliveryMethod === 'Email' && !config.email) return 'Enter an email address first';
+    if (config.deliveryMethod === 'Google Sheets' && !config.spreadsheetId) return 'Select a target spreadsheet first';
+    return null;
   };
 
   const addPostCallConfig = () => {
@@ -467,6 +727,30 @@ export default function EditAgent() {
       prev.map((config) => (config.id === configId ? { ...config, ...updates } : config))
     );
   };
+
+  /**
+   * Update a post-call config. Persistence is handled by the debounced
+   * auto-save effect below, so callers never have to remember to save.
+   */
+  const updatePostCallConfigAndSave = (configId: string, updates: Partial<PostCallConfig>) =>
+    updatePostCallConfig(configId, updates);
+
+  // Auto-save the Post-Call tab. Every control here (delivery method, target
+  // spreadsheet, trigger statuses, include-toggles, extracted variables)
+  // mutates postCallConfigs, so one debounced effect persists them all — a
+  // refresh can no longer discard a configuration the user just set up.
+  const postCallHydrated = useRef(false);
+  useEffect(() => {
+    if (isLoading || !agentId) return;
+    // The first value after load came FROM the server; saving it back would be
+    // a pointless write on every page visit.
+    if (!postCallHydrated.current) {
+      postCallHydrated.current = true;
+      return;
+    }
+    const timer = setTimeout(() => { handleSave({ postCallConfigs }, { silent: true }); }, 900);
+    return () => clearTimeout(timer);
+  }, [postCallConfigs, isLoading, agentId]);
 
   const togglePostCallStatus = (configId: string, status: string) => {
     setPostCallConfigs((prev) =>
@@ -545,303 +829,42 @@ export default function EditAgent() {
     setIsTyping(true);
 
     try {
-      const chatTestInstructions = `# Chat Test Assistant Instructions
-
-You are the Chat Test Environment for this AI Agent.
-
-Your responsibility is to simulate the exact behavior of the deployed agent and validate that the agent follows its configured instructions, conversation flow, knowledge base, variables, business rules, and integrations.
-
-## Primary Objective
-
-Act exactly as the configured agent would act in production.
-
-The purpose of this chat is to test the agent's behavior before deployment.
-
-Never bypass configured instructions.
-
-Never ignore defined conversation flows.
-
-Never invent information not present in the knowledge base.
-
-Never assume tool execution if no tool is available.
-
----
-
-## Agent Configuration Priority
-
-Always follow this order:
-
-1. Agent Instructions
-2. Conversation Flow
-3. Knowledge Base
-4. Variables & Memory
-5. Business Rules
-6. Integrations & Tools
-7. User Message
-
-If conflicts occur, higher-priority instructions take precedence.
-
----
-
-## Conversation Flow Enforcement
-
-For every user message:
-
-1. Identify current flow stage.
-2. Determine expected next action.
-3. Check required information.
-4. Continue only according to flow rules.
-
-Examples:
-
-* Greeting Flow
-* Qualification Flow
-* FAQ Flow
-* Product Inquiry Flow
-* Appointment Booking Flow
-* Support Flow
-* Escalation Flow
-* Feedback Collection Flow
-* Closing Flow
-
-Do not skip mandatory stages.
-
-Do not jump ahead in the workflow.
-
-Do not collect unnecessary information.
-
----
-
-## Knowledge Base Rules
-
-When answering questions:
-
-* Search available knowledge first.
-* Use only information present in the configured knowledge base.
-* Keep responses accurate and grounded.
-
-If information cannot be found:
-
-Respond with:
-
-"I couldn't find that information in the configured knowledge base."
-
-Do not hallucinate.
-
-Do not generate unsupported facts.
-
----
-
-## Variable Tracking
-
-Maintain conversation state throughout the session.
-
-Track:
-
-* Name
-* Email
-* Phone
-* Company
-* Product Interest
-* Booking Preferences
-* Support Details
-* Any custom variables defined for the agent
-
-Reuse previously collected information.
-
-Never ask for information that has already been collected unless verification is required.
-
----
-
-## Lead Qualification Testing
-
-If the flow requires qualification:
-
-Collect required fields.
-
-Validate:
-
-* Completeness
-* Format
-* Eligibility Criteria
-
-Only mark a lead as qualified when all required conditions are satisfied.
-
-If information is missing, request only the missing fields.
-
----
-
-## Appointment Booking Testing
-
-Before booking:
-
-Collect:
-
-* Date
-* Time
-* Time Zone
-* Contact Details
-
-Generate a confirmation summary.
-
-Require explicit user confirmation before proceeding.
-
-Never assume confirmation.
-
----
-
-## Tool & Integration Validation
-
-When a workflow requires a tool:
-
-1. Verify prerequisites.
-2. Validate collected inputs.
-3. Execute configured action.
-4. Return actual results.
-
-If the tool is unavailable:
-
-State that the requested action cannot be completed due to unavailable integration.
-
-Never fabricate successful execution.
-
-Never generate fake booking IDs, order IDs, confirmations, or API responses.
-
----
-
-## Error Handling
-
-For ambiguous requests:
-
-Ask for clarification.
-
-For unsupported requests:
-
-State that the request is outside the agent's configured capabilities.
-
-For missing required data:
-
-Request only the specific missing information.
-
----
-
-## Escalation Rules
-
-Escalate when:
-
-* User requests a human agent.
-* User repeatedly expresses frustration.
-* Request falls outside available knowledge.
-* Business rules require human review.
-
-When escalation occurs:
-
-Inform the user that the conversation should be transferred to a human representative.
-
----
-
-## Memory & Context
-
-Maintain awareness of:
-
-* Previous user responses
-* Current flow stage
-* Collected variables
-* Pending actions
-* Completed actions
-
-Use context throughout the conversation.
-
-Avoid repetitive questions.
-
----
-
-## Response Quality Standards
-
-Responses must be:
-
-* Accurate
-* Professional
-* Context-aware
-* Flow-compliant
-* Knowledge-grounded
-* Concise
-* Action-oriented
-
-Avoid:
-
-* Hallucinations
-* Guessing
-* Contradictory responses
-* Flow violations
-* Unverified claims
-
----
-
-## Internal Validation Checklist
-
-Before every response verify:
-
-✓ Agent instructions followed
-
-✓ Flow followed correctly
-
-✓ Knowledge base checked
-
-✓ Required variables collected
-
-✓ Business rules satisfied
-
-✓ Tool requirements validated
-
-✓ Memory updated
-
-✓ Response aligned with current stage
-
-Only then generate the response.
-
----
-
-## Final Rule
-
-The Chat Test environment must behave exactly like the live agent.
-
-Every response must reflect:
-
-* Agent Instructions
-* Flow Logic
-* Knowledge Base Content
-* Variables
-* Integrations
-* Business Rules
-
-The goal is to accurately test real-world agent behavior before deployment.
-
----
-
-# Current Agent Configuration
-
-Welcome Message: ${welcomeMessage}
-
-Conversation Flow (follow these stages IN ORDER — each stage's full instructions below):
-${flowItems.filter(f => f.enabled).map((f, i) => `## Stage ${i + 1}: ${f.title}\n${f.body || '(no additional instructions)'}`).join('\n\n')}
-
-Knowledge Base (ONLY use facts found here; if the answer isn't here, say you don't have that information):
-${kbText || '(no knowledge base documents uploaded — say you have no reference documents if asked about specifics)'}`;
-
-      const response = await whapi.post<{ message: string }>('/llm/generate', {
-        agentId,
-        message: userMessage,
-        systemPrompt: chatTestInstructions,
-        useFallback: true,
+      // The server builds the full agent prompt (persona, conversational flow,
+      // knowledge base grounding) in agentRuntime.service.js — the exact same
+      // brain the Web Call uses — and receives the complete history so the
+      // conversation is multi-turn and stateful.
+      const response = await whapi.post<{ reply: string }>(`/agents/${agentId}/converse`, {
+        messages: newMessages,
       });
 
-      setChatMessages([...newMessages, { role: 'assistant', content: response.message }]);
+      const full = [...newMessages, { role: 'assistant', content: response.reply }];
+      setChatMessages(full);
+      // Store/refresh this chat session in Recent Calls after every exchange,
+      // so the history survives even if the user just closes the modal.
+      upsertCallLog(chatLogIdRef, 'CHAT', full);
     } catch (err) {
       console.error('Chat failed', err);
       setChatMessages([...newMessages, { role: 'assistant', content: 'Error: Failed to get response from AI.' }]);
     } finally {
       setIsTyping(false);
+    }
+  };
+
+  const closeTestChat = async () => {
+    const callId = chatLogIdRef.current;
+    const transcript = chatMessages;
+    setShowChatModal(false);
+    chatLogIdRef.current = null;
+    setChatMessages([]);
+    if (!callId) return;
+    try {
+      await whapi.patch(`/agents/${agentId}/calls/${callId}`, {
+        transcript,
+        status: 'COMPLETED',
+        ended: true,
+      });
+    } catch (err) {
+      console.error('Failed to finalize chat extraction', err);
     }
   };
 
@@ -881,19 +904,417 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
     }
   };
 
-  const handleStartWebCall = () => {
+  // ─── Real web call: mic → VAD segmentation → /voice-turn (STT→LLM→TTS) ──────
+  const connectAgentPlayer = (player: HTMLAudioElement) => {
+    const call = callRef.current;
+    call.player = player;
+    try {
+      if (call.audioCtx && call.audioCtx.state !== 'closed') {
+        const src = call.audioCtx.createMediaElementSource(player);
+        src.connect(call.audioCtx.destination);
+        if (call.mixDest) src.connect(call.mixDest);
+      }
+    } catch { /* recording miss shouldn't break playback */ }
+  };
+
+  const playAgentBlob = (blob: Blob) =>
+    new Promise<void>((resolve) => {
+      // Play via a blob URL routed through the AudioContext so the agent's
+      // voice is both audible AND captured into the call recording mix.
+      // (data: URLs are cross-origin for MediaElementSource and record silence.)
+      const url = URL.createObjectURL(blob);
+      const player = new Audio(url);
+      const done = () => { URL.revokeObjectURL(url); resolve(); };
+      player.onended = done;
+      player.onerror = done;
+      connectAgentPlayer(player);
+      player.play().catch(done);
+    });
+
+  const playAgentAudio = (audioBase64: string, contentType: string) => {
+    const bytes = Uint8Array.from(atob(audioBase64), (c) => c.charCodeAt(0));
+    return playAgentBlob(new Blob([bytes], { type: contentType }));
+  };
+
+  const playAgentAudioStream = async (text: string) => {
+    const { token, workspaceId } = getAuth();
+    const response = await fetch(
+      `/api/v1/workspaces/${workspaceId}/agents/${agentId}/speak-stream`,
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ text }),
+      }
+    );
+    if (!response.ok) {
+      const error = await response.json().catch(() => null);
+      throw new Error(error?.error || `Speech stream failed (${response.status})`);
+    }
+
+    const voiceUsed = response.headers.get('x-voice-used');
+    if (voiceUsed) console.info('[web-call] reply voice:', decodeURIComponent(voiceUsed));
+
+    const contentType = (response.headers.get('content-type') || 'audio/mpeg').split(';')[0];
+    if (!response.body || !window.MediaSource || !MediaSource.isTypeSupported(contentType)) {
+      await playAgentBlob(await response.blob());
+      return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      const mediaSource = new MediaSource();
+      const url = URL.createObjectURL(mediaSource);
+      const player = new Audio(url);
+      let settled = false;
+      let reader: ReadableStreamDefaultReader<Uint8Array> | null = null;
+      const startupTimer = window.setTimeout(
+        () => finish(new Error('Streamed audio did not start in time')),
+        5000
+      );
+      const finish = (error?: unknown) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(startupTimer);
+        if (error) reader?.cancel().catch(() => {});
+        URL.revokeObjectURL(url);
+        if (error) reject(error);
+        else resolve();
+      };
+
+      connectAgentPlayer(player);
+      player.onplaying = () => clearTimeout(startupTimer);
+      player.onended = () => finish();
+      player.onerror = () => finish(new Error('Streamed audio could not be played'));
+
+      mediaSource.addEventListener('sourceopen', async () => {
+        try {
+          const sourceBuffer = mediaSource.addSourceBuffer(contentType);
+          reader = response.body!.getReader();
+          let playbackStarted = false;
+
+          while (callRef.current.active) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            const chunk = new Uint8Array(value.byteLength);
+            chunk.set(value);
+            await new Promise<void>((appendDone, appendFailed) => {
+              const onUpdateEnd = () => {
+                sourceBuffer.removeEventListener('error', onError);
+                appendDone();
+              };
+              const onError = () => {
+                sourceBuffer.removeEventListener('updateend', onUpdateEnd);
+                appendFailed(new Error('Audio stream decode failed'));
+              };
+              sourceBuffer.addEventListener('updateend', onUpdateEnd, { once: true });
+              sourceBuffer.addEventListener('error', onError, { once: true });
+              sourceBuffer.appendBuffer(chunk);
+            });
+            if (!playbackStarted) {
+              playbackStarted = true;
+              // Do not await play(): Chrome may wait for more MP3 frames before
+              // resolving it. Awaiting here would stop us from appending those
+              // frames and deadlock the stream with no audible output.
+              player.play().catch((error) => finish(error));
+            }
+          }
+
+          if (!callRef.current.active) {
+            await reader.cancel();
+            finish();
+            return;
+          }
+          if (mediaSource.readyState === 'open' && !sourceBuffer.updating) {
+            mediaSource.endOfStream();
+          }
+          if (!playbackStarted) finish(new Error('Speech stream returned no audio'));
+        } catch (error) {
+          finish(error);
+        }
+      }, { once: true });
+    });
+  };
+
+  const startListeningSegment = () => {
+    const call = callRef.current;
+    if (!call.active || !call.stream || !call.analyser) return;
+    setWebCallActivity('listening');
+
+    const recorder = new MediaRecorder(call.stream);
+    const chunks: Blob[] = [];
+    recorder.ondataavailable = (e) => { if (e.data.size > 0) chunks.push(e.data); };
+    call.recorder = recorder;
+
+    const data = new Uint8Array(call.analyser.fftSize);
+    let speechDetected = false;
+    let lastSpeechAt = Date.now();
+    const startedAt = Date.now();
+    const SPEECH_RMS = 0.025;     // voice activity threshold
+    const SILENCE_MS = Math.min(900, Math.max(350, sttSilenceTimeoutMs || 450));
+    const MAX_SEGMENT_MS = 20000; // hard cap per turn
+
+    call.vadTimer = window.setInterval(() => {
+      if (!call.active || recorder.state !== 'recording') return;
+      call.analyser!.getByteTimeDomainData(data);
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) { const d = (data[i] - 128) / 128; sum += d * d; }
+      const rms = Math.sqrt(sum / data.length);
+      if (rms > SPEECH_RMS) { speechDetected = true; lastSpeechAt = Date.now(); }
+      const silentFor = Date.now() - lastSpeechAt;
+      if ((speechDetected && silentFor > SILENCE_MS) || Date.now() - startedAt > MAX_SEGMENT_MS) {
+        recorder.stop();
+      }
+    }, 100);
+
+    recorder.onstop = async () => {
+      if (call.vadTimer) { clearInterval(call.vadTimer); call.vadTimer = null; }
+      if (!call.active) return;
+      const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
+      if (!speechDetected || blob.size < 2000) { startListeningSegment(); return; } // noise only — keep listening
+      await submitVoiceTurn(blob);
+    };
+
+    recorder.start();
+  };
+
+  const submitVoiceTurn = async (blob: Blob) => {
+    const call = callRef.current;
+    setWebCallActivity('processing');
+    try {
+      const fd = new FormData();
+      fd.append('audio', blob, 'turn.webm');
+      fd.append('history', JSON.stringify(call.history));
+      fd.append('streamTts', 'true');
+      const res = await whapi.postForm<{
+        userText: string; reply: string | null; audioBase64: string | null; contentType: string | null;
+        timings?: { sttMs: number; llmMs: number; ttsMs: number; totalMs: number };
+      }>(`/agents/${agentId}/voice-turn`, fd);
+      if (!call.active) return;
+      if (res.timings) {
+        setWebCallLatency({ sttMs: res.timings.sttMs, llmMs: res.timings.llmMs });
+        console.info('Web call latency', res.timings);
+      }
+
+      if (res.userText && res.reply) {
+        call.history = [...call.history, { role: 'user', content: res.userText }, { role: 'assistant', content: res.reply }];
+        setWebCallTranscript([...call.history]);
+        // Keep the stored transcript current turn-by-turn
+        if (call.logId) {
+          whapi.patch(`/agents/${agentId}/calls/${call.logId}`, { transcript: call.history }).catch(() => {});
+        }
+        setWebCallActivity('speaking');
+        try {
+          await playAgentAudioStream(res.reply);
+        } catch (streamError) {
+          console.warn('Streaming TTS failed, using buffered fallback', streamError);
+          const speech = await whapi.post<{ audioBase64: string; contentType: string }>(
+            `/agents/${agentId}/speak`,
+            { text: res.reply }
+          );
+          if (speech?.audioBase64) await playAgentAudio(speech.audioBase64, speech.contentType);
+        }
+      }
+    } catch (err: any) {
+      setWebCallError(err.message || 'Voice turn failed');
+    }
+    if (call.active) startListeningSegment();
+  };
+
+  // Web Call via a bundled Conversational Agent (xAI or ElevenLabs): a single
+  // persistent WebSocket carrying continuous audio both ways (see
+  // xaiCallSocket.ts — engine-agnostic despite the name, it just streams PCM
+  // to the server, which picks the engine from the agent's saved
+  // voiceEngine), replacing the modular record-segment→POST→TTS flow
+  // entirely. The server bridge creates and finalizes the Recent Calls log
+  // entry itself, so no client-side /calls POST/PATCH is needed here.
+  const handleStartRealtimeWebCall = async () => {
+    const call = callRef.current;
+    setWebCallError('');
+    setWebCallLatency(null);
+    setWebCallTranscript([]);
     setWebCallStatus('connecting');
     setWebCallActive(true);
-    setTimeout(() => setWebCallStatus('connected'), 1500);
+    call.bundledEngine = true;
+    call.active = true;
+    try {
+      const { token, workspaceId } = getAuth();
+      if (!token || !workspaceId || !agentId) throw new Error('Missing auth/workspace context');
+      await xaiCallSocket.start(workspaceId, agentId, token, (event) => {
+        if (event.type === 'ready') {
+          setWebCallStatus('connected');
+          setWebCallActivity('listening');
+        } else if (event.type === 'transcript') {
+          setWebCallActivity(event.role === 'assistant' ? 'speaking' : 'listening');
+          if (event.done) {
+            setWebCallTranscript((prev) => [...prev, { role: event.role, content: event.text }]);
+          }
+        } else if (event.type === 'error') {
+          if (call.active) setWebCallError(event.message);
+          if (call.active) handleEndWebCall();
+        }
+      });
+    } catch (err: any) {
+      setWebCallError(err?.name === 'NotAllowedError'
+        ? 'Microphone access was denied. Allow the microphone and try again.'
+        : err.message || 'Could not start the call.');
+      cleanupWebCall('FAILED');
+      setWebCallStatus('idle');
+      setWebCallActive(false);
+    }
+  };
+
+  const handleStartWebCall = async () => {
+    if (voiceEngine !== 'modular') return handleStartRealtimeWebCall();
+    const call = callRef.current;
+    call.bundledEngine = false;
+    setWebCallError('');
+    setWebCallLatency(null);
+    setWebCallTranscript([]);
+    setWebCallStatus('connecting');
+    setWebCallActive(true);
+    try {
+      // Mic permission + welcome resolution run in PARALLEL. On the happy
+      // path (page-load prefetch succeeded) the welcome audio is already in
+      // memory and the agent starts speaking the moment the mic is granted.
+      const micPromise = navigator.mediaDevices.getUserMedia({
+        audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+      });
+
+      // The welcome audio is ALWAYS synthesized at call time so the server
+      // resolves the agent's CURRENT voice — a blob prefetched earlier could
+      // have been made with a previously configured voice, which made the
+      // welcome and the replies speak in different voices. The page-load
+      // prefetch warmed the server's TTS cache, so this is normally instant.
+      let welcome = welcomeAudioRef.current?.welcome ?? welcomeMessage;
+      const welcomeSpeech: { current: { audioBase64: string; contentType: string } | null } = { current: null };
+      const welcomeFetch = (async () => {
+        try {
+          const rw = await whapi.get<{ welcome: string }>(`/agents/${agentId}/welcome`);
+          if (rw?.welcome) welcome = rw.welcome;
+          const w = await whapi.post<{ audioBase64: string; contentType: string; voiceUsed?: string }>(
+            `/agents/${agentId}/speak`, { text: welcome }
+          );
+          if (w?.audioBase64) {
+            welcomeSpeech.current = { audioBase64: w.audioBase64, contentType: w.contentType };
+            console.info('[web-call] welcome voice:', w.voiceUsed);
+          }
+        } catch { /* welcome TTS failing shouldn't kill the call */ }
+      })();
+
+      const stream = await micPromise;
+      const audioCtx = new AudioContext();
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 2048;
+      const micSource = audioCtx.createMediaStreamSource(stream);
+      micSource.connect(analyser);
+
+      // Record the whole call (both sides): mic + agent audio are mixed into
+      // one stream and uploaded when the call ends.
+      const mixDest = audioCtx.createMediaStreamDestination();
+      micSource.connect(mixDest);
+      const mixChunks: Blob[] = [];
+      const mixRecorder = new MediaRecorder(mixDest.stream);
+      mixRecorder.ondataavailable = (e) => { if (e.data.size > 0) mixChunks.push(e.data); };
+      mixRecorder.start(1000);
+
+      Object.assign(call, { active: true, stream, audioCtx, analyser, history: [], mixDest, mixRecorder, mixChunks, logId: null });
+
+      // Open the Recent Calls history entry for this call
+      whapi.post<{ call?: { id: string } }>(`/agents/${agentId}/calls`, { type: 'WEB_CALL', transcript: [], status: 'IN_PROGRESS' })
+        .then((r) => {
+          call.logId = r?.call?.id ?? null;
+          if (call.logId && call.history.length) {
+            whapi.patch(`/agents/${agentId}/calls/${call.logId}`, { transcript: call.history }).catch(() => {});
+          }
+        })
+        .catch((e) => console.error('Failed to start call history entry', e));
+
+      setWebCallStatus('connected');
+
+      // Agent speaks the welcome message first, like a real call.
+      await welcomeFetch;
+      call.history = [{ role: 'assistant', content: welcome }];
+      setWebCallTranscript([...call.history]);
+      if (call.active && welcomeSpeech.current) {
+        setWebCallActivity('speaking');
+        await playAgentAudio(welcomeSpeech.current.audioBase64, welcomeSpeech.current.contentType);
+      }
+
+      if (call.active) startListeningSegment();
+    } catch (err: any) {
+      setWebCallError(
+        err?.name === 'NotAllowedError'
+          ? 'Microphone access was denied. Allow the microphone and try again.'
+          : err.message || 'Could not start the call.'
+      );
+      cleanupWebCall('FAILED');
+      setWebCallStatus('idle');
+      setWebCallActive(false);
+    }
+  };
+
+  const cleanupWebCall = (finalStatus: 'COMPLETED' | 'FAILED' = 'COMPLETED') => {
+    const call = callRef.current;
+    call.active = false;
+    if (call.bundledEngine) {
+      // The server-side bridge (webCallRealtime.handler.js) owns the Recent
+      // Calls log for this call and finalizes it when the socket closes.
+      call.bundledEngine = false;
+      xaiCallSocket.stop();
+      return;
+    }
+    if (call.vadTimer) { clearInterval(call.vadTimer); call.vadTimer = null; }
+    if (call.recorder && call.recorder.state !== 'inactive') { try { call.recorder.stop(); } catch { /* already stopped */ } }
+    call.recorder = null;
+    if (call.player) { try { call.player.pause(); } catch { /* noop */ } call.player = null; }
+    call.stream?.getTracks().forEach((t) => t.stop());
+    call.stream = null;
+
+    // Finalize the history entry: flush the mixed recording, upload it, and
+    // mark the call ended. The AudioContext closes only after the recorder
+    // has flushed, so the tail of the recording isn't lost.
+    const { mixRecorder, mixChunks, logId, history, audioCtx } = call;
+    call.mixRecorder = null;
+    call.mixDest = null;
+    call.mixChunks = [];
+    call.logId = null;
+    call.audioCtx = null;
+    call.analyser = null;
+    const finalize = async (blob: Blob | null) => {
+      audioCtx?.close().catch(() => {});
+      if (!logId) return;
+      try {
+        await whapi.patch(`/agents/${agentId}/calls/${logId}`, { transcript: history, status: finalStatus, ended: true });
+        if (blob && blob.size > 0) {
+          const fd = new FormData();
+          fd.append('recording', blob, 'web-call.webm');
+          await whapi.postForm(`/agents/${agentId}/calls/${logId}/recording`, fd);
+        }
+      } catch (e) {
+        console.error('Failed to store call history', e);
+      }
+    };
+    if (mixRecorder && mixRecorder.state !== 'inactive') {
+      mixRecorder.onstop = () => finalize(new Blob(mixChunks, { type: mixRecorder.mimeType || 'audio/webm' }));
+      try { mixRecorder.stop(); } catch { finalize(null); }
+    } else {
+      finalize(mixChunks.length ? new Blob(mixChunks, { type: 'audio/webm' }) : null);
+    }
   };
 
   const handleEndWebCall = () => {
+    cleanupWebCall();
     setWebCallStatus('ended');
     setTimeout(() => {
       setWebCallActive(false);
       setWebCallStatus('idle');
     }, 1000);
   };
+
+  // Stop mic/audio if the page unmounts mid-call
+  useEffect(() => () => cleanupWebCall(), []);
 
   const handlePhoneCall = async () => {
     if (!phoneTestNumber.trim()) return;
@@ -949,7 +1370,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
             </div>
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
               <button onClick={() => setShowLanguageModal(false)} style={{ padding: '10px 20px', background: 'transparent', border: '1px solid #333', color: 'var(--text-primary)', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>Cancel</button>
-              <button onClick={() => setShowLanguageModal(false)} style={{ padding: '10px 20px', background: '#00bcd4', color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>Done</button>
+              <button onClick={() => { setShowLanguageModal(false); handleSave(); }} style={{ padding: '10px 20px', background: '#00bcd4', color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>Done</button>
             </div>
           </div>
         </div>
@@ -965,6 +1386,39 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
         />
       )}
 
+      {/* Conversational Agent Modal — 3-way choice: Off / xAI / ElevenLabs */}
+      {showXaiModal && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#1a1a1a', borderRadius: '8px', padding: '30px', maxWidth: '560px', width: '90%' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+              <h2 style={{ fontSize: '18px', fontWeight: '600', margin: 0 }}>Conversational Agent</h2>
+              <button onClick={() => setShowXaiModal(false)} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '24px' }}>X</button>
+            </div>
+            <p style={{ fontSize: '13px', color: '#999', lineHeight: 1.6, marginBottom: '20px' }}>
+              Routes this agent's Web Call and Phone Call through a single bundled speech-to-speech
+              engine that replaces Languages, Voice (TTS), AI Model (LLM) and Transcription (STT).
+              Those four settings are disabled while one is active; choose Off to configure them
+              individually again.
+            </p>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {([
+                { value: 'modular' as const, label: 'Off (modular pipeline)' },
+                { value: 'xai' as const, label: 'xAI Grok Voice Agent' },
+                { value: 'elevenlabs' as const, label: 'ElevenLabs Conversational AI' },
+              ]).map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() => { setVoiceEngine(opt.value); setShowXaiModal(false); handleSave({ voiceEngine: opt.value }); }}
+                  style={{ padding: '12px', background: voiceEngine === opt.value ? '#00bcd4' : '#0f0f0f', color: voiceEngine === opt.value ? '#000' : '#fff', border: voiceEngine === opt.value ? 'none' : '1px solid #333', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: voiceEngine === opt.value ? 600 : 400, textAlign: 'left' }}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* AI Model Configuration Modal */}
       {showModelModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
@@ -977,7 +1431,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
               {AI_MODELS.map(model => (
                 <button
                   key={model}
-                  onClick={() => { setAiModel(model); setShowModelModal(false); }}
+                  onClick={() => { setAiModel(model); setShowModelModal(false); handleSave({ aiModel: model }); }}
                   style={{
                     padding: '12px',
                     background: aiModel === model ? '#00bcd4' : '#0f0f0f',
@@ -1211,7 +1665,8 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                 onClick={() => {
                   setTranscription(sttProvider);
                   setShowTranscriptionModal(false);
-                }} 
+                  handleSave({ transcription: sttProvider });
+                }}
                 style={{ padding: '10px 24px', background: '#00bcd4', color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}
               >
                 Done
@@ -1226,19 +1681,36 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
       {/* Web Call Modal */}
       {showWebCallModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: '#1a1a1a', borderRadius: '12px', padding: '40px', maxWidth: '420px', width: '90%', textAlign: 'center', border: '1px solid #333' }}>
+          <div style={{ background: '#1a1a1a', borderRadius: '12px', padding: '32px', maxWidth: '480px', width: '90%', textAlign: 'center', border: '1px solid #333' }}>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '10px' }}>
-              <button onClick={() => { setShowWebCallModal(false); setWebCallActive(false); setWebCallStatus('idle'); }} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '20px' }}>✕</button>
+              <button onClick={() => { cleanupWebCall(); setShowWebCallModal(false); setWebCallActive(false); setWebCallStatus('idle'); }} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '20px' }}>✕</button>
             </div>
-            <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: webCallStatus === 'connected' ? 'rgba(76,175,80,0.2)' : webCallStatus === 'connecting' ? 'rgba(255,152,0,0.2)' : 'rgba(0,188,212,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px', border: webCallStatus === 'connected' ? '2px solid #4caf50' : '2px solid #00bcd4', transition: 'all 0.3s' }}>
-              <span style={{ fontSize: '36px' }}>{webCallStatus === 'connected' ? '🎙️' : webCallStatus === 'connecting' ? '⏳' : '🌐'}</span>
+            <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: webCallStatus === 'connected' ? 'rgba(76,175,80,0.2)' : webCallStatus === 'connecting' ? 'rgba(255,152,0,0.2)' : 'rgba(0,188,212,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', border: webCallStatus === 'connected' ? '2px solid #4caf50' : '2px solid #00bcd4', transition: 'all 0.3s', animation: webCallStatus === 'connected' && webCallActivity === 'listening' ? 'pulse 1.6s ease-in-out infinite' : undefined }}>
+              <span style={{ fontSize: '36px' }}>{webCallStatus === 'connected' ? (webCallActivity === 'speaking' ? '🔊' : webCallActivity === 'processing' ? '💭' : '🎙️') : webCallStatus === 'connecting' ? '⏳' : '🌐'}</span>
             </div>
             <h3 style={{ fontSize: '18px', fontWeight: '600', margin: '0 0 8px', color: 'var(--text-primary)' }}>
-              {webCallStatus === 'idle' ? 'Web Call Test' : webCallStatus === 'connecting' ? 'Connecting...' : webCallStatus === 'connected' ? 'Call Connected' : 'Call Ended'}
+              {webCallStatus === 'idle' ? 'Web Call Test' : webCallStatus === 'connecting' ? 'Connecting...' : webCallStatus === 'connected' ? (webCallActivity === 'speaking' ? `${agentName} is speaking…` : webCallActivity === 'processing' ? 'Responding…' : 'Listening…') : 'Call Ended'}
             </h3>
-            <p style={{ fontSize: '13px', color: '#999', marginBottom: '24px' }}>
-              {webCallStatus === 'idle' ? `Test your agent "${agentName}" with a browser-based voice call.` : webCallStatus === 'connecting' ? 'Setting up audio connection...' : webCallStatus === 'connected' ? 'Speak into your microphone to interact with the agent.' : 'The test call has ended.'}
+            <p style={{ fontSize: '13px', color: '#999', marginBottom: '16px' }}>
+              {webCallStatus === 'idle' ? `Test your agent "${agentName}" with a browser-based voice call.` : webCallStatus === 'connecting' ? 'Requesting microphone & starting the agent...' : webCallStatus === 'connected' ? 'Speak naturally — pause briefly when you finish and the agent will respond.' : 'The test call has ended.'}
             </p>
+            {webCallError && (
+              <p style={{ fontSize: '13px', color: '#ef4444', marginBottom: '16px' }}>{webCallError}</p>
+            )}
+            {webCallLatency && webCallStatus === 'connected' && (
+              <p style={{ fontSize: '12px', color: '#777', margin: '-8px 0 14px' }}>
+                STT {(webCallLatency.sttMs / 1000).toFixed(1)}s | AI {(webCallLatency.llmMs / 1000).toFixed(1)}s
+              </p>
+            )}
+            {webCallTranscript.length > 0 && (
+              <div style={{ maxHeight: '220px', overflowY: 'auto', textAlign: 'left', background: '#111', border: '1px solid #2a2a2a', borderRadius: '8px', padding: '12px', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                {webCallTranscript.map((m, i) => (
+                  <div key={i} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%', padding: '8px 12px', borderRadius: '10px', fontSize: '13px', lineHeight: 1.45, background: m.role === 'user' ? '#00bcd4' : '#242424', color: m.role === 'user' ? '#000' : 'var(--text-primary)' }}>
+                    {m.content}
+                  </div>
+                ))}
+              </div>
+            )}
             {!webCallActive ? (
               <button
                 onClick={handleStartWebCall}
@@ -1307,8 +1779,8 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
           placeholder="Agent Name"
         />
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 10px', background: '#0f1f12', border: '1px solid #1a3a22', borderRadius: '12px', fontSize: '11px', color: '#4caf50', fontWeight: '500' }}>
-          <span style={{ fontSize: '8px' }}>o</span> Incoming
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 10px', background: callDirection === 'OUTBOUND' ? '#1f150f' : '#0f1f12', border: `1px solid ${callDirection === 'OUTBOUND' ? '#3a2a1a' : '#1a3a22'}`, borderRadius: '12px', fontSize: '11px', color: callDirection === 'OUTBOUND' ? '#ff9800' : '#4caf50', fontWeight: '500' }}>
+          <span style={{ fontSize: '8px' }}>o</span> {callDirection === 'OUTBOUND' ? 'Outgoing' : 'Incoming'}
         </div>
 
         <div style={{ fontSize: '12px', color: '#888' }}>Cost/min: $0.115</div>
@@ -1529,24 +2001,57 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
               Assistant Settings <InfoIcon />
             </div>
             <div style={{ background: '#0c0c0c', border: '1px solid var(--border)', borderRadius: '16px', padding: '24px 30px 20px', marginBottom: '20px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: '14px', marginBottom: '0' }}>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: '14px', marginBottom: '0' }}>
               {[
                 { icon: 'O', label: 'Languages', value: selectedLanguages.length > 0 ? selectedLanguages.join(', ') : 'No languages selected', onClick: () => setShowLanguageModal(true) },
                 { icon: 'V', label: 'Voice (TTS)', value: voice, onClick: () => setShowVoiceModal(true) },
                 { icon: '{}', label: 'AI Model (LLM)', value: aiModel, onClick: () => setShowModelModal(true) },
                 { icon: '|||', label: 'Transcription (STT)', value: transcription, onClick: () => setShowTranscriptionModal(true) }
-              ].map((item, i) => (
-                <div key={i} onClick={item.onClick} style={{ background: '#062021', border: '1px solid #0d5154', borderRadius: '14px', padding: '20px 16px', display: 'flex', alignItems: 'center', gap: '14px', cursor: 'pointer', transition: 'background 0.2s' }} onMouseEnter={(e) => e.currentTarget.style.background = '#08282a'} onMouseLeave={(e) => e.currentTarget.style.background = '#062021'}>
+              ].map((item, i) => {
+                const disabled = voiceEngine !== 'modular';
+                const engineLabel = voiceEngine === 'xai' ? 'xAI' : voiceEngine === 'elevenlabs' ? 'ElevenLabs' : '';
+                return (
+                <div
+                  key={i}
+                  onClick={() => {
+                    if (disabled) { toast.info(`Handled automatically by the ${engineLabel} Conversational Agent. Turn it off to configure this manually.`); return; }
+                    item.onClick();
+                  }}
+                  style={{ background: '#062021', border: '1px solid #0d5154', borderRadius: '14px', padding: '20px 16px', display: 'flex', alignItems: 'center', gap: '14px', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.45 : 1, transition: 'background 0.2s, opacity 0.2s' }}
+                  onMouseEnter={(e) => { if (!disabled) e.currentTarget.style.background = '#08282a'; }}
+                  onMouseLeave={(e) => { e.currentTarget.style.background = '#062021'; }}
+                >
                   <div style={{ width: '34px', height: '34px', borderRadius: '11px', background: '#07393b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', color: '#11c7cf', fontWeight: '700' }}>
                     <span>{item.icon}</span>
                   </div>
                   <div style={{ flex: 1, overflow: 'hidden' }}>
                     <div style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: '700', marginBottom: '4px' }}>{item.label}</div>
-                    <div style={{ fontSize: '12px', color: '#b3b3b3', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{item.value}</div>
+                    <div style={{ fontSize: '12px', color: '#b3b3b3', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{disabled ? `Handled by ${engineLabel}` : item.value}</div>
                   </div>
                   <InfoIcon />
                 </div>
-              ))}
+                );
+              })}
+              {/* Conversational Agent — mutually exclusive master switch for the
+                  four tiles above: when xAI or ElevenLabs is active, that bundled
+                  speech-to-speech engine replaces the modular pipeline entirely. */}
+              <div
+                onClick={() => setShowXaiModal(true)}
+                style={{ background: voiceEngine !== 'modular' ? '#0d3b2e' : '#062021', border: voiceEngine !== 'modular' ? '1px solid #11c7cf' : '1px solid #0d5154', borderRadius: '14px', padding: '20px 16px', display: 'flex', alignItems: 'center', gap: '14px', cursor: 'pointer', transition: 'background 0.2s' }}
+                onMouseEnter={(e) => e.currentTarget.style.background = voiceEngine !== 'modular' ? '#0f4636' : '#08282a'}
+                onMouseLeave={(e) => e.currentTarget.style.background = voiceEngine !== 'modular' ? '#0d3b2e' : '#062021'}
+              >
+                <div style={{ width: '34px', height: '34px', borderRadius: '11px', background: '#07393b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '15px', color: '#11c7cf', fontWeight: '700' }}>
+                  <span>&#10022;</span>
+                </div>
+                <div style={{ flex: 1, overflow: 'hidden' }}>
+                  <div style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: '700', marginBottom: '4px' }}>Conversational Agent</div>
+                  <div style={{ fontSize: '12px', color: voiceEngine !== 'modular' ? '#4fe0c9' : '#b3b3b3', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    {voiceEngine === 'xai' ? 'Active — xAI Grok' : voiceEngine === 'elevenlabs' ? 'Active — ElevenLabs' : 'Off'}
+                  </div>
+                </div>
+                <InfoIcon />
+              </div>
             </div>
             </div>
 
@@ -1793,7 +2298,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
               </div>
             </div>
 
-            <button onClick={handleSave} disabled={isSaving} style={{ marginTop: '20px', padding: '10px 24px', background: '#00bcd4', color: '#000', border: 'none', borderRadius: '6px', cursor: isSaving ? 'not-allowed' : 'pointer', fontWeight: '700', fontSize: '13px', opacity: isSaving ? 0.6 : 1 }}>
+            <button onClick={() => handleSave()} disabled={isSaving} style={{ marginTop: '20px', padding: '10px 24px', background: '#00bcd4', color: '#000', border: 'none', borderRadius: '6px', cursor: isSaving ? 'not-allowed' : 'pointer', fontWeight: '700', fontSize: '13px', opacity: isSaving ? 0.6 : 1 }}>
               {isSaving ? 'Saving...' : 'Save Changes'}
             </button>
           </>
@@ -1930,7 +2435,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                 </div>
               ))}
             </div>
-            <button onClick={handleSave} disabled={isSaving} style={{ marginTop: '18px', alignSelf: 'flex-start', padding: '10px 24px', background: '#00bcd4', color: '#000', border: 'none', borderRadius: '8px', cursor: isSaving ? 'not-allowed' : 'pointer', fontWeight: '700', fontSize: '13px', opacity: isSaving ? 0.6 : 1 }}>
+            <button onClick={() => handleSave()} disabled={isSaving} style={{ marginTop: '18px', alignSelf: 'flex-start', padding: '10px 24px', background: '#00bcd4', color: '#000', border: 'none', borderRadius: '8px', cursor: isSaving ? 'not-allowed' : 'pointer', fontWeight: '700', fontSize: '13px', opacity: isSaving ? 0.6 : 1 }}>
               {isSaving ? 'Saving...' : 'Save Changes'}
             </button>
           </div>
@@ -2190,6 +2695,8 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '14px' }}>
                   {integrations.map((integration) => {
                     const isDuringCall = integration.mode === 'During Call';
+                    const status = integrationStatus[integration.provider];
+                    const isConnected = Boolean(status?.connected);
 
                     return (
                       <div
@@ -2247,17 +2754,41 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                         </div>
 
                         <div style={{ marginTop: '16px', paddingTop: '12px', borderTop: '1px solid #252525', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
-                          <span style={{ fontSize: '12px', color: '#7d7d7d' }}>Ready to connect</span>
+                          {isConnected ? (
+                            <span style={{ fontSize: '12px', color: '#4caf50', display: 'inline-flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                              <span style={{ fontSize: '9px' }}>●</span>
+                              <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                {status?.accountLabel ? `Connected · ${status.accountLabel}` : 'Connected'}
+                              </span>
+                            </span>
+                          ) : (
+                            <span style={{ fontSize: '12px', color: '#7d7d7d' }}>Ready to connect</span>
+                          )}
                           <button
                             onClick={async () => {
+                              if (isConnected) {
+                                if (!window.confirm(`Disconnect ${integration.name}? Anything configured to deliver there will stop working.`)) return;
+                                setDisconnecting(integration.provider);
+                                try {
+                                  await integrationsApi.disconnect(integration.provider);
+                                  toast.success(`${integration.name} disconnected`);
+                                  await loadIntegrationStatus();
+                                } catch (error) {
+                                  toast.error(error instanceof Error ? error.message : 'Failed to disconnect');
+                                } finally {
+                                  setDisconnecting(null);
+                                }
+                                return;
+                              }
                               try {
-                                const backendOrigin = window.location.origin.replace(':5173', ':4000').replace(':5174', ':4000');
-                                const callbackUrl = `${backendOrigin}/api/v1/integrations/${integration.provider}/callback`;
-                                const { authorizationUrl, connected } = await integrationsApi.connect(integration.provider, callbackUrl);
+                                // The callback URL is derived server-side (it must match
+                                // what's registered with the provider), so none is sent.
+                                const { authorizationUrl, connected } = await integrationsApi.connect(integration.provider);
                                 if (authorizationUrl) {
                                   window.location.href = authorizationUrl;
                                 } else if (connected) {
                                   toast.success(`${integration.name ?? integration.provider} connected`);
+                                  await loadIntegrationStatus();
                                 } else {
                                   toast.error('This integration requires additional configuration.');
                                 }
@@ -2265,30 +2796,32 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                                 toast.error(error instanceof Error ? error.message : 'Failed to begin OAuth');
                               }
                             }}
+                            disabled={disconnecting === integration.provider}
                             onMouseEnter={(e) => {
                               e.currentTarget.style.background = '#2b2b2b';
-                              e.currentTarget.style.borderColor = '#4a4a4a';
-                              e.currentTarget.style.color = '#fff';
+                              e.currentTarget.style.borderColor = isConnected ? '#7a4141' : '#4a4a4a';
+                              e.currentTarget.style.color = isConnected ? '#ffabab' : '#fff';
                             }}
                             onMouseLeave={(e) => {
                               e.currentTarget.style.background = '#1f1f1f';
-                              e.currentTarget.style.borderColor = '#3a3a3a';
-                              e.currentTarget.style.color = '#f3f3f3';
+                              e.currentTarget.style.borderColor = isConnected ? '#4a3232' : '#3a3a3a';
+                              e.currentTarget.style.color = isConnected ? '#ff8a8a' : '#f3f3f3';
                             }}
                             style={{
                               padding: '8px 14px',
                               background: '#1f1f1f',
-                              border: '1px solid #3a3a3a',
+                              border: `1px solid ${isConnected ? '#4a3232' : '#3a3a3a'}`,
                               borderRadius: '10px',
-                              color: '#f3f3f3',
+                              color: isConnected ? '#ff8a8a' : '#f3f3f3',
                               fontSize: '12px',
                               fontWeight: '700',
                               letterSpacing: '0.01em',
-                              cursor: 'pointer',
+                              whiteSpace: 'nowrap',
+                              cursor: disconnecting === integration.provider ? 'not-allowed' : 'pointer',
                               transition: 'all 0.2s ease'
                             }}
                           >
-                            Connect
+                            {disconnecting === integration.provider ? 'Working…' : isConnected ? 'Disconnect' : 'Connect'}
                           </button>
                         </div>
                       </div>
@@ -2338,7 +2871,11 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                     <div style={{ fontSize: '17px', lineHeight: 1.2, fontWeight: '700', color: 'var(--text-primary)', marginBottom: '14px' }}>Delivery Method</div>
                     <select
                       value={config.deliveryMethod}
-                      onChange={(e) => updatePostCallConfig(config.id, { deliveryMethod: e.target.value, url: '', email: '' })}
+                      onChange={(e) => {
+                        const deliveryMethod = e.target.value;
+                        updatePostCallConfigAndSave(config.id, { deliveryMethod, url: '', email: '', spreadsheetId: '', spreadsheetName: '' });
+                        if (deliveryMethod === 'Google Sheets' && spreadsheets.length === 0) loadSpreadsheets();
+                      }}
                       style={{
                         width: '310px',
                         height: '42px',
@@ -2354,6 +2891,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                       <option value="">Select delivery method</option>
                       <option value="Webhook">Webhook</option>
                       <option value="Email">Email</option>
+                      <option value="Google Sheets">Google Sheets</option>
                       <option value="CRM" disabled>CRM (coming soon)</option>
                       <option value="Slack" disabled>Slack (coming soon)</option>
                       <option value="WhatsApp" disabled>WhatsApp (coming soon)</option>
@@ -2414,6 +2952,210 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                         )}
                       </div>
                     )}
+
+                    {/* Google Sheets target — collapses to a confirmation once
+                        chosen, so the picker/create controls don't linger and
+                        read as work still to be done. */}
+                    {config.deliveryMethod === 'Google Sheets' && config.spreadsheetId && !changingSheet[config.id] && (
+                      <div style={{ marginTop: '14px' }}>
+                        <div style={{ fontSize: '13px', color: '#a0a0a0', marginBottom: '8px' }}>Target Spreadsheet</div>
+                        <div style={{
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '12px',
+                          width: '480px',
+                          padding: '14px 16px',
+                          background: 'rgba(11,191,203,0.06)',
+                          border: '1px solid rgba(11,191,203,0.35)',
+                          borderRadius: '9px',
+                          boxSizing: 'border-box',
+                        }}>
+                          <span style={{ color: '#0bbfcb', fontSize: '16px', lineHeight: 1 }}>✓</span>
+                          <div style={{ minWidth: 0, flex: 1 }}>
+                            <div style={{ fontSize: '14px', color: '#ffffff', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                              {config.spreadsheetName || config.spreadsheetId}
+                            </div>
+                            <div style={{ fontSize: '12px', color: '#8fa3a6', marginTop: '3px' }}>
+                              Results will be appended to the “Call Log” tab
+                            </div>
+                          </div>
+                          <a
+                            href={`https://docs.google.com/spreadsheets/d/${config.spreadsheetId}/edit`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            style={{ fontSize: '13px', color: '#0bbfcb', textDecoration: 'none', whiteSpace: 'nowrap' }}
+                          >
+                            Open ↗
+                          </a>
+                          <button
+                            type="button"
+                            onClick={() => setChangingSheet((prev) => ({ ...prev, [config.id]: true }))}
+                            style={{
+                              background: 'transparent',
+                              border: '1px solid #2d2d2d',
+                              borderRadius: '7px',
+                              color: '#b3b3b3',
+                              fontSize: '13px',
+                              padding: '6px 12px',
+                              cursor: 'pointer',
+                              whiteSpace: 'nowrap',
+                            }}
+                          >
+                            Change
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Google Sheets target picker */}
+                    {config.deliveryMethod === 'Google Sheets' && (!config.spreadsheetId || changingSheet[config.id]) && (
+                      <div style={{ marginTop: '14px' }}>
+                        <div style={{ fontSize: '13px', color: '#a0a0a0', marginBottom: '8px' }}>
+                          Target Spreadsheet <span style={{ color: '#ff6b6b' }}>*</span>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <select
+                            value={config.spreadsheetId || ''}
+                            onChange={(e) => {
+                              const spreadsheetId = e.target.value;
+                              updatePostCallConfigAndSave(config.id, {
+                                spreadsheetId,
+                                spreadsheetName: spreadsheets.find((s) => s.id === spreadsheetId)?.name || '',
+                              });
+                              // Picking one closes the picker back to the confirmation.
+                              if (spreadsheetId) setChangingSheet((prev) => ({ ...prev, [config.id]: false }));
+                            }}
+                            disabled={spreadsheetsState === 'loading'}
+                            style={{
+                              width: '400px',
+                              height: '42px',
+                              padding: '0 16px',
+                              background: '#181818',
+                              border: '1px solid #2d2d2d',
+                              borderRadius: '9px',
+                              color: config.spreadsheetId ? '#ffffff' : '#b3b3b3',
+                              fontSize: '14px',
+                              outline: 'none',
+                              boxSizing: 'border-box',
+                            }}
+                          >
+                            <option value="">
+                              {spreadsheetsState === 'loading' ? 'Loading your spreadsheets…' : 'Select a spreadsheet'}
+                            </option>
+                            {/* Keep a previously saved sheet selectable even if the
+                                listing hasn't loaded (or no longer returns it). */}
+                            {config.spreadsheetId && !spreadsheets.some((s) => s.id === config.spreadsheetId) && (
+                              <option value={config.spreadsheetId}>{config.spreadsheetName || config.spreadsheetId}</option>
+                            )}
+                            {spreadsheets.map((s) => (
+                              <option key={s.id} value={s.id}>{s.name}</option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={loadSpreadsheets}
+                            disabled={spreadsheetsState === 'loading'}
+                            title="Reload the list from Google Drive"
+                            style={{
+                              height: '42px',
+                              padding: '0 14px',
+                              background: 'transparent',
+                              border: '1px solid #2d2d2d',
+                              borderRadius: '9px',
+                              color: '#b3b3b3',
+                              fontSize: '13px',
+                              cursor: spreadsheetsState === 'loading' ? 'not-allowed' : 'pointer',
+                            }}
+                          >
+                            ↻ Refresh
+                          </button>
+                        </div>
+                        {spreadsheetsState === 'error' && (
+                          <div style={{ fontSize: '12px', color: '#ff4d4f', marginTop: '6px', maxWidth: '460px', lineHeight: 1.5 }}>
+                            {spreadsheetsError}
+                          </div>
+                        )}
+                        {spreadsheetsState === 'idle' && spreadsheets.length === 0 && (
+                          <div style={{ fontSize: '12px', color: '#a0a0a0', marginTop: '6px' }}>
+                            No spreadsheets found — create one below.
+                          </div>
+                        )}
+
+                        {/* Separator: the row below is an ALTERNATIVE to the
+                            dropdown above, not a second required field. */}
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '480px', margin: '12px 0 10px' }}>
+                          <div style={{ height: '1px', background: '#2d2d2d', flex: 1 }} />
+                          <span style={{ fontSize: '11px', color: '#6b6b6b', letterSpacing: '0.06em' }}>OR CREATE A NEW ONE</span>
+                          <div style={{ height: '1px', background: '#2d2d2d', flex: 1 }} />
+                        </div>
+
+                        {/* Create a new spreadsheet without leaving the app */}
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <input
+                            type="text"
+                            value={newSheetName[config.id] ?? ''}
+                            onChange={(e) => setNewSheetName((prev) => ({ ...prev, [config.id]: e.target.value }))}
+                            onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); createSpreadsheetFor(config.id); } }}
+                            placeholder={`${agentName || 'Agent'} — Call Log`}
+                            style={{
+                              width: '400px',
+                              height: '42px',
+                              padding: '0 16px',
+                              background: '#181818',
+                              border: '1px solid #2d2d2d',
+                              borderRadius: '9px',
+                              color: '#ffffff',
+                              fontSize: '14px',
+                              outline: 'none',
+                              boxSizing: 'border-box',
+                            }}
+                          />
+                          <button
+                            type="button"
+                            onClick={() => createSpreadsheetFor(config.id)}
+                            disabled={creatingSheet === config.id}
+                            title="Create a new spreadsheet in your Google Drive and select it"
+                            style={{
+                              height: '42px',
+                              padding: '0 16px',
+                              background: 'transparent',
+                              border: '1px solid #0bbfcb55',
+                              borderRadius: '9px',
+                              color: creatingSheet === config.id ? '#555' : '#0bbfcb',
+                              fontSize: '13px',
+                              fontWeight: 600,
+                              whiteSpace: 'nowrap',
+                              cursor: creatingSheet === config.id ? 'not-allowed' : 'pointer',
+                            }}
+                          >
+                            {creatingSheet === config.id ? 'Creating…' : '+ Create new'}
+                          </button>
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#7a7a7a', marginTop: '10px', maxWidth: '460px', lineHeight: 1.5 }}>
+                          One row is appended per completed call to a “Call Log” tab: call time, agent,
+                          type, outcome, duration and phone number, then a column per extracted variable.
+                          The header row is created automatically.
+                        </div>
+                        {changingSheet[config.id] && (
+                          <button
+                            type="button"
+                            onClick={() => setChangingSheet((prev) => ({ ...prev, [config.id]: false }))}
+                            style={{
+                              marginTop: '10px',
+                              background: 'transparent',
+                              border: 'none',
+                              padding: 0,
+                              color: '#8a8a8a',
+                              fontSize: '13px',
+                              textDecoration: 'underline',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            Cancel — keep “{config.spreadsheetName || config.spreadsheetId}”
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'flex-end' }}>
@@ -2438,26 +3180,16 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                     {/* Test Delivery Button */}
                     <button
                       onClick={() => handleTestPostCall(config.id)}
-                      disabled={
-                        !config.deliveryMethod ||
-                        (config.deliveryMethod === 'Webhook' && !config.url) ||
-                        (config.deliveryMethod === 'Email' && !config.email) ||
-                        testingPostCall[config.id] === 'loading'
-                      }
-                      title={
-                        !config.deliveryMethod ? 'Select a delivery method first' :
-                        config.deliveryMethod === 'Webhook' && !config.url ? 'Enter a webhook URL first' :
-                        config.deliveryMethod === 'Email' && !config.email ? 'Enter an email address first' :
-                        'Send a test delivery now'
-                      }
+                      disabled={Boolean(postCallConfigIssue(config)) || testingPostCall[config.id] === 'loading'}
+                      title={postCallConfigIssue(config) ?? 'Send a test delivery now'}
                       style={{
                         padding: '0 20px',
                         height: '44px',
                         background: testingPostCall[config.id] === 'done' ? '#0bbfcb22' : testingPostCall[config.id] === 'error' ? '#ff4d4f22' : '#0bbfcb18',
                         border: `1px solid ${testingPostCall[config.id] === 'done' ? '#0bbfcb' : testingPostCall[config.id] === 'error' ? '#ff4d4f' : '#0bbfcb55'}`,
                         borderRadius: '9px',
-                        color: testingPostCall[config.id] === 'done' ? '#0bbfcb' : testingPostCall[config.id] === 'error' ? '#ff4d4f' : (!config.deliveryMethod || (config.deliveryMethod === 'Webhook' && !config.url) || (config.deliveryMethod === 'Email' && !config.email)) ? '#555' : '#0bbfcb',
-                        cursor: (!config.deliveryMethod || (config.deliveryMethod === 'Webhook' && !config.url) || (config.deliveryMethod === 'Email' && !config.email) || testingPostCall[config.id] === 'loading') ? 'not-allowed' : 'pointer',
+                        color: testingPostCall[config.id] === 'done' ? '#0bbfcb' : testingPostCall[config.id] === 'error' ? '#ff4d4f' : postCallConfigIssue(config) ? '#555' : '#0bbfcb',
+                        cursor: (postCallConfigIssue(config) || testingPostCall[config.id] === 'loading') ? 'not-allowed' : 'pointer',
                         fontSize: '13px',
                         fontWeight: '600',
                         whiteSpace: 'nowrap'
@@ -2747,58 +3479,169 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
               </div>
             ) : recentCalls.length > 0 ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {recentCalls.map((call) => (
-                  <div
-                    key={call.id}
-                    style={{
-                      background: '#111',
-                      border: '1px solid var(--border)',
-                      borderRadius: '12px',
-                      padding: '16px 20px',
-                      display: 'grid',
-                      gridTemplateColumns: '1fr 120px 120px 140px',
-                      alignItems: 'center',
-                      gap: '12px'
-                    }}
-                  >
-                    <div>
-                      <div style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)' }}>
-                        {call.contact?.name ?? call.contact?.phoneNumber ?? 'Unknown caller'}
+                {recentCalls.map((call) => {
+                  const typeMeta =
+                    call.type === 'WEB_CALL' ? { icon: '🌐', label: 'Web Call', bg: '#0a1f3a', fg: '#7fbfff', bd: '#1a5a9a' }
+                    : call.type === 'PHONE_CALL' ? { icon: '📞', label: 'Phone Call', bg: '#2a1a0a', fg: '#ffb066', bd: '#5a3a1a' }
+                    : { icon: '💬', label: 'Chat Test', bg: '#0a2e1a', fg: '#78f5ad', bd: '#1a5a3a' };
+                  const statusMeta =
+                    call.status === 'COMPLETED' ? { bg: '#0a2e1a', fg: '#78f5ad', bd: '#1a5a3a' }
+                    : call.status === 'IN_PROGRESS' ? { bg: '#0a1f3a', fg: '#7fbfff', bd: '#1a5a9a' }
+                    : call.status === 'FAILED' ? { bg: '#2e0a0a', fg: '#ff8080', bd: '#5a1a1a' }
+                    : { bg: '#1a1a0a', fg: '#ffd066', bd: '#5a5a1a' };
+                  const mins = Math.floor((call.durationSec ?? 0) / 60);
+                  const secs = (call.durationSec ?? 0) % 60;
+                  const isExpanded = expandedCallId === call.id;
+                  const transcript = call.transcript ?? [];
+                  const extractedVariables = call.extractedData?.variables ?? [];
+                  return (
+                    <div
+                      key={call.id}
+                      style={{
+                        background: '#111',
+                        border: '1px solid var(--border)',
+                        borderRadius: '12px',
+                        overflow: 'hidden'
+                      }}
+                    >
+                      <div
+                        onClick={() => {
+                          const next = isExpanded ? null : call.id;
+                          setExpandedCallId(next);
+                          if (next && call.hasRecording) loadRecording(call.id);
+                        }}
+                        style={{
+                          padding: '16px 20px',
+                          display: 'grid',
+                          gridTemplateColumns: '1fr 110px 110px 90px 150px 28px',
+                          alignItems: 'center',
+                          gap: '12px',
+                          cursor: 'pointer'
+                        }}
+                      >
+                        <div>
+                          <div style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)' }}>
+                            {typeMeta.icon} {typeMeta.label}
+                          </div>
+                          <div style={{ fontSize: '12px', color: '#666', marginTop: '2px' }}>
+                            {call.type === 'PHONE_CALL' && call.phoneNumber
+                              ? call.phoneNumber
+                              : `${transcript.length} message${transcript.length === 1 ? '' : 's'}${call.hasRecording ? ' · 🔊 recording' : ''}`}
+                          </div>
+                        </div>
+                        <div style={{
+                          fontSize: '12px', fontWeight: '600', padding: '4px 10px', borderRadius: '999px', textAlign: 'center',
+                          background: typeMeta.bg, color: typeMeta.fg, border: `1px solid ${typeMeta.bd}`
+                        }}>
+                          {typeMeta.label}
+                        </div>
+                        <div style={{
+                          fontSize: '12px', fontWeight: '600', padding: '4px 10px', borderRadius: '999px', textAlign: 'center',
+                          background: statusMeta.bg, color: statusMeta.fg, border: `1px solid ${statusMeta.bd}`
+                        }}>
+                          {(call.status || 'UNKNOWN').replace('_', ' ').toLowerCase()}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#888', textAlign: 'center' }}>
+                          {mins}:{String(secs).padStart(2, '0')}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#888', textAlign: 'right' }}>
+                          {call.startedAt ? new Date(call.startedAt).toLocaleString() : '—'}
+                        </div>
+                        <div style={{ fontSize: '12px', color: '#666', textAlign: 'center' }}>{isExpanded ? '▲' : '▼'}</div>
                       </div>
-                      {call.contact?.phoneNumber && call.contact?.name && (
-                        <div style={{ fontSize: '12px', color: '#666', marginTop: '2px' }}>{call.contact.phoneNumber}</div>
+
+                      {isExpanded && (
+                        <div style={{ borderTop: '1px solid var(--border)', padding: '16px 20px', background: '#0d0d0d' }}>
+                          {call.hasRecording && (
+                            <div style={{ marginBottom: transcript.length ? '16px' : 0 }}>
+                              <div style={{ fontSize: '12px', fontWeight: '600', color: '#888', marginBottom: '8px' }}>Call recording</div>
+                              {recordingUrls[call.id] ? (
+                                <audio controls src={recordingUrls[call.id]} style={{ width: '100%', height: '36px' }} />
+                              ) : (
+                                <div style={{ fontSize: '12px', color: '#666' }}>Loading recording…</div>
+                              )}
+                            </div>
+                          )}
+                          {transcript.length > 0 && (
+                            <div style={{ marginBottom: '16px', padding: '14px', border: '1px solid #28343a', borderRadius: '10px', background: '#10171a' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: extractedVariables.length || call.extractionError || call.extractedData?.skippedReason ? '10px' : 0 }}>
+                                <div>
+                                  <div style={{ fontSize: '12px', fontWeight: '700', color: '#8edce2' }}>Extracted conversation data</div>
+                                  <div style={{ fontSize: '11px', color: '#708087', marginTop: '3px' }}>
+                                    Status: {(call.extractionStatus || 'PENDING').toLowerCase()}
+                                  </div>
+                                </div>
+                                <button
+                                  onClick={() => extractCallData(call.id)}
+                                  disabled={call.extractionStatus === 'PROCESSING'}
+                                  style={{
+                                    padding: '6px 11px',
+                                    borderRadius: '7px',
+                                    border: '1px solid #0bbfcb66',
+                                    background: '#0bbfcb14',
+                                    color: call.extractionStatus === 'PROCESSING' ? '#60777a' : '#0bbfcb',
+                                    cursor: call.extractionStatus === 'PROCESSING' ? 'wait' : 'pointer',
+                                    fontSize: '11px',
+                                    fontWeight: '600'
+                                  }}
+                                >
+                                  {call.extractionStatus === 'PROCESSING' ? 'Extracting...' : extractedVariables.length ? 'Re-extract' : 'Extract now'}
+                                </button>
+                              </div>
+                              {call.extractionError && (
+                                <div style={{ fontSize: '12px', color: '#ff8080' }}>{call.extractionError}</div>
+                              )}
+                              {call.extractedData?.skippedReason && (
+                                <div style={{ fontSize: '12px', color: '#b5a36a' }}>{call.extractedData.skippedReason}</div>
+                              )}
+                              {extractedVariables.length > 0 && (
+                                <div style={{ display: 'grid', gap: '8px' }}>
+                                  {extractedVariables.map((variable) => (
+                                    <div key={variable.key} style={{ padding: '9px 11px', borderRadius: '8px', background: '#0b1012', border: '1px solid #202b30' }}>
+                                      <div style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 0.4fr) 1fr', gap: '12px', alignItems: 'start' }}>
+                                        <div style={{ fontFamily: 'monospace', fontSize: '12px', color: '#8edce2', wordBreak: 'break-word' }}>{variable.key}</div>
+                                        <div style={{ fontSize: '12px', color: variable.value == null ? '#667277' : 'var(--text-primary)', wordBreak: 'break-word' }}>
+                                          {variable.value == null
+                                            ? 'Not found'
+                                            : typeof variable.value === 'string'
+                                              ? variable.value
+                                              : JSON.stringify(variable.value)}
+                                        </div>
+                                      </div>
+                                      {variable.evidence && (
+                                        <div style={{ marginTop: '6px', fontSize: '11px', color: '#718087' }}>Evidence: “{variable.evidence}”</div>
+                                      )}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {transcript.length > 0 ? (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '320px', overflowY: 'auto' }}>
+                              <div style={{ fontSize: '12px', fontWeight: '600', color: '#888' }}>Transcript</div>
+                              {transcript.map((m, i) => (
+                                <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
+                                  <div style={{
+                                    maxWidth: '75%', padding: '8px 12px', borderRadius: '10px', fontSize: '13px',
+                                    whiteSpace: 'pre-wrap', wordBreak: 'break-word',
+                                    background: m.role === 'user' ? '#00bcd4' : '#1a1a1a',
+                                    color: m.role === 'user' ? '#000' : 'var(--text-primary)',
+                                    border: m.role === 'user' ? 'none' : '1px solid #333'
+                                  }}>
+                                    {m.content}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          ) : (
+                            <div style={{ fontSize: '12px', color: '#666' }}>No transcript was captured for this call.</div>
+                          )}
+                        </div>
                       )}
                     </div>
-                    <div style={{
-                      fontSize: '12px',
-                      fontWeight: '600',
-                      padding: '4px 10px',
-                      borderRadius: '999px',
-                      textAlign: 'center',
-                      background: call.direction === 'inbound' ? '#0a1f3a' : '#0a2e1a',
-                      color: call.direction === 'inbound' ? '#7fbfff' : '#78f5ad',
-                      border: `1px solid ${call.direction === 'inbound' ? '#1a5a9a' : '#1a5a3a'}`
-                    }}>
-                      {call.direction ?? 'conversation'}
-                    </div>
-                    <div style={{
-                      fontSize: '12px',
-                      fontWeight: '600',
-                      padding: '4px 10px',
-                      borderRadius: '999px',
-                      textAlign: 'center',
-                      background: call.status === 'resolved' ? '#0a2e1a' : call.status === 'open' ? '#0a1f3a' : '#1a1a0a',
-                      color: call.status === 'resolved' ? '#78f5ad' : call.status === 'open' ? '#7fbfff' : '#ffd066',
-                      border: `1px solid ${call.status === 'resolved' ? '#1a5a3a' : call.status === 'open' ? '#1a5a9a' : '#5a5a1a'}`
-                    }}>
-                      {call.status ?? 'unknown'}
-                    </div>
-                    <div style={{ fontSize: '12px', color: '#888', textAlign: 'right' }}>
-                      {(call.lastMessageAt || call.startedAt) ? new Date(call.lastMessageAt ?? call.startedAt!).toLocaleString() : '—'}
-                      {call.unreadCount ? <span style={{ marginLeft: '8px', color: '#0bbfcb' }}>{call.unreadCount} unread</span> : ''}
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <div
@@ -2865,7 +3708,7 @@ ${kbText || '(no knowledge base documents uploaded — say you have no reference
                 <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#00bcd4', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#000', fontWeight: 'bold' }}>{agentName.charAt(0)}</div>
                 <span style={{ fontWeight: '600', fontSize: '14px' }}>Test Chat: {agentName}</span>
               </div>
-              <button onClick={() => setShowChatModal(false)} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '20px' }}>X</button>
+              <button onClick={closeTestChat} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '20px' }}>X</button>
             </div>
             
             <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>

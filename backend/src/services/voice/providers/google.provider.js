@@ -16,28 +16,38 @@ import { fromGoogleVoice } from '../voice.dto.js';
 
 let _client = null;
 
-function getClient() {
+async function getClient() {
   if (_client) return _client;
 
   // Dynamic import so the module doesn't crash if the package isn't installed.
-  return import('@google-cloud/text-to-speech').then(({ TextToSpeechClient }) => {
-    let clientOptions = {};
+  const { TextToSpeechClient } = await import('@google-cloud/text-to-speech');
 
-    if (process.env.GOOGLE_TTS_CREDENTIALS_JSON) {
-      // Base64-encoded service account JSON
-      const json = Buffer.from(
-        process.env.GOOGLE_TTS_CREDENTIALS_JSON,
-        'base64'
-      ).toString('utf-8');
-      clientOptions.credentials = JSON.parse(json);
-    } else if (process.env.GOOGLE_TTS_KEY_FILE) {
-      clientOptions.keyFilename = process.env.GOOGLE_TTS_KEY_FILE;
-    }
-    // else: falls back to ADC
+  let clientOptions = {};
 
-    _client = new TextToSpeechClient(clientOptions);
-    return _client;
-  });
+  if (process.env.GOOGLE_TTS_CREDENTIALS_JSON) {
+    // Base64-encoded service account JSON
+    const json = Buffer.from(
+      process.env.GOOGLE_TTS_CREDENTIALS_JSON,
+      'base64'
+    ).toString('utf-8');
+    clientOptions.credentials = JSON.parse(json);
+  } else if (process.env.GOOGLE_TTS_KEY_FILE) {
+    clientOptions.keyFilename = process.env.GOOGLE_TTS_KEY_FILE;
+  }
+  // else: falls back to ADC
+
+  const client = new TextToSpeechClient(clientOptions);
+
+  // Resolve credentials up-front. If none are configured (no service-account
+  // env vars and no Application Default Credentials), this rejects cleanly and
+  // is caught by callers' try/catch. Doing it here — before any gRPC call —
+  // avoids the detached "Could not load the default credentials" unhandled
+  // rejection that grpc's lazy stub creation otherwise fires, which crashes the
+  // whole process (and previously killed the entire voice sync).
+  await client.auth.getClient();
+
+  _client = client;
+  return _client;
 }
 
 // ─── Public API ───────────────────────────────────────────────────────────────

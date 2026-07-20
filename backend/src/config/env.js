@@ -73,6 +73,12 @@ export const env = {
   GOOGLE_CLIENT_SECRET: optional('GOOGLE_CLIENT_SECRET'),
   GOOGLE_AUTH_REDIRECT_URI: optional('GOOGLE_AUTH_REDIRECT_URI'),
   GOOGLE_REDIRECT_URI: optional('GOOGLE_REDIRECT_URI'),
+  // Per-integration OAuth callbacks. Leave unset in development: the correct
+  // per-provider URI is derived from CLIENT_URL. Set these only when the
+  // deployed callback host differs from CLIENT_URL.
+  GOOGLE_CALENDAR_REDIRECT_URI: optional('GOOGLE_CALENDAR_REDIRECT_URI'),
+  GOOGLE_MEET_REDIRECT_URI: optional('GOOGLE_MEET_REDIRECT_URI'),
+  GOOGLE_SHEETS_REDIRECT_URI: optional('GOOGLE_SHEETS_REDIRECT_URI'),
 
   CAL_CLIENT_ID: optional('CAL_CLIENT_ID'),
   CAL_CLIENT_SECRET: optional('CAL_CLIENT_SECRET'),
@@ -113,7 +119,7 @@ export const env = {
   UPLOAD_DIR: optional('UPLOAD_DIR', 'uploads'),
   MAX_FILE_SIZE_MB: parseInt(optional('MAX_FILE_SIZE_MB', '10'), 10),
 
-  ADMIN_EMAIL: optional('ADMIN_EMAIL', ''),
+  SUPER_ADMIN_EMAIL: optional('SUPER_ADMIN_EMAIL', ''),
 
   BCRYPT_SALT_ROUNDS: parseInt(optional('BCRYPT_SALT_ROUNDS', '12'), 10),
 
@@ -124,6 +130,29 @@ export const env = {
   SARVAM_API_KEY: optional('SARVAM_API_KEY', ''),
   SARVAM_URL: optional('SARVAM_URL', 'https://api.sarvam.ai'),
   SARVAM_MODEL: optional('SARVAM_MODEL', 'sarvam-30b'),
+
+  // xAI Grok Voice Agent — bundled speech-to-speech (STT+LLM+TTS) engine,
+  // selectable per-agent as an alternative to the modular pipeline above.
+  // XAI_VOICE_WS_URL / model name follow xAI's documented OpenAI-Realtime
+  // compatibility; confirm exact values against your xAI account.
+  XAI_API_KEY: optional('XAI_API_KEY', ''),
+  XAI_VOICE_WS_URL: optional('XAI_VOICE_WS_URL', 'wss://api.x.ai/v1/realtime'),
+  XAI_VOICE_MODEL: optional('XAI_VOICE_MODEL', 'grok-voice-latest'),
+  XAI_VOICE_NAME: optional('XAI_VOICE_NAME', ''),
+  // Public wss:// origin Twilio can reach to open the media-stream bridge
+  // (e.g. your deployed backend domain, or an ngrok/tunnel URL in dev).
+  // Two-way bundled-engine phone calls fall back to the old greeting-only
+  // stub when unset.
+  PUBLIC_BACKEND_WS_URL: optional('PUBLIC_BACKEND_WS_URL', ''),
+
+  // ElevenLabs Conversational AI — second bundled speech-to-speech engine
+  // option, alongside xAI above. ELEVENLABS_API_KEY is already used
+  // elsewhere in this codebase for TTS (read directly via process.env in
+  // elevenLabsRealtime.service.js to match that existing convention).
+  // ELEVENLABS_CONVAI_AGENT_ID is a "shell" Agent created once in the
+  // ElevenLabs dashboard (Agents Platform) with Prompt/First Message/Language
+  // overrides enabled in its Security settings — cannot be created from code.
+  ELEVENLABS_CONVAI_AGENT_ID: optional('ELEVENLABS_CONVAI_AGENT_ID', ''),
 
   isDev: () => process.env.NODE_ENV !== 'production',
 };

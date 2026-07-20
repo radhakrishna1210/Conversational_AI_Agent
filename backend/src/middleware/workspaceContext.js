@@ -26,7 +26,7 @@ export const workspaceContext = async (req, res, next) => {
       create: { id: workspaceId, name: 'Mock Workspace', slug: `mock-${workspaceId}` },
     }).catch(() => {});
     req.workspace = { id: workspaceId, name: 'Mock Workspace' };
-    req.membership = { userId: req.user.userId, workspaceId, role: req.user.role ?? 'Admin' };
+    req.membership = { userId: req.user.userId, workspaceId, role: req.user.role ?? 'Member' };
     return next();
   }
 

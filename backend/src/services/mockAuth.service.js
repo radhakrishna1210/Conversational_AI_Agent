@@ -97,7 +97,7 @@ export const loginUser = async ({ email, password }) => {
     userId: user.id,
     email: user.email,
     workspaceId: user.workspace?.id ?? null,
-    role: 'Admin',
+    role: 'Member',
   };
 
   const accessToken = signAccessToken(payload);
@@ -151,7 +151,7 @@ export const refreshUserToken = async (rawToken) => {
     userId: user.id,
     email: user.email,
     workspaceId: stored.workspaceId,
-    role: 'Admin',
+    role: 'Member',
   };
 
   const accessToken = signAccessToken(payload);
@@ -226,7 +226,7 @@ export const loginOrRegisterWithGoogle = async ({ googleId, email, name, avatarU
     userId: user.id,
     email: user.email,
     workspaceId: user.workspace?.id ?? null,
-    role: 'Admin',
+    role: 'Member',
   };
 
   const accessToken = signAccessToken(payload);

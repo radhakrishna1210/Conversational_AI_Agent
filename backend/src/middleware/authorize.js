@@ -1,12 +1,16 @@
 import logger from '../lib/logger.js';
+import { ROLES } from '../constants/roles.js';
 
 /**
  * Role guard factory.
- * Usage: router.delete('/...', authorize('Admin'), handler)
- *        router.get('/...', authorize('Admin', 'Viewer'), handler)
+ * Usage: router.delete('/...', authorize('Member'), handler)
+ *
+ * The Superadmin (platform owner) always passes — full access to everything.
+ * There is no Admin role; Member is the standard role for all workspace features.
  */
 export const authorize = (...allowedRoles) => (req, res, next) => {
   const role = req.user?.role;
+  if (role === ROLES.SUPER_ADMIN) return next();
   if (!role || !allowedRoles.includes(role)) {
     return res.status(403).json({ error: 'Insufficient permissions' });
   }
@@ -14,16 +18,15 @@ export const authorize = (...allowedRoles) => (req, res, next) => {
 };
 
 /**
- * Restrict route to Admin role only.
- * Logs unauthorized attempts with the requesting user's id.
+ * Restrict route to the platform owner (Superadmin) only.
+ * Gates the /admin platform panel. Logs unauthorized attempts.
  */
-const ADMIN_ROLES = new Set(['admin', 'super admin', 'superadmin', 'owner']);
-export const isAdminRole = (role) => ADMIN_ROLES.has(String(role ?? '').trim().toLowerCase());
+export const isAdminRole = (role) => String(role ?? '').trim().toLowerCase() === 'superadmin';
 
 export const isAdmin = (req, res, next) => {
   if (!isAdminRole(req.user?.role)) {
-    logger.warn({ userId: req.user?.id ?? req.user?.userId, role: req.user?.role }, 'Admin access denied');
-    return res.status(403).json({ error: 'Admin access required' });
+    logger.warn({ userId: req.user?.id ?? req.user?.userId, role: req.user?.role }, 'Superadmin access denied');
+    return res.status(403).json({ error: 'Superadmin access required' });
   }
   next();
 };

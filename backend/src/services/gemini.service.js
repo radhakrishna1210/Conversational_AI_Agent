@@ -151,6 +151,11 @@ class GeminiService {
     if (params.maxOutputTokens !== undefined) {
       config.maxOutputTokens = params.maxOutputTokens;
     }
+    // thinkingBudget: 0 disables Gemini 2.5's internal reasoning pass —
+    // dramatically lower latency for real-time voice turns (~3.4s → ~1.4s).
+    if (params.thinkingBudget !== undefined) {
+      config.thinkingConfig = { thinkingBudget: params.thinkingBudget };
+    }
 
     return config;
   }
@@ -263,6 +268,7 @@ class GeminiService {
         temperature: arg2?.temperature,
         systemPrompt: arg3?.systemPrompt,
         maxOutputTokens: arg3?.maxTokens,
+        thinkingBudget: arg3?.thinkingBudget,
         chatHistory: arg3?.chatHistory || [],
         userId: arg3?.userId,
         agentId: arg3?.agentId || "legacy-llm-factory",
@@ -299,6 +305,7 @@ class GeminiService {
       topP,
       topK,
       maxOutputTokens,
+      thinkingBudget,
       skipCache = false,
     } = request;
 
@@ -352,6 +359,7 @@ class GeminiService {
         topP,
         topK,
         maxOutputTokens,
+        thinkingBudget,
       });
 
       // Call API
