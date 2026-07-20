@@ -368,16 +368,66 @@ export const generateAgentFlow = async (req, res) => {
     });
   }
 
+  // ── Options the generated configuration may choose from ─────────────────────
+  // These mirror what the Edit Agent UI offers, so everything the LLM picks is
+  // directly editable there afterwards.
+  const LANGUAGE_OPTIONS = [
+    'English (American)', 'English (British)', 'English (Indian)', 'English (Australian)',
+    'Hindi', 'Bengali', 'Gujarati', 'Tamil', 'Spanish', 'French', 'German', 'Mandarin',
+    'Japanese', 'Korean', 'Portuguese', 'Russian', 'Arabic', 'Italian',
+  ];
+  const AI_MODEL_OPTIONS = ['GPT-4.1-Mini', 'GPT-4-Turbo', 'Claude-3-Opus', 'Gemini-Pro', 'Llama-2-70B'];
+  const STT_OPTIONS = ['Sarvam', 'ElevenLabs'];
+
+  // Real voices from the DB, restricted to providers whose API keys are
+  // actually configured — the LLM must never pick a voice that can't speak.
+  const hasVoiceCreds = (p) =>
+    p === 'Google' ? Boolean(process.env.GOOGLE_TTS_CREDENTIALS_JSON || process.env.GOOGLE_TTS_KEY_FILE)
+    : p === 'ElevenLabs' ? Boolean(process.env.ELEVENLABS_API_KEY)
+    : p === 'Sarvam' ? Boolean(process.env.SARVAM_API_KEY)
+    : p === 'Cartesia' ? Boolean(process.env.CARTESIA_API_KEY)
+    : false;
+  let voiceOptions = [];
+  try {
+    const voices = await prisma.voice.findMany({
+      include: { provider: { select: { name: true } } },
+      take: 300,
+    });
+    const byProvider = {};
+    for (const v of voices) {
+      const p = v.provider?.name;
+      if (!p || !hasVoiceCreds(p)) continue;
+      (byProvider[p] ||= []).push(v);
+    }
+    voiceOptions = Object.values(byProvider)
+      .flatMap((list) => list.slice(0, 12))
+      .map((v) => ({
+        label: `${v.provider.name} - ${v.name}`,
+        gender: v.gender || undefined,
+        language: v.language || undefined,
+      }));
+  } catch (e) {
+    logger.warn(`Voice options unavailable for agent generation: ${e.message}`);
+  }
+
   const systemPrompt = "You are an expert AI architect. Generate highly personalized voice assistant configurations in clean, valid JSON format.";
-  const prompt = `Generate a personalized conversational flow configuration for a voice assistant.
+  const prompt = `Generate a complete personalized configuration for a voice assistant.
 Assistant Name: "${name}"
-${category ? `Use-case category: "${category}"\n` : ''}${userPrompt ? `The user's full description of this assistant's purpose, personality, and behavior (BASE THE ENTIRE FLOW ON THIS — every stage, question, and rule must be tailored to it):\n\"\"\"${String(userPrompt).slice(0, 4000)}\"\"\"\n` : ''}
+${category ? `Use-case category: "${category}"\n` : ''}${userPrompt ? `The user's full description of this assistant's purpose, personality, and behavior (BASE THE ENTIRE CONFIGURATION ON THIS — every setting, stage, question, and rule must be tailored to it):\n\"\"\"${String(userPrompt).slice(0, 4000)}\"\"\"\n` : ''}
 
 Keep your chain of thought/reasoning extremely brief (under 5 sentences), then immediately output the raw JSON object inside a \`\`\`json markdown block. Do not waste tokens explaining.
 
 The JSON must have this exact structure:
 {
-  "welcomeMessage": "A natural, warm vocal welcome greeting tailored to this assistant. E.g. 'Hello, I am [Agent Name], your...', etc.",
+  "name": "<short professional display name for this assistant, 2-5 words (e.g. 'Plumbing Appointment Agent'). If the user's description explicitly gives the agent a name, use EXACTLY that name. NEVER use the description text itself as the name.>",
+  "welcomeMessage": "A natural, warm vocal opening line tailored to this assistant AND its call direction, written in the PRIMARY conversation language.",
+  "callDirection": "<INBOUND or OUTBOUND>",
+  "languages": ["<primary conversation language first>"],
+  "aiModel": "<one of: ${AI_MODEL_OPTIONS.join(', ')}>",
+  "transcription": "<one of: ${STT_OPTIONS.join(', ')}>",
+${voiceOptions.length ? `  "voice": "<one voice label copied EXACTLY from AVAILABLE VOICES below>",\n` : ''}  "postCallVariables": [
+    { "key": "snake_case_variable_name", "description": "what to extract from each call transcript" }
+  ],
   "flowItems": [
     {
       "id": "1",
@@ -394,6 +444,17 @@ The JSON must have this exact structure:
   ]
 }
 
+Configuration rules:
+- "callDirection": "OUTBOUND" when this agent CALLS customers (cold calling, lead generation, collections, appointment reminders, surveys, outreach); "INBOUND" when customers call the agent (support line, reception, booking hotline, helpdesk). The welcomeMessage MUST match this direction: an INBOUND greeting thanks the caller for calling (e.g. "Thank you for calling <company>, how can I help?"); an OUTBOUND greeting introduces the agent, the company, and the reason for the call, and must NEVER say "thank you for calling".
+- "languages": 1-3 entries, each copied EXACTLY from this list: ${LANGUAGE_OPTIONS.join(', ')}. The FIRST entry is the language the assistant speaks in — infer it from the user's description (e.g. an agent for Indian customers speaking Hindi → ["Hindi"]). Default to "English (Indian)" only when the description gives no language hint.
+- "transcription": pick "Sarvam" when the primary language is Indian (Hindi, Bengali, Gujarati, Tamil, English (Indian)); otherwise "ElevenLabs".
+- "aiModel": pick the model best suited to the use case; "Gemini-Pro" is a good general default.
+- "postCallVariables": 3-8 data points this business would need captured from EVERY call, tailored to the use case in the description — e.g. an appointment-booking agent needs appointment_date, appointment_time, service_type; a lead-gen agent needs company_name, decision_maker, interest_level; a support agent needs issue_type, resolution_status. Include customer identity fields (customer_name, phone/email) when the flow collects them. Keys are snake_case; each description says exactly what to extract.
+${voiceOptions.length ? `- "voice": choose from AVAILABLE VOICES a voice whose language matches the primary conversation language and whose gender fits the described persona (default female if unspecified). Copy the label EXACTLY.
+
+AVAILABLE VOICES:
+${voiceOptions.map((v) => `- ${v.label}${v.gender ? ` (${v.gender}` : ''}${v.language ? `${v.gender ? ', ' : ' ('}${v.language}` : ''}${v.gender || v.language ? ')' : ''}`).join('\n')}
+` : ''}
 Provide 4 to 8 logical, structured conversational steps (flow items) that cover the stages of the assistant's workflow (e.g. Identity & Purpose, Understand User Request, Primary Actions, Out of Scope Handling, next steps, FAQ Examples, Context). Each flow item must be detailed and highly specific to "${name}". Do not use bullet points or formatted text in any sample vocal responses/examples.`;
 
   let responseText;
@@ -402,7 +463,11 @@ Provide 4 to 8 logical, structured conversational steps (flow items) that cover 
     const response = await llmProvider.generateResponse(
       prompt,
       { model, temperature },
-      { systemPrompt, maxTokens: 3000 }
+      // thinkingBudget: 0 — Gemini 2.5's internal reasoning tokens count
+      // against maxTokens; with thinking left on, a long config JSON gets
+      // truncated mid-block and fails to parse. The JSON schema in the
+      // prompt is prescriptive enough that no reasoning pass is needed.
+      { systemPrompt, maxTokens: 6000, thinkingBudget: 0 }
     );
     responseText = response;
   } catch (error) {
@@ -550,7 +615,50 @@ Provide 4 to 8 logical, structured conversational steps (flow items) that cover 
       });
     }
 
-    res.json(parsed);
+    // Whitelist-validate the settings the LLM chose — anything invalid is
+    // dropped so the client falls back to its defaults instead of persisting
+    // a value the rest of the system can't use.
+    const sanitized = { ...parsed };
+    // A usable display name is short — a name that is basically the prompt
+    // pasted back (or empty) is dropped so the client falls back.
+    if (typeof sanitized.name === 'string') {
+      sanitized.name = sanitized.name.trim().replace(/^["']|["']$/g, '');
+      if (!sanitized.name || sanitized.name.length > 60) delete sanitized.name;
+    } else {
+      delete sanitized.name;
+    }
+    sanitized.languages = (Array.isArray(sanitized.languages) ? sanitized.languages : [])
+      .filter((l) => LANGUAGE_OPTIONS.includes(l))
+      .slice(0, 3);
+    if (!sanitized.languages.length) delete sanitized.languages;
+    if (sanitized.callDirection !== 'INBOUND' && sanitized.callDirection !== 'OUTBOUND') delete sanitized.callDirection;
+    if (!AI_MODEL_OPTIONS.includes(sanitized.aiModel)) delete sanitized.aiModel;
+    if (!STT_OPTIONS.includes(sanitized.transcription)) delete sanitized.transcription;
+    if (Array.isArray(sanitized.postCallVariables)) {
+      sanitized.postCallVariables = sanitized.postCallVariables
+        .filter((v) => v && typeof v.key === 'string' && v.key.trim())
+        .slice(0, 10)
+        .map((v) => ({
+          key: v.key.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40),
+          description: typeof v.description === 'string' ? v.description.trim().slice(0, 200) : '',
+        }))
+        .filter((v) => v.key);
+      if (!sanitized.postCallVariables.length) delete sanitized.postCallVariables;
+    } else {
+      delete sanitized.postCallVariables;
+    }
+    const validVoices = new Set(voiceOptions.map((v) => v.label));
+    if (typeof sanitized.voice === 'string') {
+      // Models often copy the whole listing line ("Sarvam - roopa (female,
+      // hi-IN)") — strip the trailing annotation before validating.
+      const label = sanitized.voice.replace(/\s*\([^)]*\)\s*$/, '').trim();
+      if (validVoices.has(label)) sanitized.voice = label;
+      else delete sanitized.voice;
+    } else {
+      delete sanitized.voice;
+    }
+
+    res.json(sanitized);
   } catch (error) {
     logger.error("Error generating agent flow", error);
     const keyHint = /api.?key/i.test(error.message || '')

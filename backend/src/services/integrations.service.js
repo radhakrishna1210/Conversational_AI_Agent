@@ -27,9 +27,16 @@ const getProvider = (key) => {
   return p;
 };
 
-const clientId     = (p) => p.oauth ? (env[p.oauth.clientIdEnv]     ?? null) : null;
-const clientSecret = (p) => p.oauth ? (env[p.oauth.clientSecretEnv] ?? null) : null;
-const redirectUri  = (p) => p.oauth ? (env[p.oauth.redirectUriEnv]  ?? null) : null;
+// env's optional() yields '' (not undefined) for unset vars, so `?? null`
+// alone would treat an unset var as a configured empty value — and an empty
+// redirect_uri reaches the provider as a redirect_uri_mismatch.
+const envValue     = (name) => {
+  const v = name ? env[name] : null;
+  return typeof v === 'string' && v.trim() ? v.trim() : null;
+};
+const clientId     = (p) => p.oauth ? envValue(p.oauth.clientIdEnv)     : null;
+const clientSecret = (p) => p.oauth ? envValue(p.oauth.clientSecretEnv) : null;
+const redirectUri  = (p) => p.oauth ? envValue(p.oauth.redirectUriEnv)  : null;
 const genesysRegion = () => env.GENESYS_REGION || 'mypurecloud.com';
 
 const isMockProvider = (p) => false;

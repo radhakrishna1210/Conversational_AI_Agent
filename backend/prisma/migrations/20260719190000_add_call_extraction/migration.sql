@@ -1,0 +1,5 @@
+ALTER TABLE "AgentCallLog"
+ADD COLUMN "extractedData" TEXT NOT NULL DEFAULT '{}',
+ADD COLUMN "extractionStatus" TEXT NOT NULL DEFAULT 'PENDING',
+ADD COLUMN "extractionError" TEXT,
+ADD COLUMN "extractedAt" TIMESTAMP(3);

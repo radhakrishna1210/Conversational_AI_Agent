@@ -22,7 +22,7 @@ async function main() {
       name: 'Demo Workspace',
       slug: 'demo-workspace',
       planName: 'Pro',
-      members: { create: { userId: user.id, role: 'Admin' } },
+      members: { create: { userId: user.id, role: 'Member' } },
       settings: { create: {} },
     },
   });

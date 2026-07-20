@@ -15,6 +15,7 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:4000',
         changeOrigin: true,
+        ws: true, // proxies the xAI Conversational Agent Web Call WebSocket too
       },
     },
   },

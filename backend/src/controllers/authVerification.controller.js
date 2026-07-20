@@ -43,7 +43,7 @@ export const requestSignupOtp = async (req, res) => {
       data: {
         name: wsName,
         slug: wsName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') + '-' + Date.now().toString(36),
-        members: { create: { userId: user.id, role: 'Admin' } },
+        members: { create: { userId: user.id, role: 'Member' } },
         settings: { create: {} },
       },
     });
@@ -104,7 +104,7 @@ export const verifySignupOtp = async (req, res) => {
     data: {
       name: pending.workspaceName,
       slug: pending.workspaceName.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') + '-' + Date.now().toString(36),
-      members: { create: { userId: user.id, role: 'Admin' } },
+      members: { create: { userId: user.id, role: 'Member' } },
       settings: { create: {} },
     },
   });

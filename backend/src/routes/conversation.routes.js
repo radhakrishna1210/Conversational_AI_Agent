@@ -1,4 +1,4 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import * as ctrl from '../controllers/conversation.controller.js';
 import * as msgCtrl from '../controllers/message.controller.js';
 import { authorize } from '../middleware/authorize.js';
@@ -10,12 +10,12 @@ const router = Router({ mergeParams: true });
 router.get('/', ctrl.listConversations);
 router.get('/stream', ctrl.streamEvents); // SSE
 router.get('/:convId', ctrl.getConversation);
-router.patch('/:convId', authorize('Admin', 'Viewer'), validate(updateConvSchema), ctrl.updateConversation);
-router.patch('/:convId/assign', authorize('Admin', 'Viewer'), validate(assignAgentSchema), ctrl.assignAgent);
+router.patch('/:convId', authorize('Member'), validate(updateConvSchema), ctrl.updateConversation);
+router.patch('/:convId/assign', authorize('Member'), validate(assignAgentSchema), ctrl.assignAgent);
 router.post('/:convId/read', ctrl.markRead);
 
 // Messages nested under conversations
 router.get('/:convId/messages', msgCtrl.listMessages);
-router.post('/:convId/messages', authorize('Admin', 'Viewer'), validate(sendMessageSchema), msgCtrl.sendMessage);
+router.post('/:convId/messages', authorize('Member'), validate(sendMessageSchema), msgCtrl.sendMessage);
 
 export default router;

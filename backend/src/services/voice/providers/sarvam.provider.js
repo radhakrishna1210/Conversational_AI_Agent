@@ -57,8 +57,11 @@ export async function previewVoice(voiceId, text, languageCode = 'en-IN') {
       inputs: [text],
       target_language_code: languageCode,
       speaker: voiceId,
-      pace: 1.0,
-      speech_sample_rate: 8000,
+      pace: 1.05,
+      // Match the streaming endpoint (22050) — at 8000 the same speaker
+      // sounds like a different (telephone-quality) voice, so the welcome
+      // and the streamed replies audibly mismatched mid-call.
+      speech_sample_rate: 22050,
       enable_preprocessing: true,
       model: 'bulbul:v3'
     }),
@@ -76,6 +79,41 @@ export async function previewVoice(voiceId, text, languageCode = 'en-IN') {
 
   // Sarvam returns a base64 encoded string, decode it to raw binary Buffer
   return Buffer.from(data.audios[0], 'base64');
+}
+
+/**
+ * Start Sarvam's binary HTTP audio stream. Unlike the JSON REST endpoint,
+ * this resolves as soon as response headers arrive and lets callers forward
+ * audio chunks without buffering the complete utterance.
+ */
+export async function streamVoice(voiceId, text, languageCode = 'en-IN', opts = {}) {
+  const res = await fetch(`${BASE_URL}/text-to-speech/stream`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      text,
+      target_language_code: languageCode,
+      speaker: voiceId,
+      pace: opts.pace ?? 1.05,
+      speech_sample_rate: 22050,
+      enable_preprocessing: false,
+      model: 'bulbul:v3',
+      temperature: 0.6,
+      output_audio_codec: 'mp3',
+      output_audio_bitrate: '64k',
+    }),
+    signal: AbortSignal.timeout(15_000),
+  });
+
+  if (!res.ok || !res.body) {
+    const body = await res.text();
+    throw new Error(`Sarvam streaming TTS failed (${res.status}): ${body.slice(0, 300)}`);
+  }
+
+  return {
+    body: res.body,
+    contentType: res.headers.get('content-type') || 'audio/mpeg',
+  };
 }
 
 /**

@@ -83,10 +83,10 @@ export function getUserRole(): string {
   return payload?.role ? String(payload.role) : '';
 }
 
-/** True for Admin, Super Admin, SuperAdmin, Owner (case-insensitive). */
+/** True only for the platform owner (Superadmin). Gates the /admin panel UI. */
 export function isAdminRole(role?: string): boolean {
   const r = String(role ?? getUserRole()).trim().toLowerCase();
-  return r === 'admin' || r === 'super admin' || r === 'superadmin' || r === 'owner';
+  return r === 'superadmin';
 }
 
 export function getAuth(): { token: string; workspaceId: string } {

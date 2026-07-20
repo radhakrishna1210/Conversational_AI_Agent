@@ -45,17 +45,24 @@ export async function getVoices() {
  * Synthesise speech using ElevenLabs TTS and return an audio Buffer.
  * @param {string} voiceId – ElevenLabs voice_id
  * @param {string} text    – Text to synthesise
+ * @param {{ fast?: boolean }} [opts] – fast mode uses eleven_flash_v2_5 with a
+ *   lower bitrate and latency-optimized routing (~700ms vs ~7s for long text);
+ *   used by live web calls. Default (quality) mode is kept for voice previews.
  * @returns {Promise<Buffer>}
  */
-export async function previewVoice(voiceId, text) {
+export async function previewVoice(voiceId, text, opts = {}) {
+  const fast = Boolean(opts.fast);
+  const query = fast
+    ? 'output_format=mp3_22050_32&optimize_streaming_latency=3'
+    : 'output_format=mp3_44100_128';
   const res = await fetch(
-    `${BASE_URL}/text-to-speech/${voiceId}?output_format=mp3_44100_128`,
+    `${BASE_URL}/text-to-speech/${voiceId}?${query}`,
     {
       method: 'POST',
       headers: authHeaders(),
       body: JSON.stringify({
         text,
-        model_id: 'eleven_multilingual_v2',
+        model_id: fast ? 'eleven_flash_v2_5' : 'eleven_multilingual_v2',
         voice_settings: { stability: 0.5, similarity_boost: 0.75 },
       }),
     }

@@ -101,7 +101,7 @@ model WorkspaceMember {
   id          String    @id @default(cuid())
   userId      String
   workspaceId String
-  role        String    @default("Viewer")
+  role        String    @default("Member")
   joinedAt    DateTime  @default(now())
   user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -124,7 +124,7 @@ model WorkspaceInvite {
   id          String    @id @default(cuid())
   workspaceId String
   email       String
-  role        String    @default("Viewer")
+  role        String    @default("Member")
   token       String    @unique
   expiresAt   DateTime
   acceptedAt  DateTime?
@@ -397,6 +397,32 @@ model Agent {
   updatedAt            DateTime  @updatedAt
   settings             String    @default("{}")
   workspace            Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+// Per-agent interaction history shown in Edit Agent → Recent Calls.
+// Every test session is logged: text chats (CHAT), browser voice calls
+// (WEB_CALL, with a full-call recording) and phone test calls (PHONE_CALL).
+model AgentCallLog {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  agentId       String
+  type          String    @default("CHAT") // CHAT | WEB_CALL | PHONE_CALL
+  status        String    @default("COMPLETED") // IN_PROGRESS | COMPLETED | INITIATED | FAILED
+  transcript    String    @default("[]") // JSON [{ role, content }]
+  durationSec   Int       @default(0)
+  recordingPath String?
+  recordingMime String?
+  phoneNumber   String?
+  extractedData String    @default("{}") // JSON: configured variables, values, evidence, model metadata
+  extractionStatus String @default("PENDING") // PENDING | PROCESSING | COMPLETED | SKIPPED | FAILED
+  extractionError String?
+  extractedAt   DateTime?
+  startedAt     DateTime  @default(now())
+  endedAt       DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  @@index([workspaceId, agentId, startedAt])
 }
 
 model Integration {

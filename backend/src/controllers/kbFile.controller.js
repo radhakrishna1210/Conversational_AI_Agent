@@ -29,21 +29,43 @@ export const uploadKbFile = multer({
   limits: { fileSize: (env.MAX_FILE_SIZE_MB || 10) * 1024 * 1024 },
 }).single('file');
 
+import { PDFParse } from 'pdf-parse';
+
+/** Extract the text layer of a PDF buffer via pdf-parse v2. */
+const pdfParse = async (buffer) => {
+  const parser = new PDFParse({ data: new Uint8Array(buffer) });
+  try {
+    const result = await parser.getText();
+    return { text: result.text || '' };
+  } finally {
+    await parser.destroy().catch(() => {});
+  }
+};
+
 /**
- * Best-effort text extraction without extra dependencies:
- * plain text formats are read directly; PDFs get a lightweight scan of text
- * operators (covers most digitally-authored PDFs; scanned PDFs yield nothing
- * and are stored file-only). Swap in pdf-parse for full fidelity later.
+ * Best-effort text extraction:
+ * plain text formats are read directly; PDFs go through pdf-parse (real text
+ * layer extraction — handles compressed/flate streams the old regex scan
+ * missed), with the lightweight text-operator scan kept as a fallback.
+ * Scanned/image-only PDFs still yield nothing and are stored file-only.
  */
-const extractText = (filePath, mime) => {
+export const extractText = async (filePath, mime) => {
   try {
     if (['text/plain', 'text/markdown', 'text/csv', 'application/json'].includes(mime)) {
       return fs.readFileSync(filePath, 'utf8').slice(0, 200_000);
     }
     if (mime === 'application/pdf') {
-      const raw = fs.readFileSync(filePath).toString('latin1');
+      const buffer = fs.readFileSync(filePath);
+      try {
+        const parsed = await pdfParse(buffer);
+        const text = (parsed.text || '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+        if (text.length > 40) return text.slice(0, 200_000);
+      } catch (pdfErr) {
+        logger.warn(`pdf-parse failed, using fallback scan: ${pdfErr.message}`);
+      }
+      // Fallback: naive Tj/TJ text-operator scan (uncompressed PDFs only)
+      const raw = buffer.toString('latin1');
       const chunks = [];
-      // Tj / TJ show-text operators
       const tj = raw.match(/\(((?:[^()\\]|\\.)*)\)\s*Tj/g) || [];
       for (const m of tj) chunks.push(m.replace(/\)\s*Tj$/, '').slice(1));
       const tjArr = raw.match(/\[((?:[^\[\]\\]|\\.)*)\]\s*TJ/g) || [];
@@ -67,7 +89,7 @@ export const upload = async (req, res) => {
   const { workspaceId } = req.params;
   if (!req.file) return res.status(400).json({ error: 'A file is required' });
   try {
-    const textContent = extractText(req.file.path, req.file.mimetype);
+    const textContent = await extractText(req.file.path, req.file.mimetype);
     const record = await prisma.kbFile.create({
       data: {
         workspaceId,

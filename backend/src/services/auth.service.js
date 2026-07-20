@@ -4,7 +4,8 @@ import { signAccessToken, signRefreshToken } from '../lib/jwt.js';
 import { REFRESH_TOKEN_EXPIRY_MS, INVITE_TOKEN_BYTES } from '../constants/limits.js';
 import { env } from '../config/env.js';
 
-const resolveRole = (email) => (env.ADMIN_EMAIL && email === env.ADMIN_EMAIL ? 'Admin' : 'Viewer');
+const resolveRole = (email) =>
+  (env.SUPER_ADMIN_EMAIL && email === env.SUPER_ADMIN_EMAIL ? 'Superadmin' : 'Member');
 
 const makeSlug = (name) =>
   name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') + '-' + Date.now().toString(36);
