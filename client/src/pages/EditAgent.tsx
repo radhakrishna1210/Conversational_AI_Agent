@@ -77,6 +77,49 @@ const createDefaultPostCallConfig = (): PostCallConfig => ({
   ]
 });
 
+// Ambient Sound (Call Configuration): synthesizes a looping background bed for
+// the Web Call directly with Web Audio — no audio assets to ship. Each preset
+// differs by noise colour (filter) and level. Routed to the speakers (so it's
+// audible) and, when given, into the mixed call recording — never into the mic
+// path, so it can't pollute what the agent's STT hears. Returns a stop().
+const AMBIENT_PRESETS: Record<string, { type: BiquadFilterType; freq: number; gain: number }> = {
+  Office: { type: 'lowpass', freq: 700, gain: 0.012 },
+  'Call Center': { type: 'bandpass', freq: 1100, gain: 0.02 },
+  Static: { type: 'highpass', freq: 2200, gain: 0.02 },
+  Cafe: { type: 'lowpass', freq: 1000, gain: 0.018 },
+  Street: { type: 'lowpass', freq: 400, gain: 0.022 },
+};
+
+const startAmbientSound = (
+  audioCtx: AudioContext,
+  preset: string,
+  mixDest?: MediaStreamAudioDestinationNode | null,
+): (() => void) | null => {
+  const cfg = AMBIENT_PRESETS[preset];
+  if (!cfg) return null; // 'None' or unknown → silence
+  const frames = Math.floor(audioCtx.sampleRate * 2);
+  const buffer = audioCtx.createBuffer(1, frames, audioCtx.sampleRate);
+  const chan = buffer.getChannelData(0);
+  for (let i = 0; i < frames; i++) chan[i] = Math.random() * 2 - 1; // white noise
+  const src = audioCtx.createBufferSource();
+  src.buffer = buffer;
+  src.loop = true;
+  const filter = audioCtx.createBiquadFilter();
+  filter.type = cfg.type;
+  filter.frequency.value = cfg.freq;
+  const gain = audioCtx.createGain();
+  gain.gain.value = cfg.gain;
+  src.connect(filter).connect(gain);
+  gain.connect(audioCtx.destination);
+  if (mixDest) gain.connect(mixDest);
+  try { src.start(); } catch { /* context may be closing */ }
+  return () => {
+    try { src.stop(); } catch { /* already stopped */ }
+    try { gain.disconnect(); } catch { /* noop */ }
+    try { filter.disconnect(); } catch { /* noop */ }
+  };
+};
+
 const MicIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4caf50" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
@@ -450,7 +493,17 @@ export default function EditAgent() {
     // (xAI or ElevenLabs, via xaiCallSocket — engine-agnostic despite the
     // name) instead of the modular record-segment/HTTP flow.
     bundledEngine: boolean;
-  }>({ active: false, stream: null, audioCtx: null, analyser: null, recorder: null, vadTimer: null, player: null, history: [], mixDest: null, mixRecorder: null, mixChunks: [], logId: null, bundledEngine: false });
+    // Last time the caller was actually heard speaking — drives the
+    // "Max Silence Before Hangup" Call-Configuration setting.
+    lastSpeechAt: number;
+    // Teardown for the synthesized Ambient Sound bed, null when none.
+    ambientStop: (() => void) | null;
+    // Set while the agent's audio is playing: calling it cuts the agent off
+    // (barge-in) and resolves the playback promise so we start listening.
+    stopPlayback: (() => void) | null;
+    // Interval that watches the mic for barge-in while the agent speaks.
+    bargeTimer: number | null;
+  }>({ active: false, stream: null, audioCtx: null, analyser: null, recorder: null, vadTimer: null, player: null, history: [], mixDest: null, mixRecorder: null, mixChunks: [], logId: null, bundledEngine: false, lastSpeechAt: 0, ambientStop: null, stopPlayback: null, bargeTimer: null });
 
   // ─── Call history logging (Recent Calls tab) ────────────────────────────────
   // Every test session — chat modal, Chat Test tab, web call, phone call — is
@@ -924,10 +977,12 @@ export default function EditAgent() {
       // (data: URLs are cross-origin for MediaElementSource and record silence.)
       const url = URL.createObjectURL(blob);
       const player = new Audio(url);
-      const done = () => { URL.revokeObjectURL(url); resolve(); };
+      const done = () => { callRef.current.stopPlayback = null; URL.revokeObjectURL(url); resolve(); };
       player.onended = done;
       player.onerror = done;
       connectAgentPlayer(player);
+      // Barge-in hook: pausing then resolving lets the caller interrupt.
+      callRef.current.stopPlayback = () => { try { player.pause(); } catch { /* noop */ } done(); };
       player.play().catch(done);
     });
 
@@ -976,6 +1031,7 @@ export default function EditAgent() {
       const finish = (error?: unknown) => {
         if (settled) return;
         settled = true;
+        callRef.current.stopPlayback = null;
         clearTimeout(startupTimer);
         if (error) reader?.cancel().catch(() => {});
         URL.revokeObjectURL(url);
@@ -984,6 +1040,9 @@ export default function EditAgent() {
       };
 
       connectAgentPlayer(player);
+      // Barge-in hook: pause and resolve (no error) so the caller can cut in
+      // without falling through to the buffered-audio fallback.
+      callRef.current.stopPlayback = () => { try { player.pause(); } catch { /* noop */ } finish(); };
       player.onplaying = () => clearTimeout(startupTimer);
       player.onended = () => finish();
       player.onerror = () => finish(new Error('Streamed audio could not be played'));
@@ -1072,7 +1131,18 @@ export default function EditAgent() {
       if (call.vadTimer) { clearInterval(call.vadTimer); call.vadTimer = null; }
       if (!call.active) return;
       const blob = new Blob(chunks, { type: recorder.mimeType || 'audio/webm' });
-      if (!speechDetected || blob.size < 2000) { startListeningSegment(); return; } // noise only — keep listening
+      if (!speechDetected || blob.size < 2000) {
+        // Noise-only segment. "Max Silence Before Hangup" (Call Configuration):
+        // end the call once the caller has stayed silent for the configured
+        // number of seconds. 0 disables the auto-hangup.
+        if (maxSilenceBeforeHangup > 0 && Date.now() - call.lastSpeechAt > maxSilenceBeforeHangup * 1000) {
+          handleEndWebCall();
+          return;
+        }
+        startListeningSegment();
+        return; // noise only — keep listening
+      }
+      call.lastSpeechAt = Date.now();
       await submitVoiceTurn(blob);
     };
 
@@ -1119,6 +1189,9 @@ export default function EditAgent() {
     } catch (err: any) {
       setWebCallError(err.message || 'Voice turn failed');
     }
+    // Measure the silence-hangup window from the end of the agent's reply, not
+    // from earlier — the caller isn't expected to talk while the agent speaks.
+    call.lastSpeechAt = Date.now();
     if (call.active) startListeningSegment();
   };
 
@@ -1219,7 +1292,37 @@ export default function EditAgent() {
       mixRecorder.ondataavailable = (e) => { if (e.data.size > 0) mixChunks.push(e.data); };
       mixRecorder.start(1000);
 
-      Object.assign(call, { active: true, stream, audioCtx, analyser, history: [], mixDest, mixRecorder, mixChunks, logId: null });
+      // Ambient Sound (Call Configuration): layer a synthesized background bed
+      // for the duration of the call, captured into the recording too.
+      const ambientStop = startAmbientSound(audioCtx, ambientSound, mixDest);
+
+      Object.assign(call, { active: true, stream, audioCtx, analyser, history: [], mixDest, mixRecorder, mixChunks, logId: null, lastSpeechAt: Date.now(), ambientStop });
+
+      // Barge-in: while the agent is speaking (call.stopPlayback set), watch the
+      // mic for sustained speech and cut the agent off so the caller can
+      // interrupt. Mic echo-cancellation keeps the agent's own voice out of
+      // this signal; the threshold + sustain window guard against residual echo.
+      let bargeActiveMs = 0;
+      call.bargeTimer = window.setInterval(() => {
+        if (!call.active || !call.analyser || !call.stopPlayback) { bargeActiveMs = 0; return; }
+        const buf = new Uint8Array(call.analyser.fftSize);
+        call.analyser.getByteTimeDomainData(buf);
+        let sum = 0;
+        for (let i = 0; i < buf.length; i++) { const d = (buf[i] - 128) / 128; sum += d * d; }
+        const rms = Math.sqrt(sum / buf.length);
+        if (rms > 0.045) {
+          bargeActiveMs += 80;
+          if (bargeActiveMs >= 240) { // ~0.24s of speech over the agent
+            bargeActiveMs = 0;
+            const stop = call.stopPlayback;
+            call.stopPlayback = null;
+            setWebCallActivity('listening');
+            stop?.(); // cut the agent off; playback promise resolves → we listen
+          }
+        } else {
+          bargeActiveMs = 0;
+        }
+      }, 80);
 
       // Open the Recent Calls history entry for this call
       whapi.post<{ call?: { id: string } }>(`/agents/${agentId}/calls`, { type: 'WEB_CALL', transcript: [], status: 'IN_PROGRESS' })
@@ -1266,6 +1369,9 @@ export default function EditAgent() {
       return;
     }
     if (call.vadTimer) { clearInterval(call.vadTimer); call.vadTimer = null; }
+    if (call.bargeTimer) { clearInterval(call.bargeTimer); call.bargeTimer = null; }
+    call.stopPlayback = null;
+    if (call.ambientStop) { call.ambientStop(); call.ambientStop = null; }
     if (call.recorder && call.recorder.state !== 'inactive') { try { call.recorder.stop(); } catch { /* already stopped */ } }
     call.recorder = null;
     if (call.player) { try { call.player.pause(); } catch { /* noop */ } call.player = null; }

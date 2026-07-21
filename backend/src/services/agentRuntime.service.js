@@ -12,6 +12,7 @@
 
 import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
+import { logTurnLatency } from '../lib/latencyLog.js';
 import { getLLMProviderWithFallback } from './llm.factory.js';
 import { mapAgentModel } from '../controllers/llm.controller.js';
 import { DEFAULT_TEMPERATURE } from '../constants/llmModels.js';
@@ -146,9 +147,9 @@ Bracketed placeholders like [Your Company Name] or [Product] anywhere in this co
 
 # Language
 ${languages.length
-    ? `Primary language: ${languages[0]}. You MUST write EVERY reply in ${languages[0]} — including the very first turn — in its native script (e.g. Devanagari for Hindi); your words are spoken aloud by a ${languages[0]} text-to-speech voice.${languageRegisterNote(languages[0])}${languages.length > 1
-        ? ` Also allowed: ${languages.slice(1).join(', ')} — switch only when the user speaks one of them or asks you to.`
-        : ` Even when the user speaks a different language, stay in ${languages[0]} unless they explicitly insist otherwise.`}`
+    ? `Primary language: ${languages[0]}. Default to ${languages[0]} — including the very first turn — writing in its native script (e.g. Devanagari for Hindi), since your words are spoken aloud by a ${languages[0]} text-to-speech voice.${languageRegisterNote(languages[0])} But mirror your caller: if they speak to you in another language (e.g. full sentences in English), reply in THAT language for those turns so they stay comfortable, then ease back to ${languages[0]} once they do.${languages.length > 1
+        ? ` Configured additional languages you also handle: ${languages.slice(1).join(', ')}.`
+        : ''}`
     : `No language restriction configured — mirror the language the user uses.`}
 
 # Conversation Rules
@@ -156,7 +157,11 @@ ${languages.length
 - Track everything the user has told you (name, contact details, preferences) and never re-ask for information already collected.
 - Ask for at most one piece of information per turn.
 - If the user asks for a human, or the request is outside your configured scope, offer to transfer/escalate.
-${settings.endCallMessage ? `- When the conversation is complete, close with: "${settings.endCallMessage}"` : ''}
+- If the caller signals they're finished ("thank you", "thanks, bye", "that's all", "no, that's it"), stop asking questions — warmly acknowledge and wrap up${settings.endCallMessage ? `, closing with: "${settings.endCallMessage}"` : ''}. Never keep interrogating after a clear goodbye.
+${settings.fillerWords ? `- Sound human: now and then open a reply with a short natural filler ("umm", "hmm", "let me see", "right") — sparingly, at most once every few turns, and never in the same breath as a price, number, or confirmation.` : ''}
+${(settings.transferNumber || settings.transferCondition)
+    ? `- Escalation/transfer: ${settings.transferCondition ? `When ${String(settings.transferCondition).trim()}, ` : 'If the caller asks for a human or needs something beyond your scope, '}let them know warmly that you'll connect them to a team member and are transferring them now. Never claim the transfer already went through or invent what the other person says.`
+    : ''}
 ${voiceMode
     ? `- This is a live VOICE call: reply in 1-2 short natural spoken sentences (never more). Answer ONLY what was asked — give one fact/price at a time and offer to share more instead of listing everything. Absolutely no markdown, no bullet points, no emojis, no stage directions — only words to be spoken aloud.`
     : `- Keep replies to 2-4 short sentences — answer what was asked and ask at most one follow-up. No markdown headings or bullet-point walls; write like a person chatting.`}`;
@@ -560,7 +565,9 @@ export async function voiceTurn(workspaceId, agentId, audioBuffer, mimeType, his
   }
 
   const totalMs = Math.round(performance.now() - turnStartedAt);
-  logger.info({ agentId, sttProvider, llmProvider, model, sttMs, llmMs, ttsMs, totalMs }, 'Web call turn latency');
+  const latency = { agentId, callId: options.callId, sttProvider, llmProvider, model, sttMs, llmMs, ttsMs, totalMs };
+  logger.info(latency, 'Web call turn latency');
+  logTurnLatency(latency); // persist to logs/latency.log for offline analysis
 
   return {
     userText,
