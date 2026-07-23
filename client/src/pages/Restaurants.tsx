@@ -18,14 +18,14 @@ export default function RealEstate() {
 
 const faqs = [
   {
-    question: "How can OmniDimension help restaurants manage calls and orders?",
+    question: "How can Conversational AI Agent help restaurants manage calls and orders?",
     answer:
       "You can create a voice assistant that answers calls, takes orders, handles reservations, and routes updates directly to your POS or kitchen system - all without staff intervention.",
   },
   {
     question: "Does it integrate with our POS system?",
     answer:
-      "Yes. OmniDimension connects with major restaurant POS systems like Square, Clover, and Toast. Orders placed through your assistant are instantly sent to your kitchen display or printer.",
+      "Yes. Conversational AI Agent connects with major restaurant POS systems like Square, Clover, and Toast. Orders placed through your assistant are instantly sent to your kitchen display or printer.",
   },
   {
     question: "Can my assistant handle allergies and special requests?",

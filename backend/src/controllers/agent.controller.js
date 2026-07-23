@@ -349,7 +349,10 @@ export const testCall = async (req, res) => {
   const { workspaceId } = req.params;
   const accountSid = process.env.TWILIO_ACCOUNT_SID;
   const authToken = process.env.TWILIO_AUTH_TOKEN;
-  const fromNumber = process.env.TWILIO_FROM_NUMBER;
+  // Caller ID: use the number chosen in the "Call from" picker when supplied,
+  // otherwise fall back to the platform default. Twilio rejects an unowned/
+  // unverified number with error 21210, which this handler surfaces honestly.
+  const fromNumber = req.body.fromNumber || process.env.TWILIO_FROM_NUMBER;
 
   if (!agentId || !phoneNumber) {
     return res.status(400).json({ error: 'agentId and phoneNumber are required' });
@@ -437,10 +440,23 @@ export const testCall = async (req, res) => {
       }).catch((e) => logger.warn(`Could not log phone test call: ${e.message}`));
     }
 
+    // Be explicit about which kind of call this is. A greeting-only call has no
+    // two-way conversation, so NO variables can be extracted and nothing will be
+    // delivered to Post-Call destinations (webhook/email/Google Sheets). Surface
+    // that here instead of returning a bare "success" that looks like a full call.
+    const mode = useBundledEngine ? 'conversation' : 'greeting-only';
+    const message = useBundledEngine
+      ? `Calling ${phoneNumber} — your phone should ring shortly for a live conversation with ${agent.name}.`
+      : `Calling ${phoneNumber} — your phone will ring with ${agent.name}'s greeting only. `
+        + `This is a one-way test call: no variables will be extracted and nothing will be sent to your Post-Call sheet. `
+        + `To get a real conversation (and sheet delivery), set PUBLIC_BACKEND_WS_URL to a public wss:// URL for this backend and use a Conversational Agent (xAI/ElevenLabs) voice engine.`;
+
     return res.json({
       success: true,
       callSid: dataJson.sid,
-      message: `Calling ${phoneNumber} — your phone should ring shortly with ${agent.name}'s greeting.`,
+      mode,
+      variablesWillExtract: useBundledEngine,
+      message,
     });
   } catch (err) {
     logger.error('testCall failed', err);

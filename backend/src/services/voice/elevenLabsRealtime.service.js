@@ -26,8 +26,30 @@ import WebSocket from 'ws';
 import { EventEmitter } from 'events';
 import logger from '../../lib/logger.js';
 import { buildAgentSystemPrompt } from '../agentRuntime.service.js';
+import { resolveAgentVoice } from '../voice.service.js';
 
 const SIGNED_URL_ENDPOINT = 'https://api.elevenlabs.io/v1/convai/conversation/get-signed-url';
+
+// ElevenLabs' `language` override expects an ISO 639-1 code ("hi"), but our
+// agents store display names ("Hindi"). Sending an invalid value makes
+// ElevenLabs reject the conversation and close the socket immediately, so map
+// names → codes and omit the override entirely when we can't map it.
+const LANG_NAME_TO_ISO = {
+  english: 'en', hindi: 'hi', tamil: 'ta', telugu: 'te', kannada: 'kn',
+  malayalam: 'ml', marathi: 'mr', bengali: 'bn', gujarati: 'gu', punjabi: 'pa',
+  odia: 'or', assamese: 'as', urdu: 'ur', spanish: 'es', french: 'fr',
+  german: 'de', portuguese: 'pt', italian: 'it', dutch: 'nl', arabic: 'ar',
+  chinese: 'zh', japanese: 'ja', korean: 'ko', russian: 'ru',
+};
+
+function toIsoLangCode(value) {
+  if (!value) return undefined;
+  const raw = String(value).trim();
+  // Already a code such as "hi" or a locale such as "hi-IN".
+  if (/^[a-z]{2}(-[A-Za-z]{2,})?$/.test(raw)) return raw.slice(0, 2).toLowerCase();
+  const name = raw.toLowerCase().replace(/\s*\(.*\)\s*/g, '').trim(); // "English (Indian)" → "english"
+  return LANG_NAME_TO_ISO[name];
+}
 
 export class ElevenLabsRealtimeSession extends EventEmitter {
   /**
@@ -53,6 +75,17 @@ export class ElevenLabsRealtimeSession extends EventEmitter {
     this.ws = null;
     this.ready = false;
     this._closed = false;
+    // Latency instrumentation: timestamp when ElevenLabs reports the user's
+    // turn ended (user_transcript) so we can measure the gap until the agent's
+    // first audio chunk (LLM + TTS time). Diagnoses where a slow reply's time
+    // actually goes — turn-detection vs. generation.
+    this._lastUserTurnAt = null;
+    this._awaitingReply = false;
+    // ElevenLabs voice_id for the agent's chosen voice, resolved in connect().
+    // Only set when the agent's voice is an ElevenLabs voice — the bundled
+    // engine can only speak with ElevenLabs voices, so a Sarvam/Google/etc.
+    // selection falls back to the shell agent's default voice.
+    this.elevenVoiceId = null;
   }
 
   async connect() {
@@ -61,6 +94,15 @@ export class ElevenLabsRealtimeSession extends EventEmitter {
     if (!apiKey) throw new Error('ELEVENLABS_API_KEY is not configured — cannot start an ElevenLabs Conversational Agent session');
     if (!agentId) throw new Error('ELEVENLABS_CONVAI_AGENT_ID is not configured — create a shell Agent in the ElevenLabs dashboard first');
     if (this.ws) return;
+
+    // Resolve the agent's chosen voice; apply it only if it's an ElevenLabs
+    // voice (see this.elevenVoiceId note above). Non-fatal on failure.
+    try {
+      const v = await resolveAgentVoice(this.agent.voice);
+      if (v?.provider?.name === 'ElevenLabs' && v.providerVoiceId) this.elevenVoiceId = v.providerVoiceId;
+    } catch (err) {
+      logger.warn({ err: err.message }, 'ElevenLabs Conversational AI: voice resolution failed — using shell agent default voice');
+    }
 
     let signedUrl;
     try {
@@ -98,16 +140,21 @@ export class ElevenLabsRealtimeSession extends EventEmitter {
       const languages = (() => {
         try { return JSON.parse(this.agent.languages || '[]'); } catch { return []; }
       })();
+      const langCode = toIsoLangCode(languages[0]);
       this._send({
         type: 'conversation_initiation_client_data',
         conversation_config_override: {
           agent: {
             prompt: { prompt: instructions },
             ...(this.agent.welcomeMessage ? { first_message: this.agent.welcomeMessage } : {}),
-            ...(languages[0] ? { language: languages[0] } : {}),
+            ...(langCode ? { language: langCode } : {}),
           },
+          // Only sent for an ElevenLabs voice; requires the tts.voice_id
+          // override to be enabled on the shell agent or ElevenLabs rejects it.
+          ...(this.elevenVoiceId ? { tts: { voice_id: this.elevenVoiceId } } : {}),
         },
       });
+      logger.info({ agentId: this.agent.id, langCode: langCode ?? null, voiceId: this.elevenVoiceId ?? null, overridePrompt: true }, 'ElevenLabs Conversational AI: sent conversation init');
       this.ready = true;
       this.emit('ready');
     });
@@ -122,11 +169,23 @@ export class ElevenLabsRealtimeSession extends EventEmitter {
       switch (msg.type) {
         case 'audio':
           if (msg.audio_event?.audio_base_64) {
+            if (this._awaitingReply && this._lastUserTurnAt != null) {
+              logger.info(
+                { agentId: this.agent.id, replyLatencyMs: Date.now() - this._lastUserTurnAt },
+                'ElevenLabs Conversational AI: first reply audio (LLM+TTS latency after user turn end)'
+              );
+              this._awaitingReply = false;
+            }
             this.emit('audio', Buffer.from(msg.audio_event.audio_base_64, 'base64'));
           }
           break;
         case 'user_transcript':
           if (msg.user_transcription_event?.user_transcript) {
+            // ElevenLabs decided the user's turn is over here. Mark the moment
+            // so the next 'audio' can report generation latency separately from
+            // however long the network/VAD took to reach this point.
+            this._lastUserTurnAt = Date.now();
+            this._awaitingReply = true;
             this.emit('transcript', { role: 'user', text: msg.user_transcription_event.user_transcript, done: true });
           }
           break;
@@ -135,10 +194,27 @@ export class ElevenLabsRealtimeSession extends EventEmitter {
             this.emit('transcript', { role: 'assistant', text: msg.agent_response_event.agent_response, done: true });
           }
           break;
+        case 'interruption':
+          // The caller barged in: ElevenLabs has stopped generating. Tell the
+          // bridge to flush any audio it already sent downstream so the agent
+          // goes quiet immediately instead of finishing its buffered sentence.
+          this._awaitingReply = false;
+          this.emit('clear');
+          break;
         case 'ping':
           this._send({ type: 'pong', event_id: msg.ping_event?.event_id });
           break;
+        case 'conversation_initiation_metadata':
+          logger.info({ meta: msg.conversation_initiation_metadata_event }, 'ElevenLabs Conversational AI: conversation accepted');
+          break;
         default:
+          // Surface anything unexpected — especially an error/rejection — so a
+          // refused override or bad language code is not silently swallowed.
+          if (/error|invalid|reject/i.test(msg.type || '')) {
+            logger.error({ type: msg.type, msg }, 'ElevenLabs Conversational AI: error message');
+          } else {
+            logger.debug({ type: msg.type }, 'ElevenLabs Conversational AI: unhandled message type');
+          }
           break;
       }
     });
@@ -148,8 +224,11 @@ export class ElevenLabsRealtimeSession extends EventEmitter {
       this.emit('error', err);
     });
 
-    this.ws.on('close', () => {
+    this.ws.on('close', (code, reason) => {
       this.ready = false;
+      // ElevenLabs puts the rejection reason here (e.g. overrides not enabled,
+      // invalid language) — log it so an instant-close is diagnosable.
+      logger.warn({ code, reason: reason?.toString?.() || '' }, 'ElevenLabs Conversational AI WS closed');
       this.emit('close');
     });
   }

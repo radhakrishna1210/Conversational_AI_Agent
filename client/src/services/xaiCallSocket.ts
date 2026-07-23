@@ -29,6 +29,10 @@ class XaiCallSocketService {
   private micSource: MediaStreamAudioSourceNode | null = null;
   private playbackContext: AudioContext | null = null;
   private playbackTime = 0;
+  // Sources scheduled ahead on the playback clock, tracked so barge-in can stop
+  // them instantly (see clearPlayback). Without this, cancelled agent audio
+  // that was already queued keeps playing for seconds after an interruption.
+  private scheduledSources: AudioBufferSourceNode[] = [];
 
   private wsUrl(workspaceId: string, agentId: string): string {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -42,7 +46,11 @@ class XaiCallSocketService {
     token: string,
     onEvent: (e: XaiCallEvent) => void
   ): Promise<void> {
-    this.micStream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1 } });
+    // echoCancellation keeps the mic from re-capturing the agent's own voice
+    // from the speakers — essential for barge-in, or the agent interrupts itself.
+    this.micStream = await navigator.mediaDevices.getUserMedia({
+      audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true, autoGainControl: true },
+    });
 
     this.micContext = new AudioContext({ sampleRate: SAMPLE_RATE });
     await this.micContext.audioWorklet.addModule('/xai-mic-worklet.js');
@@ -76,6 +84,13 @@ class XaiCallSocketService {
           return;
         }
         if (!msg) return;
+
+        // Barge-in: server says the agent was interrupted — drop queued audio
+        // so it stops immediately. Internal control frame; not surfaced to UI.
+        if ((msg as { type: string }).type === 'clear') {
+          this.clearPlayback();
+          return;
+        }
 
         if (msg.type === 'ready' && this.micNode) {
           this.micNode.port.onmessage = (e: MessageEvent<ArrayBuffer>) => {
@@ -120,6 +135,28 @@ class XaiCallSocketService {
     const startAt = Math.max(now, this.playbackTime);
     src.start(startAt);
     this.playbackTime = startAt + audioBuffer.duration;
+
+    // Track for barge-in and self-clean when finished so the list can't grow
+    // unbounded over a long call.
+    this.scheduledSources.push(src);
+    src.onended = () => {
+      const i = this.scheduledSources.indexOf(src);
+      if (i !== -1) this.scheduledSources.splice(i, 1);
+    };
+  }
+
+  /** Barge-in: stop everything queued and reset the clock so nothing lingers. */
+  private clearPlayback() {
+    for (const src of this.scheduledSources) {
+      try {
+        src.onended = null;
+        src.stop();
+      } catch {
+        /* already stopped/ended */
+      }
+    }
+    this.scheduledSources = [];
+    if (this.playbackContext) this.playbackTime = this.playbackContext.currentTime;
   }
 
   stop() {
@@ -136,6 +173,7 @@ class XaiCallSocketService {
     this.playbackContext?.close().catch(() => {});
     this.playbackContext = null;
     this.playbackTime = 0;
+    this.scheduledSources = [];
   }
 
   isActive(): boolean {

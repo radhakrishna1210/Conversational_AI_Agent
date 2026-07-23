@@ -76,7 +76,15 @@ export class XaiRealtimeSession extends EventEmitter {
           modalities: ['audio', 'text'],
           input_audio_format: this.audioFormat,
           output_audio_format: this.audioFormat,
-          turn_detection: { type: 'server_vad' },
+          // Tunable server-VAD: silence_duration_ms is the single biggest lever
+          // on perceived responsiveness vs. how often the agent cuts the caller
+          // off on a natural pause (see XAI_VOICE_TURN_* in env.js).
+          turn_detection: {
+            type: 'server_vad',
+            threshold: env.XAI_VOICE_TURN_THRESHOLD,
+            prefix_padding_ms: env.XAI_VOICE_TURN_PREFIX_MS,
+            silence_duration_ms: env.XAI_VOICE_TURN_SILENCE_MS,
+          },
         },
       });
       this.ready = true;

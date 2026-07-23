@@ -1,6 +1,6 @@
-# OmniDimension React + TypeScript Clone
+# Conversational AI Agent React + TypeScript Clone
 
-This project is a pixel-accurate **frontend clone** of [OmniDimension](https://omnidim.io), built with **React, TypeScript, and Vite**. The user asked to migrate the previous HTML/Vanilla JS structural elements into proper `.tsx` files.
+This project is a pixel-accurate **frontend clone** of [Conversational AI Agent](https://omnidim.io), built with **React, TypeScript, and Vite**. The user asked to migrate the previous HTML/Vanilla JS structural elements into proper `.tsx` files.
 
 ## 🚀 Getting Started
 

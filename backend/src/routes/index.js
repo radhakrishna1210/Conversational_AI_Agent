@@ -8,6 +8,8 @@ import { rateLimit } from '../middleware/rateLimit.js';
 import kbFileRoutes from './kbFile.routes.js';
 import * as platform from '../controllers/platform.controller.js';
 import * as kbCtrl from '../controllers/kbFile.controller.js';
+import * as callerCtrl from '../controllers/callerNumber.controller.js';
+import { readFileSync } from 'fs';
 
 import authRoutes from './auth.routes.js';
 import adminRoutes from './admin.routes.js';
@@ -57,6 +59,18 @@ router.use('/report-issue', rateLimit({ windowMs: 60_000, max: 10, keyPrefix: 'i
 // the authenticated workspace router below (see `ws`).
 router.use('/integrations', integrationsPublicRoutes);
 router.get('/config/plans', platform.listPlansPublic);
+
+// Serve the Airtel verified-calling guide as markdown (the caller-number picker
+// links here). Resolved relative to this module so it's cwd-independent.
+router.get('/config/airtel-verified-calling-guide', (_req, res) => {
+  try {
+    const guidePath = new URL('../../docs/AIRTEL_VERIFIED_CALLING_GUIDE.md', import.meta.url);
+    res.type('text/markdown').send(readFileSync(guidePath, 'utf8'));
+  } catch (err) {
+    logger.error('Could not read Airtel guide', err);
+    res.status(404).type('text/plain').send('Guide not found.');
+  }
+});
 
 
 // Public AI Assistant chat — marketing-site helper. No auth, but strictly
@@ -128,6 +142,12 @@ ws.use('/files', kbFileRoutes);
 ws.get('/wallet', platform.getWallet);
 ws.get('/agents/:agentId/kb-text', kbCtrl.agentKbText);
 ws.post('/agents/:agentId/post-call/test', platform.testPostCall);
+
+// Caller-number picker ("call from your own number") — Twilio-backed, no DB.
+ws.get('/caller-numbers', callerCtrl.listCallerNumbers);
+ws.post('/caller-numbers/verify', callerCtrl.startVerification);
+ws.get('/caller-numbers/verify/status', callerCtrl.verificationStatus);
+ws.delete('/caller-numbers', callerCtrl.removeVerified);
 
 
 router.use('/workspaces/:workspaceId', ws);

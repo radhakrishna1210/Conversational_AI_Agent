@@ -57,7 +57,7 @@ const featureCards = [
 
 const faqs = [
   {
-    question: 'What can OmniDimension automate for educational institutions?',
+    question: 'What can Conversational AI Agent automate for educational institutions?',
     answer:
       'You can create voice assistants that handle admissions, enrollment, tour scheduling, financial aid questions, and student support while keeping communication consistent.',
   },
@@ -342,7 +342,7 @@ function FooterBlock() {
             <div className="flex h-20 w-20 items-center justify-center rounded-[22px] border border-gray-300 dark:border-white/8 bg-gray-50 dark:bg-[#0b1118] text-[52px] font-black tracking-[-0.05em] text-[#0eb39e] dark:text-[#19cfd4] shadow-[0_0_0_1px_rgba(0,0,0,0.05)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
               O
             </div>
-            <p className="mt-6 text-[18px] font-semibold text-gray-900 dark:text-white/92">Ask AI about OmniDimension</p>
+            <p className="mt-6 text-[18px] font-semibold text-gray-900 dark:text-white/92">Ask AI about Conversational AI Agent</p>
             <div className="mt-5 flex gap-3">
               <FooterIconLabel label="◎" />
               <FooterIconLabel label="AI" />
@@ -356,7 +356,7 @@ function FooterBlock() {
             heading="Solutions"
             items={['BY INDUSTRY', 'Real Estate', 'Healthcare', 'Insurance', 'Restaurants', 'Finance', 'Education', 'E-commerce', 'BY USE CASE', 'Lead Generation', 'Collections']}
           />
-          <FooterColumn heading="Product" items={['Pricing', 'Integrations', 'Telephony', 'Multilingual', 'Instant Voice', 'OmniRelay (for agencies)']} />
+          <FooterColumn heading="Product" items={['Pricing', 'Integrations', 'Telephony', 'Multilingual', 'Instant Voice', 'Agent Relay (for agencies)']} />
           <FooterColumn heading="Resources" items={['Blog', 'Documentation', 'Product Updates']} />
           <FooterColumn
             heading="Sales & Support"
@@ -365,7 +365,7 @@ function FooterBlock() {
         </div>
 
         <div className="mt-24 flex flex-col gap-6 border-t border-gray-300 dark:border-white/6 pt-8 lg:flex-row lg:items-end lg:justify-between">
-          <div className="text-[14px] text-gray-500 dark:text-white/42">© 2026 OmniDimension</div>
+          <div className="text-[14px] text-gray-500 dark:text-white/42">© 2026 Conversational AI Agent</div>
           <div className="flex items-center gap-4 text-gray-500 dark:text-white/42">
             <span>in</span>
             <span>X</span>

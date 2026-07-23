@@ -68,7 +68,7 @@ const isTerminalStatus = (status) => status === 'COMPLETED' || status === 'FAILE
  * variables. Delivery is best-effort: a failing webhook must never make the
  * call-logging request fail, since the call itself already succeeded.
  */
-const deliverPostCall = async (workspaceId, agentId, row) => {
+export const deliverPostCall = async (workspaceId, agentId, row) => {
   try {
     const { executePostCall } = await import('./platform.controller.js');
     const extracted = (() => { try { return JSON.parse(row.extractedData); } catch { return {}; } })();

@@ -434,6 +434,41 @@ class GeminiService {
   }
 
   /**
+   * Streaming generation: yields reply text deltas as the model produces them,
+   * so the caller can start TTS on the first sentence before the whole reply is
+   * finished (the low-latency voice pipeline — see converseStream). Legacy
+   * (message, config, options) signature only; no cache (a partial stream must
+   * never be cached as if complete).
+   * @param {string} message
+   * @param {{ model?: string, temperature?: number }} [config]
+   * @param {{ systemPrompt?: string, maxTokens?: number, thinkingBudget?: number, chatHistory?: Array }} [options]
+   * @returns {AsyncGenerator<string>}
+   */
+  async *generateResponseStream(message, config = {}, options = {}) {
+    const { model, temperature } = config;
+    this.validateConfig({ model, temperature });
+    await this.initializeClient();
+
+    const contents = this.formatMessages(message, options.chatHistory || []);
+    const generationConfig = this.getGenerationConfig({
+      temperature,
+      maxOutputTokens: options.maxTokens,
+      thinkingBudget: options.thinkingBudget,
+    });
+
+    const geminiModel = this.client.getGenerativeModel({
+      model: getGeminiAPIModel(model),
+      systemInstruction: options.systemPrompt || "You are a helpful AI assistant.",
+    });
+
+    const result = await geminiModel.generateContentStream({ contents, generationConfig });
+    for await (const chunk of result.stream) {
+      const text = typeof chunk?.text === "function" ? chunk.text() : "";
+      if (text) yield text;
+    }
+  }
+
+  /**
    * Get service health status
    * @returns {Object} - Health status
    */

@@ -126,8 +126,8 @@ if (form.password !== form.confirm) {
 
         {/* Logo */}
         <Link to="/" style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '12px' }}>
-          <div style={{ width: '40px', height: '40px', background: 'var(--teal)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: '18px', color: 'var(--bg-primary)' }}>O</div>
-          <span style={{ fontWeight: 800, fontSize: '18px', color: 'var(--text-primary)', letterSpacing: '-0.5px' }}>OMNI<span style={{ color: 'var(--teal)', fontStyle: 'italic' }}>D</span>IMENSION</span>
+          <div style={{ width: '40px', height: '40px', background: 'var(--teal)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: '18px', color: 'var(--bg-primary)' }}>C</div>
+          <span style={{ fontWeight: 800, fontSize: '18px', color: 'var(--text-primary)', letterSpacing: '-0.5px' }}>Conversational <span style={{ color: 'var(--teal)', fontStyle: 'italic' }}>AI</span> Agent</span>
         </Link>
 
         {/* Feature List */}

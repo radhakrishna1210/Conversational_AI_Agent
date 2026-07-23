@@ -11,6 +11,7 @@ import { createCampaignWorker } from './workers/campaign.worker.js';
 import { startIntegrationScheduler } from './services/integrationScheduler.service.js';
 import { startVoiceSyncScheduler } from './services/voice/voice.startup.js';
 import { handleWebCallUpgrade } from './ws/webCallRealtime.handler.js';
+import { handleWebCallModularUpgrade } from './ws/webCallModularRealtime.handler.js';
 import { handleTwilioMediaUpgrade } from './ws/twilioMediaRealtime.handler.js';
 
 mkdirSync(env.UPLOAD_DIR, { recursive: true });
@@ -69,10 +70,13 @@ const voiceSyncScheduler = startVoiceSyncScheduler();
 const httpServer = http.createServer(app);
 
 const webCallWss = new WebSocketServer({ noServer: true });
+const modularWebCallWss = new WebSocketServer({ noServer: true });
 const twilioMediaWss = new WebSocketServer({ noServer: true });
 
-// /api/v1/workspaces/:workspaceId/agents/:agentId/xai-call
+// /api/v1/workspaces/:workspaceId/agents/:agentId/xai-call  (bundled engine)
 const WEB_CALL_UPGRADE_PATH = /^\/api\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/xai-call$/;
+// /api/v1/workspaces/:workspaceId/agents/:agentId/web-call  (modular STT+LLM+TTS, B2)
+const MODULAR_WEB_CALL_UPGRADE_PATH = /^\/api\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/web-call$/;
 // /api/v1/twilio-media/:workspaceId/:agentId
 const TWILIO_MEDIA_UPGRADE_PATH = /^\/api\/v1\/twilio-media\/([^/]+)\/([^/]+)$/;
 
@@ -89,6 +93,14 @@ httpServer.on('upgrade', (req, socket, head) => {
   if (webCallMatch) {
     webCallWss.handleUpgrade(req, socket, head, (ws) => {
       handleWebCallUpgrade(ws, { workspaceId: webCallMatch[1], agentId: webCallMatch[2] });
+    });
+    return;
+  }
+
+  const modularMatch = pathname.match(MODULAR_WEB_CALL_UPGRADE_PATH);
+  if (modularMatch) {
+    modularWebCallWss.handleUpgrade(req, socket, head, (ws) => {
+      handleWebCallModularUpgrade(ws, { workspaceId: modularMatch[1], agentId: modularMatch[2] });
     });
     return;
   }

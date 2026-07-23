@@ -58,6 +58,21 @@ export function getToken(): string {
   return safeGet('token');
 }
 
+export function getRefreshToken(): string {
+  const v = safeGet('refreshToken');
+  return v === 'undefined' || v === 'null' ? '' : v;
+}
+
+/**
+ * Persist a freshly-issued token pair. The backend rotates refresh tokens on
+ * every /auth/refresh (the old one is revoked), so we MUST overwrite the stored
+ * refresh token each time or the next refresh will fail with the revoked token.
+ */
+export function setTokens(accessToken: string, refreshToken?: string): void {
+  if (accessToken) safeSet('token', accessToken);
+  if (refreshToken) safeSet('refreshToken', refreshToken);
+}
+
 /** Get workspaceId, recovering it from the JWT and re-caching when missing. */
 export function getWorkspaceId(): string {
   let workspaceId = safeGet('workspaceId');

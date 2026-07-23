@@ -110,6 +110,11 @@ export async function handleWebCallUpgrade(ws, { workspaceId, agentId }) {
             ws.send(JSON.stringify({ type: 'transcript', ...t }));
           }
         });
+        // Barge-in: the engine reports the caller interrupted — tell the client
+        // to drop audio it has already queued so the agent stops speaking now.
+        session.on('clear', () => {
+          if (ws.readyState === ws.OPEN) ws.send(JSON.stringify({ type: 'clear' }));
+        });
         session.on('error', (err) => {
           logger.warn(`Realtime web call session error: ${err.message}`);
           if (ws.readyState === ws.OPEN) {

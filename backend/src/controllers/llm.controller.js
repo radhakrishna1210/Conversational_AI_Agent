@@ -413,14 +413,22 @@ export const generateAgentFlow = async (req, res) => {
   const systemPrompt = "You are an expert AI architect. Generate highly personalized voice assistant configurations in clean, valid JSON format.";
   const prompt = `Generate a complete personalized configuration for a voice assistant.
 Assistant Name: "${name}"
-${category ? `Use-case category: "${category}"\n` : ''}${userPrompt ? `The user's full description of this assistant's purpose, personality, and behavior (BASE THE ENTIRE CONFIGURATION ON THIS — every setting, stage, question, and rule must be tailored to it):\n\"\"\"${String(userPrompt).slice(0, 4000)}\"\"\"\n` : ''}
+${category ? `Use-case category: "${category}"\n` : ''}${userPrompt ? `The user's description of the assistant to build (BASE THE ENTIRE CONFIGURATION ON THIS — every setting, stage, question, and rule must be tailored to it):
+\"\"\"${String(userPrompt).slice(0, 16000)}\"\"\"
+
+HOW TO READ THAT DESCRIPTION — this is critical: it may be written as instructions to a builder / "onboarding" / "configuration" agent (phrases like "You are an onboarding agent that sets up ...", "your role is to configure ...", "help set up the system"). IGNORE that meta framing completely. The assistant you are configuring is the REAL END-USER-FACING voice agent that the description SPECIFIES — the one that actually talks to the customer/patient/caller on the phone — NOT a setup, onboarding, or configuration tool. Extract the real agent from the document:
+- welcomeMessage: if the description gives an example opening line the agent SPEAKS to the caller (e.g. an "Opening Sequence" or a line like AGENT: "Hello ..."), base the welcomeMessage on THAT exact line.
+- flowItems: base them on the step-by-step conversation the agent has WITH THE CALLER that the description lays out (e.g. its Conversational Flow / assessment / recommendation / closing stages).
+- postCallVariables: base them on any variable / field / data-capture list the description provides.
+- name: a short customer-facing name for THAT agent (e.g. "Patient Health Check-In Agent"), never "Onboarding Agent".
+` : ''}
 
 Keep your chain of thought/reasoning extremely brief (under 5 sentences), then immediately output the raw JSON object inside a \`\`\`json markdown block. Do not waste tokens explaining.
 
 The JSON must have this exact structure:
 {
   "name": "<short professional display name for this assistant, 2-5 words (e.g. 'Plumbing Appointment Agent'). If the user's description explicitly gives the agent a name, use EXACTLY that name. NEVER use the description text itself as the name.>",
-  "welcomeMessage": "A natural, warm vocal opening line tailored to this assistant AND its call direction, written in the PRIMARY conversation language.",
+  "welcomeMessage": "The FIRST line the assistant SPEAKS to the real person on the other end of the call — the actual customer/patient/lead/caller it serves — tailored to this use case and its call direction, in the PRIMARY conversation language. It must sound like the assistant is already live and greeting that end user. Use concrete, specific names — NEVER bracketed placeholders like [Healthcare Provider Name] or [Company Name]. NEVER a meta 'setup wizard' message about onboarding, configuring, or 'setting up' the assistant/system, and never ask 'is this a good time to begin' setup talk.",
   "callDirection": "<INBOUND or OUTBOUND>",
   "languages": ["<primary conversation language first>"],
   "aiModel": "<one of: ${AI_MODEL_OPTIONS.join(', ')}>",
@@ -445,11 +453,13 @@ ${voiceOptions.length ? `  "voice": "<one voice label copied EXACTLY from AVAILA
 }
 
 Configuration rules:
+- NEVER output bracketed placeholders such as [Healthcare Provider Name], [Company Name], [Your Name], [Agent Name], [Product], [Clinic], etc. ANYWHERE — not in the welcomeMessage and not in any flow item body. If the user's description does NOT name the company/clinic/brand, INVENT one realistic, specific, brandable name (e.g. "Sunrise Health", "Brightpath Clinic", "Northwind Insurance") and use that SAME name consistently everywhere. Likewise give the assistant a real human first name to introduce itself with (e.g. "Priya", "Sarah") — never "[Agent Name]" or "your assistant".
+- The welcomeMessage AND every flow item are the assistant TALKING TO ITS END CUSTOMER — never to whoever is building/configuring the assistant. The assistant must NEVER call itself an "onboarding agent" or "AI/virtual assistant", and NEVER offer to "help you configure / set up the ... system". That is setup-wizard language and is always wrong. BAD (never produce this): "Hello, this is your AI onboarding agent. I'm here to help you configure and set up the Patient Health Voice Assistant system. Is this a good time to begin?" GOOD: a warm greeting that speaks directly to the real caller and gets straight to serving them for this use case.
 - "callDirection": "OUTBOUND" when this agent CALLS customers (cold calling, lead generation, collections, appointment reminders, surveys, outreach); "INBOUND" when customers call the agent (support line, reception, booking hotline, helpdesk). The welcomeMessage MUST match this direction: an INBOUND greeting thanks the caller for calling (e.g. "Thank you for calling <company>, how can I help?"); an OUTBOUND greeting introduces the agent, the company, and the reason for the call, and must NEVER say "thank you for calling".
 - "languages": 1-3 entries, each copied EXACTLY from this list: ${LANGUAGE_OPTIONS.join(', ')}. The FIRST entry is the language the assistant speaks in — infer it from the user's description (e.g. an agent for Indian customers speaking Hindi → ["Hindi"]). Default to "English (Indian)" only when the description gives no language hint.
 - "transcription": pick "Sarvam" when the primary language is Indian (Hindi, Bengali, Gujarati, Tamil, English (Indian)); otherwise "ElevenLabs".
 - "aiModel": pick the model best suited to the use case; "Gemini-Pro" is a good general default.
-- "postCallVariables": 3-8 data points this business would need captured from EVERY call, tailored to the use case in the description — e.g. an appointment-booking agent needs appointment_date, appointment_time, service_type; a lead-gen agent needs company_name, decision_maker, interest_level; a support agent needs issue_type, resolution_status. Include customer identity fields (customer_name, phone/email) when the flow collects them. Keys are snake_case; each description says exactly what to extract.
+- "postCallVariables": the data points to capture from EVERY call, tailored to the use case. If the description EXPLICITLY lists fields/variables to capture, include those (up to 15, picking the most important). Otherwise infer 3-8 — e.g. an appointment-booking agent needs appointment_date, appointment_time, service_type; a lead-gen agent needs company_name, decision_maker, interest_level; a support agent needs issue_type, resolution_status. Include customer identity fields (customer_name, phone/email) when the flow collects them. Keys are snake_case; each description says exactly what to extract.
 ${voiceOptions.length ? `- "voice": choose from AVAILABLE VOICES a voice whose language matches the primary conversation language and whose gender fits the described persona (default female if unspecified). Copy the label EXACTLY.
 
 AVAILABLE VOICES:
@@ -467,7 +477,7 @@ Provide 4 to 8 logical, structured conversational steps (flow items) that cover 
       // against maxTokens; with thinking left on, a long config JSON gets
       // truncated mid-block and fails to parse. The JSON schema in the
       // prompt is prescriptive enough that no reasoning pass is needed.
-      { systemPrompt, maxTokens: 6000, thinkingBudget: 0 }
+      { systemPrompt, maxTokens: 8000, thinkingBudget: 0 }
     );
     responseText = response;
   } catch (error) {
@@ -622,10 +632,31 @@ Provide 4 to 8 logical, structured conversational steps (flow items) that cover 
     // A usable display name is short — a name that is basically the prompt
     // pasted back (or empty) is dropped so the client falls back.
     if (typeof sanitized.name === 'string') {
-      sanitized.name = sanitized.name.trim().replace(/^["']|["']$/g, '');
+      sanitized.name = sanitized.name
+        .split('\n')[0]                 // never let a paragraph become the name
+        .replace(/[#*_`>~]/g, '')       // strip markdown a pasted prompt leaks
+        .trim()
+        .replace(/^["']|["']$/g, '')
+        .trim();
       if (!sanitized.name || sanitized.name.length > 60) delete sanitized.name;
     } else {
       delete sanitized.name;
+    }
+    // The welcome is spoken to the END CUSTOMER. Models occasionally emit a
+    // meta "setup wizard" greeting instead ("this is your AI onboarding agent,
+    // I'll help you configure and set up the ... system") — drop it so the
+    // client falls back to a real customer-facing greeting. The rest of the
+    // generated config (flow, voice, languages, variables) is still kept.
+    if (typeof sanitized.welcomeMessage === 'string') {
+      const w = sanitized.welcomeMessage.trim();
+      // Anchor "configure / set up" to the assistant itself (system/assistant/
+      // agent) so legitimate greetings like "help you set up your appointment"
+      // are NOT flagged.
+      const isMeta = /\bonboarding agent\b|(configure|set(ting)? ?up)[^.?!]*\b(system|assistant|agent|configuration)\b|good time to begin/i.test(w);
+      if (!w || isMeta) delete sanitized.welcomeMessage;
+      else sanitized.welcomeMessage = w;
+    } else {
+      delete sanitized.welcomeMessage;
     }
     sanitized.languages = (Array.isArray(sanitized.languages) ? sanitized.languages : [])
       .filter((l) => LANGUAGE_OPTIONS.includes(l))
@@ -637,7 +668,7 @@ Provide 4 to 8 logical, structured conversational steps (flow items) that cover 
     if (Array.isArray(sanitized.postCallVariables)) {
       sanitized.postCallVariables = sanitized.postCallVariables
         .filter((v) => v && typeof v.key === 'string' && v.key.trim())
-        .slice(0, 10)
+        .slice(0, 15)
         .map((v) => ({
           key: v.key.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40),
           description: typeof v.description === 'string' ? v.description.trim().slice(0, 200) : '',
@@ -656,6 +687,38 @@ Provide 4 to 8 logical, structured conversational steps (flow items) that cover 
       else delete sanitized.voice;
     } else {
       delete sanitized.voice;
+    }
+
+    // Defense-in-depth: the model still occasionally leaves a bracketed
+    // placeholder like "[Healthcare Provider Name]" in the welcome or a flow
+    // body. The user must never see a raw placeholder — fill them with
+    // concrete invented values, keeping ONE company name and ONE agent name
+    // consistent across the whole config (deterministic per generation).
+    {
+      const COMPANIES = ['Sunrise Health', 'Brightpath Clinic', 'Evergreen Care', 'Northwind Health', 'Cedar Grove Medical', 'Blue Harbor Group', 'Silverline Services', 'Greenfield Care'];
+      const AGENT_NAMES = ['Priya', 'Sarah', 'Ananya', 'Emily', 'Riya', 'Grace', 'Meera', 'Olivia'];
+      let h = 0;
+      for (const ch of `${name}|${userPrompt || ''}`) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+      const company = COMPANIES[h % COMPANIES.length];
+      const agentName = AGENT_NAMES[(h >>> 3) % AGENT_NAMES.length];
+      const fill = (text) =>
+        typeof text === 'string'
+          ? text
+              .replace(/\[([^\]]{1,60})\]/g, (_m, p) =>
+                /company|business|brand|organi[sz]ation|provider|clinic|hospital|practice|firm|store|shop|restaurant|bank|agency|team/i.test(p) ? company
+                : /agent|assistant|your name|my name|representative|rep\b|caller/i.test(p) ? agentName
+                : /product|service/i.test(p) ? 'our services'
+                : '')
+              .replace(/\s{2,}/g, ' ')
+              .replace(/\s+([,.!?])/g, '$1')
+              .trim()
+          : text;
+      if (typeof sanitized.welcomeMessage === 'string') sanitized.welcomeMessage = fill(sanitized.welcomeMessage);
+      if (Array.isArray(sanitized.flowItems)) {
+        sanitized.flowItems = sanitized.flowItems.map((f) =>
+          f && typeof f.body === 'string' ? { ...f, body: fill(f.body) } : f
+        );
+      }
     }
 
     res.json(sanitized);

@@ -193,8 +193,8 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <aside id="layout-sidebar" className={`sidebar ${sidebarOpen ? "open" : ""}`}>
         <Link to="/" style={{textDecoration: 'none'}}>
           <div className="sidebar-header">
-            <div className="sidebar-logo-icon">O</div>
-            <div className="sidebar-logo-text">OMNI<span style={{color: 'white', fontWeight: 300}}>DIMENSION</span></div>
+            <div className="sidebar-logo-icon">C</div>
+            <div className="sidebar-logo-text">Conversational <span style={{color: 'white', fontWeight: 300}}>AI Agent</span></div>
           </div>
         </Link>
 

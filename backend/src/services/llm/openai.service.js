@@ -313,6 +313,38 @@ class OpenAIService {
     }
   }
 
+  /**
+   * Streaming generation: yields reply text deltas as they arrive, so the
+   * caller can start TTS on the first sentence before the full reply is done
+   * (the low-latency voice pipeline — see converseStream). Legacy
+   * (message, config, options) signature only; no cache (a partial stream must
+   * never be cached as if complete).
+   * @param {string} message
+   * @param {{ model?: string, temperature?: number }} [config]
+   * @param {{ systemPrompt?: string, maxTokens?: number, chatHistory?: Array }} [options]
+   * @returns {AsyncGenerator<string>}
+   */
+  async *generateResponseStream(message, config = {}, options = {}) {
+    const { model, temperature } = config;
+    this.validateConfig({ model, temperature });
+    await this.initializeClient();
+
+    const messages = this.formatMessages(message, options.chatHistory || [], options.systemPrompt);
+    const generationConfig = getDefaultGenerationConfig();
+
+    const stream = await this.client.chat.completions.create({
+      model: getOpenAIAPIModel(model),
+      messages,
+      temperature: temperature ?? generationConfig.temperature,
+      max_tokens: options.maxTokens ?? generationConfig.max_tokens,
+      stream: true,
+    });
+    for await (const chunk of stream) {
+      const delta = chunk?.choices?.[0]?.delta?.content;
+      if (delta) yield delta;
+    }
+  }
+
   getHealth() {
     return {
       status: this.apiKey ? "healthy" : "misconfigured",

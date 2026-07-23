@@ -139,6 +139,19 @@ export const env = {
   XAI_VOICE_WS_URL: optional('XAI_VOICE_WS_URL', 'wss://api.x.ai/v1/realtime'),
   XAI_VOICE_MODEL: optional('XAI_VOICE_MODEL', 'grok-voice-latest'),
   XAI_VOICE_NAME: optional('XAI_VOICE_NAME', ''),
+  // Server-VAD turn-detection tuning (OpenAI-Realtime compatible fields xAI
+  // mirrors). These trade responsiveness against false interruptions:
+  //  - SILENCE_MS: how long the caller must pause before their turn is treated
+  //    as over. LOWER = snappier replies but more likely to cut people off on a
+  //    natural mid-sentence pause; HIGHER = safer but adds that much lag to
+  //    every turn. 500ms is a reasonable middle for conversational speech.
+  //  - THRESHOLD: VAD speech-probability gate (0..1). Raise in noisy input to
+  //    avoid triggering on background noise; lower to catch soft speakers.
+  //  - PREFIX_MS: audio kept *before* detected speech so the first word isn't
+  //    clipped from the transcript.
+  XAI_VOICE_TURN_SILENCE_MS: parseInt(optional('XAI_VOICE_TURN_SILENCE_MS', '500'), 10),
+  XAI_VOICE_TURN_THRESHOLD: parseFloat(optional('XAI_VOICE_TURN_THRESHOLD', '0.5')),
+  XAI_VOICE_TURN_PREFIX_MS: parseInt(optional('XAI_VOICE_TURN_PREFIX_MS', '300'), 10),
   // Public wss:// origin Twilio can reach to open the media-stream bridge
   // (e.g. your deployed backend domain, or an ngrok/tunnel URL in dev).
   // Two-way bundled-engine phone calls fall back to the old greeting-only
@@ -153,6 +166,15 @@ export const env = {
   // ElevenLabs dashboard (Agents Platform) with Prompt/First Message/Language
   // overrides enabled in its Security settings — cannot be created from code.
   ELEVENLABS_CONVAI_AGENT_ID: optional('ELEVENLABS_CONVAI_AGENT_ID', ''),
+
+  // Deepgram streaming STT (B3) — optional, lowest-latency real-time
+  // transcription for the modular Web Call. When DEEPGRAM_API_KEY is set the
+  // modular WS handler streams the caller's audio to Deepgram live and skips
+  // batch STT; unset, it falls back to the existing Sarvam/ElevenLabs batch STT.
+  // Read directly via process.env in deepgramStream.service.js (same convention
+  // as ELEVENLABS_API_KEY); listed here for documentation.
+  DEEPGRAM_API_KEY: optional('DEEPGRAM_API_KEY', ''),
+  DEEPGRAM_MODEL: optional('DEEPGRAM_MODEL', 'nova-2'),
 
   isDev: () => process.env.NODE_ENV !== 'production',
 };

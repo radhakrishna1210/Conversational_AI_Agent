@@ -256,7 +256,7 @@ export default function Billing() {
           <div style={{ padding: '24px 16px', borderBottom: '1px solid var(--border)', fontWeight: 700, color: 'var(--text-primary)', textAlign: 'center' }}>Enterprise</div>
 
           {/* Feature Rows */}
-          <FeatureRow name="OmniCRM" vals={['x', 'x', 'x', 'x', 'v']} />
+          <FeatureRow name="Built-in CRM" vals={['x', 'x', 'x', 'x', 'v']} />
           <FeatureRow name="Dedicated support" vals={['Email', 'Email', 'Email', 'Email', 'Email / Whatsapp / Slack']} />
           <FeatureRow name="Train assistant from call recording" vals={['x', 'x', 'x', 'x', 'v']} />
           <FeatureRow name="Voicemail Detection" vals={['$ 0.0085 / minute', '$ 0.0085 / minute', '$ 0.0085 / minute', '$ 0.0085 / minute', 'custom']} />
@@ -285,7 +285,7 @@ export default function Billing() {
         <h4 style={{ color: '#fb923c', fontSize: '13px', fontWeight: 600, margin: '0 0 16px 0' }}>Additional Information</h4>
         <div style={{ color: 'var(--text-muted)', fontSize: '11px', lineHeight: 1.6 }}>
           <strong>Token Limit:</strong> Agent prompts should be under 3,500 tokens for optimal performance.<br/>
-          <strong>Telephony Fees:</strong> Additional fees apply for calls from OmniDimension numbers.
+          <strong>Telephony Fees:</strong> Additional fees apply for calls from Conversational AI Agent numbers.
         </div>
 
 

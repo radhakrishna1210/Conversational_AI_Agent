@@ -24,6 +24,7 @@ router.post('/:agentId/converse', runtimeCtrl.converse);
 router.post('/:agentId/speak', runtimeCtrl.speak);
 router.post('/:agentId/speak-stream', runtimeCtrl.speakStream);
 router.post('/:agentId/voice-turn', runtimeCtrl.uploadVoiceTurnAudio, runtimeCtrl.voiceTurn);
+router.post('/:agentId/voice-turn-stream', runtimeCtrl.uploadVoiceTurnAudio, runtimeCtrl.voiceTurnStream);
 
 // ─── Interaction history (Recent Calls tab: chat tests, web + phone calls) ────
 import * as callLogCtrl from '../controllers/agentCallLog.controller.js';
