@@ -113,7 +113,7 @@
       faqDescription: 'Common questions about collections AI',
       faqs: [
         {
-          question: 'How can OmniDimension help with payment reminders?',
+          question: 'How can Conversational AI Agent help with payment reminders?',
           answer:
             'You can create a voice assistant that reminds customers about upcoming or overdue payments, follows up on invoices, and updates payment status for your team.',
         },
@@ -130,7 +130,7 @@
         {
           question: 'Can I track how my payment assistant is performing?',
           answer:
-            'Yes. You can monitor calls, outcomes, customer interactions, and collection performance from your OmniDimension dashboard.',
+            'Yes. You can monitor calls, outcomes, customer interactions, and collection performance from your Conversational AI Agent dashboard.',
         },
       ],
       cta: {
@@ -201,7 +201,7 @@
       faqDescription: 'Common questions about negotiation AI',
       faqs: [
         {
-          question: 'How can OmniDimension help with customer negotiations?',
+          question: 'How can Conversational AI Agent help with customer negotiations?',
           answer:
             'You can create a voice assistant that handles structured negotiations, presents approved options, responds to common objections, and documents the outcome for your team.',
         },
@@ -289,7 +289,7 @@
       faqDescription: 'Common questions about customer support AI',
       faqs: [
         {
-          question: 'How can OmniDimension help with customer support?',
+          question: 'How can Conversational AI Agent help with customer support?',
           answer:
             'You can create a voice assistant that answers routine questions, collects issue details, summarizes calls, and routes complex requests to your team.',
         },
@@ -377,7 +377,7 @@
       faqDescription: 'Common questions about appointment AI',
       faqs: [
         {
-          question: 'How can OmniDimension help with appointment scheduling?',
+          question: 'How can Conversational AI Agent help with appointment scheduling?',
           answer:
             'You can create a voice assistant that collects caller details, checks available times through your workflow, and confirms appointments during the call.',
         },
@@ -469,7 +469,7 @@ export const verticalUseCases = {
     faqDescription: 'Common questions about the real estate voice solution.',
     faqs: [
       {
-        question: 'How can OmniDimension help with property inquiries?',
+        question: 'How can Conversational AI Agent help with property inquiries?',
         answer:
           'You can create a voice assistant that answers questions about listings, pricing, availability, and nearby amenities — instantly qualifying leads based on budget and preferences.',
       },
@@ -486,7 +486,7 @@ export const verticalUseCases = {
       {
         question: 'Can it integrate with our CRM or lead systems?',
         answer:
-          'Yes. OmniDimension connects with Salesforce, HubSpot, Zoho CRM, and many other platforms.',
+          'Yes. Conversational AI Agent connects with Salesforce, HubSpot, Zoho CRM, and many other platforms.',
       },
       {
         question: 'Does it support multiple languages for clients?',
@@ -561,7 +561,7 @@ export const verticalUseCases = {
     faqDescription: 'Common questions about healthcare voice AI.',
     faqs: [
       {
-        question: 'How can OmniDimension help with appointment scheduling?',
+        question: 'How can Conversational AI Agent help with appointment scheduling?',
         answer:
           'You can create a voice assistant that answers patient calls 24/7, checks your calendar in real time, suggests available time slots, and books appointments instantly.',
       },
@@ -583,7 +583,7 @@ export const verticalUseCases = {
       {
         question: 'Can it integrate with our existing calendar or EMR system?',
         answer:
-          'Yes. OmniDimension connects with tools like Google Calendar, Outlook, and popular EMR systems.',
+          'Yes. Conversational AI Agent connects with tools like Google Calendar, Outlook, and popular EMR systems.',
       },
     ],
     cta: {

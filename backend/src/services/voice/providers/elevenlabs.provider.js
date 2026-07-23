@@ -78,6 +78,42 @@ export async function previewVoice(voiceId, text, opts = {}) {
 }
 
 /**
+ * Start ElevenLabs' streaming TTS: resolves as soon as headers arrive and
+ * yields audio chunks as they're synthesized, so the caller can forward the
+ * first bytes to the browser before the whole clip is done (B4). Uses the fast
+ * eleven_flash_v2_5 model (multilingual incl. Hindi, ~75ms first-byte) with
+ * latency-optimized routing — the low-latency TTS for live web calls.
+ * @param {string} voiceId
+ * @param {string} text
+ * @returns {Promise<{ body: ReadableStream, contentType: string }>}
+ */
+export async function streamVoice(voiceId, text /* opts reserved */) {
+  const res = await fetch(
+    `${BASE_URL}/text-to-speech/${voiceId}/stream?output_format=mp3_22050_32&optimize_streaming_latency=3`,
+    {
+      method: 'POST',
+      headers: authHeaders(),
+      body: JSON.stringify({
+        text,
+        model_id: 'eleven_flash_v2_5',
+        voice_settings: { stability: 0.5, similarity_boost: 0.75 },
+      }),
+      signal: AbortSignal.timeout(15_000),
+    }
+  );
+
+  if (!res.ok || !res.body) {
+    const body = await res.text();
+    throw new Error(`ElevenLabs streaming TTS failed (${res.status}): ${body.slice(0, 300)}`);
+  }
+
+  return {
+    body: res.body,
+    contentType: res.headers.get('content-type') || 'audio/mpeg',
+  };
+}
+
+/**
  * Lightweight health check – calls the /user endpoint (cheap, no data transfer).
  * @returns {Promise<{ healthy: boolean, error?: string, latencyMs?: number }>}
  */

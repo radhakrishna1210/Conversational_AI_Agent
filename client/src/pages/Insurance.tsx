@@ -20,7 +20,7 @@ export default function InsuranceVoice() {
 
     const faqs = [
         {
-            question: "How can OmniDimension help my insurance business?",
+            question: "How can Conversational AI Agent help my insurance business?",
             answer: "You can create a voice assistant that answers policyholder questions, processes claims, collects documents, and routes calls to agents - reducing manual workload while improving response time.",
         },
         {
@@ -33,7 +33,7 @@ export default function InsuranceVoice() {
         },
         {
             question: "Does it integrate with our CRM or policy management system?",
-            answer: "Yes. OmniDimension integrates with tools like Salesforce, HubSpot, and Zoho, syncing every interaction automatically.",
+            answer: "Yes. Conversational AI Agent integrates with tools like Salesforce, HubSpot, and Zoho, syncing every interaction automatically.",
         },
         {
             question: "How quickly can we set it up?",

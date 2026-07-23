@@ -131,7 +131,7 @@ export default function Salesforce() {
 
         {/* Intro */}
         <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.75, marginBottom: 40 }}>
-          Connect your Salesforce CRM with OmniDimension to automatically update CRM records after a call. Create or update Contacts, Accounts, and Opportunities based on variables extracted from the conversation.
+          Connect your Salesforce CRM with Conversational AI Agent to automatically update CRM records after a call. Create or update Contacts, Accounts, and Opportunities based on variables extracted from the conversation.
         </p>
 
         {/* Key Benefits */}

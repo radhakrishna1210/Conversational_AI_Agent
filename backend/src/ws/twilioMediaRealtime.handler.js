@@ -17,6 +17,8 @@ import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
 import { getAgentKbText } from '../services/agentRuntime.service.js';
 import { createRealtimeSession } from '../services/voice/realtimeEngine.factory.js';
+import { extractAndStoreCallVariables } from '../services/postCallExtraction.service.js';
+import { deliverPostCall } from '../controllers/agentCallLog.controller.js';
 
 const safeJson = (str, fallback) => {
   try {
@@ -30,20 +32,46 @@ export function handleTwilioMediaUpgrade(ws, { workspaceId, agentId }) {
   let session = null;
   let streamSid = null;
   let callLogId = null;
+  let finalized = false;
   const transcript = [];
   const startedAt = Date.now();
 
   const finalizeCallLog = async (status) => {
-    if (!callLogId) return;
-    await prisma.agentCallLog.update({
-      where: { id: callLogId },
-      data: {
-        status,
-        transcript: JSON.stringify(transcript.slice(-200)),
-        durationSec: Math.round((Date.now() - startedAt) / 1000),
-        endedAt: new Date(),
-      },
-    }).catch((e) => logger.warn(`Could not finalize realtime phone call log: ${e.message}`));
+    // Twilio ends a call with a `stop` event followed by a socket `close`, so
+    // cleanup() runs more than once. Guard against re-entry — otherwise
+    // extraction and Post-Call delivery would fire twice and duplicate the
+    // Google Sheets row / webhook / email for a single call.
+    if (!callLogId || finalized) return;
+    finalized = true;
+
+    try {
+      await prisma.agentCallLog.update({
+        where: { id: callLogId },
+        data: {
+          status,
+          transcript: JSON.stringify(transcript.slice(-200)),
+          durationSec: Math.round((Date.now() - startedAt) / 1000),
+          endedAt: new Date(),
+        },
+      });
+    } catch (e) {
+      logger.warn(`Could not finalize realtime phone call log: ${e.message}`);
+      return;
+    }
+
+    // A phone call has no browser client to PATCH the REST call-log endpoint,
+    // so extraction + Post-Call delivery (webhook / email / Google Sheets) must
+    // be driven from here — mirroring updateCallLog in agentCallLog.controller.js.
+    // Best-effort: a delivery failure must never crash the socket teardown.
+    try {
+      await extractAndStoreCallVariables(workspaceId, agentId, callLogId);
+      const row = await prisma.agentCallLog.findFirst({
+        where: { id: callLogId, workspaceId, agentId },
+      });
+      if (row) await deliverPostCall(workspaceId, agentId, row);
+    } catch (e) {
+      logger.warn(`Post-call extraction/delivery failed for phone call ${callLogId}: ${e.message}`);
+    }
   };
 
   const cleanup = (status) => {
@@ -85,6 +113,13 @@ export function handleTwilioMediaUpgrade(ws, { workspaceId, agentId }) {
           });
           session.on('transcript', (t) => {
             if (t.done) transcript.push({ role: t.role, content: t.text });
+          });
+          // Barge-in: the caller interrupted — flush Twilio's buffered playback
+          // (the `clear` media-stream message) so the agent stops mid-sentence.
+          session.on('clear', () => {
+            if (ws.readyState === ws.OPEN && streamSid) {
+              ws.send(JSON.stringify({ event: 'clear', streamSid }));
+            }
           });
           session.on('error', (err) => logger.warn(`Realtime phone call session error: ${err.message}`));
           session.on('close', () => ws.close());

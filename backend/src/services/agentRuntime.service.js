@@ -344,7 +344,11 @@ export async function getRenderedWelcome(workspaceId, agentId) {
  * @param {{ voiceMode?: boolean }} [opts]
  * @returns {Promise<{ reply: string, provider: string, model: string }>}
  */
-export async function converse(workspaceId, agentId, messages, { voiceMode = false } = {}) {
+// Shared setup for converse()/converseStream(): loads the agent, builds the
+// grounded system prompt (with prior turns embedded), and resolves the LLM.
+// Returns everything both the buffered and streaming paths need so the two
+// stay byte-for-byte identical in how they prompt the model.
+async function _prepareConverse(workspaceId, agentId, messages, { voiceMode = false } = {}) {
   const agent = await loadAgent(workspaceId, agentId);
   if (!agent) {
     const err = new Error('Agent not found in this workspace');
@@ -378,30 +382,91 @@ export async function converse(workspaceId, agentId, messages, { voiceMode = fal
   }
 
   const { llm, provider, model } = resolveLlmForAgent(agent, { lowLatency: voiceMode });
-  const raw = await llm.generateResponse(
-    last.content,
-    { model, temperature: DEFAULT_TEMPERATURE },
-    // Brevity in voice mode is enforced by the prompt, not the token cap —
-    // Gemini 2.5's internal "thinking" tokens count against maxTokens, so a
-    // tight cap truncates replies mid-sentence. Thinking is disabled for ALL
-    // conversation turns (chat AND voice): a persona chat grounded in a KB
-    // doesn't need a reasoning pass, and it costs ~2-3s per reply.
-    {
-      systemPrompt,
-      maxTokens: voiceMode ? 320 : 2000,
-      thinkingBudget: 0,
-    }
-  );
+  // Brevity in voice mode is enforced by the prompt, not the token cap —
+  // Gemini 2.5's internal "thinking" tokens count against maxTokens, so a
+  // tight cap truncates replies mid-sentence. Thinking is disabled for ALL
+  // conversation turns (chat AND voice): a persona chat grounded in a KB
+  // doesn't need a reasoning pass, and it costs ~2-3s per reply.
+  const options = { systemPrompt, maxTokens: voiceMode ? 320 : 2000, thinkingBudget: 0 };
+  const config = { model, temperature: DEFAULT_TEMPERATURE };
+  return { agent, last, llm, provider, model, config, options, voiceMode };
+}
+
+// Markdown → speakable text. The reply is sent to TTS, so strip formatting.
+const stripForVoice = (s) => s.replace(/[*_#`>]+/g, '').replace(/\s+/g, ' ').trim();
+
+export async function converse(workspaceId, agentId, messages, { voiceMode = false } = {}) {
+  const { agent, last, llm, provider, model, config, options } =
+    await _prepareConverse(workspaceId, agentId, messages, { voiceMode });
+
+  const raw = await llm.generateResponse(last.content, config, options);
   let reply = (typeof raw === 'object' ? raw.message : raw) || '';
-  if (voiceMode) {
-    // Strip any markdown the model produced anyway — this text goes to TTS.
-    reply = reply
-      .replace(/[*_#`>]+/g, '')
-      .replace(/\s+/g, ' ')
-      .trim();
-  }
+  if (voiceMode) reply = stripForVoice(reply);
 
   return { reply, provider, model, agent };
+}
+
+/**
+ * Streaming variant of converse(): yields the reply as text deltas as the LLM
+ * produces them so a caller can start TTS on the first sentence before the
+ * full reply is generated (the B1 sentence-chunked pipeline). Providers that
+ * don't implement generateResponseStream fall back to a single delta, so every
+ * provider keeps working — just without token-level streaming.
+ *
+ * The generator's RETURN value is `{ provider, model }` (grab it from the
+ * final `iterator.next()` result) for latency logging.
+ * @returns {AsyncGenerator<string, { provider: string, model: string }>}
+ */
+export async function* converseStream(workspaceId, agentId, messages, { voiceMode = false } = {}) {
+  const { last, llm, provider, model, config, options } =
+    await _prepareConverse(workspaceId, agentId, messages, { voiceMode });
+
+  if (typeof llm.generateResponseStream === 'function') {
+    yield* llm.generateResponseStream(last.content, config, options);
+  } else {
+    // Non-streaming provider: one buffered call, emitted as a single chunk.
+    const raw = await llm.generateResponse(last.content, config, options);
+    const reply = (typeof raw === 'object' ? raw.message : raw) || '';
+    if (reply) yield reply;
+  }
+  return { provider, model };
+}
+
+/**
+ * Splits a token stream into speakable sentence chunks so TTS can begin on
+ * sentence 1 while the LLM is still writing sentence 2. Feed raw LLM deltas to
+ * push(); it returns any newly-complete sentences (>= minChars, so tiny
+ * fragments aren't synthesized alone). Call flush() at end-of-stream for the
+ * trailing partial sentence.
+ *
+ * A sentence boundary is end punctuation (. ! ? …) — optionally followed by a
+ * closing quote/bracket — that is followed by whitespace. Requiring trailing
+ * whitespace (not end-of-buffer) during push() avoids cutting on "3.5" or an
+ * abbreviation that just happens to sit at the current buffer edge.
+ */
+export function createSentenceChunker({ minChars = 30 } = {}) {
+  let buf = '';
+  const boundary = /([.!?…])(["')\]]?)(\s)/g;
+  const emitReady = () => {
+    const out = [];
+    let lastCut = 0;
+    let m;
+    boundary.lastIndex = 0;
+    while ((m = boundary.exec(buf)) !== null) {
+      const end = m.index + m[0].length;
+      const candidate = buf.slice(lastCut, end).trim();
+      if (candidate.length >= minChars) {
+        out.push(candidate);
+        lastCut = end;
+      }
+    }
+    if (lastCut > 0) buf = buf.slice(lastCut);
+    return out;
+  };
+  return {
+    push(delta) { buf += delta; return emitReady(); },
+    flush() { const rest = buf.trim(); buf = ''; return rest ? [rest] : []; },
+  };
 }
 
 // ─── Voice turn (STT → converse → TTS) ────────────────────────────────────────
@@ -576,4 +641,140 @@ export async function voiceTurn(workspaceId, agentId, audioBuffer, mimeType, his
     contentType,
     timings: { sttMs, llmMs, ttsMs, totalMs },
   };
+}
+
+/**
+ * B1 — streaming web-call turn: audio in → transcript → STREAMED reply, with
+ * TTS fired per sentence so the caller hears sentence 1 while the LLM is still
+ * writing sentence 2. This is the overlap that makes the modular ("combined
+ * sources") agent feel as fast as a bundled speech-to-speech engine.
+ *
+ * Instead of returning one blob, it emits events via `onEvent`:
+ *   { type: 'transcript', userText }
+ *   { type: 'sentence', seq, text, audioBase64, contentType }   (one per sentence)
+ *   { type: 'done', reply, timings }
+ * The transport (NDJSON endpoint now, WS in B2) just serializes these.
+ *
+ * @param {string} workspaceId
+ * @param {string} agentId
+ * @param {Buffer} audioBuffer
+ * @param {string} mimeType
+ * @param {Array} history
+ * @param {{ onEvent?: (e: object) => void, shouldAbort?: () => boolean }} [opts]
+ *   shouldAbort — polled before synthesizing/emitting each sentence so a caller
+ *   (e.g. the B2 WebSocket handler on barge-in) can stop the reply mid-flight.
+ */
+export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeType, history = [], { onEvent, shouldAbort, userText: providedText } = {}) {
+  const emit = typeof onEvent === 'function' ? onEvent : () => {};
+  const aborted = typeof shouldAbort === 'function' ? shouldAbort : () => false;
+  const turnStartedAt = performance.now();
+
+  const agent = await loadAgent(workspaceId, agentId);
+  if (!agent) {
+    const err = new Error('Agent not found in this workspace');
+    err.statusCode = 404;
+    throw err;
+  }
+  const settings = safeJson(agent.settings, {});
+  const preferredProvider = settings.sttProvider || agent.transcription;
+  const languageCode = settings.sttLanguage && settings.sttLanguage !== 'Multi'
+    ? settings.sttLanguage
+    : undefined;
+  const speakingRate = Number(settings.speakingRate) || 1.05;
+
+  // Resolve the voice while STT runs so per-sentence TTS starts with no lookup.
+  const voicePromise = resolveAgentVoice(agent.voice).catch(() => null);
+
+  // B3: if the caller (WS handler) already has a streaming-STT transcript, use
+  // it and skip the batch STT round-trip entirely. Otherwise transcribe the
+  // buffered audio the usual way.
+  const sttStartedAt = performance.now();
+  let userText;
+  let sttProvider;
+  if (providedText && providedText.trim()) {
+    userText = providedText.trim();
+    sttProvider = 'stream';
+  } else {
+    ({ text: userText, provider: sttProvider } = await transcribeAudio(audioBuffer, mimeType, {
+      preferredProvider,
+      languageCode,
+    }));
+  }
+  const sttMs = Math.round(performance.now() - sttStartedAt);
+
+  // Silence / noise only — resume listening without an LLM/TTS call.
+  if (!userText || userText.length < 2) {
+    emit({ type: 'transcript', userText: '' });
+    emit({ type: 'done', reply: null, timings: { sttMs, llmMs: 0, ttsMs: 0, ttfaMs: 0, totalMs: Math.round(performance.now() - turnStartedAt) } });
+    return;
+  }
+  emit({ type: 'transcript', userText });
+
+  const voice = await voicePromise;
+  const messages = [...history, { role: 'user', content: userText }];
+
+  // Reply generation.
+  //
+  // NOTE: B1 synthesized the reply sentence-by-sentence to overlap TTS with the
+  // LLM. In practice that (a) gave NO measured speed-up — first audio still
+  // landed at end-of-turn (ttfaMs ≈ totalMs in logs/latency.log) — and (b) made
+  // the VOICE DRIFT: Sarvam's streaming TTS is stochastic (temperature 0.6), so
+  // each separately-synthesized sentence sounded like a slightly different
+  // speaker/pace, and none matched the one-shot welcome. So the reply is now a
+  // SINGLE LLM call + a SINGLE TTS call — identical to how the welcome is made,
+  // which keeps the voice consistent across the whole call.
+  //
+  // The non-streaming converse() path is used deliberately: it is the proven-
+  // fast one (~1.5s in the logs), avoiding the streaming-LLM path whose timing
+  // we could not yet trust. llmMs/ttsMs below are now measured SEPARATELY so the
+  // next call pinpoints whether the remaining latency is the LLM or the TTS.
+  // converseStream()/createSentenceChunker remain exported for B4, where a
+  // genuinely streaming-capable TTS can overlap without the drift.
+  const llmStartedAt = performance.now();
+  const { reply: rawReply, provider, model } = await converse(workspaceId, agentId, messages, { voiceMode: true });
+  const llmMs = Math.round(performance.now() - llmStartedAt);
+  const reply = stripForVoice(rawReply || '');
+
+  // B4 — stream the reply's audio to the caller as each TTS byte arrives,
+  // instead of buffering the whole reply first. `firstAudioAt` is now the first
+  // BYTE (not the whole file), so ttfaMs finally reflects true time-to-first-
+  // audio and the caller starts hearing the reply while it's still synthesizing.
+  // Still ONE TTS call for the whole reply → the voice stays consistent (the
+  // per-sentence drift fix stands).
+  //   emits: { audio-start, contentType } → { audio-chunk, data:<base64> }* → { audio-end, text }
+  let firstAudioAt = null;
+  let ttsMs = 0;
+  if (reply && !aborted()) {
+    const ttsStartedAt = performance.now();
+    if (!voice) {
+      emit({ type: 'audio-start', contentType: null });
+      emit({ type: 'audio-end', text: reply });
+    } else {
+      try {
+        const { stream, contentType } = await streamSynthesizeVoice(voice, reply, { fast: true, pace: speakingRate });
+        emit({ type: 'audio-start', contentType });
+        for await (const c of stream) {
+          if (aborted()) break; // barge-in: stop shovelling audio nobody's hearing
+          if (firstAudioAt == null) firstAudioAt = performance.now();
+          const buf = Buffer.isBuffer(c) ? c : Buffer.from(c);
+          if (buf.length) emit({ type: 'audio-chunk', data: buf.toString('base64') });
+        }
+        emit({ type: 'audio-end', text: reply });
+      } catch (err) {
+        logger.warn(`voiceTurnStream TTS failed: ${err.message}`);
+        emit({ type: 'audio-end', text: reply });
+      }
+    }
+    ttsMs = Math.round(performance.now() - ttsStartedAt);
+  }
+
+  const totalMs = Math.round(performance.now() - turnStartedAt);
+  const ttfaMs = firstAudioAt != null ? Math.round(firstAudioAt - turnStartedAt) : totalMs;
+
+  const latency = { agentId, sttProvider, llmProvider: provider, model, sttMs, llmMs, ttsMs, ttfaMs, totalMs, streamed: true };
+  logger.info(latency, 'Web call streaming turn latency');
+  logTurnLatency(latency);
+
+  emit({ type: 'done', reply, timings: { sttMs, llmMs, ttsMs, ttfaMs, totalMs } });
+  return { userText, reply, timings: { sttMs, llmMs, ttsMs, ttfaMs, totalMs } };
 }

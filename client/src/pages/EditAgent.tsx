@@ -9,8 +9,10 @@ import { toast } from 'sonner';
 import ChatComponent from '../components/ChatComponent';
 import AIAssistantSidebar from '../components/AIAssistantSidebar';
 import VoiceConfigModal from '../components/VoiceConfigModal';
+import CallerNumberPicker from '../components/CallerNumberPicker';
 import { useTheme } from '../hooks/useTheme';
 import { xaiCallSocket } from '../services/xaiCallSocket';
+import { modularCallSocket, type ModularCallEvent } from '../services/modularCallSocket';
 
 
 interface FlowItem {
@@ -445,6 +447,7 @@ export default function EditAgent() {
   const [showDeployDropdown, setShowDeployDropdown] = useState(false);
   const [viewMode, setViewMode] = useState<'ui' | 'code'>('ui');
   const [phoneTestNumber, setPhoneTestNumber] = useState('');
+  const [fromNumber, setFromNumber] = useState('');
   const [deployStatus, setDeployStatus] = useState<'idle' | 'deploying' | 'done'>('idle');
   const [askAIInput, setAskAIInput] = useState('');
   const [askAIResponse, setAskAIResponse] = useState('');
@@ -474,6 +477,25 @@ export default function EditAgent() {
       }
     } catch { /* prefetch is best-effort; call start falls back to fetching */ }
   };
+
+  // B4 streaming reply playback: audio bytes arrive over the socket and are fed
+  // into a MediaSource so the agent starts speaking on the first byte. Falls
+  // back to a single buffered blob when MediaSource can't play the codec.
+  type ModularPlaybackSession = {
+    mediaSource: MediaSource | null;
+    audioEl: HTMLAudioElement | null;
+    url: string | null;
+    sourceBuffer: SourceBuffer | null;
+    queue: ArrayBuffer[];
+    ended: boolean;
+    started: boolean;
+    epoch: number;
+    useMediaSource: boolean;
+    contentType: string;
+    blobChunks: ArrayBuffer[];
+    finish: () => void;
+  };
+
   // Live call machinery — kept in a ref so the VAD/recorder loop never fights React renders
   const callRef = useRef<{
     active: boolean;
@@ -503,7 +525,22 @@ export default function EditAgent() {
     stopPlayback: (() => void) | null;
     // Interval that watches the mic for barge-in while the agent speaks.
     bargeTimer: number | null;
-  }>({ active: false, stream: null, audioCtx: null, analyser: null, recorder: null, vadTimer: null, player: null, history: [], mixDest: null, mixRecorder: null, mixChunks: [], logId: null, bundledEngine: false, lastSpeechAt: 0, ambientStop: null, stopPlayback: null, bargeTimer: null });
+    // ── B2 modular WebSocket transport (voiceEngine === 'modular') ──
+    // true once the persistent modular Web Call socket is running.
+    socketMode: boolean;
+    // Worklet that taps mic PCM16 and forwards it to the socket while capturing.
+    micWorklet: AudioWorkletNode | null;
+    // Gate: the worklet only streams PCM to the server while a turn is capturing.
+    capturingPcm: boolean;
+    // B4 streaming reply playback: MediaSource session + a promise that resolves
+    // when the current reply finishes playing (or is cut off by barge-in).
+    modularSession: ModularPlaybackSession | null;
+    modularPlaybackDone: Promise<void> | null;
+    // Transcript of the caller's current turn, applied to history on 'done'.
+    pendingUserText: string;
+    // Bumped on each new segment / on barge-in so stale queued audio is skipped.
+    turnEpoch: number;
+  }>({ active: false, stream: null, audioCtx: null, analyser: null, recorder: null, vadTimer: null, player: null, history: [], mixDest: null, mixRecorder: null, mixChunks: [], logId: null, bundledEngine: false, lastSpeechAt: 0, ambientStop: null, stopPlayback: null, bargeTimer: null, socketMode: false, micWorklet: null, capturingPcm: false, modularSession: null, modularPlaybackDone: null, pendingUserText: '', turnEpoch: 0 });
 
   // ─── Call history logging (Recent Calls tab) ────────────────────────────────
   // Every test session — chat modal, Chat Test tab, web call, phone call — is
@@ -979,11 +1016,13 @@ export default function EditAgent() {
       const player = new Audio(url);
       const done = () => { callRef.current.stopPlayback = null; URL.revokeObjectURL(url); resolve(); };
       player.onended = done;
-      player.onerror = done;
+      player.onerror = () => { console.error('[web-call] agent audio element failed to play (decode/format?)'); done(); };
       connectAgentPlayer(player);
       // Barge-in hook: pausing then resolving lets the caller interrupt.
       callRef.current.stopPlayback = () => { try { player.pause(); } catch { /* noop */ } done(); };
-      player.play().catch(done);
+      // A rejected play() (autoplay policy, decode error) would otherwise be
+      // invisible — log it so a silent agent is diagnosable.
+      player.play().catch((e) => { console.error('[web-call] agent audio play() rejected:', e?.message || e); done(); });
     });
 
   const playAgentAudio = (audioBase64: string, contentType: string) => {
@@ -1143,7 +1182,7 @@ export default function EditAgent() {
         return; // noise only — keep listening
       }
       call.lastSpeechAt = Date.now();
-      await submitVoiceTurn(blob);
+      await submitVoiceTurnStreaming(blob);
     };
 
     recorder.start();
@@ -1193,6 +1232,310 @@ export default function EditAgent() {
     // from earlier — the caller isn't expected to talk while the agent speaks.
     call.lastSpeechAt = Date.now();
     if (call.active) startListeningSegment();
+  };
+
+  // B1 streaming turn: POST the recorded segment to /voice-turn-stream and read
+  // the NDJSON response, playing each sentence's audio the moment it arrives so
+  // the agent starts speaking before its full reply is generated. Falls back to
+  // the buffered submitVoiceTurn if the request fails before producing output
+  // (e.g. a backend without the streaming endpoint).
+  const submitVoiceTurnStreaming = async (blob: Blob) => {
+    const call = callRef.current;
+    setWebCallActivity('processing');
+    const { token, workspaceId } = getAuth();
+
+    let userText = '';
+    let replyText = '';
+    let producedOutput = false;
+
+    // Play queued sentence audio strictly in order. Awaiting playChain at the
+    // end guarantees listening only resumes once the agent finishes speaking
+    // (same half-duplex model as the buffered path).
+    let playChain: Promise<void> = Promise.resolve();
+    const enqueueAudio = (audioBase64: string, contentType: string) => {
+      playChain = playChain.then(async () => {
+        if (!call.active) return;
+        setWebCallActivity('speaking');
+        await playAgentAudio(audioBase64, contentType);
+      });
+    };
+
+    try {
+      const fd = new FormData();
+      fd.append('audio', blob, 'turn.webm');
+      fd.append('history', JSON.stringify(call.history));
+
+      const res = await fetch(
+        `/api/v1/workspaces/${workspaceId}/agents/${agentId}/voice-turn-stream`,
+        {
+          method: 'POST',
+          headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+          body: fd,
+        }
+      );
+      if (!res.ok || !res.body) throw new Error(`Streaming voice turn failed (${res.status})`);
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        let nl: number;
+        while ((nl = buffer.indexOf('\n')) !== -1) {
+          const line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (!line) continue;
+          let evt: {
+            type: string; userText?: string; text?: string; reply?: string | null;
+            audioBase64?: string | null; contentType?: string | null; message?: string;
+            timings?: { sttMs: number; llmMs: number; ttsMs: number; ttfaMs: number; totalMs: number };
+          };
+          try { evt = JSON.parse(line); } catch { continue; }
+
+          if (evt.type === 'transcript') {
+            userText = evt.userText || '';
+          } else if (evt.type === 'sentence') {
+            producedOutput = true;
+            if (evt.text) replyText += (replyText ? ' ' : '') + evt.text;
+            if (evt.audioBase64) enqueueAudio(evt.audioBase64, evt.contentType || 'audio/mpeg');
+          } else if (evt.type === 'done') {
+            if (evt.reply) replyText = evt.reply;
+            if (evt.timings) {
+              setWebCallLatency({ sttMs: evt.timings.sttMs, llmMs: evt.timings.llmMs });
+              console.info('Web call streaming latency', evt.timings);
+            }
+          } else if (evt.type === 'error') {
+            throw new Error(evt.message || 'Streaming voice turn error');
+          }
+        }
+      }
+
+      if (!call.active) return;
+      await playChain; // let all queued sentence audio finish playing
+
+      if (userText && replyText) {
+        call.history = [...call.history, { role: 'user', content: userText }, { role: 'assistant', content: replyText }];
+        setWebCallTranscript([...call.history]);
+        if (call.logId) {
+          whapi.patch(`/agents/${agentId}/calls/${call.logId}`, { transcript: call.history }).catch(() => {});
+        }
+      }
+    } catch (err: any) {
+      // Nothing streamed yet → the endpoint is unavailable/failed early; use the
+      // buffered turn, which resumes listening itself.
+      if (!producedOutput && call.active) {
+        return submitVoiceTurn(blob);
+      }
+      setWebCallError(err.message || 'Voice turn failed');
+    }
+    call.lastSpeechAt = Date.now();
+    if (call.active) startListeningSegment();
+  };
+
+  // ─── B2: modular Web Call over a persistent WebSocket ───────────────────────
+  // The client still owns VAD endpointing, history and the call log; the socket
+  // just streams caller PCM up and plays the reply's sentence audio as it comes
+  // back. playAgentAudio routes through connectAgentPlayer, so the reply is
+  // still captured into the full-call recording — nothing regresses.
+
+  // Append the next queued audio chunk to the MediaSource (only one append may
+  // be in flight; the rest wait for 'updateend', which re-invokes this).
+  const pumpModular = (session: ModularPlaybackSession) => {
+    if (!session.sourceBuffer || session.sourceBuffer.updating) return;
+    if (session.queue.length > 0) {
+      const chunk = session.queue.shift()!;
+      try { session.sourceBuffer.appendBuffer(chunk); } catch { session.finish(); return; }
+      if (!session.started) {
+        session.started = true;
+        session.audioEl?.play().catch(() => session.finish());
+      }
+    } else if (session.ended && session.mediaSource?.readyState === 'open' && !session.sourceBuffer.updating) {
+      try { session.mediaSource.endOfStream(); } catch { /* already ended */ }
+    }
+  };
+
+  // B4: open a streaming playback session for the reply. Audio plays on the
+  // first byte via MediaSource; connectAgentPlayer keeps it in the recording.
+  const startModularPlayback = (contentType: string | null) => {
+    const call = callRef.current;
+    const epoch = call.turnEpoch;
+    const ct = contentType || 'audio/mpeg';
+    const useMS = typeof window.MediaSource !== 'undefined' && MediaSource.isTypeSupported(ct);
+    setWebCallActivity('speaking');
+
+    let resolveDone!: () => void;
+    call.modularPlaybackDone = new Promise<void>((r) => { resolveDone = r; });
+
+    let finished = false;
+    const session: ModularPlaybackSession = {
+      mediaSource: null, audioEl: null, url: null, sourceBuffer: null,
+      queue: [], ended: false, started: false, epoch, useMediaSource: useMS,
+      contentType: ct, blobChunks: [],
+      finish: () => {
+        if (finished) return; finished = true;
+        if (session.url) { try { URL.revokeObjectURL(session.url); } catch { /* noop */ } }
+        if (call.stopPlayback && call.modularSession === session) call.stopPlayback = null;
+        resolveDone();
+      },
+    };
+    call.modularSession = session;
+
+    if (!useMS) return; // buffered-blob fallback is built at endModularPlayback
+
+    const mediaSource = new MediaSource();
+    const url = URL.createObjectURL(mediaSource);
+    const audioEl = new Audio(url);
+    session.mediaSource = mediaSource;
+    session.url = url;
+    session.audioEl = audioEl;
+    connectAgentPlayer(audioEl); // route into the call recording mix
+    call.stopPlayback = () => { try { audioEl.pause(); } catch { /* noop */ } session.finish(); };
+    audioEl.onended = () => session.finish();
+    audioEl.onerror = () => session.finish();
+
+    mediaSource.addEventListener('sourceopen', () => {
+      if (call.turnEpoch !== epoch) { session.finish(); return; }
+      try {
+        const sb = mediaSource.addSourceBuffer(ct);
+        session.sourceBuffer = sb;
+        sb.addEventListener('updateend', () => pumpModular(session));
+        sb.addEventListener('error', () => session.finish());
+        pumpModular(session);
+      } catch { session.finish(); }
+    }, { once: true });
+  };
+
+  const appendModularChunk = (data: ArrayBuffer) => {
+    const call = callRef.current;
+    const session = call.modularSession;
+    if (!session || session.epoch !== call.turnEpoch) return; // stale / barged
+    const buf = data.slice(0); // detach a private copy of the frame's bytes
+    if (session.useMediaSource) { session.queue.push(buf); pumpModular(session); }
+    else session.blobChunks.push(buf);
+  };
+
+  const endModularPlayback = () => {
+    const call = callRef.current;
+    const session = call.modularSession;
+    if (!session) return;
+    session.ended = true;
+    if (session.useMediaSource) { pumpModular(session); return; }
+    // Fallback: MediaSource can't play this codec — play the whole thing as one
+    // blob once fully received.
+    if (!session.blobChunks.length) { session.finish(); return; }
+    const blob = new Blob(session.blobChunks as BlobPart[], { type: session.contentType });
+    const url = URL.createObjectURL(blob);
+    const audioEl = new Audio(url);
+    session.audioEl = audioEl;
+    session.url = url;
+    connectAgentPlayer(audioEl);
+    call.stopPlayback = () => { try { audioEl.pause(); } catch { /* noop */ } session.finish(); };
+    audioEl.onended = () => session.finish();
+    audioEl.onerror = () => session.finish();
+    audioEl.play().catch(() => session.finish());
+  };
+
+  // A turn finished: commit user + assistant text to history/transcript, then
+  // resume listening once all queued sentence audio has drained.
+  const finishModularTurn = (event: Extract<ModularCallEvent, { type: 'done' }>) => {
+    const call = callRef.current;
+    const userText = call.pendingUserText;
+    const reply = event.reply || '';
+    call.pendingUserText = '';
+    if (userText) call.history = [...call.history, { role: 'user', content: userText }];
+    if (reply) call.history = [...call.history, { role: 'assistant', content: reply }];
+    if (userText || reply) {
+      setWebCallTranscript([...call.history]);
+      if (call.logId) {
+        whapi.patch(`/agents/${agentId}/calls/${call.logId}`, { transcript: call.history }).catch(() => {});
+      }
+    }
+    if (event.timings) {
+      setWebCallLatency({ sttMs: event.timings.sttMs, llmMs: event.timings.llmMs });
+      console.info('Web call socket latency', event.timings);
+    }
+    // Resume listening only once the reply audio has finished playing.
+    const done = call.modularPlaybackDone || Promise.resolve();
+    done.then(() => {
+      call.lastSpeechAt = Date.now();
+      if (call.active && call.socketMode) startListeningSegmentSocket();
+    });
+  };
+
+  const onModularEvent = (event: ModularCallEvent) => {
+    const call = callRef.current;
+    if (!call.active && event.type !== 'error') return;
+    switch (event.type) {
+      case 'ready':
+        break; // resolved by modularCallSocket.start()
+      case 'transcript':
+        if (event.role === 'user' && event.done) call.pendingUserText = event.text;
+        if (event.role === 'assistant') setWebCallActivity('speaking');
+        break;
+      case 'audio-start':
+        startModularPlayback(event.contentType);
+        break;
+      case 'audio-chunk':
+        appendModularChunk(event.data);
+        break;
+      case 'audio-end':
+        endModularPlayback();
+        break;
+      case 'done':
+        finishModularTurn(event);
+        break;
+      case 'error':
+        if (call.active && event.message !== 'Call ended') setWebCallError(event.message);
+        break;
+    }
+  };
+
+  // Socket-mode equivalent of startListeningSegment: same analyser VAD, but the
+  // caller's audio is streamed live to the server as PCM (no MediaRecorder /
+  // upload) and the turn ends with a tiny `end-turn` control frame.
+  const startListeningSegmentSocket = () => {
+    const call = callRef.current;
+    if (!call.active || !call.analyser || !call.socketMode) return;
+    setWebCallActivity('listening');
+    call.turnEpoch += 1;
+    modularCallSocket.startTurn(call.audioCtx?.sampleRate || 24000);
+    call.capturingPcm = true;
+
+    const data = new Uint8Array(call.analyser.fftSize);
+    let speechDetected = false;
+    let lastSpeechAt = Date.now();
+    const startedAt = Date.now();
+    const SPEECH_RMS = 0.025;
+    const SILENCE_MS = Math.min(900, Math.max(350, sttSilenceTimeoutMs || 450));
+    const MAX_SEGMENT_MS = 20000;
+
+    call.vadTimer = window.setInterval(() => {
+      if (!call.active || !call.analyser) return;
+      call.analyser.getByteTimeDomainData(data);
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) { const d = (data[i] - 128) / 128; sum += d * d; }
+      const rms = Math.sqrt(sum / data.length);
+      if (rms > SPEECH_RMS) { speechDetected = true; lastSpeechAt = Date.now(); }
+      const silentFor = Date.now() - lastSpeechAt;
+      if ((speechDetected && silentFor > SILENCE_MS) || Date.now() - startedAt > MAX_SEGMENT_MS) {
+        if (call.vadTimer) { clearInterval(call.vadTimer); call.vadTimer = null; }
+        call.capturingPcm = false;
+        if (!speechDetected) {
+          modularCallSocket.cancelTurn();
+          if (maxSilenceBeforeHangup > 0 && Date.now() - call.lastSpeechAt > maxSilenceBeforeHangup * 1000) {
+            handleEndWebCall();
+            return;
+          }
+          startListeningSegmentSocket();
+          return;
+        }
+        call.lastSpeechAt = Date.now();
+        setWebCallActivity('processing');
+        modularCallSocket.endTurn(call.history);
+      }
+    }, 100);
   };
 
   // Web Call via a bundled Conversational Agent (xAI or ElevenLabs): a single
@@ -1272,8 +1615,18 @@ export default function EditAgent() {
           if (w?.audioBase64) {
             welcomeSpeech.current = { audioBase64: w.audioBase64, contentType: w.contentType };
             console.info('[web-call] welcome voice:', w.voiceUsed);
+          } else {
+            console.warn('[web-call] /speak returned no audio for the welcome');
           }
-        } catch { /* welcome TTS failing shouldn't kill the call */ }
+        } catch (e: any) {
+          // A TTS failure shouldn't kill the call, but the caller must know WHY
+          // the agent is silent — otherwise it looks like a broken agent.
+          console.error('[web-call] welcome TTS failed:', e?.message || e);
+          setWebCallError(
+            `Voice is unavailable — the agent is running text-only. ${e?.message || 'TTS synthesis failed.'} ` +
+            `Check that a voice-provider API key (e.g. SARVAM_API_KEY / ELEVENLABS_API_KEY) is set in backend/.env and that voices are synced.`
+          );
+        }
       })();
 
       const stream = await micPromise;
@@ -1282,6 +1635,18 @@ export default function EditAgent() {
       analyser.fftSize = 2048;
       const micSource = audioCtx.createMediaStreamSource(stream);
       micSource.connect(analyser);
+
+      // B2: open the persistent modular Web Call socket and tap mic PCM into it.
+      // The socket carries every turn; the analyser above still drives VAD.
+      const { token: sockToken, workspaceId: sockWs } = getAuth();
+      if (!sockToken || !sockWs || !agentId) throw new Error('Missing auth/workspace context');
+      await modularCallSocket.start(sockWs, agentId, sockToken, onModularEvent);
+      await audioCtx.audioWorklet.addModule('/xai-mic-worklet.js');
+      const micWorklet = new AudioWorkletNode(audioCtx, 'xai-mic-capture');
+      micSource.connect(micWorklet);
+      micWorklet.port.onmessage = (e: MessageEvent<ArrayBuffer>) => {
+        if (callRef.current.capturingPcm) modularCallSocket.sendPcm(e.data);
+      };
 
       // Record the whole call (both sides): mic + agent audio are mixed into
       // one stream and uploaded when the call ends.
@@ -1296,7 +1661,7 @@ export default function EditAgent() {
       // for the duration of the call, captured into the recording too.
       const ambientStop = startAmbientSound(audioCtx, ambientSound, mixDest);
 
-      Object.assign(call, { active: true, stream, audioCtx, analyser, history: [], mixDest, mixRecorder, mixChunks, logId: null, lastSpeechAt: Date.now(), ambientStop });
+      Object.assign(call, { active: true, stream, audioCtx, analyser, history: [], mixDest, mixRecorder, mixChunks, logId: null, lastSpeechAt: Date.now(), ambientStop, socketMode: true, micWorklet, capturingPcm: false, modularPlayChain: null, pendingUserText: '', turnEpoch: 0 });
 
       // Barge-in: while the agent is speaking (call.stopPlayback set), watch the
       // mic for sustained speech and cut the agent off so the caller can
@@ -1317,6 +1682,13 @@ export default function EditAgent() {
             const stop = call.stopPlayback;
             call.stopPlayback = null;
             setWebCallActivity('listening');
+            if (call.socketMode) {
+              // Skip any still-queued sentence audio and tell the server to
+              // stop generating the rest of the reply. Its `done` event then
+              // drives the resume-listening (via finishModularTurn).
+              call.turnEpoch += 1;
+              modularCallSocket.barge();
+            }
             stop?.(); // cut the agent off; playback promise resolves → we listen
           }
         } else {
@@ -1345,7 +1717,7 @@ export default function EditAgent() {
         await playAgentAudio(welcomeSpeech.current.audioBase64, welcomeSpeech.current.contentType);
       }
 
-      if (call.active) startListeningSegment();
+      if (call.active) startListeningSegmentSocket();
     } catch (err: any) {
       setWebCallError(
         err?.name === 'NotAllowedError'
@@ -1371,6 +1743,14 @@ export default function EditAgent() {
     if (call.vadTimer) { clearInterval(call.vadTimer); call.vadTimer = null; }
     if (call.bargeTimer) { clearInterval(call.bargeTimer); call.bargeTimer = null; }
     call.stopPlayback = null;
+    // B2 modular socket teardown (recording/ambient below still run as before).
+    if (call.socketMode) {
+      call.socketMode = false;
+      call.capturingPcm = false;
+      call.turnEpoch += 1; // drop any queued sentence audio
+      try { modularCallSocket.stop(); } catch { /* already closed */ }
+    }
+    if (call.micWorklet) { try { call.micWorklet.disconnect(); } catch { /* noop */ } call.micWorklet = null; }
     if (call.ambientStop) { call.ambientStop(); call.ambientStop = null; }
     if (call.recorder && call.recorder.state !== 'inactive') { try { call.recorder.stop(); } catch { /* already stopped */ } }
     call.recorder = null;
@@ -1425,7 +1805,7 @@ export default function EditAgent() {
   const handlePhoneCall = async () => {
     if (!phoneTestNumber.trim()) return;
     try {
-      const res = await whapi.post<{ message: string }>('/agents/test-call', { agentId, phoneNumber: phoneTestNumber });
+      const res = await whapi.post<{ message: string }>('/agents/test-call', { agentId, phoneNumber: phoneTestNumber, fromNumber: fromNumber || undefined });
       alert(res.message || `Test call initiated to ${phoneTestNumber}.`);
       setShowPhoneCallModal(false);
     } catch (err: any) {
@@ -1851,6 +2231,9 @@ export default function EditAgent() {
                 style={{ width: '100%', background: '#0f0f0f', border: '1px solid #333', borderRadius: '8px', padding: '12px 14px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
               />
             </div>
+            <div style={{ marginBottom: '16px' }}>
+              <CallerNumberPicker value={fromNumber} onChange={setFromNumber} />
+            </div>
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
               <button onClick={() => setShowPhoneCallModal(false)} style={{ padding: '10px 20px', background: 'transparent', border: '1px solid #333', color: 'var(--text-primary)', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>Cancel</button>
               <button
@@ -2114,7 +2497,12 @@ export default function EditAgent() {
                 { icon: '{}', label: 'AI Model (LLM)', value: aiModel, onClick: () => setShowModelModal(true) },
                 { icon: '|||', label: 'Transcription (STT)', value: transcription, onClick: () => setShowTranscriptionModal(true) }
               ].map((item, i) => {
-                const disabled = voiceEngine !== 'modular';
+                // A bundled Conversational Agent replaces the LLM + STT entirely,
+                // but it can still take a Voice and Language — so keep those two
+                // tiles configurable and only lock down AI Model (LLM) and
+                // Transcription (STT).
+                const engineHandled = item.label === 'AI Model (LLM)' || item.label === 'Transcription (STT)';
+                const disabled = voiceEngine !== 'modular' && engineHandled;
                 const engineLabel = voiceEngine === 'xai' ? 'xAI' : voiceEngine === 'elevenlabs' ? 'ElevenLabs' : '';
                 return (
                 <div

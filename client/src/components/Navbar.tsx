@@ -47,7 +47,7 @@ export default function Navbar() {
     <nav className="navbar">
       <Link to="/" className="navbar-logo">
         <span style={{fontWeight: 800, fontSize: '18px', letterSpacing: '-1px'}}>
-          OMNI<span style={{color:'var(--teal)'}}>D</span>IMENSION
+          Conversational <span style={{color:'var(--teal)'}}>AI</span> Agent
         </span>
       </Link>
 

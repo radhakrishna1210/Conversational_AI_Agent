@@ -70,42 +70,42 @@ const featureCards = [
 
 const faqs = [
   {
-    question: 'How does OmniDimension help with lead generation?',
+    question: 'How does Conversational AI Agent help with lead generation?',
     answer:
       'You can automate outbound and inbound lead workflows, qualify prospects, route hot leads, and schedule follow-up meetings without adding manual work to your team.',
   },
   {
-    question: 'Can OmniDimension make outbound calls to prospects?',
+    question: 'Can Conversational AI Agent make outbound calls to prospects?',
     answer:
       'Yes. The assistant can run prospecting calls at scale, follow approved scripts, and adapt to common objections while keeping the conversation natural.',
   },
   {
-    question: 'How does OmniDimension qualify leads automatically?',
+    question: 'How does Conversational AI Agent qualify leads automatically?',
     answer:
       'You define the qualification criteria, and the assistant asks the right questions, scores the lead, and forwards qualified prospects to your team or CRM.',
   },
   {
-    question: 'Can I integrate OmniDimension with my CRM or lead management tools?',
+    question: 'Can I integrate Conversational AI Agent with my CRM or lead management tools?',
     answer:
       'Yes. You can connect to CRM systems, spreadsheets, APIs, and other lead tools so the assistant can sync outcomes and update records automatically.',
   },
   {
-    question: 'What kind of industries can use OmniDimension for lead generation?',
+    question: 'What kind of industries can use Conversational AI Agent for lead generation?',
     answer:
       'Sales teams in SaaS, real estate, insurance, education, agencies, and local services can all use the platform for outbound and inbound lead generation.',
   },
   {
-    question: 'Can OmniDimension personalize lead calls?',
+    question: 'Can Conversational AI Agent personalize lead calls?',
     answer:
       'Yes. You can tailor tone, script, language, and routing logic so each call feels relevant to the prospect and your campaign.',
   },
   {
-    question: "How does OmniDimension ensure leads don't drop off?",
+    question: "How does Conversational AI Agent ensure leads don't drop off?",
     answer:
       'The assistant can follow up automatically, send reminders, capture contact details, and schedule meetings immediately so leads do not go cold.',
   },
   {
-    question: 'Can OmniDimension send leads to my sales team after qualification?',
+    question: 'Can Conversational AI Agent send leads to my sales team after qualification?',
     answer:
       'Yes. Qualified leads can be handed off with summaries, tags, and next-step context so your sales team can act immediately.',
   },
@@ -115,12 +115,12 @@ const faqs = [
       'You can launch fast using templates, workflows, and approved call scripts, then refine the campaign as results come in.',
   },
   {
-    question: 'Can OmniDimension run campaigns in multiple languages?',
+    question: 'Can Conversational AI Agent run campaigns in multiple languages?',
     answer:
       'Yes. You can create multilingual campaigns so prospects can speak in the language they prefer.',
   },
   {
-    question: 'How does OmniDimension price lead generation campaigns?',
+    question: 'How does Conversational AI Agent price lead generation campaigns?',
     answer:
       'Pricing depends on your campaign needs, call volume, and configuration. You can start small and scale as you grow.',
   },
@@ -384,7 +384,7 @@ function FooterBlock() {
             <div className="flex h-20 w-20 items-center justify-center rounded-[22px] border border-gray-300 dark:border-white/8 bg-gray-100 dark:bg-[#0b1118] text-[52px] font-black tracking-[-0.05em] text-[#0eb39e] dark:text-[#19cfd4] shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
               O
             </div>
-            <p className="mt-6 text-[18px] font-semibold text-black dark:text-white/92">Ask AI about OmniDimension</p>
+            <p className="mt-6 text-[18px] font-semibold text-black dark:text-white/92">Ask AI about Conversational AI Agent</p>
             <div className="mt-5 flex gap-3">
               <FooterIconLabel label="◎" />
               <FooterIconLabel label="AI" />
@@ -398,7 +398,7 @@ function FooterBlock() {
             heading="Solutions"
             items={['BY INDUSTRY', 'Real Estate', 'Healthcare', 'Insurance', 'Restaurants', 'Finance', 'Education', 'E-commerce', 'BY USE CASE', 'Lead Generation', 'Collections']}
           />
-          <FooterColumn heading="Product" items={['Pricing', 'Integrations', 'Telephony', 'Multilingual', 'Instant Voice', 'OmniRelay (for agencies)']} />
+          <FooterColumn heading="Product" items={['Pricing', 'Integrations', 'Telephony', 'Multilingual', 'Instant Voice', 'Agent Relay (for agencies)']} />
           <FooterColumn heading="Resources" items={['Blog', 'Documentation', 'Product Updates']} />
           <FooterColumn
             heading="Sales & Support"
@@ -407,7 +407,7 @@ function FooterBlock() {
         </div>
 
         <div className="mt-24 flex flex-col gap-6 border-t border-gray-300 dark:border-white/6 pt-8 lg:flex-row lg:items-end lg:justify-between">
-          <div className="text-[14px] text-gray-600 dark:text-white/42">© 2026 OmniDimension</div>
+          <div className="text-[14px] text-gray-600 dark:text-white/42">© 2026 Conversational AI Agent</div>
           <div className="flex items-center gap-4 text-gray-600 dark:text-white/42">
             <span>in</span>
             <span>X</span>

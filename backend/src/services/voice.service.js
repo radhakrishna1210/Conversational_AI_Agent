@@ -59,19 +59,40 @@ export const getVoice = async (id) =>
 
 // ─── Provider health ──────────────────────────────────────────────────────────
 
-/**
- * Check health of all configured voice providers.
- * Returns real results from each provider's lightweight healthCheck().
- */
-export const getProviderStatus = async () => {
-  const [googleResult, elevenLabsResult, sarvamResult, cartesiaResult] = await Promise.allSettled([
-    googleProvider.healthCheck(),
-    elevenLabsProvider.healthCheck(),
-    sarvamProvider.healthCheck(),
-    cartesiaProvider.healthCheck(),
+// Provider health is derived from live external API calls, which are slow and
+// occasionally flaky. Cache the result briefly so repeated modal opens / page
+// refreshes are instant and stable instead of re-hammering every provider and
+// flickering "not connected" on each load.
+let _providerStatusCache = null; // { at: number, value: object }
+const PROVIDER_STATUS_TTL_MS = 60_000;
+
+// Bound each check so one hung provider can't stall the whole response.
+const withHealthTimeout = (promise, ms, label) =>
+  Promise.race([
+    promise,
+    new Promise((resolve) =>
+      setTimeout(() => resolve({ healthy: false, error: `${label} health check timed out` }), ms)
+    ),
   ]);
 
-  return {
+/**
+ * Check health of all configured voice providers.
+ * Returns real results from each provider's lightweight healthCheck(), cached
+ * for PROVIDER_STATUS_TTL_MS. Pass { force: true } to bypass the cache.
+ */
+export const getProviderStatus = async ({ force = false } = {}) => {
+  if (!force && _providerStatusCache && Date.now() - _providerStatusCache.at < PROVIDER_STATUS_TTL_MS) {
+    return _providerStatusCache.value;
+  }
+
+  const [googleResult, elevenLabsResult, sarvamResult, cartesiaResult] = await Promise.allSettled([
+    withHealthTimeout(googleProvider.healthCheck(), 4000, 'Google'),
+    withHealthTimeout(elevenLabsProvider.healthCheck(), 4000, 'ElevenLabs'),
+    withHealthTimeout(sarvamProvider.healthCheck(), 4000, 'Sarvam'),
+    withHealthTimeout(cartesiaProvider.healthCheck(), 4000, 'Cartesia'),
+  ]);
+
+  const value = {
     google: googleResult.status === 'fulfilled' ? googleResult.value?.healthy : false,
     elevenlabs: elevenLabsResult.status === 'fulfilled' ? elevenLabsResult.value?.healthy : false,
     sarvam: sarvamResult.status === 'fulfilled' ? sarvamResult.value?.healthy : false,
@@ -83,6 +104,9 @@ export const getProviderStatus = async () => {
       cartesia: cartesiaResult.status === 'fulfilled' ? cartesiaResult.value : { healthy: false, error: cartesiaResult.reason?.message },
     },
   };
+
+  _providerStatusCache = { at: Date.now(), value };
+  return value;
 };
 
 // ─── Audio preview ────────────────────────────────────────────────────────────
@@ -170,6 +194,14 @@ export const streamSynthesizeVoice = async (voice, text, opts = {}) => {
       langCode,
       opts
     );
+    return { stream: Readable.fromWeb(body), contentType };
+  }
+
+  // ElevenLabs streams its fast Flash model chunk-by-chunk — genuine
+  // first-byte-early audio for live web calls (B4), unlike Sarvam whose
+  // "stream" endpoint buffers server-side (ttfaMs ≈ totalMs in the logs).
+  if (voice.provider?.name === 'ElevenLabs') {
+    const { body, contentType } = await elevenLabsProvider.streamVoice(voice.providerVoiceId, text, opts);
     return { stream: Readable.fromWeb(body), contentType };
   }
 

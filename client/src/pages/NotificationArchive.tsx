@@ -24,9 +24,9 @@ export default function NotificationArchive() {
       category: 'feature',
       type: 'Feature',
       date: 'Jan 27, 2026',
-      title: 'OmniDimension Telephony is live',
+      title: 'Conversational AI Agent Telephony is live',
       description:
-        'With OmniDimension Telephony, you can now request and manage +1 and +91 phone numbers directly in OmniDimension.',
+        'With Conversational AI Agent Telephony, you can now request and manage +1 and +91 phone numbers directly in Conversational AI Agent.',
       points: [
         'Request numbers + concurrency (channels)',
         'Map phone numbers to agents inside your workspace',

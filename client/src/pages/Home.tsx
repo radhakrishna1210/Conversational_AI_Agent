@@ -180,7 +180,7 @@ export default function Home() {
         <div className="container" style={{ position: 'relative', zIndex: 1, maxWidth: '1100px' }}>
           <div style={{ textAlign: 'center', marginBottom: '60px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
             <span style={{ color: '#0eb39e', border: '1px solid rgba(14,179,158,0.3)', background: 'rgba(14,179,158,0.05)', padding: '6px 16px', borderRadius: '24px', fontSize: '14px', fontWeight: '500', marginBottom: '24px', display: 'inline-block' }}>Core Capabilities</span>
-            <h2 style={{ fontSize: '42px', fontWeight: '700', margin: '0 0 16px', letterSpacing: '-0.5px' }}>Why OmniDimension for <span style={{ color: '#0eb39e' }}>Voice AI</span> ?</h2>
+            <h2 style={{ fontSize: '42px', fontWeight: '700', margin: '0 0 16px', letterSpacing: '-0.5px' }}>Why Conversational AI Agent for <span style={{ color: '#0eb39e' }}>Voice AI</span> ?</h2>
             <p style={{ color: 'var(--text-secondary)', fontSize: '18px', margin: 0 }}>Powerful features to build, deploy, and scale your Voice AI assistants</p>
           </div>
 
@@ -343,10 +343,10 @@ export default function Home() {
             {/* Inner subtle gradient */}
             <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at center, rgba(14,179,158,0.04) 0%, transparent 65%)', pointerEvents: 'none' }} />
 
-            {/* CENTER: OmniDimension Logo Text */}
+            {/* CENTER: Conversational AI Agent Logo Text */}
             <div style={{ textAlign: 'center', zIndex: 5 }}>
               <span style={{ fontSize: '28px', fontWeight: '700', color: 'var(--text-primary)', letterSpacing: '-1px', fontFamily: 'Space Grotesk, sans-serif' }}>
-                OMNI<span style={{ color: '#0eb39e' }}>D</span>IMENSION
+                Conversational <span style={{ color: '#0eb39e' }}>AI</span> Agent
               </span>
             </div>
 
@@ -453,29 +453,29 @@ export default function Home() {
       <section className="container" style={{padding:'100px 0', maxWidth:'900px', margin:'0 auto'}} id="faq">
         <div style={{textAlign: 'center', marginBottom: '60px'}}>
           <h2 style={{fontSize: '36px', fontWeight: '700', marginBottom: '16px', color: 'var(--text-primary)'}}>Frequently Asked Questions</h2>
-          <p style={{color: 'var(--text-secondary)', fontSize: '18px'}}>Common questions about the OmniDimension platform</p>
+          <p style={{color: 'var(--text-secondary)', fontSize: '18px'}}>Common questions about the Conversational AI Agent platform</p>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {[
-            {q: "How quickly can I really create a Voice AI agent?", a: "You can create a fully functional Voice AI agent on OmniDimension in under 5 minutes. Just prompt, pick a voice, and launch. No coding required."},
-            {q: "Do I need any technical or coding knowledge?", a: "Not at all. OmniDimension is built for everyone, from business owners to developers. You can create, test, and deploy AI agents without writing a single line of code."},
-            {q: "What kind of Voice AI agents can I build?", a: "On OmniDimension, you can build customer support bots, lead generation agents, appointment schedulers, sales assistants, IVR systems, and more. If your business talks to customers, you can automate it here."},
-            {q: "Can I customize how the AI agent sounds and responds?", a: "Absolutely. OmniDimension lets you choose from a variety of natural voices, tones, speaking speeds, and emotional styles. You can also edit the agent’s conversation flow and personality to match your brand."},
-            {q: "What happens after I create my agent?", a: "Once created on OmniDimension, you can instantly test your agent, deploy it on calls or your website, and track live analytics on performance and user engagement."},
-            {q: "Is there a free trial or demo available?", a: "Yes. You can sign up for a free trial on OmniDimension to create your first agent and experience the platform before upgrading to a paid plan."},
-            {q: "Can I integrate my AI agent with existing systems?", a: "Yes. OmniDimension integrates seamlessly with CRMs, call management tools, APIs, and databases, allowing you to personalize conversations and automate workflows."},
-            {q: "How does the AI handle multiple conversations at once?", a: "OmniDimension is cloud-based and scalable. Your agents can handle thousands of simultaneous calls or chats without lag or downtime."},
-            {q: "Can the AI agent make outbound calls?", a: "Yes. On OmniDimension, you can run bulk or targeted outbound call campaigns for sales, follow-ups, or surveys, complete with detailed analytics on performance."},
-            {q: "Can I train the AI on my company data?", a: "Yes. You can upload FAQs, documents, or scripts on OmniDimension, and the AI will learn to respond using your brand’s tone and knowledge base."},
-            {q: "What happens if the AI doesn’t understand something?", a: "When your OmniDimension agent encounters unclear inputs, it can either ask clarifying questions or transfer the conversation to a human operator, depending on your configuration."},
-            {q: "Can I use my own phone number for calls?", a: "Yes. OmniDimension lets you connect your existing business number or purchase a new one for inbound and outbound calls."},
-            {q: "Can I monitor my AI agents in real time?", a: "Yes. OmniDimension provides real-time dashboards with live call logs, transcripts, sentiment analysis, and detailed performance reports."},
-            {q: "How much does it cost to use the platform?", a: "OmniDimension uses a flexible, usage-based pricing model. You pay for minutes used. Volume discounts and enterprise plans are also available."},
-            {q: "How do I measure the success of my AI agent?", a: "OmniDimension provides detailed reports showing call outcomes, engagement rates, sentiment analysis, and lead conversion, all accessible from your dashboard."},
-            {q: "Can I pause or edit an agent after it’s live?", a: "Yes. On OmniDimension, you can modify scripts, change voices, or pause campaigns anytime without losing your progress or data."},
-            {q: "What is the latency on OmniDimension calls?", a: "OmniDimension maintains low latency, typically under 500 milliseconds, ensuring that every response from your AI agent feels instant and natural. This near real-time performance makes conversations fluid and human-like, even in high-volume campaigns."},
-            {q: "Can I make bulk calls or outgoing calls?", a: "Yes. You can easily make bulk or outbound calls directly through OmniDimension. The platform supports large-scale automated calling for sales, surveys, reminders, and customer engagement, all powered by AI-driven personalization and real-time analytics."},
-            {q: "I have my own telephony, can I use it with OmniDimension?", a: "Absolutely. OmniDimension supports SIP (Session Initiation Protocol) integration, allowing you to connect your existing telephony or PBX system seamlessly. This gives you full control over routing, carrier preferences, and infrastructure while leveraging OmniDimension’s AI capabilities."}
+            {q: "How quickly can I really create a Voice AI agent?", a: "You can create a fully functional Voice AI agent on Conversational AI Agent in under 5 minutes. Just prompt, pick a voice, and launch. No coding required."},
+            {q: "Do I need any technical or coding knowledge?", a: "Not at all. Conversational AI Agent is built for everyone, from business owners to developers. You can create, test, and deploy AI agents without writing a single line of code."},
+            {q: "What kind of Voice AI agents can I build?", a: "On Conversational AI Agent, you can build customer support bots, lead generation agents, appointment schedulers, sales assistants, IVR systems, and more. If your business talks to customers, you can automate it here."},
+            {q: "Can I customize how the AI agent sounds and responds?", a: "Absolutely. Conversational AI Agent lets you choose from a variety of natural voices, tones, speaking speeds, and emotional styles. You can also edit the agent’s conversation flow and personality to match your brand."},
+            {q: "What happens after I create my agent?", a: "Once created on Conversational AI Agent, you can instantly test your agent, deploy it on calls or your website, and track live analytics on performance and user engagement."},
+            {q: "Is there a free trial or demo available?", a: "Yes. You can sign up for a free trial on Conversational AI Agent to create your first agent and experience the platform before upgrading to a paid plan."},
+            {q: "Can I integrate my AI agent with existing systems?", a: "Yes. Conversational AI Agent integrates seamlessly with CRMs, call management tools, APIs, and databases, allowing you to personalize conversations and automate workflows."},
+            {q: "How does the AI handle multiple conversations at once?", a: "Conversational AI Agent is cloud-based and scalable. Your agents can handle thousands of simultaneous calls or chats without lag or downtime."},
+            {q: "Can the AI agent make outbound calls?", a: "Yes. On Conversational AI Agent, you can run bulk or targeted outbound call campaigns for sales, follow-ups, or surveys, complete with detailed analytics on performance."},
+            {q: "Can I train the AI on my company data?", a: "Yes. You can upload FAQs, documents, or scripts on Conversational AI Agent, and the AI will learn to respond using your brand’s tone and knowledge base."},
+            {q: "What happens if the AI doesn’t understand something?", a: "When your Conversational AI Agent agent encounters unclear inputs, it can either ask clarifying questions or transfer the conversation to a human operator, depending on your configuration."},
+            {q: "Can I use my own phone number for calls?", a: "Yes. Conversational AI Agent lets you connect your existing business number or purchase a new one for inbound and outbound calls."},
+            {q: "Can I monitor my AI agents in real time?", a: "Yes. Conversational AI Agent provides real-time dashboards with live call logs, transcripts, sentiment analysis, and detailed performance reports."},
+            {q: "How much does it cost to use the platform?", a: "Conversational AI Agent uses a flexible, usage-based pricing model. You pay for minutes used. Volume discounts and enterprise plans are also available."},
+            {q: "How do I measure the success of my AI agent?", a: "Conversational AI Agent provides detailed reports showing call outcomes, engagement rates, sentiment analysis, and lead conversion, all accessible from your dashboard."},
+            {q: "Can I pause or edit an agent after it’s live?", a: "Yes. On Conversational AI Agent, you can modify scripts, change voices, or pause campaigns anytime without losing your progress or data."},
+            {q: "What is the latency on Conversational AI Agent calls?", a: "Conversational AI Agent maintains low latency, typically under 500 milliseconds, ensuring that every response from your AI agent feels instant and natural. This near real-time performance makes conversations fluid and human-like, even in high-volume campaigns."},
+            {q: "Can I make bulk calls or outgoing calls?", a: "Yes. You can easily make bulk or outbound calls directly through Conversational AI Agent. The platform supports large-scale automated calling for sales, surveys, reminders, and customer engagement, all powered by AI-driven personalization and real-time analytics."},
+            {q: "I have my own telephony, can I use it with Conversational AI Agent?", a: "Absolutely. Conversational AI Agent supports SIP (Session Initiation Protocol) integration, allowing you to connect your existing telephony or PBX system seamlessly. This gives you full control over routing, carrier preferences, and infrastructure while leveraging Conversational AI Agent’s AI capabilities."}
           ].map((faq, i) => (
             <div 
               key={i} 

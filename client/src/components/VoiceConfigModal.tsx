@@ -494,21 +494,30 @@ export default function VoiceConfigModal({
             <div className="provider-tabs">
               {PROVIDERS.map(p => {
                 const isActive = activeProvider === p;
-                const healthy = p === 'Google' ? providerStatus?.google
-                  : p === 'ElevenLabs' ? providerStatus?.elevenlabs
-                  : p === 'Sarvam' ? providerStatus?.sarvam
-                  : null;
+                // Until the status request resolves, providerStatus is null —
+                // show a neutral "checking" dot rather than a misleading red
+                // "not connected" one that flickers on every page refresh.
+                const loaded = providerStatus !== null;
+                const healthy = !loaded ? undefined
+                  : p === 'Google' ? providerStatus!.google
+                  : p === 'ElevenLabs' ? providerStatus!.elevenlabs
+                  : p === 'Sarvam' ? providerStatus!.sarvam
+                  : p === 'Cartesia' ? providerStatus!.cartesia
+                  : undefined; // 'All' has no provider dot
+                const showDot = p !== 'All';
+                const dotColor = !loaded ? '#9ca3af' : healthy ? '#22c55e' : '#ef4444';
+                const dotTitle = !loaded ? 'Checking provider…' : healthy ? 'Provider connected' : 'Provider not connected';
                 return (
                   <button
                     key={p}
                     className={`provider-tab ${isActive ? 'provider-tab-active' : 'provider-tab-inactive'}`}
                     onClick={() => setActiveProvider(p)}
                   >
-                    {healthy !== null && (
+                    {showDot && (
                       <span
                         className="provider-status-dot"
-                        style={{ background: healthy ? '#22c55e' : '#ef4444' }}
-                        title={healthy ? 'Provider connected' : 'Provider not connected'}
+                        style={{ background: dotColor }}
+                        title={dotTitle}
                       />
                     )}
                     {p}

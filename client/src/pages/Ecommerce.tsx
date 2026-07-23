@@ -75,7 +75,7 @@ const featureCards = [
 
 const faqs = [
   {
-    question: 'How can OmniDimension help my eCommerce business?',
+    question: 'How can Conversational AI Agent help my eCommerce business?',
     answer:
       'You can create voice assistants that handle order updates, product questions, return requests, and outbound notifications while keeping the buying experience responsive.',
   },
@@ -85,27 +85,27 @@ const faqs = [
       'Yes. The assistant can check order context, answer delivery questions, and provide consistent status updates to customers.',
   },
   {
-    question: 'Can OmniDimension make promotional or marketing calls?',
+    question: 'Can Conversational AI Agent make promotional or marketing calls?',
     answer:
       'Yes. You can use the assistant for promotions, restock alerts, abandoned cart recovery, and other outreach workflows aligned with your rules.',
   },
   {
-    question: 'How does OmniDimension improve customer retention?',
+    question: 'How does Conversational AI Agent improve customer retention?',
     answer:
       'By reducing wait times, improving issue resolution, and following up automatically with helpful notifications and support calls.',
   },
   {
-    question: 'Does OmniDimension support multilingual communication with customers?',
+    question: 'Does Conversational AI Agent support multilingual communication with customers?',
     answer:
       'Yes. You can configure multilingual voice experiences so customers can interact in the language they prefer.',
   },
   {
-    question: 'Can OmniDimension handle return or refund requests?',
+    question: 'Can Conversational AI Agent handle return or refund requests?',
     answer:
       'Yes. The assistant can guide customers through return and refund workflows, collect the right details, and escalate when needed.',
   },
   {
-    question: 'Can OmniDimension collect reviews or feedback from buyers?',
+    question: 'Can Conversational AI Agent collect reviews or feedback from buyers?',
     answer:
       'Yes. You can automate review follow-ups and feedback collection after delivery or support resolution.',
   },
@@ -375,7 +375,7 @@ function FooterBlock() {
             <div className="flex h-20 w-20 items-center justify-center rounded-[22px] border border-white/8 bg-[#0b1118] text-[52px] font-black tracking-[-0.05em] text-[#19cfd4] shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
               O
             </div>
-            <p className="mt-6 text-[18px] font-semibold text-white/92">Ask AI about OmniDimension</p>
+            <p className="mt-6 text-[18px] font-semibold text-white/92">Ask AI about Conversational AI Agent</p>
             <div className="mt-5 flex gap-3">
               <FooterIconLabel label="◎" />
               <FooterIconLabel label="AI" />
@@ -389,7 +389,7 @@ function FooterBlock() {
             heading="Solutions"
             items={['BY INDUSTRY', 'Real Estate', 'Healthcare', 'Insurance', 'Restaurants', 'Finance', 'Education', 'E-commerce', 'BY USE CASE', 'Lead Generation', 'Collections']}
           />
-          <FooterColumn heading="Product" items={['Pricing', 'Integrations', 'Telephony', 'Multilingual', 'Instant Voice', 'OmniRelay (for agencies)']} />
+          <FooterColumn heading="Product" items={['Pricing', 'Integrations', 'Telephony', 'Multilingual', 'Instant Voice', 'Agent Relay (for agencies)']} />
           <FooterColumn heading="Resources" items={['Blog', 'Documentation', 'Product Updates']} />
           <FooterColumn
             heading="Sales & Support"
@@ -398,7 +398,7 @@ function FooterBlock() {
         </div>
 
         <div className="mt-24 flex flex-col gap-6 border-t border-white/6 pt-8 lg:flex-row lg:items-end lg:justify-between">
-          <div className="text-[14px] text-white/42">© 2026 OmniDimension</div>
+          <div className="text-[14px] text-white/42">© 2026 Conversational AI Agent</div>
           <div className="flex items-center gap-4 text-white/42">
             <span>in</span>
             <span>X</span>

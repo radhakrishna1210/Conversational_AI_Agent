@@ -3,7 +3,7 @@ export default function Footer() {
     <footer>
       <div className="container">
         <div className="footer-inner">
-          <p className="footer-copy">© 2026 OmniDimension. All rights reserved.</p>
+          <p className="footer-copy">© 2026 Conversational AI Agent. All rights reserved.</p>
           <div className="footer-links">
             <a href="#" className="footer-link">Product Updates</a>
             <a href="#" className="footer-link">Terms of Use</a>

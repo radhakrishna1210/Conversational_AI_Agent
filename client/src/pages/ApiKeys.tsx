@@ -4,7 +4,7 @@ export default function ApiKeys() {
       <div style={{ marginBottom: '32px' }}>
         <h1 style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-0.5px', marginBottom: '6px' }}>API Access</h1>
         <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-          Manage your API keys and integrate with OmniDimension
+          Manage your API keys and integrate with Conversational AI Agent
         </p>
       </div>
 
@@ -52,7 +52,7 @@ export default function ApiKeys() {
           <div style={{ color: 'var(--text-muted)', fontSize: '12px', fontWeight: 600, paddingBottom: '16px', textAlign: 'center' }}>Actions</div>
 
           {/* Data Row */}
-          <div style={{ color: 'white', fontSize: '13px', fontWeight: 600 }}>OmniDimension API Key</div>
+          <div style={{ color: 'white', fontSize: '13px', fontWeight: 600 }}>Conversational AI Agent API Key</div>
           
           {/* API Key Input Container */}
           <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>

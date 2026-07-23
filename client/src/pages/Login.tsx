@@ -62,8 +62,8 @@ export default function Login() {
       {/* ===== Mobile Top Navbar (visible only on mobile) ===== */}
       <div className="login-mobile-navbar">
         <Link to="/" className="login-logo-link">
-          <div className="login-logo-icon">O</div>
-          <span className="login-logo-text">OMNI<span style={{ color: 'var(--teal)', fontStyle: 'italic' }}>D</span>IMENSION</span>
+          <div className="login-logo-icon">C</div>
+          <span className="login-logo-text">Conversational <span style={{ color: 'var(--teal)', fontStyle: 'italic' }}>AI</span> Agent</span>
         </Link>
         <button
           className="login-hamburger"
@@ -92,8 +92,8 @@ export default function Login() {
 
         {/* Logo */}
         <Link to="/" className="login-logo-link">
-          <div className="login-logo-icon">O</div>
-          <span className="login-logo-text">OMNI<span style={{ color: 'var(--teal)', fontStyle: 'italic' }}>D</span>IMENSION</span>
+          <div className="login-logo-icon">C</div>
+          <span className="login-logo-text">Conversational <span style={{ color: 'var(--teal)', fontStyle: 'italic' }}>AI</span> Agent</span>
         </Link>
 
         {/* Quote / Welcome back */}

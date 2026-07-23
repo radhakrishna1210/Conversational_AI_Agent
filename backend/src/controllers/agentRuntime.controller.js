@@ -130,3 +130,52 @@ export const voiceTurn = async (req, res) => {
     sendError(res, err, 'Agent voice turn failed');
   }
 };
+
+// POST .../voice-turn-stream  multipart: audio (blob), history (JSON string)
+// B1 streaming turn: responds with newline-delimited JSON (application/x-ndjson).
+// Each line is one event from runtime.voiceTurnStream — a transcript, then one
+// `sentence` per synthesized sentence (audio arrives while the reply is still
+// being generated), then a final `done` with timings.
+export const voiceTurnStream = async (req, res) => {
+  try {
+    const { workspaceId, agentId } = req.params;
+    if (!req.file || !req.file.buffer?.length) {
+      return res.status(400).json({ error: 'An audio file is required (field "audio")' });
+    }
+    let history = [];
+    if (req.body.history) {
+      try { history = JSON.parse(req.body.history); } catch { /* ignore malformed */ }
+    }
+
+    res.status(200);
+    res.set({
+      'Content-Type': 'application/x-ndjson',
+      'Cache-Control': 'no-store',
+      // Disable proxy buffering so each sentence reaches the browser immediately.
+      'X-Accel-Buffering': 'no',
+    });
+    res.flushHeaders();
+
+    const write = (event) => {
+      if (!res.writableEnded) res.write(`${JSON.stringify(event)}\n`);
+    };
+
+    await runtime.voiceTurnStream(
+      workspaceId,
+      agentId,
+      req.file.buffer,
+      req.file.mimetype || 'audio/webm',
+      Array.isArray(history) ? history : [],
+      { onEvent: write }
+    );
+    res.end();
+  } catch (err) {
+    // Headers are already sent once streaming starts — surface the error as a
+    // final NDJSON line instead of a (now impossible) JSON error response.
+    if (res.headersSent) {
+      try { res.write(`${JSON.stringify({ type: 'error', message: err.message })}\n`); } catch { /* socket gone */ }
+      return res.end();
+    }
+    sendError(res, err, 'Agent streaming voice turn failed');
+  }
+};

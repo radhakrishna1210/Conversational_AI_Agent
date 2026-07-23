@@ -44,6 +44,7 @@ import EditAgent from './pages/EditAgent';
 import VoiceAssistant from './components/VoiceAssistant';
 import AdminPanel from './pages/AdminPanel';
 import NotificationArchive from './pages/NotificationArchive';
+import AirtelVerifiedCalling from './pages/AirtelVerifiedCalling';
 
 import SolutionUseCasePage from './pages/solutions/SolutionUseCasePage';
 import { solutionUseCases } from './pages/solutions/useCaseContent';
@@ -131,6 +132,8 @@ function App() {
         <Route path="/contact" element={<DefaultLayout><Contact /></DefaultLayout>} />
         <Route path="/docs" element={<DefaultLayout><Docs /></DefaultLayout>} />
         <Route path="/report-issue" element={<DefaultLayout><ReportIssue /></DefaultLayout>} />
+        {/* Public: Airtel verified-calling guide, linked from the caller-number picker */}
+        <Route path="/airtel-verified-calling" element={<AirtelVerifiedCalling />} />
         <Route path="/solutions/verticals/finance" element={<Finance />} />
         <Route path="/solutions/verticals/education" element={<Education />} />
         <Route path="/solutions/verticals/ecommerce" element={<Ecommerce />} />

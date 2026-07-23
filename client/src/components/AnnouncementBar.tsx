@@ -27,7 +27,7 @@ export default function AnnouncementBar() {
 
   return (
     <div className="announcement-bar" ref={barRef}>
-      <span>📞 You can now buy phone numbers in OmniDimension!</span>
+      <span>📞 You can now buy phone numbers in Conversational AI Agent!</span>
       <button className="btn-announcement">View Update →</button>
       <button className="close-btn" onClick={handleClose}>✕</button>
     </div>

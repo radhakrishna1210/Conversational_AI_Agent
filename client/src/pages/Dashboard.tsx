@@ -106,6 +106,12 @@ export default function Dashboard() {
 
   const generateAgentName = (text: string) => {
     let title = text
+      // A pasted system-prompt often starts with markdown/meta boilerplate
+      // ("## System Instruction For ...") — strip it so it never becomes the
+      // agent's name. Take only the first line, drop markdown/formatting chars.
+      .split('\n')[0]
+      .replace(/[#*_`>~]/g, ' ')
+      .replace(/^\s*(system\s+instructions?|instructions?|prompt|persona|role|guidelines?)\s*(for|to|:|-|–)?\s*/i, '')
       .replace(/^create\s+(a\s+)?voice\s+ai\s+agent\s+for\s+/i, '')
       .replace(/^create\s+(an?\s+)?ai\s+agent\s+for\s+/i, '')
       .replace(/^create\s+(a\s+)?voice\s+ai\s+assistant\s+for\s+/i, '')
@@ -116,6 +122,9 @@ export default function Dashboard() {
       .replace(/\bassistance\b/gi, '')
       .replace(/\bassistant\b/gi, '')
       .replace(/\bagent\b/gi, '')
+      // Drop any residual punctuation/symbols so only clean words remain.
+      .replace(/[^A-Za-z0-9\s]/g, ' ')
+      .replace(/\s+/g, ' ')
       .trim();
 
     title = title
@@ -123,7 +132,7 @@ export default function Dashboard() {
       .filter(Boolean)
       // A fallback name, not a summary — long prompts must never become the
       // agent's name wholesale.
-      .slice(0, 6)
+      .slice(0, 5)
       .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
       .join(' ');
 
@@ -190,8 +199,13 @@ export default function Dashboard() {
         prompt,
         category: selectedCategory || undefined,
       });
-      if (generated && generated.welcomeMessage && Array.isArray(generated.flowItems)) {
-        welcomeMsg = generated.welcomeMessage;
+      // A tailored flow is the valuable part — keep it (and voice/languages/
+      // variables) even when the backend dropped a bad welcome. The welcome
+      // falls back to a use-case default below rather than discarding the rest.
+      if (generated && Array.isArray(generated.flowItems) && generated.flowItems.length) {
+        if (typeof generated.welcomeMessage === 'string' && generated.welcomeMessage.trim()) {
+          welcomeMsg = generated.welcomeMessage;
+        }
         defaultFlow = generated.flowItems;
         genConfig = generated;
       }

@@ -237,7 +237,7 @@ export default function Vonage() {
             marginBottom: 42,
           }}
         >
-          OmniDimension works with any SIP-compatible carrier, and Vonage is one
+          Conversational AI Agent works with any SIP-compatible carrier, and Vonage is one
           popular example. Connect Vonage SIP trunks with UserKey and Secret
           authentication and optional IP whitelisting.
         </p>
@@ -333,7 +333,7 @@ export default function Vonage() {
                 }}
               >
                 Learn how to connect your Vonage SIP trunk with
-                OmniDimension in just a few minutes.
+                Conversational AI Agent in just a few minutes.
               </div>
             </div>
           </div>
@@ -447,7 +447,7 @@ export default function Vonage() {
             }}
           >
             Connect your existing Vonage SIP infrastructure with
-            OmniDimension and launch production-ready AI voice
+            Conversational AI Agent and launch production-ready AI voice
             agents in minutes.
           </p>
 
@@ -599,7 +599,7 @@ export default function Vonage() {
                   marginBottom: 18,
                 }}
               >
-                Integrate RingCentral telephony with OmniDimension
+                Integrate RingCentral telephony with Conversational AI Agent
                 and automate inbound customer conversations.
               </div>
 

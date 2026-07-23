@@ -1,9 +1,50 @@
 const BASE = '/api/v1';
 
-import { getAuth, clearAuth } from './authStorage';
+import { getAuth, clearAuth, getRefreshToken, setTokens } from './authStorage';
 export { getAuth };
 
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+/**
+ * Single in-flight refresh promise. Access tokens expire after ~15 min; without
+ * this, a burst of API calls hitting 401 at once would each fire /auth/refresh
+ * in parallel. Because the backend ROTATES refresh tokens (revoking the old on
+ * every refresh), only the first call would succeed and the rest would fail with
+ * a now-revoked token — force-logging the user out. Serializing means one
+ * refresh happens and every waiter reuses its result.
+ */
+let refreshInFlight: Promise<string | null> | null = null;
+
+/** Attempt to mint a new access token from the stored refresh token. Returns the
+ *  new access token on success, or null if refresh is impossible/failed. */
+async function refreshAccessToken(): Promise<string | null> {
+  if (refreshInFlight) return refreshInFlight;
+
+  const refreshToken = getRefreshToken();
+  if (!refreshToken) return null;
+
+  refreshInFlight = (async () => {
+    try {
+      const res = await fetch(`${BASE}/auth/refresh`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refreshToken }),
+      });
+      if (!res.ok) return null;
+      const data = await res.json().catch(() => null);
+      if (!data?.accessToken) return null;
+      // Persist the rotated pair (new access + new refresh token).
+      setTokens(data.accessToken, data.refreshToken);
+      return data.accessToken as string;
+    } catch {
+      return null;
+    } finally {
+      refreshInFlight = null;
+    }
+  })();
+
+  return refreshInFlight;
+}
+
+async function request<T>(path: string, options: RequestInit = {}, _retried = false): Promise<T> {
   const { token, workspaceId } = getAuth();
 
   if (!workspaceId) {
@@ -41,20 +82,30 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     headers,
   });
   if (!res.ok) {
+    if (res.status === 401 && !_retried) {
+      // Access token likely just expired. Try once to mint a new one from the
+      // refresh token and replay the request. Only if that fails do we treat the
+      // session as genuinely dead and log out. This is what keeps users from
+      // being bounced to /login every ~15 min mid-session.
+      const newToken = await refreshAccessToken();
+      if (newToken) {
+        return request<T>(path, options, true);
+      }
+    }
+
     const err = await res.json().catch(() => ({}));
     let errMsg = (err as any).message ?? (err as any).error ?? `Request failed: ${res.status}`;
     if ((err as any).debug) {
       errMsg += ` [DEBUG: ${JSON.stringify((err as any).debug)}]`;
     }
-    
+
     if (res.status === 401) {
-      // Session genuinely expired/invalid — centralized logout is correct here
-      // (unlike the removed pre-request workspace redirect, which fired on
-      // transient storage misses). Clear BOTH storages, not just localStorage.
+      // Refresh was impossible or also rejected — session is genuinely
+      // expired/invalid. Clear BOTH storages, not just localStorage.
       clearAuth();
       window.location.href = '/login';
     }
-    
+
     throw new Error(errMsg);
   }
   // 204 No Content (e.g. DELETE) and other empty bodies have no JSON to
