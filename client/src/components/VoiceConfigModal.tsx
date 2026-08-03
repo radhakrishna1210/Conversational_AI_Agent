@@ -2,7 +2,7 @@
 /**
  * Voice Configuration Modal
  * – Loads voices from the backend API (GET /api/voices)
- * – Provider tabs: Google, ElevenLabs (driven by real API data)
+ * – Provider tabs: Google, ElevenLabs, Sarvam, Cartesia, FishAudio (driven by real API data)
  * – Search by name
  * – Filter by gender and language
  * – Voice cards with Play/Preview button (real audio from backend)
@@ -33,11 +33,13 @@ interface ProviderStatus {
   elevenlabs: boolean;
   sarvam?: boolean;
   cartesia?: boolean;
+  fishaudio?: boolean;
   details: {
     google: ProviderHealth;
     elevenlabs: ProviderHealth;
     sarvam?: ProviderHealth;
     cartesia?: ProviderHealth;
+    fishaudio?: ProviderHealth;
   };
 }
 
@@ -61,7 +63,9 @@ const API_BASE = '/api/v1';
 // All voice/agent endpoints are workspace-scoped and authenticated.
 const wsBase = () => `${API_BASE}/workspaces/${getAuth().workspaceId}`;
 const LIMIT = 20;
-const PROVIDERS = ['All', 'Google', 'ElevenLabs', 'Sarvam', 'Cartesia'];
+// NB: each label is sent verbatim as the ?provider= filter and must equal the
+// backend VoiceProvider.name exactly — that match is case-sensitive.
+const PROVIDERS = ['All', 'Google', 'ElevenLabs', 'Sarvam', 'Cartesia', 'FishAudio'];
 const GENDER_OPTIONS = ['All', 'MALE', 'FEMALE', 'NEUTRAL'];
 const DEFAULT_PREVIEW_TEXT = 'Hello, thank you for calling. How can I assist you today?';
 
@@ -503,6 +507,7 @@ export default function VoiceConfigModal({
                   : p === 'ElevenLabs' ? providerStatus!.elevenlabs
                   : p === 'Sarvam' ? providerStatus!.sarvam
                   : p === 'Cartesia' ? providerStatus!.cartesia
+                  : p === 'FishAudio' ? providerStatus!.fishaudio
                   : undefined; // 'All' has no provider dot
                 const showDot = p !== 'All';
                 const dotColor = !loaded ? '#9ca3af' : healthy ? '#22c55e' : '#ef4444';
@@ -559,6 +564,18 @@ export default function VoiceConfigModal({
                 <option value="All">All Languages</option>
                 {languages.map(l => <option key={l} value={l}>{l}</option>)}
               </select>
+              {/* Always available — voices added to a provider's library after the
+                  last sync (e.g. ElevenLabs Voice Library additions) only appear
+                  once re-synced, and that isn't only an empty-library situation. */}
+              <button
+                className="voice-filter-select"
+                style={{ cursor: syncing ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
+                disabled={syncing}
+                onClick={handleSyncNow}
+                title="Re-pull voices from the providers configured in backend/.env"
+              >
+                {syncing ? 'Syncing…' : '⟳ Sync'}
+              </button>
             </div>
           </div>
 
@@ -585,7 +602,7 @@ export default function VoiceConfigModal({
                 </div>
                 <div className="voice-empty-desc">
                   {isDbEmpty
-                    ? 'Your voice library is empty. Click "Sync voices now" to pull voices from the providers configured in backend/.env (Sarvam, ElevenLabs, Google TTS).'
+                    ? 'Your voice library is empty. Click "Sync voices now" to pull voices from the providers configured in backend/.env (Sarvam, ElevenLabs, Google TTS, Cartesia, Fish Audio).'
                     : 'Try adjusting your search term or filters to find more voices.'}
                 </div>
                 {isDbEmpty && (

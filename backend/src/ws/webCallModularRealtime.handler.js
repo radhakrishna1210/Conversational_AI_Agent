@@ -35,8 +35,9 @@
 import logger from '../lib/logger.js';
 import { verifyAccessToken } from '../lib/jwt.js';
 import prisma from '../config/prisma.js';
-import { voiceTurnStream } from '../services/agentRuntime.service.js';
+import { voiceTurnStream, warmVoiceTurn } from '../services/agentRuntime.service.js';
 import { DeepgramStreamSession, isDeepgramConfigured, toDeepgramLanguage } from '../services/stt/deepgramStream.service.js';
+import { analyzeSpeech, classifyCallerAffect } from '../services/stt/speechGate.js';
 
 const AUTH_TIMEOUT_MS = 10_000;
 
@@ -79,8 +80,16 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
   let capturing = false;
   let turnActive = false; // a reply is being generated/streamed right now
   let bargeRequested = false;
-  let dgSession = null;   // B3 Deepgram streaming STT session for the current turn
+  // B3 Deepgram streaming STT — ONE session for the whole call (created on the
+  // first start-turn, kept alive between turns, recreated only if it dies or
+  // the client's sample rate changes). Per-turn sessions paid a TLS connect
+  // every turn and fell back to batch STT whenever that connect was slow.
+  let dgSession = null;
   let dgLanguage;         // Deepgram language code derived from the agent (B3 Hindi fix)
+  // Sequence number of the Deepgram turn currently capturing. Every finalize is
+  // bound to it so a flush that resolves after the next turn has started can
+  // neither steal that turn's words nor donate the previous turn's (BUG-001).
+  let dgTurnSeq = 0;
   const useDeepgram = isDeepgramConfigured();
 
   const authTimer = setTimeout(() => {
@@ -99,15 +108,71 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
     frames = [];
     capturing = false;
 
-    // B3: finalize the streaming transcript (if any) before we discard the DG
-    // session. Empty → voiceTurnStream falls back to batch STT on the WAV.
+    // B3: flush the streaming transcript for THIS turn — the session itself
+    // stays open for the next one. Empty → voiceTurnStream falls back to
+    // batch STT on the buffered WAV.
     let streamedText = '';
+    // Was Deepgram actually listening to THIS turn (socket open the whole time)?
+    // Captured before finalizeTurn, which can mark the session dead.
+    const dgListened = Boolean(dgSession?.isConnected);
     if (dgSession) {
-      try { streamedText = await dgSession.finish(); } catch { /* fall back to batch */ }
-      dgSession = null;
+      const dgStart = Date.now();
+      try { streamedText = await dgSession.finalizeTurn(1200, dgTurnSeq); } catch { /* fall back to batch */ }
+      const dgMs = Date.now() - dgStart;
+      if (dgMs > 500) logger.info(`Deepgram finalize took ${dgMs}ms`);
+      // An empty streaming transcript degrades the turn to batch STT (slower AND
+      // less accurate). It used to be invisible — surface it, with the audio
+      // length, so a misconfigured stream is diagnosable from the log. Only a
+      // real problem when the stream wasn't up; see the silence gate below.
+      if (!streamedText && pcm.length && !dgListened) {
+        logger.warn(
+          `Deepgram returned no transcript for a ${(pcm.length / 2 / sampleRate).toFixed(1)}s turn ` +
+          `(lang=${dgLanguage ?? 'default'}, rate=${sampleRate}) — falling back to batch STT`,
+        );
+      }
+      if (!dgSession.isAlive) dgSession = null; // died mid-call — next turn recreates it
     }
 
     if (!pcm.length && !streamedText) { send({ type: 'done', timings: null }); return; }
+
+    // ── Silence gate (BUG-001) ────────────────────────────────────────────────
+    // The caller said NOTHING this turn, so there is no turn to run. Without
+    // this, buffered noise went to batch STT, and every batch engine in the
+    // pipeline (ElevenLabs/Sarvam/Whisper-family) hallucinates stock filler on
+    // near-silence. The LLM then answered that phantom text, so the caller
+    // watched the agent reply — usually apologising for not understanding —
+    // while they had said nothing.
+    //
+    // Three independent ways to know there was no speech:
+    //  - Deepgram had an open socket for the whole segment and returned no
+    //    words. It heard the audio live; if it found no speech there was none.
+    //  - The segment is too short to contain a word at all.
+    //  - ACOUSTIC ANALYSIS of the buffered PCM found no voiced speech.
+    //
+    // That third check is the one that was missing, and it is the one that
+    // matters most. The first is conditional on `dgListened`, which is FALSE on
+    // exactly the path that needs guarding — no DEEPGRAM_API_KEY, session died
+    // mid-call, or TLS handshake still in flight. The whole batch-STT fallback
+    // exists because those happen, and on that path a noise-only segment longer
+    // than 400ms sailed straight through. analyzeSpeech() answers the question
+    // from the PCM we already hold, with no dependency on any provider.
+    //
+    // This does NOT add latency: it is ~0.4ms of arithmetic on an in-memory
+    // buffer (measured; 1.6ms at the 20s max segment), and when it fires it
+    // REMOVES a multi-hundred-millisecond batch-STT round trip. Deliberately
+    // not a silence timeout — that would recreate the "AI is thinking" pause
+    // this is meant to prevent.
+    const audioMs = (pcm.length / 2 / sampleRate) * 1000;
+    const speech = analyzeSpeech(pcm, sampleRate);
+    if (!streamedText && (dgListened || audioMs < 400 || !speech.hasSpeech)) {
+      logger.info(
+        `Modular web call: discarding silent ${Math.round(audioMs)}ms turn ` +
+        `(dgListened=${dgListened} voicedMs=${speech.voicedMs} ` +
+        `contrast=${speech.contrast.toFixed(2)} peak=${speech.peakRms.toFixed(4)})`,
+      );
+      send({ type: 'done', timings: null });
+      return;
+    }
 
     turnActive = true;
     bargeRequested = false;
@@ -121,6 +186,14 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
         Array.isArray(history) ? history : [],
         {
           userText: streamedText,
+          // Acoustic + transcript affect signal (rushed/hesitant/agitated/
+          // quiet/null) — steers reply tone and TTS delivery turn-by-turn.
+          affect: classifyCallerAffect(speech, streamedText),
+          // BUG-001: lets voiceTurnStream apply the STT-hallucination filter to
+          // the BATCH transcript with a second, independent signal. Text alone
+          // is not enough to drop "okay"/"thank you" (a caller really says
+          // those); text + "the audio had no voiced speech" is.
+          audioHadSpeech: speech.hasSpeech,
           shouldAbort: () => bargeRequested,
           onEvent: (e) => {
             if (bargeRequested && e.type !== 'done') return; // caller cut in; drop reply audio
@@ -156,7 +229,7 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
     closed = true;
     clearTimeout(authTimer);
     frames = [];
-    if (dgSession) { dgSession.finish().catch(() => {}); dgSession = null; }
+    if (dgSession) { dgSession.close(); dgSession = null; }
   };
 
   ws.on('message', async (raw, isBinary) => {
@@ -196,7 +269,13 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
 
       authenticated = true;
       clearTimeout(authTimer);
-      send({ type: 'ready' });
+      // Tell the client whether model-based endpointing is actually available.
+      // Its RMS VAD is a BACKSTOP when it is, and the sole endpointer when it is
+      // not, and those want very different timeouts: a backstop must sit well
+      // clear of a natural mid-sentence pause (or it cuts the caller off before
+      // the smarter signal can rule), while a sole endpointer has to stay
+      // responsive. The client can't infer this, so state it.
+      send({ type: 'ready', sttEndpointing: useDeepgram });
       return;
     }
 
@@ -213,22 +292,62 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
     const msg = safeJson(raw.toString(), null);
     if (!msg?.type) return;
     switch (msg.type) {
-      case 'start-turn':
-        if (Number.isFinite(msg.sampleRate) && msg.sampleRate > 0) sampleRate = msg.sampleRate;
+      case 'start-turn': {
+        const newRate = Number.isFinite(msg.sampleRate) && msg.sampleRate > 0 ? msg.sampleRate : sampleRate;
+        // Sample rate is baked into the Deepgram connection — a change (new
+        // AudioContext) forces a fresh session.
+        if (dgSession && newRate !== sampleRate) { dgSession.close(); dgSession = null; }
+        sampleRate = newRate;
         frames = [];
         capturing = true;
-        // B3: open a fresh Deepgram streaming session for this turn (gated on
-        // DEEPGRAM_API_KEY). Non-fatal — batch STT covers any failure.
+        // Warm agent/KB/voice/filler caches WHILE the caller is speaking, so a
+        // cold cache costs nothing after they stop (the prepMs spikes in
+        // latency.log). Fire-and-forget; the turn works identically without it.
+        warmVoiceTurn(workspaceId, agentId);
+        // B3: reuse the call-long Deepgram session; (re)connect only when there
+        // is none or it died. Non-fatal — batch STT covers any failure.
         if (useDeepgram) {
-          try {
-            dgSession = new DeepgramStreamSession({ sampleRate, language: dgLanguage });
-            dgSession.connect();
-          } catch (err) {
-            logger.warn(`Deepgram session start failed, using batch STT: ${err.message}`);
-            dgSession = null;
+          if (dgSession && !dgSession.isAlive) dgSession = null;
+          if (dgSession) {
+            // Opens a fresh, empty buffer for this turn AND stamps it with a
+            // sequence number, so an in-flight flush from the previous turn
+            // (cancel-turn does not await one) can neither leak its words into
+            // this turn nor swallow this turn's opening words.
+            dgTurnSeq = dgSession.beginTurn();
+          } else {
+            try {
+              dgSession = new DeepgramStreamSession({
+                sampleRate,
+                language: dgLanguage,
+                // How long Deepgram's VAD waits before emitting speech_final.
+                // This is now a CANDIDATE signal, confirmed by the session's
+                // grace window rather than trusted outright, so it no longer
+                // has to be conservative on its own — see the end-of-turn note
+                // in deepgramStream.service.js. Commit lands at
+                // endpointing + grace (600 + 400 = ~1000ms of real silence),
+                // which is a natural turn boundary rather than a mid-sentence
+                // breath, while still beating the client's RMS backstop.
+                endpointingMs: Number(process.env.DEEPGRAM_ENDPOINTING_MS) || 600,
+                // Semantic turn end: fires only once the caller is genuinely
+                // finished (confirmed speech_final, or an authoritative
+                // UtteranceEnd). Nudges the client to end the turn ahead of its
+                // RMS VAD. Only while capturing — never during the agent's reply.
+                onEndOfTurn: (reason) => {
+                  if (!capturing || turnActive) return;
+                  logger.info(`Modular web call: end of turn (${reason})`);
+                  send({ type: 'endpoint' });
+                },
+              });
+              dgSession.connect();
+              dgTurnSeq = dgSession.beginTurn();
+            } catch (err) {
+              logger.warn(`Deepgram session start failed, using batch STT: ${err.message}`);
+              dgSession = null;
+            }
           }
         }
         break;
+      }
       case 'end-turn':
         capturing = false;
         await runTurn(msg.history);
@@ -236,7 +355,23 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
       case 'cancel-turn':
         frames = [];
         capturing = false;
-        if (dgSession) { dgSession.finish().catch(() => {}); dgSession = null; }
+        // Flush the discarded turn's audio out of the stream so it can't bleed
+        // into the next turn's transcript; the session itself stays open.
+        //
+        // Deliberately NOT awaited — awaiting would stall the restart of
+        // listening by up to the flush timeout, and a cancelled turn is by
+        // definition one the caller was silent in, so there is nothing worth
+        // waiting for. Safe to fire and forget now that the flush is bound to
+        // `dgTurnSeq` and routes its results away from the next turn's buffer.
+        //
+        // Short timeout on purpose. Nobody reads this result — it exists only to
+        // drain the discarded audio — and while the flush is pending its results
+        // are routed to it rather than to the turn now capturing. Bounding that
+        // window at 300ms (a flush normally lands in 100-300ms) caps how much of
+        // a real next turn could be misattributed if Deepgram never sends the
+        // from_finalize marker. The 1200ms default is for `end-turn`, where the
+        // transcript IS awaited and no other turn is running concurrently.
+        if (dgSession) dgSession.finalizeTurn(300, dgTurnSeq).catch(() => {});
         break;
       case 'barge':
         // Caller cut in. Stop the in-flight reply; the client has already

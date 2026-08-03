@@ -54,6 +54,98 @@ const REGION_MAP = {
   ZW: 'Zimbabwean',
 };
 
+// ─── Cross-provider label normalisation ──────────────────────────────────────
+//
+// Every provider labels voices differently: Google emits BCP-47 locales
+// ("en-IN"), ElevenLabs emits free text from whoever published the voice
+// ("english"/"en", "indian"), Cartesia emits bare codes ("en"). listVoices()
+// filters `language` with an exact match, so without a single canonical form
+// the language dropdown silently returns nothing for anything but Google.
+// Everything below funnels those variants into the same human-readable names
+// LANGUAGE_MAP / REGION_MAP already produce.
+
+/** Reverse lookups: "english" → "English", "indian" → "Indian". */
+const LANGUAGE_BY_NAME = new Map();
+for (const name of Object.values(LANGUAGE_MAP)) {
+  if (!LANGUAGE_BY_NAME.has(name.toLowerCase())) LANGUAGE_BY_NAME.set(name.toLowerCase(), name);
+}
+const REGION_BY_NAME = new Map();
+for (const name of Object.values(REGION_MAP)) {
+  if (!REGION_BY_NAME.has(name.toLowerCase())) REGION_BY_NAME.set(name.toLowerCase(), name);
+}
+
+/** "us-southern" → "Us Southern"; used when no map entry matches. */
+function titleCase(str) {
+  return str
+    .replace(/[_-]+/g, ' ')
+    .trim()
+    .split(/\s+/)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+    .join(' ');
+}
+
+/**
+ * Canonicalise a language label from any provider.
+ * Accepts codes ("en"), locales ("en-IN"), or names ("english", "English").
+ * @param {string|null|undefined} raw
+ * @returns {string|null} e.g. "English", or null when there's nothing to map
+ */
+export function normalizeLanguage(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const lower = trimmed.toLowerCase();
+
+  if (LANGUAGE_MAP[lower]) return LANGUAGE_MAP[lower];        // "en"
+  if (LANGUAGE_BY_NAME.has(lower)) return LANGUAGE_BY_NAME.get(lower); // "english"
+
+  const code = lower.split(/[-_]/)[0];                        // "en-IN" → "en"
+  if (LANGUAGE_MAP[code]) return LANGUAGE_MAP[code];
+
+  return titleCase(trimmed);
+}
+
+/**
+ * Canonicalise an accent/region label from any provider.
+ * Accepts region codes ("IN"), locales ("en-IN"), or names ("indian").
+ * @param {string|null|undefined} raw
+ * @returns {string|null} e.g. "Indian", or null when there's nothing to map
+ */
+export function normalizeAccent(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  const lower = trimmed.toLowerCase();
+
+  if (REGION_BY_NAME.has(lower)) return REGION_BY_NAME.get(lower);     // "indian"
+  if (trimmed.length === 2 && REGION_MAP[trimmed.toUpperCase()]) {     // "IN"
+    return REGION_MAP[trimmed.toUpperCase()];
+  }
+
+  const parts = lower.split(/[-_]/);                                    // "en-IN" → "IN"
+  if (parts.length > 1) {
+    const region = parts[parts.length - 1].toUpperCase();
+    if (REGION_MAP[region]) return REGION_MAP[region];
+  }
+
+  return titleCase(trimmed);
+}
+
+/**
+ * Canonicalise gender to lowercase so it compares equal across providers
+ * (Google emits "FEMALE", ElevenLabs "Female", Sarvam "female").
+ * @param {string|null|undefined} raw
+ * @returns {string|null} "male" | "female" | "neutral" | other lowercase value
+ */
+export function normalizeGender(raw) {
+  if (!raw || typeof raw !== 'string') return null;
+  const lower = raw.trim().toLowerCase();
+  if (!lower) return null;
+  if (lower === 'feminine') return 'female';
+  if (lower === 'masculine') return 'male';
+  return lower;
+}
+
 /**
  * Parses a Google TTS locale code (e.g. "en-IN-Wavenet-A") into
  * { language, accent } using human-readable names.
@@ -103,7 +195,7 @@ export function fromGoogleVoice(raw) {
     name: raw.name,
     language,
     accent,
-    gender: raw.ssmlGender || 'NEUTRAL',
+    gender: normalizeGender(raw.ssmlGender) || 'neutral',
     category,
     metadata: JSON.stringify({
       locale,
@@ -121,13 +213,16 @@ export function fromGoogleVoice(raw) {
  */
 export function fromElevenLabsVoice(raw) {
   // raw.voice_id, raw.name, raw.labels, raw.category, raw.description
+  // Labels are free text supplied by whoever published the voice, so they
+  // arrive in every casing and shape ("english"/"en"/"English", "indian").
+  // Normalise so Voice Library additions filter alongside Google/Sarvam voices.
   const labels = raw.labels || {};
   return {
     providerVoiceId: raw.voice_id,
     name: raw.name,
-    language: labels.language || labels.Language || null,
-    accent: labels.accent || labels.Accent || null,
-    gender: labels.gender || labels.Gender || null,
+    language: normalizeLanguage(labels.language || labels.Language),
+    accent: normalizeAccent(labels.accent || labels.Accent),
+    gender: normalizeGender(labels.gender || labels.Gender),
     category: raw.category || 'premade',
     metadata: JSON.stringify({
       description: raw.description || null,
@@ -201,6 +296,73 @@ export function fromCartesiaVoice(raw) {
       is_owner: raw.is_owner,
       is_public: raw.is_public,
       created_at: raw.created_at,
+    }),
+  };
+}
+
+/**
+ * Normalise one Fish Audio voice model into a VoiceDTO.
+ *
+ * Fish's model library returns TTS "models" (including instant clones), keyed by
+ * `_id` — which is exactly the value passed back as `reference_id` on every
+ * synthesis call, so it is persistent and reusable rather than per-request.
+ *
+ * Field names are handled defensively: the list-models reference page 404s, so
+ * the response shape here was inferred from the create-model docs (`_id`,
+ * `title`, `state`, `visibility`, `train_mode`) and must be confirmed against a
+ * live account — see scripts/probe-fish.js.
+ *
+ * @param {object} raw
+ * @returns {import('./voice.dto.js').VoiceDTO}
+ */
+export function fromFishAudioVoice(raw, { preferLanguages = [] } = {}) {
+  const langs = Array.isArray(raw.languages)
+    ? raw.languages.filter((l) => typeof l === 'string')
+    : (typeof raw.language === 'string' ? [raw.language] : []);
+
+  // Fish voices are frequently MULTILINGUAL (e.g. ["es","pt","en","hi"]) but the
+  // Voice table has one indexed `language` column, and that column is what the
+  // picker filters on. Taking langs[0] blindly filed a voice that speaks Hindi
+  // under "Spanish", so a Hindi agent could never find it. Prefer whichever of
+  // this deployment's languages the voice supports (in preference order); the
+  // full list is always kept in metadata.
+  const primary = preferLanguages
+    .map((p) => String(p).trim().toLowerCase())
+    .find((p) => langs.some((l) => l.toLowerCase() === p || l.toLowerCase().startsWith(`${p}-`)))
+    ?? langs[0];
+  const tags = Array.isArray(raw.tags) ? raw.tags.map(String) : [];
+  // Fish has no dedicated gender field on a model; when absent, a conventional
+  // gender tag is the only signal. Anything else stays null rather than guessed.
+  const genderRaw = raw.gender
+    || tags.find((t) => /^(male|female|neutral|masculine|feminine)$/i.test(t))
+    || null;
+
+  // Fish reports BARE language codes ("en", "ar"), not locales ("en-US"), so a
+  // language value must never be fed to normalizeAccent: it reads a 2-letter
+  // string as a REGION code, which turned an Arabic voice ("ar") into accent
+  // "Argentine" and an English one ("en") into the junk value "En". Only derive
+  // an accent from a real locale, or from an explicit accent field.
+  const localeForAccent = raw.accent
+    || (typeof primary === 'string' && /[-_]/.test(primary) ? primary : null);
+
+  return {
+    providerVoiceId: raw._id || raw.id,
+    name: raw.title || raw.name || 'Unknown Voice',
+    // MUST canonicalise: listVoices filters on these columns, so a raw "en-US"
+    // here would make the voice invisible to the picker's language filter.
+    language: normalizeLanguage(primary),
+    accent: normalizeAccent(localeForAccent),
+    gender: normalizeGender(genderRaw),
+    category: raw.visibility === 'public' ? 'premade' : 'custom',
+    metadata: JSON.stringify({
+      description: raw.description ?? null,
+      tags,
+      languages: langs,
+      visibility: raw.visibility ?? null,
+      state: raw.state ?? null,
+      trainMode: raw.train_mode ?? null,
+      author: raw.author?.nickname ?? raw.author?.name ?? null,
+      likeCount: raw.like_count ?? null,
     }),
   };
 }

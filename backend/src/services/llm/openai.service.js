@@ -232,7 +232,7 @@ class OpenAIService {
 
       // Check cache
       if (OPENAI_CONFIG.caching.enabled && !skipCache) {
-        const cacheKey = cacheManager.generateCacheKey(message, model, chatHistory);
+        const cacheKey = cacheManager.generateCacheKey(message, model, chatHistory, systemPrompt);
         const cached = await cacheManager.get(cacheKey);
         if (cached) {
           logger.info(`[${requestId}] ✅ Cache HIT`, { cacheKey });
@@ -285,7 +285,7 @@ class OpenAIService {
       };
 
       if (OPENAI_CONFIG.caching.enabled) {
-        const cacheKey = cacheManager.generateCacheKey(message, model, chatHistory);
+        const cacheKey = cacheManager.generateCacheKey(message, model, chatHistory, systemPrompt);
         await cacheManager.set(cacheKey, response);
       }
 

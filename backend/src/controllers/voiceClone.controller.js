@@ -2,10 +2,10 @@
 //
 // The uploaded sample is stored on disk and registered as a Voice under the
 // "Custom" provider. Preview plays the actual uploaded sample. When an external
-// cloning provider (e.g. ElevenLabs Instant Voice Clone, Cartesia) is
-// configured, `submitToProvider` can push the sample upstream; until then the
-// voice is fully usable for selection/preview and clearly marked
-// status: "sample_only" — we never fake a cloned status.
+// cloning provider is configured (Fish Audio or ElevenLabs — see CLONERS),
+// `submitToProvider` pushes the sample upstream and stores the returned
+// persistent voice id; until then the voice is usable for preview only and
+// clearly marked status: "sample_only" — we never fake a cloned status.
 import path from 'path';
 import fs from 'fs';
 import multer from 'multer';
@@ -48,16 +48,8 @@ const getCustomProvider = async () => {
 
 const parseMeta = (v) => { try { return JSON.parse(v || '{}'); } catch { return {}; } };
 
-/**
- * Submit the sample to a real cloning provider. Currently: ElevenLabs Instant
- * Voice Clone (POST /v1/voices/add, multipart). Returns { provider, providerVoiceId }
- * on success, or null when no cloning-capable provider key is configured.
- * Failures THROW so callers can report honestly — we never fake "cloned".
- */
-const submitToProvider = async ({ filePath, mimeType, name, description }) => {
-  const key = process.env.ELEVENLABS_API_KEY;
-  if (!key) return null;
-
+/** ElevenLabs Instant Voice Clone — POST /v1/voices/add, multipart. */
+const submitToElevenLabs = async ({ filePath, mimeType, name, description }) => {
   const form = new FormData();
   form.append('name', name);
   if (description) form.append('description', description);
@@ -69,7 +61,7 @@ const submitToProvider = async ({ filePath, mimeType, name, description }) => {
 
   const res = await fetch('https://api.elevenlabs.io/v1/voices/add', {
     method: 'POST',
-    headers: { 'xi-api-key': key },
+    headers: { 'xi-api-key': process.env.ELEVENLABS_API_KEY },
     body: form,
   });
   const bodyText = await res.text();
@@ -79,7 +71,67 @@ const submitToProvider = async ({ filePath, mimeType, name, description }) => {
     throw new Error(`ElevenLabs voice cloning failed (${res.status}): ${msg}`);
   }
   const data = JSON.parse(bodyText);
-  return { provider: 'elevenlabs', providerVoiceId: data.voice_id };
+  return { providerVoiceId: data.voice_id };
+};
+
+/**
+ * Fish Audio voice model creation — POST /model (note: NOT under /v1).
+ * Returns a persistent `_id` that is passed as `reference_id` on every later
+ * synthesis, so the voice is never re-uploaded per call.
+ */
+const submitToFishAudio = async ({ filePath, mimeType, name, description }) => {
+  const form = new FormData();
+  form.append('type', 'tts');
+  form.append('title', name);
+  if (description) form.append('description', description);
+  form.append('train_mode', 'fast');
+  form.append('enhance_audio_quality', 'true');
+  form.append('visibility', process.env.FISH_CLONE_VISIBILITY || 'private');
+  form.append(
+    'voices',
+    new Blob([fs.readFileSync(filePath)], { type: mimeType || 'audio/mpeg' }),
+    path.basename(filePath)
+  );
+
+  const res = await fetch('https://api.fish.audio/model', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${process.env.FISH_API_KEY}` },
+    body: form,
+  });
+  const bodyText = await res.text();
+  if (!res.ok) {
+    let msg = bodyText.slice(0, 300);
+    try { msg = JSON.parse(bodyText)?.detail || JSON.parse(bodyText)?.message || msg; } catch { /* raw */ }
+    throw new Error(`Fish Audio voice cloning failed (${res.status}): ${msg}`);
+  }
+  const data = JSON.parse(bodyText);
+  if (!data?._id) throw new Error('Fish Audio cloning returned no model id');
+  return { providerVoiceId: data._id, state: data.state ?? null };
+};
+
+// Cloning-capable providers, in default preference order.
+const CLONERS = [
+  { id: 'fishaudio', label: 'Fish Audio', enabled: () => Boolean(process.env.FISH_API_KEY), submit: submitToFishAudio },
+  { id: 'elevenlabs', label: 'ElevenLabs', enabled: () => Boolean(process.env.ELEVENLABS_API_KEY), submit: submitToElevenLabs },
+];
+
+/**
+ * Submit the sample to a real cloning provider — chosen by the request, else
+ * VOICE_CLONE_PROVIDER, else the first one with a configured key. Returns
+ * { provider, label, providerVoiceId, state } on success, or null when NO
+ * provider is configured. Failures THROW so callers report honestly — we never
+ * fake "cloned".
+ *
+ * Deliberately does NOT retry a different provider on failure: that burns quota
+ * on a second account and reports an error from a provider the user didn't pick.
+ */
+const submitToProvider = async ({ filePath, mimeType, name, description, preferred }) => {
+  const wanted = (preferred || process.env.VOICE_CLONE_PROVIDER || '').toLowerCase();
+  const chosen = (wanted && CLONERS.find((c) => c.id === wanted && c.enabled()))
+    || CLONERS.find((c) => c.enabled());
+  if (!chosen) return null;
+  const out = await chosen.submit({ filePath, mimeType, name, description });
+  return { provider: chosen.id, label: chosen.label, ...out };
 };
 
 // ── POST /workspaces/:workspaceId/voices/clone ────────────────────────────────
@@ -94,9 +146,10 @@ export const cloneVoice = async (req, res) => {
   }
 
   try {
-    // Attempt REAL provider-side cloning first (ElevenLabs IVC) when a key is
-    // configured. If it fails we still keep the sample, but the status and the
-    // response say exactly what happened — no fake success.
+    // Attempt REAL provider-side cloning first (Fish Audio or ElevenLabs,
+    // whichever is configured) when a key is present. If it fails we still keep
+    // the sample, but the status and the response say exactly what happened —
+    // no fake success.
     let cloned = null;
     let cloneError = null;
     try {
@@ -105,6 +158,7 @@ export const cloneVoice = async (req, res) => {
         mimeType: req.file.mimetype,
         name: name.trim(),
         description,
+        preferred: req.body.cloneProvider,
       });
     } catch (provErr) {
       cloneError = provErr.message;
@@ -130,6 +184,9 @@ export const cloneVoice = async (req, res) => {
           status: cloned ? 'cloned' : 'sample_only',
           clonedProvider: cloned?.provider ?? null,
           clonedVoiceId: cloned?.providerVoiceId ?? null,
+          // Fish reports a training state; 'fast' clones are usable at once but
+          // record it so a future async-training state is diagnosable.
+          cloneState: cloned?.state ?? null,
           cloneError,
           createdBy: req.user?.userId ?? null,
         }),
@@ -148,10 +205,10 @@ export const cloneVoice = async (req, res) => {
         createdAt: voice.createdAt,
       },
       message: cloned
-        ? `Voice cloned successfully via ElevenLabs — it can now speak any text and is selectable in the agent voice picker.`
+        ? `Voice cloned successfully via ${cloned.label} — it can now speak any text and is selectable in the agent voice picker.`
         : cloneError
           ? `Sample saved, but provider cloning failed: ${cloneError}. The sample is kept for preview; fix the provider issue and re-submit to clone.`
-          : 'Sample saved. Add an ELEVENLABS_API_KEY to backend/.env to enable real neural cloning, then re-submit.',
+          : 'Sample saved. Add a FISH_API_KEY or ELEVENLABS_API_KEY to backend/.env to enable real neural cloning, then re-submit.',
     });
   } catch (err) {
     logger.error('cloneVoice failed', err);

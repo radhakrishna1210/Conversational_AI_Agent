@@ -141,6 +141,10 @@ export class ElevenLabsRealtimeSession extends EventEmitter {
         try { return JSON.parse(this.agent.languages || '[]'); } catch { return []; }
       })();
       const langCode = toIsoLangCode(languages[0]);
+      // A1: optional turn-detection tuning. Only sent when configured (and only
+      // works if turn overrides are enabled on the shell agent) — an unverified
+      // override otherwise makes ElevenLabs reject the socket, so it's opt-in.
+      const turnTimeoutS = parseFloat(process.env.ELEVENLABS_CONVAI_TURN_TIMEOUT_S);
       this._send({
         type: 'conversation_initiation_client_data',
         conversation_config_override: {
@@ -152,6 +156,9 @@ export class ElevenLabsRealtimeSession extends EventEmitter {
           // Only sent for an ElevenLabs voice; requires the tts.voice_id
           // override to be enabled on the shell agent or ElevenLabs rejects it.
           ...(this.elevenVoiceId ? { tts: { voice_id: this.elevenVoiceId } } : {}),
+          ...(Number.isFinite(turnTimeoutS) && turnTimeoutS > 0
+            ? { turn: { turn_timeout: turnTimeoutS } }
+            : {}),
         },
       });
       logger.info({ agentId: this.agent.id, langCode: langCode ?? null, voiceId: this.elevenVoiceId ?? null, overridePrompt: true }, 'ElevenLabs Conversational AI: sent conversation init');

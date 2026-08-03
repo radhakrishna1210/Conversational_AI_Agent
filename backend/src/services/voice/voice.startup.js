@@ -16,7 +16,7 @@
 
 import prisma from '../../config/prisma.js';
 import logger from '../../lib/logger.js';
-import { syncVoices } from './voice.sync.service.js';
+import { syncVoices, PROVIDERS } from './voice.sync.service.js';
 
 // Voice catalogs change rarely; a twice-daily refresh is plenty.
 const REFRESH_INTERVAL_MS = 12 * 60 * 60 * 1000; // 12h
@@ -42,9 +42,17 @@ async function runSync(reason) {
 async function isStale() {
   try {
     const providers = await prisma.voiceProvider.findMany({
-      select: { lastSyncedAt: true },
+      select: { name: true, lastSyncedAt: true },
     });
     if (providers.length === 0) return true;
+
+    // A NEWLY ADDED provider has no row (or no lastSyncedAt) while the existing
+    // ones were just synced — and since staleness was judged by the most recent
+    // sync across all of them, its voices would not appear for up to 12h, with
+    // no signal as to why. Treat "a known provider has never synced" as stale.
+    const synced = new Set(providers.filter((p) => p.lastSyncedAt).map((p) => p.name));
+    if (Object.keys(PROVIDERS).some((name) => !synced.has(name))) return true;
+
     const newest = providers.reduce((max, p) => {
       const t = p.lastSyncedAt ? new Date(p.lastSyncedAt).getTime() : 0;
       return Math.max(max, t);

@@ -334,7 +334,7 @@ class GeminiService {
 
       // Check cache
       if (GEMINI_CONFIG.caching.enabled && !skipCache) {
-        const cacheKey = cacheManager.generateCacheKey(message, model, chatHistory);
+        const cacheKey = cacheManager.generateCacheKey(message, model, chatHistory, systemPrompt);
         const cached = await cacheManager.get(cacheKey);
 
         if (cached) {
@@ -399,7 +399,7 @@ class GeminiService {
 
       // Cache response
       if (GEMINI_CONFIG.caching.enabled) {
-        const cacheKey = cacheManager.generateCacheKey(message, model, chatHistory);
+        const cacheKey = cacheManager.generateCacheKey(message, model, chatHistory, systemPrompt);
         await cacheManager.set(cacheKey, response);
       }
 

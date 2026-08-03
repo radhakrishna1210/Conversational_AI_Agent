@@ -5,16 +5,25 @@ import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
 import { sendMail, isMailerConfigured } from '../lib/mailer.js';
 import { appendCallRow } from '../services/googleSheets.service.js';
+import { createEvent, resolveAppointmentStart } from '../services/googleCalendar.service.js';
 
 // ─── PLANS ────────────────────────────────────────────────────────────────────
 // Seeded from the previously hardcoded Billing.tsx values so behavior matches
 // what users already saw — but now admin-editable in one place.
+// priceInr / perMinuteInr are the PRICE OF RECORD (this deployment bills INR).
+// Seeded at the documented rate (1 USD = 96, VOICE_AGENT_PRICE_PER_MINUTE.md)
+// so the seeded economics exactly match what the USD figures used to produce.
+// They are NOT rounded to marketing price points here — 3,456 rather than
+// 3,499 — because choosing a price is a commercial decision, not something a
+// seed should make on someone's behalf. Edit them in Admin Panel -> Plans.
+// maxAgents / maxConcurrentCalls are what the pre-call gate enforces; the
+// `features` strings are display copy only and gate nothing.
 const DEFAULT_PLANS = [
-  { name: 'Free',            priceUsd: 0,   perMinuteUsd: 0.12,  includedMinutes: 10,   kbStorageMb: 50,   sortOrder: 0, features: ['1 agent', 'Web test calls', 'Community support'] },
-  { name: 'Starter',         priceUsd: 36,  perMinuteUsd: 0.085, includedMinutes: 471,  kbStorageMb: 200,  sortOrder: 1, features: ['3 agents', 'Voice cloning', 'Email support'] },
-  { name: 'Jump Starter',    priceUsd: 89,  perMinuteUsd: 0.08,  includedMinutes: 1112, kbStorageMb: 500,  sortOrder: 2, features: ['10 agents', 'Integrations', 'Priority email support'] },
-  { name: 'Early Deployers', priceUsd: 199, perMinuteUsd: 0.075, includedMinutes: 2653, kbStorageMb: 1024, sortOrder: 3, features: ['Unlimited agents', 'All integrations', 'Priority support'] },
-  { name: 'Growth',          priceUsd: 399, perMinuteUsd: 0.07,  includedMinutes: 5700, kbStorageMb: 2048, sortOrder: 4, features: ['Everything in Early Deployers', 'Dedicated support', 'Custom voices'] },
+  { name: 'Free',            priceUsd: 0,   priceInr: 0,     perMinuteUsd: 0.12,  perMinuteInr: 11.52, includedMinutes: 10,   kbStorageMb: 50,   maxAgents: 1,   maxConcurrentCalls: 1, sortOrder: 0, features: ['1 agent', 'Web test calls', 'Community support'] },
+  { name: 'Starter',         priceUsd: 36,  priceInr: 3456,  perMinuteUsd: 0.085, perMinuteInr: 8.16,  includedMinutes: 471,  kbStorageMb: 200,  maxAgents: 3,   maxConcurrentCalls: 2, sortOrder: 1, features: ['3 agents', 'Voice cloning', 'Email support'] },
+  { name: 'Jump Starter',    priceUsd: 89,  priceInr: 8544,  perMinuteUsd: 0.08,  perMinuteInr: 7.68,  includedMinutes: 1112, kbStorageMb: 500,  maxAgents: 10,  maxConcurrentCalls: 5, sortOrder: 2, features: ['10 agents', 'Integrations', 'Priority email support'] },
+  { name: 'Early Deployers', priceUsd: 199, priceInr: 19104, perMinuteUsd: 0.075, perMinuteInr: 7.2,   includedMinutes: 2653, kbStorageMb: 1024, maxAgents: 100, maxConcurrentCalls: 20, sortOrder: 3, features: ['Unlimited agents', 'All integrations', 'Priority support'] },
+  { name: 'Growth',          priceUsd: 399, priceInr: 38304, perMinuteUsd: 0.07,  perMinuteInr: 6.72,  includedMinutes: 5700, kbStorageMb: 2048, maxAgents: 100, maxConcurrentCalls: 50, sortOrder: 4, features: ['Everything in Early Deployers', 'Dedicated support', 'Custom voices'] },
 ];
 
 export const ensurePlansSeeded = async () => {
@@ -26,6 +35,27 @@ export const ensurePlansSeeded = async () => {
   logger.info('Seeded default pricing plans');
 };
 
+/**
+ * Plans created by the integration suites, excluded from EVERY listing.
+ *
+ * The billing tests need real, ACTIVE plans — subscribe() correctly refuses an
+ * inactive one, so they cannot simply be flagged inactive. That left live
+ * fixtures like "__test__Growth-7446109f" rendering on the billing and pricing
+ * pages while a test run was in flight, and permanently if a run was killed
+ * before its cleanup.
+ *
+ * Filtering by the reserved prefix at the QUERY makes that structurally
+ * impossible rather than relying on cleanup always succeeding. Cleanup is still
+ * the primary mechanism (`npm run db:clean-test-data`); this is the guarantee.
+ *
+ * The real fix is a separate test database — see the note in
+ * __tests__/README-ish comments — but this holds regardless.
+ */
+const TEST_PLAN_PREFIXES = ['__test__', 'TestPlan-'];
+const EXCLUDE_TEST_PLANS = {
+  AND: TEST_PLAN_PREFIXES.map((prefix) => ({ NOT: { name: { startsWith: prefix } } })),
+};
+
 const planDto = (p) => ({ ...p, features: safeJson(p.features, []) });
 const safeJson = (v, fb) => { try { return JSON.parse(v); } catch { return fb; } };
 
@@ -33,7 +63,7 @@ const safeJson = (v, fb) => { try { return JSON.parse(v); } catch { return fb; }
 export const listPlansPublic = async (_req, res) => {
   try {
     await ensurePlansSeeded();
-    const plans = await prisma.plan.findMany({ where: { active: true }, orderBy: { sortOrder: 'asc' } });
+    const plans = await prisma.plan.findMany({ where: { active: true, ...EXCLUDE_TEST_PLANS }, orderBy: { sortOrder: 'asc' } });
     res.json({ plans: plans.map(planDto) });
   } catch (err) {
     logger.error('listPlansPublic failed', err);
@@ -44,17 +74,31 @@ export const listPlansPublic = async (_req, res) => {
 // Admin CRUD
 export const adminListPlans = async (_req, res) => {
   await ensurePlansSeeded();
-  const plans = await prisma.plan.findMany({ orderBy: { sortOrder: 'asc' } });
+  const plans = await prisma.plan.findMany({ where: EXCLUDE_TEST_PLANS, orderBy: { sortOrder: 'asc' } });
   res.json({ plans: plans.map(planDto) });
 };
 export const adminUpsertPlan = async (req, res) => {
-  const { id, name, priceUsd, perMinuteUsd, includedMinutes, kbStorageMb, features, active, sortOrder } = req.body ?? {};
+  const { id, name, priceUsd, perMinuteUsd, priceInr, perMinuteInr, includedMinutes,
+    kbStorageMb, maxAgents, maxConcurrentCalls, features, active, sortOrder } = req.body ?? {};
   if (!name || priceUsd == null || perMinuteUsd == null || includedMinutes == null) {
     return res.status(400).json({ error: 'name, priceUsd, perMinuteUsd, includedMinutes are required' });
   }
+  // The prefixes are reserved for test fixtures and filtered out of every
+  // listing — a real plan named this way would be invisible to customers, which
+  // is a confusing way to fail. Refuse it up front instead.
+  if (TEST_PLAN_PREFIXES.some((prefix) => String(name).startsWith(prefix))) {
+    return res.status(400).json({
+      error: `Plan names starting with ${TEST_PLAN_PREFIXES.join(' or ')} are reserved for automated tests.`,
+    });
+  }
+  const numOrNull = (v) => (v === undefined || v === null || v === '' ? null : Number(v));
   const data = {
     name, priceUsd: Number(priceUsd), perMinuteUsd: Number(perMinuteUsd),
+    // Null (not 0) when omitted, so money.js falls back to USD x FX rather than
+    // treating the plan as free.
+    priceInr: numOrNull(priceInr), perMinuteInr: numOrNull(perMinuteInr),
     includedMinutes: parseInt(includedMinutes, 10), kbStorageMb: parseInt(kbStorageMb ?? 100, 10),
+    maxAgents: parseInt(maxAgents ?? 1, 10), maxConcurrentCalls: parseInt(maxConcurrentCalls ?? 1, 10),
     features: JSON.stringify(Array.isArray(features) ? features : []),
     active: active !== false, sortOrder: parseInt(sortOrder ?? 0, 10),
   };
@@ -70,56 +114,20 @@ export const adminDeletePlan = async (req, res) => {
 };
 
 // ─── WALLET ───────────────────────────────────────────────────────────────────
-const getOrCreateWallet = async (workspaceId) =>
-  prisma.wallet.upsert({ where: { workspaceId }, update: {}, create: { workspaceId } });
-
-// GET /workspaces/:workspaceId/wallet
-export const getWallet = async (req, res) => {
-  try {
-    const wallet = await getOrCreateWallet(req.params.workspaceId);
-    const transactions = await prisma.walletTransaction.findMany({
-      where: { walletId: wallet.id }, orderBy: { createdAt: 'desc' }, take: 50,
-    });
-    res.json({
-      balanceCents: wallet.balanceCents, currency: wallet.currency,
-      transactions,
-      // Honest capability flag: no payment gateway is integrated yet, so the
-      // client shows "top-up unavailable" instead of a dead button.
-      topUpAvailable: false,
-      topUpUnavailableReason: 'Online payments (UPI/Stripe/Razorpay) are not configured yet. An admin can credit your wallet manually.',
-    });
-  } catch (err) {
-    logger.error('getWallet failed', err);
-    res.status(500).json({ error: 'Failed to load wallet' });
-  }
-};
-
-// POST /admin/wallets/credit  { workspaceId, amountCents, note }
-export const adminCreditWallet = async (req, res) => {
-  const { workspaceId, amountCents, note } = req.body ?? {};
-  const amount = parseInt(amountCents, 10);
-  if (!workspaceId || !Number.isFinite(amount) || amount === 0) {
-    return res.status(400).json({ error: 'workspaceId and a non-zero integer amountCents are required' });
-  }
-  try {
-    const wallet = await getOrCreateWallet(workspaceId);
-    const [updated] = await prisma.$transaction([
-      prisma.wallet.update({ where: { id: wallet.id }, data: { balanceCents: { increment: amount } } }),
-      prisma.walletTransaction.create({
-        data: { walletId: wallet.id, amountCents: amount, type: 'admin_credit', note: note || null, createdById: req.user?.userId ?? null },
-      }),
-    ]);
-    res.json({ balanceCents: updated.balanceCents });
-  } catch (err) {
-    logger.error('adminCreditWallet failed', err);
-    res.status(500).json({ error: 'Failed to credit wallet' });
-  }
-};
+// Moved to controllers/billing.controller.js + services/billing/ (BUG-002).
+//
+// The previous implementations lived here and mutated balances with a plain
+// `prisma.$transaction([...])` array: no row lock, so concurrent settlements
+// lost updates; no balanceAfterCents, so the ledger could not be reconciled;
+// and no idempotency key, so a retried request charged twice. They are
+// deliberately NOT kept as a fallback — a second way to move money is exactly
+// how a money system drifts out of audit.
 
 // ─── POST-CALL EXECUTOR ───────────────────────────────────────────────────────
 /**
  * Execute an agent's postCallConfigs against a call/chat result.
- * Supported delivery methods: webhook (POST JSON), email (SMTP).
+ * Supported delivery methods: webhook (POST JSON), email (SMTP),
+ * googlesheets (append row), googlecalendar (book event from extracted date).
  * Returns per-config delivery results — failures are reported, never hidden.
  *
  * NOTE: postCallConfigs is stored inside the agent's `settings` JSON column
@@ -180,6 +188,9 @@ export const executePostCall = async (agentId, workspaceId, payload) => {
           cfg.spreadsheetId,
           {
             metadata: {
+              // 'Call ID' keys the row so re-delivery updates it in place
+              // instead of appending a duplicate (see upsertColumn below).
+              ...(payload.callId ? { 'Call ID': payload.callId } : {}),
               'Call time': payload.endedAt ?? new Date().toISOString(),
               'Agent': agent.name,
               'Call type': payload.callType ?? '',
@@ -188,10 +199,49 @@ export const executePostCall = async (agentId, workspaceId, payload) => {
               'Phone number': payload.phoneNumber ?? '',
             },
             variables,
+            upsertColumn: payload.callId ? 'Call ID' : undefined,
           },
           cfg.spreadsheetTab || undefined,
         );
         results.push({ method: 'googlesheets', target: cfg.spreadsheetName || cfg.spreadsheetId, ok: true, ...out });
+      } else if (method === 'googlecalendar') {
+        // Book an event from the appointment date/time that extraction pulled
+        // from the conversation. `dateVariable` names which extracted variable
+        // holds the start time; without it we can't know when to book.
+        const findVar = (key) => variables.find((v) => String(v.key).toLowerCase() === String(key).toLowerCase())?.value;
+        // Resolves the configured variable, a date+time PAIR (what onboarding
+        // actually generates), or a plausible appointment variable — see
+        // resolveAppointmentStart.
+        const resolved = resolveAppointmentStart(variables, cfg);
+        if (!resolved) {
+          const available = variables.map((v) => v.key).join(', ') || '(none extracted)';
+          throw new Error(
+            'No appointment date/time to book: could not find an appointment date among the extracted variables. '
+            + `Set this destination's date variable to one of: ${available}.`,
+          );
+        }
+        const startValue = resolved.value;
+        const out = await createEvent(workspaceId, {
+          start: startValue,
+          end: cfg.endVariable ? findVar(cfg.endVariable) : undefined,
+          durationMin: cfg.durationMin,
+          // Per-destination opt-out, for a resource that can take concurrent bookings.
+          allowDoubleBooking: cfg.allowDoubleBooking === true,
+          timeZone: cfg.timezone || cfg.timeZone,
+          calendarId: cfg.calendarId,
+          // Default title names the CALLER, not the agent. Every appointment
+          // otherwise reads "Appointment — <agent>", so a day's calendar is a
+          // column of identical titles that tells the clinic nothing.
+          summary: cfg.eventTitle
+            || (() => {
+              const who = ['patient_name', 'customer_name', 'caller_name', 'name', 'full_name']
+                .map((k) => findVar(k)).find((v) => v && String(v).trim());
+              return who ? `Appointment — ${String(who).trim()}` : `Appointment — ${agent.name}`;
+            })(),
+          description: `Booked from call with ${agent.name}.\n\nExtracted information:\n${variableLines}\n\nSummary:\n${payload.summary ?? '(none)'}`,
+          attendees: cfg.attendeeVariable ? [findVar(cfg.attendeeVariable)].filter(Boolean) : undefined,
+        });
+        results.push({ method: 'googlecalendar', target: out.htmlLink || out.id, ok: true, bookedFrom: resolved.from, ...out });
       } else {
         results.push({ method: method || 'unknown', ok: false, error: 'Unsupported or incomplete config' });
       }
@@ -247,6 +297,7 @@ export const adminHealth = async (_req, res) => {
       openai: Boolean(process.env.OPENAI_API_KEY),
       sarvam: Boolean(process.env.SARVAM_API_KEY),
       elevenlabs: Boolean(process.env.ELEVENLABS_API_KEY),
+      fishaudio: Boolean(process.env.FISH_API_KEY),
       twilio: Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN),
       smtp: Boolean(process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASSWORD),
     },

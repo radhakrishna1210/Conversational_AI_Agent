@@ -7,6 +7,7 @@ import logger from '../lib/logger.js';
 import { rateLimit } from '../middleware/rateLimit.js';
 import kbFileRoutes from './kbFile.routes.js';
 import * as platform from '../controllers/platform.controller.js';
+import * as billing from '../controllers/billing.controller.js';
 import * as kbCtrl from '../controllers/kbFile.controller.js';
 import * as callerCtrl from '../controllers/callerNumber.controller.js';
 import { readFileSync } from 'fs';
@@ -59,6 +60,12 @@ router.use('/report-issue', rateLimit({ windowMs: 60_000, max: 10, keyPrefix: 'i
 // the authenticated workspace router below (see `ws`).
 router.use('/integrations', integrationsPublicRoutes);
 router.get('/config/plans', platform.listPlansPublic);
+
+// Razorpay webhook. NOT authenticated by session on purpose: Razorpay cannot
+// hold a token. The X-Razorpay-Signature HMAC over the raw body is the
+// authentication, verified in the controller, and it fails closed when the
+// webhook secret is unset. Raw body parsing is configured in app.js.
+router.post('/billing/razorpay/webhook', billing.razorpayWebhook);
 
 // Serve the Airtel verified-calling guide as markdown (the caller-number picker
 // links here). Resolved relative to this module so it's cwd-independent.
@@ -139,7 +146,28 @@ ws.use('/voices', voiceRoutes); // single canonical mount (duplicate '/voice' re
 ws.use('/integrations', integrationsRoutes);
 ws.use('/notifications', notificationRoutes);
 ws.use('/files', kbFileRoutes);
-ws.get('/wallet', platform.getWallet);
+// ── Billing (BUG-002) ──────────────────────────────────────────────────────
+// Wallet reads, gateway-backed top-ups, subscriptions and invoices. All
+// workspace-scoped and authenticated; the Razorpay webhook is mounted OUTSIDE
+// this router (see below) because it is authenticated by HMAC, not by session.
+ws.get('/wallet', billing.getWallet);
+ws.post('/wallet/topup', billing.createTopUpOrder);
+ws.post('/wallet/topup/verify', billing.verifyTopUp);
+ws.get('/invoices', billing.getInvoices);
+// Plan purchase by card, independent of wallet balance. Returns either a
+// Razorpay order to pay, or an immediately-applied change when nothing is due
+// (downgrade, free plan, no-op).
+ws.post('/subscription/checkout', billing.createSubscriptionCheckout);
+// Auto-renewal on a saved card (Razorpay Subscriptions). The plan activates on
+// the subscription.charged webhook, not on the browser's authorization callback.
+ws.post('/subscription/autorenew', billing.startAutoRenew);
+ws.post('/subscription/autorenew/verify', billing.verifyAutoRenew);
+ws.post('/subscription/autorenew/stop', billing.stopAutoRenewPlan);
+// Wallet-funded plan change. Kept for admin/scripted use and for the case where
+// a customer would rather spend existing balance than pay again.
+ws.post('/subscription', billing.subscribeToPlan);
+ws.post('/subscription/cancel', billing.cancelPlan);
+ws.post('/subscription/resume', billing.resumePlan);
 ws.get('/agents/:agentId/kb-text', kbCtrl.agentKbText);
 ws.post('/agents/:agentId/post-call/test', platform.testPostCall);
 

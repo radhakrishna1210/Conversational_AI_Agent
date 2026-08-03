@@ -7,6 +7,7 @@ import multer from 'multer';
 import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
 import { env } from '../config/env.js';
+import { invalidateKbCaches } from '../services/agentRuntime.service.js';
 
 const FILES_DIR = path.resolve(env.UPLOAD_DIR || 'uploads', 'kb-files');
 fs.mkdirSync(FILES_DIR, { recursive: true });
@@ -43,6 +44,26 @@ const pdfParse = async (buffer) => {
 };
 
 /**
+ * Make extracted text storable in a Postgres `text` column.
+ *
+ * Postgres rejects NUL (0x00) outright — `22021: invalid byte sequence for
+ * encoding "UTF8"` — and it is exactly what PDF text layers hand back: fonts
+ * with no ToUnicode mapping decode unmapped glyphs to U+0000, so any PDF built
+ * from such a font killed the INSERT and the upload failed for the whole file.
+ * Lone surrogates are stripped for the same reason: they are not valid UTF-8
+ * either, and PDF/CID decoding can produce them.
+ *
+ * The characters removed carry no meaning for LLM grounding, so dropping them
+ * costs nothing and keeps a file usable instead of rejecting it wholesale.
+ */
+const toStorableText = (text) => {
+  if (typeof text !== 'string') return text;
+  return text
+    .replace(/\u0000/g, '')
+    .replace(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g, '');
+};
+
+/**
  * Best-effort text extraction:
  * plain text formats are read directly; PDFs go through pdf-parse (real text
  * layer extraction — handles compressed/flate streams the old regex scan
@@ -52,13 +73,16 @@ const pdfParse = async (buffer) => {
 export const extractText = async (filePath, mime) => {
   try {
     if (['text/plain', 'text/markdown', 'text/csv', 'application/json'].includes(mime)) {
-      return fs.readFileSync(filePath, 'utf8').slice(0, 200_000);
+      return toStorableText(fs.readFileSync(filePath, 'utf8')).slice(0, 200_000);
     }
     if (mime === 'application/pdf') {
       const buffer = fs.readFileSync(filePath);
       try {
         const parsed = await pdfParse(buffer);
-        const text = (parsed.text || '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
+        // Sanitized BEFORE the length test: a text layer that is mostly
+        // unmapped glyphs is mostly NULs, and counting those as content let a
+        // file through that had nothing usable in it.
+        const text = toStorableText(parsed.text || '').replace(/[ \t]+/g, ' ').replace(/\n{3,}/g, '\n\n').trim();
         if (text.length > 40) return text.slice(0, 200_000);
       } catch (pdfErr) {
         logger.warn(`pdf-parse failed, using fallback scan: ${pdfErr.message}`);
@@ -73,7 +97,7 @@ export const extractText = async (filePath, mime) => {
         const inner = m.match(/\(((?:[^()\\]|\\.)*)\)/g) || [];
         for (const p of inner) chunks.push(p.slice(1, -1));
       }
-      const text = chunks.join(' ')
+      const text = toStorableText(chunks.join(' '))
         .replace(/\\([nrt()\\])/g, (_s, c) => (c === 'n' || c === 'r' ? '\n' : c === 't' ? ' ' : c))
         .replace(/\s+/g, ' ').trim();
       return text.length > 40 ? text.slice(0, 200_000) : null;
@@ -99,15 +123,34 @@ export const upload = async (req, res) => {
         storedPath: path.basename(req.file.path),
         mimeType: req.file.mimetype,
         sizeBytes: req.file.size,
-        textContent,
+        // Belt-and-braces: extractText already sanitizes, but a single NUL
+        // reaching Postgres fails the whole INSERT, so nothing text-shaped
+        // goes into the column unchecked.
+        textContent: toStorableText(textContent),
       },
     });
+    // The runtime caches grounding text for 5 minutes; without this the agent
+    // would keep answering from the pre-upload knowledge base for that long.
+    invalidateKbCaches(workspaceId, record.agentId);
     res.status(201).json({ file: toDto(record), textExtracted: Boolean(textContent) });
   } catch (err) {
-    logger.error('KB upload failed', err);
+    logger.error(
+      { err, workspaceId, agentId: req.body.agentId || null, fileName: req.file.originalname, mimeType: req.file.mimetype },
+      'KB upload failed',
+    );
     fs.unlink(req.file.path, (e) => { if (e) logger.warn(`Orphaned upload not cleaned: ${e.message}`); });
+    // The old response asserted "the schema is likely not migrated" for EVERY
+    // failure. When the schema is in fact migrated that sends you chasing a
+    // non-existent problem, and the real cause was never visible because the
+    // log line above dropped the error object. Only the Prisma codes that
+    // genuinely mean "missing table/column" get the migrate hint now; anything
+    // else reports what actually went wrong.
+    const schemaDrift = err?.code === 'P2021' || err?.code === 'P2022';
     res.status(500).json({
-      error: 'Failed to save file. If this happens for every file, the database schema is likely not migrated — run `npx prisma migrate deploy` in backend/ (npm run dev now does this automatically).',
+      error: schemaDrift
+        ? 'Failed to save file: the database schema is out of date — run `npx prisma migrate deploy` in backend/.'
+        : `Failed to save file: ${err?.message || 'unknown error'}`,
+      ...(err?.code ? { code: err.code } : {}),
     });
   }
 };
@@ -123,8 +166,8 @@ export const list = async (req, res) => {
     });
     res.json({ files: rows.map(toDto) });
   } catch (err) {
-    logger.error('KB list failed', err);
-    res.status(500).json({ error: 'Failed to list files' });
+    logger.error({ err, workspaceId, agentId }, 'KB list failed');
+    res.status(500).json({ error: `Failed to list files: ${err?.message || 'unknown error'}` });
   }
 };
 
@@ -148,6 +191,9 @@ export const remove = async (req, res) => {
   const record = await prisma.kbFile.findUnique({ where: { id } }).catch(() => null);
   const del = await prisma.kbFile.deleteMany({ where: { id, workspaceId } });
   if (del.count === 0) return res.status(404).json({ error: 'File not found' });
+  // Same reason as upload: a document removed for being wrong must stop
+  // grounding answers now, not in five minutes.
+  invalidateKbCaches(workspaceId, record?.agentId ?? null);
   if (record?.storedPath) {
     fs.unlink(path.join(FILES_DIR, path.basename(record.storedPath)), (e) => {
       if (e) logger.warn(`Could not remove stored file ${record.storedPath}: ${e.message}`);
@@ -177,7 +223,7 @@ export const agentKbText = async (req, res) => {
     }
     res.json({ kbText: sections.join('\n\n'), fileCount: rows.length });
   } catch (err) {
-    logger.error('agentKbText failed', err);
+    logger.error({ err, workspaceId, agentId }, 'agentKbText failed');
     res.status(500).json({ error: 'Failed to load knowledge base' });
   }
 };

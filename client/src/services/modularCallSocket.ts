@@ -16,13 +16,20 @@
  */
 
 export type ModularCallEvent =
-  | { type: 'ready' }
+  // sttEndpointing: the server has model-based (Deepgram) endpointing available,
+  // so the client's RMS VAD is a backstop rather than the sole endpointer. It
+  // must then use a LONGER silence timeout, otherwise it cuts the caller off
+  // mid-sentence before the smarter signal gets to rule on the turn.
+  | { type: 'ready'; sttEndpointing?: boolean }
   | { type: 'transcript'; role: 'user' | 'assistant'; text: string; done: boolean }
   // B4 streaming reply audio: a JSON audio-start opens the stream, raw binary
   // frames carry the audio bytes, an audio-end JSON frame closes it.
   | { type: 'audio-start'; contentType: string | null }
   | { type: 'audio-chunk'; data: ArrayBuffer }
   | { type: 'audio-end' }
+  // Semantic turn end: Deepgram detected the caller finished speaking — the
+  // client ends the current listening turn now instead of waiting for its VAD.
+  | { type: 'endpoint' }
   | { type: 'done'; reply?: string | null; timings?: { sttMs: number; llmMs: number; ttsMs: number; ttfaMs: number; totalMs: number } | null }
   | { type: 'error'; message: string };
 

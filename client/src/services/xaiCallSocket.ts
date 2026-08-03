@@ -19,6 +19,8 @@ export type XaiCallEvent =
   | { type: 'transcript'; role: 'user' | 'assistant'; text: string; done: boolean }
   | { type: 'error'; message: string };
 
+import { startAmbientSound } from './ambientSound';
+
 const SAMPLE_RATE = 24000;
 
 class XaiCallSocketService {
@@ -33,6 +35,12 @@ class XaiCallSocketService {
   // them instantly (see clearPlayback). Without this, cancelled agent audio
   // that was already queued keeps playing for seconds after an interruption.
   private scheduledSources: AudioBufferSourceNode[] = [];
+  // Teardown for the synthesized background bed, or null when ambience is off.
+  // Deliberately NOT an AudioBufferSourceNode in `scheduledSources`: that array
+  // is what clearPlayback() stops on every barge-in, and the room tone must keep
+  // playing through an interruption — a room does not fall silent because the
+  // caller spoke.
+  private ambientStop: (() => void) | null = null;
 
   private wsUrl(workspaceId: string, agentId: string): string {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -44,7 +52,8 @@ class XaiCallSocketService {
     workspaceId: string,
     agentId: string,
     token: string,
-    onEvent: (e: XaiCallEvent) => void
+    onEvent: (e: XaiCallEvent) => void,
+    opts?: { ambientSound?: string },
   ): Promise<void> {
     // echoCancellation keeps the mic from re-capturing the agent's own voice
     // from the speakers — essential for barge-in, or the agent interrupts itself.
@@ -60,6 +69,18 @@ class XaiCallSocketService {
 
     this.playbackContext = new AudioContext({ sampleRate: SAMPLE_RATE });
     this.playbackTime = this.playbackContext.currentTime;
+
+    // Background ambience for the BUNDLED engine. It lives on playbackContext
+    // (the speaker leg) — micContext is a separate AudioContext with no node
+    // joining the two, so the bed can never reach STT or the barge-in detector.
+    // No mixDest is passed: unlike the modular path, bundled web calls are not
+    // recorded client-side, so there is nothing to mix into.
+    // A suspended context would start the bed silently; the call always begins
+    // from a click, but resume() is cheap insurance on stricter browsers.
+    if (this.playbackContext.state === 'suspended') {
+      await this.playbackContext.resume().catch(() => {});
+    }
+    this.ambientStop = startAmbientSound(this.playbackContext, opts?.ambientSound ?? 'None');
 
     return new Promise<void>((resolve, reject) => {
       const socket = new WebSocket(this.wsUrl(workspaceId, agentId));
@@ -145,7 +166,13 @@ class XaiCallSocketService {
     };
   }
 
-  /** Barge-in: stop everything queued and reset the clock so nothing lingers. */
+  /**
+   * Barge-in: stop everything queued and reset the clock so nothing lingers.
+   *
+   * Only touches `scheduledSources` — the ambience bed is intentionally absent
+   * from that array and must STAY absent, or every interruption would kill the
+   * room tone for the rest of the call.
+   */
   private clearPlayback() {
     for (const src of this.scheduledSources) {
       try {
@@ -170,6 +197,10 @@ class XaiCallSocketService {
     this.micStream = null;
     this.micContext?.close().catch(() => {});
     this.micContext = null;
+    // Stop the bed before closing its context, so its nodes are disconnected
+    // while they are still valid.
+    this.ambientStop?.();
+    this.ambientStop = null;
     this.playbackContext?.close().catch(() => {});
     this.playbackContext = null;
     this.playbackTime = 0;

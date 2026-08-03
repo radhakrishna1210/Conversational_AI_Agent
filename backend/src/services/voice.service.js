@@ -10,6 +10,7 @@ import * as googleProvider from './voice/providers/google.provider.js';
 import * as elevenLabsProvider from './voice/providers/elevenlabs.provider.js';
 import * as sarvamProvider from './voice/providers/sarvam.provider.js';
 import * as cartesiaProvider from './voice/providers/cartesia.provider.js';
+import * as fishAudioProvider from './voice/providers/fishaudio.provider.js';
 export { syncVoices } from './voice/voice.sync.service.js';
 
 const DEFAULT_PREVIEW_TEXT =
@@ -29,8 +30,11 @@ export const listVoices = async ({ page = 1, limit = 20, provider, gender, langu
     NOT: { AND: [{ category: 'cloned' }, { metadata: { contains: '"status":"sample_only"' } }] },
   };
   if (provider) where.provider = { name: { equals: provider } };
-  if (gender) where.gender = { equals: gender.toLowerCase() };
-  if (language) where.language = { equals: language };
+  // Case-insensitive: provider labels are normalised on sync (voice.dto.js), but
+  // rows written by earlier syncs keep their original casing ("FEMALE"/"Female"),
+  // and an exact match would silently drop them from the picker.
+  if (gender) where.gender = { equals: gender, mode: 'insensitive' };
+  if (language) where.language = { equals: language, mode: 'insensitive' };
 
 
   const [total, voices] = await Promise.all([
@@ -85,11 +89,12 @@ export const getProviderStatus = async ({ force = false } = {}) => {
     return _providerStatusCache.value;
   }
 
-  const [googleResult, elevenLabsResult, sarvamResult, cartesiaResult] = await Promise.allSettled([
+  const [googleResult, elevenLabsResult, sarvamResult, cartesiaResult, fishAudioResult] = await Promise.allSettled([
     withHealthTimeout(googleProvider.healthCheck(), 4000, 'Google'),
     withHealthTimeout(elevenLabsProvider.healthCheck(), 4000, 'ElevenLabs'),
     withHealthTimeout(sarvamProvider.healthCheck(), 4000, 'Sarvam'),
     withHealthTimeout(cartesiaProvider.healthCheck(), 4000, 'Cartesia'),
+    withHealthTimeout(fishAudioProvider.healthCheck(), 4000, 'FishAudio'),
   ]);
 
   const value = {
@@ -97,11 +102,13 @@ export const getProviderStatus = async ({ force = false } = {}) => {
     elevenlabs: elevenLabsResult.status === 'fulfilled' ? elevenLabsResult.value?.healthy : false,
     sarvam: sarvamResult.status === 'fulfilled' ? sarvamResult.value?.healthy : false,
     cartesia: cartesiaResult.status === 'fulfilled' ? cartesiaResult.value?.healthy : false,
+    fishaudio: fishAudioResult.status === 'fulfilled' ? fishAudioResult.value?.healthy : false,
     details: {
       google: googleResult.status === 'fulfilled' ? googleResult.value : { healthy: false, error: googleResult.reason?.message },
       elevenlabs: elevenLabsResult.status === 'fulfilled' ? elevenLabsResult.value : { healthy: false, error: elevenLabsResult.reason?.message },
       sarvam: sarvamResult.status === 'fulfilled' ? sarvamResult.value : { healthy: false, error: sarvamResult.reason?.message },
       cartesia: cartesiaResult.status === 'fulfilled' ? cartesiaResult.value : { healthy: false, error: cartesiaResult.reason?.message },
+      fishaudio: fishAudioResult.status === 'fulfilled' ? fishAudioResult.value : { healthy: false, error: fishAudioResult.reason?.message },
     },
   };
 
@@ -126,43 +133,66 @@ export const streamVoicePreview = async (voiceId, text = DEFAULT_PREVIEW_TEXT) =
 };
 
 /**
+ * Which provider actually synthesizes this Voice row, and with what id?
+ *
+ * For every real provider that is just (name, providerVoiceId). The exception is
+ * a CLONED voice, which is stored under a synthetic 'Custom' provider with the
+ * upstream id in its metadata — so every synthesis path used to need its own
+ * copy of the same "unwrap the clone" branch. Resolving it once here keeps the
+ * dispatch tables below honest, and means cloned voices automatically get the
+ * streaming path rather than only the buffered one.
+ *
+ * @param {object} voice – Voice row including { provider: { name } }
+ * @returns {{ providerName: string, providerVoiceId: string, meta: object }}
+ * @throws {Error & { statusCode: 409 }} when a clone has no usable upstream voice
+ */
+export const resolveSynthesisTarget = (voice) => {
+  let meta = {};
+  try { meta = JSON.parse(voice.metadata || '{}'); } catch { /* treat as empty */ }
+  const providerName = voice.provider?.name;
+  if (providerName !== 'Custom') {
+    return { providerName, providerVoiceId: voice.providerVoiceId, meta };
+  }
+
+  // Cloned voice: hand back the provider that actually holds the clone.
+  const CLONE_PROVIDERS = { elevenlabs: 'ElevenLabs', fishaudio: 'FishAudio' };
+  const target = CLONE_PROVIDERS[meta.clonedProvider];
+  if (meta.status === 'cloned' && target && meta.clonedVoiceId) {
+    return { providerName: target, providerVoiceId: meta.clonedVoiceId, meta };
+  }
+  const err = new Error(
+    'This cloned voice has only a raw sample (status: sample_only) — it cannot synthesize new text yet. Re-submit it on the Clone Voice page with FISH_API_KEY or ELEVENLABS_API_KEY configured to complete neural cloning.'
+  );
+  err.statusCode = 409;
+  throw err;
+};
+
+/**
  * Synthesize speech for a loaded Voice record and return the raw audio buffer.
  * Shared by the preview endpoint and the web-call runtime.
  * @param {object} voice – Voice row including { provider: { name } }
  * @param {string} text
- * @param {{ fast?: boolean }} [opts] – fast mode trades a little audio quality
- *   for much lower latency (live calls); previews keep full quality.
+ * @param {{ fast?: boolean, pace?: number, affect?: string|null }} [opts] – fast
+ *   mode trades a little audio quality for much lower latency (live calls);
+ *   previews keep full quality.
  * @returns {Promise<{ buffer: Buffer, contentType: string }>}
  */
 export const synthesizeVoiceToBuffer = async (voice, text, opts = {}) => {
-  const providerName = voice.provider?.name;
+  const { providerName, providerVoiceId, meta } = resolveSynthesisTarget(voice);
   let audioBuffer;
 
   if (providerName === 'Google') {
-    audioBuffer = await googleProvider.previewVoice(voice.providerVoiceId, text);
+    audioBuffer = await googleProvider.previewVoice(providerVoiceId, text);
   } else if (providerName === 'ElevenLabs') {
-    audioBuffer = await elevenLabsProvider.previewVoice(voice.providerVoiceId, text, opts);
+    audioBuffer = await elevenLabsProvider.previewVoice(providerVoiceId, text, opts);
   } else if (providerName === 'Sarvam') {
     // Sarvam requires the language code for generation
-    const meta = JSON.parse(voice.metadata || '{}');
     const langCode = meta.language_code || 'en-IN';
-    audioBuffer = await sarvamProvider.previewVoice(voice.providerVoiceId, text, langCode);
+    audioBuffer = await sarvamProvider.previewVoice(providerVoiceId, text, langCode);
   } else if (providerName === 'Cartesia') {
-    audioBuffer = await cartesiaProvider.previewVoice(voice.providerVoiceId, text);
-  } else if (providerName === 'Custom') {
-    // Cloned voices: if the clone completed on ElevenLabs, synthesize there
-    // using the stored ElevenLabs voice id. If it's still sample_only, fail
-    // with a clear, actionable message instead of a generic 500.
-    const meta = JSON.parse(voice.metadata || '{}');
-    if (meta.status === 'cloned' && meta.clonedProvider === 'elevenlabs' && meta.clonedVoiceId) {
-      audioBuffer = await elevenLabsProvider.previewVoice(meta.clonedVoiceId, text, opts);
-    } else {
-      const err = new Error(
-        'This cloned voice has only a raw sample (status: sample_only) — it cannot synthesize new text yet. Re-submit it on the Clone Voice page with ELEVENLABS_API_KEY configured to complete neural cloning.'
-      );
-      err.statusCode = 409;
-      throw err;
-    }
+    audioBuffer = await cartesiaProvider.previewVoice(providerVoiceId, text);
+  } else if (providerName === 'FishAudio') {
+    audioBuffer = await fishAudioProvider.previewVoice(providerVoiceId, text, opts);
   } else {
     throw new Error(`TTS not implemented for provider: ${providerName}`);
   }
@@ -171,25 +201,27 @@ export const synthesizeVoiceToBuffer = async (voice, text, opts = {}) => {
   let contentType = 'audio/mpeg';
   if (audioBuffer.length > 4) {
     const magic = audioBuffer.toString('ascii', 0, 4);
-    if (magic === 'RIFF') {
-      contentType = 'audio/wav';
-    }
+    if (magic === 'RIFF') contentType = 'audio/wav';
+    // Fish Audio can emit Opus in an Ogg container (FISH_TTS_FORMAT=opus).
+    else if (magic === 'OggS') contentType = 'audio/ogg';
   }
 
   return { buffer: audioBuffer, contentType };
 };
 
 /**
- * Return a Node-readable audio stream for live calls. Sarvam has a dedicated
- * low-latency HTTP streaming endpoint; other providers retain their existing
- * synthesis behavior and are exposed as a one-chunk stream.
+ * Return a Node-readable audio stream for live calls. Providers with a real
+ * low-latency streaming endpoint (Sarvam, ElevenLabs, Fish Audio) deliver bytes
+ * as they generate; the rest are exposed as a one-chunk stream so callers need
+ * only one code path.
  */
 export const streamSynthesizeVoice = async (voice, text, opts = {}) => {
-  if (voice.provider?.name === 'Sarvam') {
-    const meta = JSON.parse(voice.metadata || '{}');
+  const { providerName, providerVoiceId, meta } = resolveSynthesisTarget(voice);
+
+  if (providerName === 'Sarvam') {
     const langCode = meta.language_code || 'en-IN';
     const { body, contentType } = await sarvamProvider.streamVoice(
-      voice.providerVoiceId,
+      providerVoiceId,
       text,
       langCode,
       opts
@@ -200,8 +232,13 @@ export const streamSynthesizeVoice = async (voice, text, opts = {}) => {
   // ElevenLabs streams its fast Flash model chunk-by-chunk — genuine
   // first-byte-early audio for live web calls (B4), unlike Sarvam whose
   // "stream" endpoint buffers server-side (ttfaMs ≈ totalMs in the logs).
-  if (voice.provider?.name === 'ElevenLabs') {
-    const { body, contentType } = await elevenLabsProvider.streamVoice(voice.providerVoiceId, text, opts);
+  if (providerName === 'ElevenLabs') {
+    const { body, contentType } = await elevenLabsProvider.streamVoice(providerVoiceId, text, opts);
+    return { stream: Readable.fromWeb(body), contentType };
+  }
+
+  if (providerName === 'FishAudio') {
+    const { body, contentType } = await fishAudioProvider.streamVoice(providerVoiceId, text, opts);
     return { stream: Readable.fromWeb(body), contentType };
   }
 
@@ -211,7 +248,7 @@ export const streamSynthesizeVoice = async (voice, text, opts = {}) => {
 
 // ─── Agent voice resolution ───────────────────────────────────────────────────
 
-const providerHasCredentials = (name) => {
+export const providerHasCredentials = (name) => {
   switch (name) {
     case 'Google':
       return Boolean(process.env.GOOGLE_TTS_CREDENTIALS_JSON || process.env.GOOGLE_TTS_KEY_FILE);
@@ -221,6 +258,14 @@ const providerHasCredentials = (name) => {
       return Boolean(process.env.SARVAM_API_KEY);
     case 'Cartesia':
       return Boolean(process.env.CARTESIA_API_KEY);
+    case 'FishAudio':
+      return Boolean(process.env.FISH_API_KEY);
+    // Cloned voices live under the synthetic 'Custom' provider and are
+    // synthesized upstream (see resolveSynthesisTarget). This returned false,
+    // so a cloned voice could never be resolved from its saved label — an agent
+    // configured with one silently fell back to a different provider's voice.
+    case 'Custom':
+      return Boolean(process.env.ELEVENLABS_API_KEY || process.env.FISH_API_KEY);
     default:
       return false;
   }
@@ -229,7 +274,10 @@ const providerHasCredentials = (name) => {
 // Voice rows change only on sync/UI selection; caching the resolution saves
 // ~2s of remote-DB round-trips on every single web-call turn.
 const voiceResolutionCache = new Map(); // voiceLabel -> { voice, at }
-const VOICE_CACHE_TTL_MS = 60_000;
+// Must outlast the gap BETWEEN turns (not just one turn) or every turn re-pays
+// the multi-query DB resolution. Safe to cache long: the key is the label
+// itself, so changing an agent's voice hits a fresh key immediately.
+const VOICE_CACHE_TTL_MS = 10 * 60_000;
 
 /**
  * Resolve an agent's configured voice label (e.g. "Google - Aoede (female)")
@@ -249,6 +297,12 @@ export const resolveAgentVoice = async (voiceLabel) => {
 
 const resolveAgentVoiceUncached = async (voiceLabel) => {
   const include = { provider: { select: { name: true } } };
+  // A clone whose neural training never completed holds only a raw sample and
+  // CANNOT synthesize — resolveSynthesisTarget throws 409 on it. Excluding it
+  // here (the same filter listVoices uses) means such a label falls through to
+  // the provider fallback below and the call still speaks, instead of dying
+  // mid-turn. Matters now that 'Custom' has credentials and is matchable at all.
+  const usable = { NOT: { metadata: { contains: '"status":"sample_only"' } } };
 
   // Parse "Provider - Voice Name (extra)" labels
   if (voiceLabel && typeof voiceLabel === 'string') {
@@ -257,6 +311,7 @@ const resolveAgentVoiceUncached = async (voiceLabel) => {
     if (providerPart && namePart && providerHasCredentials(providerPart.trim())) {
       const match = await prisma.voice.findFirst({
         where: {
+          ...usable,
           provider: { name: { equals: providerPart.trim() } },
           name: { contains: namePart, mode: 'insensitive' },
         },
@@ -266,7 +321,7 @@ const resolveAgentVoiceUncached = async (voiceLabel) => {
     }
     // Label may also be a bare voice name from any credentialed provider
     const byName = await prisma.voice.findFirst({
-      where: { name: { contains: voiceLabel.trim(), mode: 'insensitive' } },
+      where: { ...usable, name: { contains: voiceLabel.trim(), mode: 'insensitive' } },
       include,
     });
     if (byName && providerHasCredentials(byName.provider?.name)) return byName;
@@ -274,7 +329,10 @@ const resolveAgentVoiceUncached = async (voiceLabel) => {
 
   // Fallback: first voice from any provider with working credentials.
   // Prefer English/en-family voices so the default is broadly understandable.
-  for (const providerName of ['ElevenLabs', 'Cartesia', 'Google', 'Sarvam']) {
+  // FishAudio is LAST on purpose: adding a provider must never change the
+  // default voice of an existing deployment. Promote it once its measured TTFB
+  // justifies the switch (scripts/measure-providers.js).
+  for (const providerName of ['ElevenLabs', 'Cartesia', 'Google', 'Sarvam', 'FishAudio']) {
     if (!providerHasCredentials(providerName)) continue;
     const fallback = await prisma.voice.findFirst({
       where: { provider: { name: providerName }, language: { startsWith: 'en' } },

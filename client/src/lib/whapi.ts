@@ -106,7 +106,15 @@ async function request<T>(path: string, options: RequestInit = {}, _retried = fa
       window.location.href = '/login';
     }
 
-    throw new Error(errMsg);
+    // Carry the HTTP status and the API's machine-readable `code` on the error.
+    // Without these every failure collapses to a message string, so callers
+    // can't distinguish "needs payment" (402 INSUFFICIENT_BALANCE) or "over
+    // plan limit" (CONCURRENCY_LIMIT / AGENT_LIMIT) from a generic failure —
+    // and can only show a dead end instead of the action that fixes it.
+    const httpError = new Error(errMsg) as Error & { status?: number; code?: string };
+    httpError.status = res.status;
+    if ((err as any).code) httpError.code = (err as any).code;
+    throw httpError;
   }
   // 204 No Content (e.g. DELETE) and other empty bodies have no JSON to
   // parse — res.json() would throw "Unexpected end of JSON input" on an

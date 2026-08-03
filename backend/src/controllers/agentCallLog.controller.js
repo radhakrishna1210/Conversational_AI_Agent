@@ -18,6 +18,7 @@ import fs from 'fs';
 import multer from 'multer';
 import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
+import { settleCall, assertCanStartCall } from '../services/billing/settlement.service.js';
 import { env } from '../config/env.js';
 import { extractAndStoreCallVariables } from '../services/postCallExtraction.service.js';
 
@@ -30,6 +31,9 @@ const STATUSES = new Set(['IN_PROGRESS', 'COMPLETED', 'INITIATED', 'FAILED']);
 const sendError = (res, err, fallbackMsg) => {
   const status = err.statusCode || 500;
   if (status >= 500) logger.error(fallbackMsg, err);
+  // Some handlers respond first and keep working (see runPostCallPipeline), so
+  // a later throw must not try to send a second set of headers.
+  if (res.headersSent) return;
   res.status(status).json({ error: err.message || fallbackMsg });
 };
 
@@ -92,6 +96,49 @@ export const deliverPostCall = async (workspaceId, agentId, row) => {
   }
 };
 
+/**
+ * Everything a finished call needs AFTER its log row is final: billing
+ * settlement, LLM variable extraction, and Post-Call delivery.
+ *
+ * Deliberately NOT awaited by the request that ends a call. Extraction is a
+ * model round-trip and delivery talks to third parties (webhook / email /
+ * Google Sheets), so awaiting them held the PATCH response open for seconds —
+ * long enough that anything ending the page in that window (navigating away,
+ * closing the tab, a slow webhook) killed the client's follow-up requests. The
+ * end-of-call recording upload was the visible casualty: it queued behind this
+ * work and never ran, so calls landed in Recent Calls with no audio.
+ *
+ * The client learns the outcome by re-reading the call (extractionStatus goes
+ * PROCESSING → COMPLETED/FAILED, and the Recent Calls tab already renders it),
+ * so nothing here needs to be in the response. Each step is independently
+ * guarded: a failing webhook must not stop billing, and a failing extraction
+ * must not stop the rest.
+ */
+const runPostCallPipeline = async (workspaceId, agentId, callId) => {
+  // BUG-002: charge the wallet for the minutes used. Runs FIRST so a slow or
+  // failing Post-Call destination cannot stop usage from being billed.
+  // settleCall() is idempotent per call, so a replayed PATCH (this endpoint is
+  // client-driven and retryable) cannot double-charge.
+  try {
+    await settleCall(callId);
+  } catch (err) {
+    logger.error({ workspaceId, agentId, callId, err: err.message }, 'Call settlement failed');
+  }
+  try {
+    await extractAndStoreCallVariables(workspaceId, agentId, callId);
+  } catch (err) {
+    logger.error({ workspaceId, agentId, callId, err: err.message }, 'Post-call extraction failed');
+  }
+  // The call is over and its variables are extracted — hand the result to the
+  // configured Post-Call destinations. deliverPostCall swallows its own errors.
+  try {
+    const row = await findCall(workspaceId, agentId, callId);
+    await deliverPostCall(workspaceId, agentId, row);
+  } catch (err) {
+    logger.error({ workspaceId, agentId, callId, err: err.message }, 'Post-call delivery step failed');
+  }
+};
+
 const findCall = async (workspaceId, agentId, callId) => {
   const row = await prisma.agentCallLog.findFirst({ where: { id: callId, workspaceId, agentId } });
   if (!row) {
@@ -129,7 +176,30 @@ export const createCallLog = async (req, res) => {
     const agent = await prisma.agent.findFirst({ where: { id: agentId, workspaceId } });
     if (!agent) return res.status(404).json({ error: 'Agent not found in this workspace' });
 
-    let row = await prisma.agentCallLog.create({
+    // BUG-002: plan + balance gate. The verdict is REPORTED, never used to
+    // suppress the record.
+    //
+    // This endpoint cannot prevent a web call: the browser opens the mic and the
+    // socket first and only then POSTs here, ignoring the result. Refusing the
+    // record therefore stopped nothing — it just made the platform forget a call
+    // it had actually served, so the call vanished from Recent Calls AND became
+    // unbillable, which is the worst of both. A call log is a record of what
+    // happened; whether a call was *permitted* is a separate question from
+    // whether it is *remembered*.
+    //
+    // Real prevention lives where a call can still be stopped: phone calls are
+    // gated before dialling (agent.controller.js testCall). The equivalent for
+    // web calls belongs in the WebSocket handler, which is where the audio
+    // actually starts — see the note in the response below.
+    const gate = await assertCanStartCall(workspaceId, { type });
+    if (!gate.allowed) {
+      logger.warn(
+        { workspaceId, agentId, code: gate.code },
+        `Call exceeded a plan limit but is still being recorded: ${gate.code}`,
+      );
+    }
+
+    const row = await prisma.agentCallLog.create({
       data: {
         workspaceId,
         agentId,
@@ -139,15 +209,26 @@ export const createCallLog = async (req, res) => {
         phoneNumber: typeof phoneNumber === 'string' ? phoneNumber.slice(0, 32) : null,
       },
     });
-    // Extraction only. Post-Call delivery deliberately does NOT run here: chat
-    // sessions are created already-COMPLETED and then grow message by message,
-    // so delivering now would send a one-line transcript. Delivery happens when
-    // a session is explicitly ended (see updateCallLog).
+    // The call is always recorded; `limit` tells the client it went over a plan
+    // limit so it can warn the user, without the record being the casualty.
+    res.status(201).json({
+      success: true,
+      call: toApi(row),
+      ...(gate.allowed ? {} : { limit: { code: gate.code, message: gate.message } }),
+    });
+
+    // Extraction only, and after the response. Post-Call delivery deliberately
+    // does NOT run here: chat sessions are created already-COMPLETED and then
+    // grow message by message, so delivering now would send a one-line
+    // transcript. Delivery happens when a session is explicitly ended (see
+    // updateCallLog). The client polls extractionStatus, so holding the
+    // response open for a model round-trip bought nothing — it just made
+    // opening a chat session wait on the extractor.
     if (isTerminalStatus(row.status)) {
-      await extractAndStoreCallVariables(workspaceId, agentId, row.id);
-      row = await findCall(workspaceId, agentId, row.id);
+      extractAndStoreCallVariables(workspaceId, agentId, row.id).catch((err) => {
+        logger.error({ workspaceId, agentId, callId: row.id, err: err.message }, 'Post-call extraction failed');
+      });
     }
-    res.status(201).json({ success: true, call: toApi(row) });
   } catch (err) {
     sendError(res, err, 'Failed to create call log');
   }
@@ -169,15 +250,17 @@ export const updateCallLog = async (req, res) => {
     data.durationSec = Math.max(0, Math.round((endedAt - row.startedAt) / 1000));
     if (ended === true || isTerminalStatus(status)) data.endedAt = endedAt;
 
-    let updated = await prisma.agentCallLog.update({ where: { id: row.id }, data });
-    if (ended === true || isTerminalStatus(status)) {
-      await extractAndStoreCallVariables(workspaceId, agentId, row.id);
-      updated = await findCall(workspaceId, agentId, row.id);
-      // The call is over and its variables are extracted — hand the result to
-      // the configured Post-Call destinations.
-      await deliverPostCall(workspaceId, agentId, updated);
-    }
+    const updated = await prisma.agentCallLog.update({ where: { id: row.id }, data });
+
+    // Answer as soon as the row itself is durable. Billing, extraction and
+    // Post-Call delivery run after the response — see runPostCallPipeline.
     res.json({ success: true, call: toApi(updated) });
+
+    if (ended === true || isTerminalStatus(status)) {
+      runPostCallPipeline(workspaceId, agentId, row.id).catch((err) => {
+        logger.error({ workspaceId, agentId, callId: row.id, err: err.message }, 'Post-call pipeline failed');
+      });
+    }
   } catch (err) {
     sendError(res, err, 'Failed to update call log');
   }
@@ -194,6 +277,10 @@ export const extractCallVariables = async (req, res) => {
       force: req.body?.force === true,
     });
     const updated = await findCall(workspaceId, agentId, callId);
+    // A manual re-extract must also re-run the configured Post-Call
+    // deliveries (webhook / email / Google Sheets) so the freshly extracted
+    // variables reach their destinations, just like the end-of-call path does.
+    await deliverPostCall(workspaceId, agentId, updated);
     res.json({ success: true, call: toApi(updated) });
   } catch (err) {
     sendError(res, err, 'Failed to extract conversation variables');

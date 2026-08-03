@@ -6,6 +6,7 @@ import app from './app.js';
 import { env } from './config/env.js';
 import prisma from './config/prisma.js';
 import logger from './lib/logger.js';
+import { renewDueSubscriptions } from './services/billing/subscription.service.js';
 import { SSE_KEEPALIVE_INTERVAL_MS, SHUTDOWN_GRACE_PERIOD_MS } from './constants/limits.js';
 import { createCampaignWorker } from './workers/campaign.worker.js';
 import { startIntegrationScheduler } from './services/integrationScheduler.service.js';
@@ -123,11 +124,42 @@ const server = httpServer.listen(env.PORT, () => {
 // SSE keepalive heartbeat
 setInterval(() => {}, SSE_KEEPALIVE_INTERVAL_MS);
 
+// ── Subscription renewal (BUG-002) ───────────────────────────────────────────
+// Without this nothing ever advances a billing period: subscriptions would sit
+// past their currentPeriodEnd forever, never charging, never resetting the
+// included-minute allowance, and never applying a scheduled downgrade or
+// cancellation.
+//
+// renewDueSubscriptions() is idempotent per period (the ledger key includes the
+// period boundary), so an interval tick that overlaps a previous one, or a
+// restart mid-run, cannot double-charge. That is what makes a plain interval
+// acceptable here instead of a distributed scheduler -- though on multiple
+// instances the DB constraint, not the schedule, is what guarantees correctness.
+const SUBSCRIPTION_RENEWAL_INTERVAL_MS = Number(process.env.SUBSCRIPTION_RENEWAL_INTERVAL_MS) || 3_600_000;
+const runRenewals = async () => {
+  try {
+    const results = await renewDueSubscriptions();
+    const renewed = results.filter((r) => r.renewed).length;
+    if (results.length) {
+      logger.info({ due: results.length, renewed }, 'Subscription renewal sweep complete');
+    }
+  } catch (err) {
+    logger.error({ err: err.message }, 'Subscription renewal sweep failed');
+  }
+};
+const renewalTimer = setInterval(runRenewals, SUBSCRIPTION_RENEWAL_INTERVAL_MS);
+// Don't hold the process open purely for the renewal timer.
+renewalTimer.unref?.();
+// One sweep shortly after boot so a deployment that was down over a period
+// boundary catches up without waiting a full interval.
+setTimeout(runRenewals, 30_000).unref?.();
+
 const shutdown = async (signal) => {
   logger.info(`${signal} received — shutting down`);
   server.close(async () => {
     if (integrationScheduler?.stop) integrationScheduler.stop();
     if (voiceSyncScheduler?.stop) voiceSyncScheduler.stop();
+    clearInterval(renewalTimer);
     await prisma.$disconnect();
     logger.info('Shutdown complete');
     process.exit(0);
