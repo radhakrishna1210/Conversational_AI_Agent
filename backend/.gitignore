@@ -7,3 +7,6 @@ uploads/*
 !prisma/migrations/**
 dist/
 *.log
+
+# Scratch output from scripts/measure-ambience.js and scripts/probe-fish.js
+tmp/

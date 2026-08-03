@@ -191,6 +191,8 @@ export default function Dashboard() {
       transcription?: string;
       voice?: string;
       callDirection?: string;
+      // Human first name the agent speaks, separate from the display `name`.
+      personaName?: string;
       postCallVariables?: { key: string; description: string }[];
     } = {};
     try {
@@ -241,6 +243,12 @@ export default function Dashboard() {
         // Inferred from the prompt: does this agent place calls (OUTBOUND)
         // or receive them (INBOUND)? Drives the greeting style.
         ...(genConfig.callDirection ? { callDirection: genConfig.callDirection } : {}),
+        // The human first name the agent SPEAKS ("Purva"), kept separate from
+        // the display label ("Purva - Hospital Receptionist"), which is a 2-5
+        // word title and cannot be said aloud. Without this the runtime had to
+        // guess from the label, and when it couldn't it invented an unrelated
+        // name — so the agent introduced itself as someone else.
+        ...(genConfig.personaName ? { personaName: genConfig.personaName } : {}),
         // Post-Call tab: extraction variables tailored to the use case (e.g.
         // appointment_date/appointment_time for a booking agent) instead of
         // the generic defaults.

@@ -8,9 +8,13 @@
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  fromFishAudioVoice,
   parseGoogleLocale,
   fromGoogleVoice,
   fromElevenLabsVoice,
+  normalizeLanguage,
+  normalizeAccent,
+  normalizeGender,
 } from '../voice.dto.js';
 
 // ─── parseGoogleLocale ────────────────────────────────────────────────────────
@@ -62,9 +66,14 @@ describe('fromGoogleVoice', () => {
     assert.equal(dto.providerVoiceId, 'en-IN-Chirp3-HD-Despina');
   });
 
-  it('sets gender correctly', () => {
+  it('normalises gender to lowercase', () => {
     const dto = fromGoogleVoice(raw);
-    assert.equal(dto.gender, 'FEMALE');
+    assert.equal(dto.gender, 'female');
+  });
+
+  it('defaults missing gender to neutral', () => {
+    const dto = fromGoogleVoice({ ...raw, ssmlGender: undefined });
+    assert.equal(dto.gender, 'neutral');
   });
 
   it('detects Chirp HD category', () => {
@@ -124,7 +133,38 @@ describe('fromElevenLabsVoice', () => {
 
   it('extracts gender from labels', () => {
     const dto = fromElevenLabsVoice(raw);
-    assert.equal(dto.gender, 'Female');
+    assert.equal(dto.gender, 'female');
+  });
+
+  it('normalises a Voice Library Indian voice to canonical labels', () => {
+    // Shape seen on voices added from the ElevenLabs Voice Library: lowercase
+    // free text, sometimes a bare language code instead of a name.
+    const dto = fromElevenLabsVoice({
+      voice_id: 'ind1',
+      name: 'Monika Sogam',
+      labels: { language: 'hi', accent: 'indian', gender: 'female' },
+    });
+    assert.equal(dto.language, 'Hindi');
+    assert.equal(dto.accent, 'Indian');
+    assert.equal(dto.gender, 'female');
+  });
+
+  it('matches Google labels for an Indian-accented English voice', () => {
+    const el = fromElevenLabsVoice({
+      voice_id: 'ind2',
+      name: 'Kanika',
+      labels: { language: 'english', accent: 'Indian', gender: 'Female' },
+    });
+    const google = fromGoogleVoice({
+      name: 'en-IN-Wavenet-A',
+      languageCodes: ['en-IN'],
+      ssmlGender: 'FEMALE',
+    });
+    // Same filter values across providers — this is what makes the language and
+    // gender dropdowns return both voices instead of only the Google one.
+    assert.equal(el.language, google.language);
+    assert.equal(el.accent, google.accent);
+    assert.equal(el.gender, google.gender);
   });
 
   it('sets category', () => {
@@ -143,5 +183,135 @@ describe('fromElevenLabsVoice', () => {
     assert.equal(dto.language, null);
     assert.equal(dto.accent, null);
     assert.equal(dto.gender, null);
+  });
+});
+
+// ─── Label normalisation ──────────────────────────────────────────────────────
+
+describe('normalizeLanguage', () => {
+  it('maps codes, locales and names to one canonical name', () => {
+    for (const input of ['hi', 'hi-IN', 'hindi', 'Hindi', '  HINDI  ']) {
+      assert.equal(normalizeLanguage(input), 'Hindi', `failed for ${input}`);
+    }
+    assert.equal(normalizeLanguage('en'), 'English');
+    assert.equal(normalizeLanguage('english'), 'English');
+  });
+
+  it('title-cases unknown values instead of dropping them', () => {
+    assert.equal(normalizeLanguage('klingon'), 'Klingon');
+  });
+
+  it('returns null for empty input', () => {
+    assert.equal(normalizeLanguage(''), null);
+    assert.equal(normalizeLanguage(null), null);
+    assert.equal(normalizeLanguage(undefined), null);
+  });
+});
+
+describe('normalizeAccent', () => {
+  it('maps names, region codes and locales to one canonical name', () => {
+    for (const input of ['indian', 'Indian', 'IN', 'en-IN']) {
+      assert.equal(normalizeAccent(input), 'Indian', `failed for ${input}`);
+    }
+    assert.equal(normalizeAccent('american'), 'American');
+    assert.equal(normalizeAccent('british'), 'British');
+  });
+
+  it('title-cases unknown values', () => {
+    assert.equal(normalizeAccent('us-southern'), 'Us Southern');
+  });
+
+  it('returns null for empty input', () => {
+    assert.equal(normalizeAccent(''), null);
+    assert.equal(normalizeAccent(null), null);
+  });
+});
+
+describe('normalizeGender', () => {
+  it('lowercases every provider spelling', () => {
+    assert.equal(normalizeGender('FEMALE'), 'female');
+    assert.equal(normalizeGender('Female'), 'female');
+    assert.equal(normalizeGender('feminine'), 'female');
+    assert.equal(normalizeGender('MALE'), 'male');
+    assert.equal(normalizeGender('masculine'), 'male');
+    assert.equal(normalizeGender('NEUTRAL'), 'neutral');
+  });
+
+  it('returns null for empty input', () => {
+    assert.equal(normalizeGender(''), null);
+    assert.equal(normalizeGender(null), null);
+  });
+});
+
+describe('fromFishAudioVoice', () => {
+  it('maps _id/title and canonicalises language + accent from a locale', () => {
+    const dto = fromFishAudioVoice({
+      _id: 'abc123', title: 'Riya', languages: ['en-US'], visibility: 'public',
+    });
+    assert.equal(dto.providerVoiceId, 'abc123');
+    assert.equal(dto.name, 'Riya');
+    // Must be canonical, or listVoices' language filter hides the voice.
+    assert.equal(dto.language, 'English');
+    assert.equal(dto.accent, 'American');
+    assert.equal(dto.category, 'premade');
+  });
+
+  it('never derives an accent from a BARE language code', () => {
+    // Regression (caught against the live API): Fish returns bare codes, and
+    // normalizeAccent reads a 2-letter string as a REGION — so "ar" became
+    // "Argentine" on an Arabic voice and "en" became the junk value "En".
+    const ar = fromFishAudioVoice({ _id: 'x', title: 'V', languages: ['ar'] });
+    assert.equal(ar.language, 'Arabic');
+    assert.equal(ar.accent, null);
+    const en = fromFishAudioVoice({ _id: 'y', title: 'V', languages: ['en'] });
+    assert.equal(en.language, 'English');
+    assert.equal(en.accent, null);
+  });
+
+  it('files a MULTILINGUAL voice under a preferred language, not just the first', () => {
+    // Fish voices commonly list several languages; the Voice table has one
+    // indexed `language` column and that is what the picker filters on.
+    const raw = { _id: 'x', title: 'V', languages: ['es', 'pt', 'en', 'hi'] };
+    assert.equal(fromFishAudioVoice(raw).language, 'Spanish');            // no preference
+    assert.equal(fromFishAudioVoice(raw, { preferLanguages: ['hi'] }).language, 'Hindi');
+    assert.equal(fromFishAudioVoice(raw, { preferLanguages: ['en', 'hi'] }).language, 'English');
+  });
+
+  it('falls back to the first language when no preference matches', () => {
+    const raw = { _id: 'x', languages: ['ja'] };
+    assert.equal(fromFishAudioVoice(raw, { preferLanguages: ['en', 'hi'] }).language, 'Japanese');
+  });
+
+  it('still derives an accent from a real locale or explicit field', () => {
+    assert.equal(fromFishAudioVoice({ _id: 'x', languages: ['en-IN'] }).accent, 'Indian');
+    assert.equal(fromFishAudioVoice({ _id: 'x', accent: 'british', languages: ['en'] }).accent, 'British');
+  });
+
+  it('reads gender from a tag when there is no gender field', () => {
+    const dto = fromFishAudioVoice({ _id: 'x', title: 'V', tags: ['warm', 'Female'] });
+    assert.equal(dto.gender, 'female');
+  });
+
+  it('leaves gender null rather than guessing when no signal exists', () => {
+    const dto = fromFishAudioVoice({ _id: 'x', title: 'V', tags: ['warm'] });
+    assert.equal(dto.gender, null);
+  });
+
+  it('marks non-public models as custom (clones land here)', () => {
+    assert.equal(fromFishAudioVoice({ _id: 'x', visibility: 'private' }).category, 'custom');
+  });
+
+  it('tolerates a nearly empty model row', () => {
+    const dto = fromFishAudioVoice({ _id: 'only-id' });
+    assert.equal(dto.providerVoiceId, 'only-id');
+    assert.equal(dto.name, 'Unknown Voice');
+    assert.equal(dto.language, null);
+  });
+
+  it('emits parseable JSON metadata', () => {
+    const dto = fromFishAudioVoice({ _id: 'x', state: 'trained', train_mode: 'fast' });
+    const meta = JSON.parse(dto.metadata);
+    assert.equal(meta.state, 'trained');
+    assert.equal(meta.trainMode, 'fast');
   });
 });

@@ -1,7 +1,24 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 
-interface PlanDto { id: string; name: string; priceUsd: number; perMinuteUsd: number; includedMinutes: number; kbStorageMb: number; features: string[] }
+interface PlanDto {
+  id: string; name: string;
+  priceUsd: number; perMinuteUsd: number;
+  // Price of record. Null only on a plan predating INR pricing, where the
+  // server falls back to priceUsd x FX.
+  priceInr: number | null; perMinuteInr: number | null;
+  includedMinutes: number; kbStorageMb: number; features: string[];
+}
+
+/** Format in the deployment's billing currency (INR). The public pricing page
+ *  must quote the SAME figure the wallet is debited — it previously advertised
+ *  "$89/month" while charging 8,544. */
+const inr = (amount: number) =>
+  new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount);
+const inrPrecise = (amount: number) =>
+  new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(amount);
+const planPrice = (p: PlanDto) => p.priceInr ?? p.priceUsd * 96;
+const planRate = (p: PlanDto) => p.perMinuteInr ?? p.perMinuteUsd * 96;
 
 export default function Pricing() {
   const [activeTab, setActiveTab] = useState('Plans');
@@ -59,15 +76,15 @@ export default function Pricing() {
               ) : plans.length === 0 ? (
                 <div style={{ color: 'var(--text-muted)', padding: 24 }}>Plans are temporarily unavailable — please try again shortly.</div>
               ) : (
-                plans.filter(p => p.priceUsd > 0).slice(0, 4).map((p, i) => (
+                plans.filter(p => planPrice(p) > 0).slice(0, 4).map((p, i) => (
                   <div key={p.id} className={`plan-card ${i === 1 ? 'featured' : ''}`}>
                     <div className="plan-name" style={i === 1 ? { color: 'var(--teal)' } : undefined}>{p.name}</div>
                     <div className="plan-price">
-                      <span className="price-amount">${p.priceUsd}</span>
+                      <span className="price-amount">{inr(planPrice(p))}</span>
                       <span className="price-period">/month</span>
                     </div>
                     <div className="plan-desc">{p.features[0] || ''}</div>
-                    <div className="plan-feature"><span className="label">Cost</span><span className="value">${p.perMinuteUsd.toFixed(3)}/min</span></div>
+                    <div className="plan-feature"><span className="label">Cost</span><span className="value">{inrPrecise(planRate(p))}/min</span></div>
                     <div className="plan-feature"><span className="label">Minutes</span><span className="value">~{p.includedMinutes} minutes</span></div>
                     <div className="plan-feature"><span className="label">Knowledge base</span><span className="value">{p.kbStorageMb} MB</span></div>
                     <Link to="/signup"><button className={`btn ${i === 1 ? 'btn-primary' : 'btn-secondary'} plan-btn`}>Get Started</button></Link>

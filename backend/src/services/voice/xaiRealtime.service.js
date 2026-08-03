@@ -38,6 +38,11 @@ export class XaiRealtimeSession extends EventEmitter {
     this.ws = null;
     this.ready = false;
     this._closed = false;
+    // A2 — latency instrumentation (parity with elevenLabsRealtime.service.js):
+    // timestamp when the caller's turn ends so we can measure the gap until the
+    // agent's first audio chunk (the bundled STT+LLM+TTS reply time).
+    this._lastUserTurnAt = null;
+    this._awaitingReply = false;
   }
 
   connect() {
@@ -106,7 +111,16 @@ export class XaiRealtimeSession extends EventEmitter {
       }
       switch (msg.type) {
         case 'response.audio.delta':
-          if (msg.delta) this.emit('audio', Buffer.from(msg.delta, 'base64'));
+          if (msg.delta) {
+            if (this._awaitingReply && this._lastUserTurnAt != null) {
+              logger.info(
+                { agentId: this.agent.id, replyLatencyMs: Date.now() - this._lastUserTurnAt },
+                'xAI Voice Agent: first reply audio (reply latency after user turn end)'
+              );
+              this._awaitingReply = false;
+            }
+            this.emit('audio', Buffer.from(msg.delta, 'base64'));
+          }
           break;
         case 'response.audio_transcript.delta':
           if (msg.delta) this.emit('transcript', { role: 'assistant', text: msg.delta, done: false });
@@ -115,7 +129,13 @@ export class XaiRealtimeSession extends EventEmitter {
           if (msg.transcript) this.emit('transcript', { role: 'assistant', text: msg.transcript, done: true });
           break;
         case 'conversation.item.input_audio_transcription.completed':
-          if (msg.transcript) this.emit('transcript', { role: 'user', text: msg.transcript, done: true });
+          if (msg.transcript) {
+            // Caller's turn ended — mark the moment so the next audio delta can
+            // report reply latency (A2).
+            this._lastUserTurnAt = Date.now();
+            this._awaitingReply = true;
+            this.emit('transcript', { role: 'user', text: msg.transcript, done: true });
+          }
           break;
         case 'error':
           logger.warn({ err: msg.error }, 'xAI Voice Agent session error');

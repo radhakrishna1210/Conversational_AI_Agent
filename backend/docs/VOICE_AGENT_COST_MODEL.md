@@ -4,7 +4,8 @@
 > conversational voice agent across every engine our platform supports, and
 > derive what we should **charge customers** to hold a healthy margin.
 >
-> **Last updated:** 2026-07-22 · **FX assumption:** 1 USD = ₹96 (spot ~₹96.36 on 2026-07-21).
+> **Last updated:** 2026-07-22 · **Rates re-verified against live public sources 2026-07-24** (see [§11.1](#111-2026-07-24-re-verification-log)).
+> **FX assumption:** 1 USD = ₹96 (spot ~₹96.36 on 2026-07-21).
 > All provider rates are **public list prices as of July 2026** — verify against
 > your own invoices before committing to customer pricing (see [Caveats](#11-caveats--how-to-verify)).
 
@@ -144,7 +145,7 @@ Raw output of the read-only DB analysis (`scratch/analyze_transcripts.mjs`):
 | Engine | Rate | Per-minute | What's included |
 |---|---|---|---|
 | **xAI Grok Voice (realtime)** | $0.05 / min | **$0.050** | STT + LLM + TTS, one model ⚠️ *confirm on invoice* |
-| **ElevenLabs Conversational AI** | $0.08 (Business-annual) → $0.10 (Creator/Pro) / min | **$0.08–0.10** | STT + turn-taking + EL TTS. **LLM billed separately** if you bring a premium one; burst/overage up to $0.16/min |
+| **ElevenLabs Conversational AI** | Standard $0.08 · Turbo $0.10 · Premium $0.12 / min (by model tier) | **$0.08–0.12** | STT + turn-taking + EL TTS. **LLM billed separately** if you bring a premium one; burst up to **$0.16/min** when over concurrency. *Billed on conversation duration — hold/silence still accrues* ⚠️ |
 
 ### 4b. Telephony
 | Carrier / leg | Rate | Per-minute |
@@ -158,10 +159,14 @@ Raw output of the read-only DB analysis (`scratch/analyze_transcripts.mjs`):
 ### 4c. STT (modular)
 | Provider / model | Rate | Per-minute |
 |---|---|---|
-| ElevenLabs Scribe **realtime** | $0.39 / hr | **$0.0065** |
+| ElevenLabs Scribe **realtime** | $0.39 / hr (Business-annual $0.28/hr) | **$0.0065** |
 | ElevenLabs Scribe (batch) | $0.22 / hr | $0.0037 |
 | Sarvam **Saaras** (`saaras:v3`) | ₹30 / hr | **$0.0052** (₹0.50) |
+| **Deepgram Nova-3 (streaming)** ⭐ *now in code* | $0.46 / hr ($0.0077/min; Growth $0.0065/min) | **$0.0077** |
 | xAI STT (streaming) | $0.20 / hr | $0.0033 |
+
+> ⚠️ **Deepgram is now wired into the pipeline** (`services/stt/deepgramStream.service.js`) but was not in v1 of this model.
+> At **$0.0077/min streaming** it sits *above* Scribe realtime ($0.0065) and Sarvam ($0.0052) — use it for latency/accuracy, not to cut STT cost. On a Growth plan ($0.0065/min) it ties Scribe.
 
 ### 4d. LLM (modular) — per **million tokens**
 | Model | Input | Output | Cost for our 5-min call* | Per-minute* |
@@ -451,9 +456,11 @@ leave comfortable room.
 ## 11. Caveats & how to verify
 
 1. **xAI realtime voice ($0.05/min) is the load-bearing figure** for our default
-   engine. Public sources list it as an all-in S2S rate, but realtime voice APIs
-   sometimes bill audio tokens *on top*. **Confirm against a real xAI invoice**
-   before locking Standard-tier pricing. (`config/env.js` already flags this.)
+   engine. ✅ **Re-confirmed 2026-07-24** as the base rate (released April 2026 with
+   Grok 4.3, $3/hr, 30-min max session, 100 concurrent). ⚠️ **New caveat:** in-call
+   **tool invocations** (function calling, web/X search, MCP) are billed *separately
+   on top* of the per-minute rate — if our agents use tools mid-call, add that line.
+   Still **confirm against a real xAI invoice** before locking Standard-tier pricing.
 2. **ElevenLabs ConvAI LLM handling** — the per-minute rate includes an LLM
    allowance; premium bring-your-own LLMs bill separately. Confirm which applies
    to our shell agent.
@@ -465,6 +472,27 @@ leave comfortable room.
    payment fees (~2–3%), free-tier/trial burn, failed-call retries, taxes/GST.
 7. **Numbers scale with the [§3](#3-the-conversation-math-assumptions-behind-every-number) assumptions.** A more talkative agent (600+ chars/min) or
    longer calls raise TTS and LLM lines proportionally.
+
+### 11.1 · 2026-07-24 re-verification log
+
+Every load-bearing rate re-checked against live public sources on **2026-07-24**. Verdict: **the model stands.** Changes applied:
+
+| Line | v1 (2026-07-22) | Re-verified (2026-07-24) | Action |
+|---|---|---|---|
+| **xAI Grok Voice** | $0.05/min | ✅ $0.05/min confirmed | + noted tool calls billed separately |
+| **ElevenLabs ConvAI** | $0.08–0.10/min | Standard $0.08 · Turbo $0.10 · **Premium $0.12** · burst $0.16 | ↑ top of range to $0.12 |
+| **ElevenLabs Scribe realtime** | $0.39/hr | ✅ $0.39/hr (Business-annual $0.28/hr) | confirmed |
+| **Sarvam** Saaras / Bulbul v2 / v3 | ₹30hr / ₹15 / ₹30 per 10k | ✅ all confirmed | none |
+| **Cartesia Sonic** | $5–37/1M | ✅ 1 credit/char, $5–37/1M by tier | confirmed |
+| **GPT-4o-mini** | $0.15 / $0.60 | ✅ confirmed (cached in $0.075) | none |
+| **Twilio outbound US** | $0.014/min | $0.013–0.014/min (slightly conservative) | kept conservative $0.014 |
+| **Gemini 2.5 Flash deprecation** | 2026-10-16 | ✅ confirmed. Successors: 3 Flash $0.50/$3.00, **3.1 Flash-Lite $0.25/$1.50**, 3.5 Flash $1.50/$9.00 | Flash-Lite path still ~2.5× — unchanged |
+| **Competitors** | $0.07–0.30/min all-in | Vapi $0.05 base · Retell $0.07+ · Bland $0.11–0.12; real all-in $0.14–0.33 | confirmed |
+| **Deepgram Nova-3** | *(not modeled)* | $0.0077/min streaming — **now in codebase** | **added** to §4c |
+
+> **Net effect on the four headline scenarios:** none material. The only figure that
+> moved is ElevenLabs' Premium tier ($0.10 → $0.12), which nudges Scenario B's ceiling
+> up ~$0.02/min at the top tier; the mid-$0.09 basis used in §5B is unchanged.
 
 ---
 

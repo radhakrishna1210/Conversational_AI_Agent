@@ -12,6 +12,7 @@ import VoiceConfigModal from '../components/VoiceConfigModal';
 import CallerNumberPicker from '../components/CallerNumberPicker';
 import { useTheme } from '../hooks/useTheme';
 import { xaiCallSocket } from '../services/xaiCallSocket';
+import { AMBIENT_OPTIONS, startAmbientSound } from '../services/ambientSound';
 import { modularCallSocket, type ModularCallEvent } from '../services/modularCallSocket';
 
 
@@ -39,6 +40,10 @@ interface PostCallConfig {
   spreadsheetId?: string;
   /** display name, stored so the UI can label it without a Drive round-trip */
   spreadsheetName?: string;
+  /** extracted-variable key holding the appointment start — deliveryMethod === 'Google Calendar' */
+  dateVariable?: string;
+  /** event length in minutes when only a start time is extracted (default 30) */
+  durationMin?: number;
   triggerStatuses: string[];
   includeCallSummary: boolean;
   includeFullConversation: boolean;
@@ -54,7 +59,7 @@ const LANGUAGES_LIST = [
 ];
 
 
-const AI_MODELS = ['GPT-4.1-Mini', 'GPT-4-Turbo', 'Claude-3-Opus', 'Gemini-Pro', 'Llama-2-70B'];
+const AI_MODELS = ['Groq Llama 3.3', 'GPT-4.1-Mini', 'GPT-4-Turbo', 'Claude-3-Opus', 'Gemini-Pro', 'Llama-2-70B'];
 const POST_CALL_TRIGGER_OPTIONS = ['Completed', 'Voicemail Detected', 'No Answer', 'Busy', 'Failed'];
 const POST_CALL_DELIVERY_OPTIONS = ['Email', 'Webhook', 'CRM', 'Slack', 'WhatsApp'];
 
@@ -65,6 +70,8 @@ const createDefaultPostCallConfig = (): PostCallConfig => ({
   email: '',
   spreadsheetId: '',
   spreadsheetName: '',
+  dateVariable: '',
+  durationMin: 30,
   triggerStatuses: ['Completed', 'Voicemail Detected'],
   includeCallSummary: true,
   includeFullConversation: true,
@@ -79,48 +86,12 @@ const createDefaultPostCallConfig = (): PostCallConfig => ({
   ]
 });
 
-// Ambient Sound (Call Configuration): synthesizes a looping background bed for
-// the Web Call directly with Web Audio — no audio assets to ship. Each preset
-// differs by noise colour (filter) and level. Routed to the speakers (so it's
-// audible) and, when given, into the mixed call recording — never into the mic
-// path, so it can't pollute what the agent's STT hears. Returns a stop().
-const AMBIENT_PRESETS: Record<string, { type: BiquadFilterType; freq: number; gain: number }> = {
-  Office: { type: 'lowpass', freq: 700, gain: 0.012 },
-  'Call Center': { type: 'bandpass', freq: 1100, gain: 0.02 },
-  Static: { type: 'highpass', freq: 2200, gain: 0.02 },
-  Cafe: { type: 'lowpass', freq: 1000, gain: 0.018 },
-  Street: { type: 'lowpass', freq: 400, gain: 0.022 },
-};
+// An inbound-style "thank you for calling" opener — wrong for an OUTBOUND agent,
+// which dials the customer itself. Used to warn when the welcome message and the
+// call direction disagree. Kept in sync with the backend guard in
+// agentRuntime.service.js (THANKS_FOR_CALLING_RE / stripInboundThanks).
+const THANKS_FOR_CALLING_RE = /\bthank(?:s|\s*you)?\b[^.!?]*\bfor\s+calling\b/i;
 
-const startAmbientSound = (
-  audioCtx: AudioContext,
-  preset: string,
-  mixDest?: MediaStreamAudioDestinationNode | null,
-): (() => void) | null => {
-  const cfg = AMBIENT_PRESETS[preset];
-  if (!cfg) return null; // 'None' or unknown → silence
-  const frames = Math.floor(audioCtx.sampleRate * 2);
-  const buffer = audioCtx.createBuffer(1, frames, audioCtx.sampleRate);
-  const chan = buffer.getChannelData(0);
-  for (let i = 0; i < frames; i++) chan[i] = Math.random() * 2 - 1; // white noise
-  const src = audioCtx.createBufferSource();
-  src.buffer = buffer;
-  src.loop = true;
-  const filter = audioCtx.createBiquadFilter();
-  filter.type = cfg.type;
-  filter.frequency.value = cfg.freq;
-  const gain = audioCtx.createGain();
-  gain.gain.value = cfg.gain;
-  src.connect(filter).connect(gain);
-  gain.connect(audioCtx.destination);
-  if (mixDest) gain.connect(mixDest);
-  try { src.start(); } catch { /* context may be closing */ }
-  return () => {
-    try { src.stop(); } catch { /* already stopped */ }
-    try { gain.disconnect(); } catch { /* noop */ }
-    try { filter.disconnect(); } catch { /* noop */ }
-  };
-};
 
 const MicIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4caf50" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -366,6 +337,22 @@ export default function EditAgent() {
     }
   };
 
+  // Save the already-loaded recording blob to the user's device
+  const downloadRecording = (call: CallRecord) => {
+    const url = recordingUrls[call.id];
+    if (!url) return;
+    const stamp = call.startedAt
+      ? new Date(call.startedAt).toISOString().slice(0, 19).replace(/[:T]/g, '-')
+      : call.id;
+    const label = (agentName || 'agent').replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'agent';
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${label}-call-${stamp}.webm`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  };
+
   const extractCallData = async (callId: string) => {
     setRecentCalls((prev) => prev.map((call) =>
       call.id === callId ? { ...call, extractionStatus: 'PROCESSING', extractionError: null } : call
@@ -481,6 +468,11 @@ export default function EditAgent() {
   // B4 streaming reply playback: audio bytes arrive over the socket and are fed
   // into a MediaSource so the agent starts speaking on the first byte. Falls
   // back to a single buffered blob when MediaSource can't play the codec.
+  // One SEGMENT of reply audio. The server now sends each independently-encoded
+  // synthesis (filler ack, first sentence, remainder) as its own
+  // audio-start…audio-end segment — separate MP3s must never share one
+  // MediaSource (frame-alignment corruption), so each gets its own session and
+  // the client plays them back-to-back from a queue.
   type ModularPlaybackSession = {
     mediaSource: MediaSource | null;
     audioEl: HTMLAudioElement | null;
@@ -489,10 +481,16 @@ export default function EditAgent() {
     queue: ArrayBuffer[];
     ended: boolean;
     started: boolean;
+    // Playback may begin (it's this segment's turn in the queue). Bytes are
+    // buffered into the MediaSource regardless; only play() waits for this.
+    activated: boolean;
+    anyAppended: boolean;
     epoch: number;
     useMediaSource: boolean;
     contentType: string;
     blobChunks: ArrayBuffer[];
+    // Blob fallback: set once all bytes have arrived; called on activation.
+    playBlob: (() => void) | null;
     finish: () => void;
   };
 
@@ -532,15 +530,29 @@ export default function EditAgent() {
     micWorklet: AudioWorkletNode | null;
     // Gate: the worklet only streams PCM to the server while a turn is capturing.
     capturingPcm: boolean;
-    // B4 streaming reply playback: MediaSource session + a promise that resolves
-    // when the current reply finishes playing (or is cut off by barge-in).
+    // B4 streaming reply playback. modularSession = the segment currently
+    // RECEIVING bytes; segments queue up and play sequentially.
     modularSession: ModularPlaybackSession | null;
-    modularPlaybackDone: Promise<void> | null;
+    modularQueue: ModularPlaybackSession[];
+    modularPlaying: ModularPlaybackSession | null;
+    // Segments opened but not yet finished this turn; resolvers wake when 0.
+    modularOutstanding: number;
+    modularDoneResolvers: (() => void)[];
     // Transcript of the caller's current turn, applied to history on 'done'.
     pendingUserText: string;
     // Bumped on each new segment / on barge-in so stale queued audio is skipped.
     turnEpoch: number;
-  }>({ active: false, stream: null, audioCtx: null, analyser: null, recorder: null, vadTimer: null, player: null, history: [], mixDest: null, mixRecorder: null, mixChunks: [], logId: null, bundledEngine: false, lastSpeechAt: 0, ambientStop: null, stopPlayback: null, bargeTimer: null, socketMode: false, micWorklet: null, capturingPcm: false, modularSession: null, modularPlaybackDone: null, pendingUserText: '', turnEpoch: 0 });
+    // Ends the in-progress listening turn immediately (set per segment). Called
+    // by Deepgram's semantic endpoint signal to beat the RMS VAD fallback.
+    endTurnEarly: (() => void) | null;
+    // Running estimate of the room's noise floor (RMS, 0..1), tracked across
+    // turns so the VAD threshold adapts to the caller's environment instead of
+    // assuming one. See NOISE_FLOOR_* in startListeningSegmentSocket (BUG-001).
+    noiseFloor: number;
+    // Server has model-based (Deepgram) endpointing, so the RMS VAD below is a
+    // backstop and uses a longer silence timeout. Set from the `ready` frame.
+    sttEndpointing: boolean;
+  }>({ active: false, stream: null, audioCtx: null, analyser: null, recorder: null, vadTimer: null, player: null, history: [], mixDest: null, mixRecorder: null, mixChunks: [], logId: null, bundledEngine: false, lastSpeechAt: 0, ambientStop: null, stopPlayback: null, bargeTimer: null, socketMode: false, micWorklet: null, capturingPcm: false, modularSession: null, modularQueue: [], modularPlaying: null, modularOutstanding: 0, modularDoneResolvers: [], pendingUserText: '', turnEpoch: 0, endTurnEarly: null, noiseFloor: 0, sttEndpointing: false });
 
   // ─── Call history logging (Recent Calls tab) ────────────────────────────────
   // Every test session — chat modal, Chat Test tab, web call, phone call — is
@@ -624,6 +636,8 @@ export default function EditAgent() {
             setVoiceProvider('elevenlabs');
           } else if (agent.voice?.toLowerCase().startsWith('cartesia')) {
             setVoiceProvider('cartesia');
+          } else if (agent.voice?.toLowerCase().startsWith('fish')) {
+            setVoiceProvider('fishaudio');
           }
           setIsLoading(false);
           return;
@@ -759,6 +773,7 @@ export default function EditAgent() {
     if (config.deliveryMethod === 'Webhook' && !config.url) return 'Enter a webhook URL first';
     if (config.deliveryMethod === 'Email' && !config.email) return 'Enter an email address first';
     if (config.deliveryMethod === 'Google Sheets' && !config.spreadsheetId) return 'Select a target spreadsheet first';
+    if (config.deliveryMethod === 'Google Calendar' && !config.dateVariable) return 'Choose which extracted variable holds the appointment date/time first';
     return null;
   };
 
@@ -1342,12 +1357,15 @@ export default function EditAgent() {
 
   // Append the next queued audio chunk to the MediaSource (only one append may
   // be in flight; the rest wait for 'updateend', which re-invokes this).
+  // Bytes are buffered even before the segment is activated; playback itself
+  // starts only when the segment reaches the front of the queue.
   const pumpModular = (session: ModularPlaybackSession) => {
     if (!session.sourceBuffer || session.sourceBuffer.updating) return;
     if (session.queue.length > 0) {
       const chunk = session.queue.shift()!;
       try { session.sourceBuffer.appendBuffer(chunk); } catch { session.finish(); return; }
-      if (!session.started) {
+      session.anyAppended = true;
+      if (!session.started && session.activated) {
         session.started = true;
         session.audioEl?.play().catch(() => session.finish());
       }
@@ -1356,8 +1374,48 @@ export default function EditAgent() {
     }
   };
 
-  // B4: open a streaming playback session for the reply. Audio plays on the
-  // first byte via MediaSource; connectAgentPlayer keeps it in the recording.
+  // Wait for every segment of the current turn to finish playing (or be cut
+  // off). Fresh promise each call, so a momentary all-quiet BETWEEN segments
+  // can never satisfy a wait that starts later, at 'done' time — by then every
+  // audio-start has arrived (WS ordering) and the count is final.
+  const modularPlaybackSettled = () => {
+    const call = callRef.current;
+    if (call.modularOutstanding === 0) return Promise.resolve();
+    return new Promise<void>((r) => { call.modularDoneResolvers.push(r); });
+  };
+
+  const modularSegmentsIdle = () => {
+    const call = callRef.current;
+    if (call.modularOutstanding === 0) {
+      const resolvers = call.modularDoneResolvers;
+      call.modularDoneResolvers = [];
+      call.stopPlayback = null;
+      resolvers.forEach((r) => r());
+    }
+  };
+
+  // Give a queued segment its turn: start MediaSource playback, or fire the
+  // prepared blob fallback.
+  const activateModular = (session: ModularPlaybackSession) => {
+    const call = callRef.current;
+    call.modularPlaying = session;
+    session.activated = true;
+    if (session.useMediaSource) {
+      if (session.ended && !session.anyAppended && session.queue.length === 0) { session.finish(); return; }
+      if (!session.started && session.anyAppended) {
+        session.started = true;
+        session.audioEl?.play().catch(() => session.finish());
+      } else {
+        pumpModular(session); // first append will start playback (activated)
+      }
+      return;
+    }
+    if (session.playBlob) session.playBlob();
+    // else: blob still buffering — endModularPlayback plays it (activated set)
+  };
+
+  // B4: open one streaming playback SEGMENT. Segments play sequentially; the
+  // first one starts immediately.
   const startModularPlayback = (contentType: string | null) => {
     const call = callRef.current;
     const epoch = call.turnEpoch;
@@ -1365,46 +1423,64 @@ export default function EditAgent() {
     const useMS = typeof window.MediaSource !== 'undefined' && MediaSource.isTypeSupported(ct);
     setWebCallActivity('speaking');
 
-    let resolveDone!: () => void;
-    call.modularPlaybackDone = new Promise<void>((r) => { resolveDone = r; });
-
     let finished = false;
     const session: ModularPlaybackSession = {
       mediaSource: null, audioEl: null, url: null, sourceBuffer: null,
-      queue: [], ended: false, started: false, epoch, useMediaSource: useMS,
-      contentType: ct, blobChunks: [],
+      queue: [], ended: false, started: false, activated: false, anyAppended: false,
+      epoch, useMediaSource: useMS, contentType: ct, blobChunks: [], playBlob: null,
       finish: () => {
         if (finished) return; finished = true;
         if (session.url) { try { URL.revokeObjectURL(session.url); } catch { /* noop */ } }
-        if (call.stopPlayback && call.modularSession === session) call.stopPlayback = null;
-        resolveDone();
+        call.modularOutstanding = Math.max(0, call.modularOutstanding - 1);
+        if (call.modularPlaying === session) {
+          call.modularPlaying = null;
+          const next = call.modularQueue.shift();
+          if (next) activateModular(next);
+        }
+        modularSegmentsIdle();
       },
     };
     call.modularSession = session;
+    call.modularOutstanding += 1;
 
-    if (!useMS) return; // buffered-blob fallback is built at endModularPlayback
+    // One turn-level stopper covers every segment: cut whatever is playing and
+    // drop the rest of the queue (barge-in).
+    if (!call.stopPlayback) {
+      call.stopPlayback = () => {
+        const playing = call.modularPlaying;
+        const queued = [...call.modularQueue, ...(call.modularSession && !call.modularSession.activated ? [call.modularSession] : [])];
+        call.modularQueue = [];
+        try { playing?.audioEl?.pause(); } catch { /* noop */ }
+        playing?.finish();
+        queued.forEach((s) => s.finish());
+      };
+    }
 
-    const mediaSource = new MediaSource();
-    const url = URL.createObjectURL(mediaSource);
-    const audioEl = new Audio(url);
-    session.mediaSource = mediaSource;
-    session.url = url;
-    session.audioEl = audioEl;
-    connectAgentPlayer(audioEl); // route into the call recording mix
-    call.stopPlayback = () => { try { audioEl.pause(); } catch { /* noop */ } session.finish(); };
-    audioEl.onended = () => session.finish();
-    audioEl.onerror = () => session.finish();
+    if (useMS) {
+      const mediaSource = new MediaSource();
+      const url = URL.createObjectURL(mediaSource);
+      const audioEl = new Audio(url);
+      session.mediaSource = mediaSource;
+      session.url = url;
+      session.audioEl = audioEl;
+      connectAgentPlayer(audioEl); // route into the call recording mix
+      audioEl.onended = () => session.finish();
+      audioEl.onerror = () => session.finish();
 
-    mediaSource.addEventListener('sourceopen', () => {
-      if (call.turnEpoch !== epoch) { session.finish(); return; }
-      try {
-        const sb = mediaSource.addSourceBuffer(ct);
-        session.sourceBuffer = sb;
-        sb.addEventListener('updateend', () => pumpModular(session));
-        sb.addEventListener('error', () => session.finish());
-        pumpModular(session);
-      } catch { session.finish(); }
-    }, { once: true });
+      mediaSource.addEventListener('sourceopen', () => {
+        if (call.turnEpoch !== epoch) { session.finish(); return; }
+        try {
+          const sb = mediaSource.addSourceBuffer(ct);
+          session.sourceBuffer = sb;
+          sb.addEventListener('updateend', () => pumpModular(session));
+          sb.addEventListener('error', () => session.finish());
+          pumpModular(session);
+        } catch { session.finish(); }
+      }, { once: true });
+    }
+
+    if (call.modularPlaying) call.modularQueue.push(session);
+    else activateModular(session);
   };
 
   const appendModularChunk = (data: ArrayBuffer) => {
@@ -1420,21 +1496,31 @@ export default function EditAgent() {
     const call = callRef.current;
     const session = call.modularSession;
     if (!session) return;
+    call.modularSession = null; // next audio-start opens a fresh segment
     session.ended = true;
-    if (session.useMediaSource) { pumpModular(session); return; }
-    // Fallback: MediaSource can't play this codec — play the whole thing as one
-    // blob once fully received.
+    if (session.useMediaSource) {
+      // A stream opened but no bytes ever arrived → nothing will ever 'play'/
+      // 'end', so finish now instead of hanging on an empty MediaSource.
+      if (!session.anyAppended && session.queue.length === 0) { session.finish(); return; }
+      pumpModular(session);
+      return;
+    }
+    // Fallback: MediaSource can't play this codec — play the segment as one
+    // blob once fully received (immediately if it's already this segment's
+    // turn, otherwise when the queue reaches it).
     if (!session.blobChunks.length) { session.finish(); return; }
-    const blob = new Blob(session.blobChunks as BlobPart[], { type: session.contentType });
-    const url = URL.createObjectURL(blob);
-    const audioEl = new Audio(url);
-    session.audioEl = audioEl;
-    session.url = url;
-    connectAgentPlayer(audioEl);
-    call.stopPlayback = () => { try { audioEl.pause(); } catch { /* noop */ } session.finish(); };
-    audioEl.onended = () => session.finish();
-    audioEl.onerror = () => session.finish();
-    audioEl.play().catch(() => session.finish());
+    session.playBlob = () => {
+      const blob = new Blob(session.blobChunks as BlobPart[], { type: session.contentType });
+      const url = URL.createObjectURL(blob);
+      const audioEl = new Audio(url);
+      session.audioEl = audioEl;
+      session.url = url;
+      connectAgentPlayer(audioEl);
+      audioEl.onended = () => session.finish();
+      audioEl.onerror = () => session.finish();
+      audioEl.play().catch(() => session.finish());
+    };
+    if (session.activated) session.playBlob();
   };
 
   // A turn finished: commit user + assistant text to history/transcript, then
@@ -1456,9 +1542,8 @@ export default function EditAgent() {
       setWebCallLatency({ sttMs: event.timings.sttMs, llmMs: event.timings.llmMs });
       console.info('Web call socket latency', event.timings);
     }
-    // Resume listening only once the reply audio has finished playing.
-    const done = call.modularPlaybackDone || Promise.resolve();
-    done.then(() => {
+    // Resume listening only once every reply audio segment has finished playing.
+    modularPlaybackSettled().then(() => {
       call.lastSpeechAt = Date.now();
       if (call.active && call.socketMode) startListeningSegmentSocket();
     });
@@ -1469,7 +1554,10 @@ export default function EditAgent() {
     if (!call.active && event.type !== 'error') return;
     switch (event.type) {
       case 'ready':
-        break; // resolved by modularCallSocket.start()
+        // Whether the server can endpoint semantically decides how long the
+        // client's RMS VAD waits before ending a turn (backstop vs sole judge).
+        call.sttEndpointing = event.sttEndpointing === true;
+        break; // the promise itself is resolved by modularCallSocket.start()
       case 'transcript':
         if (event.role === 'user' && event.done) call.pendingUserText = event.text;
         if (event.role === 'assistant') setWebCallActivity('speaking');
@@ -1482,6 +1570,11 @@ export default function EditAgent() {
         break;
       case 'audio-end':
         endModularPlayback();
+        break;
+      case 'endpoint':
+        // Deepgram's semantic detector says the caller finished — end the turn
+        // now (beats the RMS VAD). No-op if the turn already ended.
+        call.endTurnEarly?.();
         break;
       case 'done':
         finishModularTurn(event);
@@ -1507,9 +1600,85 @@ export default function EditAgent() {
     let speechDetected = false;
     let lastSpeechAt = Date.now();
     const startedAt = Date.now();
-    const SPEECH_RMS = 0.025;
-    const SILENCE_MS = Math.min(900, Math.max(350, sttSilenceTimeoutMs || 450));
+
+    // ── Adaptive VAD threshold (BUG-001) ─────────────────────────────────────
+    // This was a fixed `SPEECH_RMS = 0.025`, and no constant can work here.
+    // Room noise is routinely LOUDER than a soft talker, so a threshold low
+    // enough to hear a quiet caller also fires on an air conditioner, a fan, or
+    // the residual echo of the agent's own TTS — which is how "the UI flips to
+    // responding during genuine silence" happened. Raising the constant instead
+    // just stops hearing quiet callers.
+    //
+    // autoGainControl (enabled on the mic stream) makes it strictly worse: AGC
+    // RAISES gain when nobody is speaking, so a quiet room's noise floor gets
+    // pushed up toward the very threshold meant to exclude it.
+    //
+    // So track the floor and require an SNR margin above it. The estimate lives
+    // on callRef so it persists across turns — it is a property of the caller's
+    // room, not of one segment — and it is only updated while we are listening,
+    // never while the agent is speaking (that would train it on echo).
+    const NOISE_FLOOR_MIN = 0.004;   // never trust a floor below this
+    const NOISE_FLOOR_SNR = 3.0;     // ~9.5dB over the floor to count as voice
+    const SPEECH_RMS_FLOOR = 0.015;  // absolute floor: below this is never speech
+    // Adaptation rate, applied only on ticks judged NOT to be speech (see the
+    // VAD loop). Fast enough to settle on the room within a few hundred ms.
+    const FLOOR_DOWN = 0.25;
+    const speechThreshold = () =>
+      Math.max(SPEECH_RMS_FLOOR, call.noiseFloor * NOISE_FLOOR_SNR);
+
+    // A single frame over the threshold is not speech — a key press, a chair
+    // creak, a breath or the tail of the agent's own audio all spike for one
+    // tick. Treating that as "the caller spoke" ended the turn on noise and the
+    // server then replied to whatever STT invented, so the agent talked while
+    // the caller was silent. Require voice sustained across several ticks (the
+    // VAD samples every 100ms, so this is ~300ms) before a turn counts as real.
+    const VOICED_TICKS_REQUIRED = 3;
+    let voicedTicks = 0;
+    // Endpointing timeout. Two very different jobs depending on whether the
+    // server has model-based endpointing:
+    //
+    //  - BACKSTOP (sttEndpointing true). The server's confirmed end-of-turn
+    //    signal commits at ~1000ms of real silence (endpointing 600 + grace
+    //    400). A backstop firing at 800ms would pre-empt it on EVERY turn and
+    //    reintroduce exactly the mid-sentence cutoff the grace window exists to
+    //    prevent — the RMS path has no notion of "the caller resumed, cancel".
+    //    So it has to sit clear above the commit point.
+    //  - SOLE ENDPOINTER (no Deepgram). Nothing else will end the turn, so stay
+    //    responsive and accept the occasional early cut.
+    //
+    // A configured sttSilenceTimeoutMs still wins, clamped to a sane range.
+    const SILENCE_MS = call.sttEndpointing
+      ? Math.min(2500, Math.max(1500, sttSilenceTimeoutMs || 1600))
+      : Math.min(1600, Math.max(700, sttSilenceTimeoutMs || 800));
     const MAX_SEGMENT_MS = 20000;
+
+    // Single guarded end-of-turn, called by EITHER the RMS-VAD timeout below OR
+    // Deepgram's semantic endpoint signal (call.endTurnEarly) — whichever fires
+    // first wins; `ended` stops the other from double-firing.
+    let ended = false;
+    const finishSegment = () => {
+      if (ended || !call.active) return;
+      ended = true;
+      if (call.vadTimer) { clearInterval(call.vadTimer); call.vadTimer = null; }
+      call.capturingPcm = false;
+      call.endTurnEarly = null;
+      if (!speechDetected) {
+        modularCallSocket.cancelTurn();
+        if (maxSilenceBeforeHangup > 0 && Date.now() - call.lastSpeechAt > maxSilenceBeforeHangup * 1000) {
+          handleEndWebCall();
+          return;
+        }
+        startListeningSegmentSocket();
+        return;
+      }
+      call.lastSpeechAt = Date.now();
+      setWebCallActivity('processing');
+      modularCallSocket.endTurn(call.history);
+    };
+
+    // Deepgram says the caller finished — end now, but only once we actually
+    // heard speech this segment (ignore an endpoint on a noise-only segment).
+    call.endTurnEarly = () => { if (speechDetected) finishSegment(); };
 
     call.vadTimer = window.setInterval(() => {
       if (!call.active || !call.analyser) return;
@@ -1517,23 +1686,35 @@ export default function EditAgent() {
       let sum = 0;
       for (let i = 0; i < data.length; i++) { const d = (data[i] - 128) / 128; sum += d * d; }
       const rms = Math.sqrt(sum / data.length);
-      if (rms > SPEECH_RMS) { speechDetected = true; lastSpeechAt = Date.now(); }
+      const threshold = speechThreshold();
+      if (rms > threshold) {
+        voicedTicks += 1;
+        lastSpeechAt = Date.now();
+        if (voicedTicks >= VOICED_TICKS_REQUIRED) speechDetected = true;
+        // NOTE: the floor is deliberately NOT adapted here. Letting speech pull
+        // it upward meant that on a long turn the floor crept toward the
+        // caller's own voice, raising the threshold under them until their
+        // speech fell below it — a self-inflicted mid-sentence cutoff that got
+        // worse the longer someone talked. Rising room noise is still tracked,
+        // just from the non-speech ticks in the branch below, which is the only
+        // place we have a trustworthy sample of the room anyway.
+      } else {
+        // Decay rather than reset: a real word dips below the threshold between
+        // syllables, and resetting there would never reach the sustain bar.
+        voicedTicks = Math.max(0, voicedTicks - 1);
+        // This tick is (as far as we can tell) not speech, so it is the best
+        // available sample of the room. Track it quickly.
+        call.noiseFloor = Math.max(NOISE_FLOOR_MIN, call.noiseFloor * (1 - FLOOR_DOWN) + rms * FLOOR_DOWN);
+      }
       const silentFor = Date.now() - lastSpeechAt;
-      if ((speechDetected && silentFor > SILENCE_MS) || Date.now() - startedAt > MAX_SEGMENT_MS) {
-        if (call.vadTimer) { clearInterval(call.vadTimer); call.vadTimer = null; }
-        call.capturingPcm = false;
-        if (!speechDetected) {
-          modularCallSocket.cancelTurn();
-          if (maxSilenceBeforeHangup > 0 && Date.now() - call.lastSpeechAt > maxSilenceBeforeHangup * 1000) {
-            handleEndWebCall();
-            return;
-          }
-          startListeningSegmentSocket();
-          return;
-        }
-        call.lastSpeechAt = Date.now();
-        setWebCallActivity('processing');
-        modularCallSocket.endTurn(call.history);
+      // A noise-only segment now runs to MAX_SEGMENT_MS instead of ending on the
+      // first blip, so check the hang-up deadline here too — otherwise "end the
+      // call after N seconds of silence" would only be evaluated every 20s.
+      const silenceHangupDue = !speechDetected && maxSilenceBeforeHangup > 0
+        && Date.now() - call.lastSpeechAt > maxSilenceBeforeHangup * 1000;
+      if ((speechDetected && silentFor > SILENCE_MS) || silenceHangupDue
+        || Date.now() - startedAt > MAX_SEGMENT_MS) {
+        finishSegment();
       }
     }, 100);
   };
@@ -1570,7 +1751,7 @@ export default function EditAgent() {
           if (call.active) setWebCallError(event.message);
           if (call.active) handleEndWebCall();
         }
-      });
+      }, { ambientSound });
     } catch (err: any) {
       setWebCallError(err?.name === 'NotAllowedError'
         ? 'Microphone access was denied. Allow the microphone and try again.'
@@ -1652,16 +1833,26 @@ export default function EditAgent() {
       // one stream and uploaded when the call ends.
       const mixDest = audioCtx.createMediaStreamDestination();
       micSource.connect(mixDest);
+      // A SUSPENDED AudioContext runs no graph, so mixDest emits nothing and the
+      // recorder captures an empty file while the call itself sounds fine.
+      // Browsers create contexts suspended and also suspend them for background
+      // tabs, which is why recordings were going missing intermittently rather
+      // than always.
+      if (audioCtx.state === 'suspended') await audioCtx.resume().catch(() => {});
       const mixChunks: Blob[] = [];
       const mixRecorder = new MediaRecorder(mixDest.stream);
       mixRecorder.ondataavailable = (e) => { if (e.data.size > 0) mixChunks.push(e.data); };
+      mixRecorder.onerror = (e) => console.error('Call recorder error', e);
       mixRecorder.start(1000);
 
       // Ambient Sound (Call Configuration): layer a synthesized background bed
       // for the duration of the call, captured into the recording too.
       const ambientStop = startAmbientSound(audioCtx, ambientSound, mixDest);
 
-      Object.assign(call, { active: true, stream, audioCtx, analyser, history: [], mixDest, mixRecorder, mixChunks, logId: null, lastSpeechAt: Date.now(), ambientStop, socketMode: true, micWorklet, capturingPcm: false, modularPlayChain: null, pendingUserText: '', turnEpoch: 0 });
+      // noiseFloor starts at 0 so the first listening ticks adapt straight to
+      // the real room (FLOOR_DOWN converges in a few hundred ms); until then
+      // the absolute SPEECH_RMS_FLOOR governs, which is the conservative end.
+      Object.assign(call, { active: true, stream, audioCtx, analyser, history: [], mixDest, mixRecorder, mixChunks, logId: null, lastSpeechAt: Date.now(), ambientStop, socketMode: true, micWorklet, capturingPcm: false, modularPlayChain: null, pendingUserText: '', turnEpoch: 0, noiseFloor: 0 });
 
       // Barge-in: while the agent is speaking (call.stopPlayback set), watch the
       // mic for sustained speech and cut the agent off so the caller can
@@ -1675,7 +1866,16 @@ export default function EditAgent() {
         let sum = 0;
         for (let i = 0; i < buf.length; i++) { const d = (buf[i] - 128) / 128; sum += d * d; }
         const rms = Math.sqrt(sum / buf.length);
-        if (rms > 0.045) {
+        // Adaptive, like the listening VAD, but with a wider margin (5x vs 3x
+        // over the tracked noise floor). Barge-in has to clear not just the
+        // room but whatever the agent's own TTS leaks back past echo
+        // cancellation, and a false trigger here is worse than a missed one —
+        // it cuts the agent off mid-sentence for no reason. The floor itself is
+        // only ever learned while LISTENING, never during agent speech, so echo
+        // cannot train it. Still gated by the ~240ms sustain below.
+        const BARGE_SNR = 5.0;
+        const BARGE_RMS_FLOOR = 0.03;
+        if (rms > Math.max(BARGE_RMS_FLOOR, call.noiseFloor * BARGE_SNR)) {
           bargeActiveMs += 80;
           if (bargeActiveMs >= 240) { // ~0.24s of speech over the agent
             bargeActiveMs = 0;
@@ -1697,14 +1897,27 @@ export default function EditAgent() {
       }, 80);
 
       // Open the Recent Calls history entry for this call
-      whapi.post<{ call?: { id: string } }>(`/agents/${agentId}/calls`, { type: 'WEB_CALL', transcript: [], status: 'IN_PROGRESS' })
+      whapi.post<{ call?: { id: string }; limit?: { code: string; message: string } }>(
+        `/agents/${agentId}/calls`, { type: 'WEB_CALL', transcript: [], status: 'IN_PROGRESS' },
+      )
         .then((r) => {
           call.logId = r?.call?.id ?? null;
+          // The call IS recorded either way; this only reports that it went past
+          // a plan limit, so the user learns about it without losing history.
+          if (r?.limit) toast.warning(r.limit.message);
           if (call.logId && call.history.length) {
             whapi.patch(`/agents/${agentId}/calls/${call.logId}`, { transcript: call.history }).catch(() => {});
           }
         })
-        .catch((e) => console.error('Failed to start call history entry', e));
+        .catch((e) => {
+          // MUST be visible. This failing means the call is not recorded in
+          // Recent Calls and not billed, while the call itself carries on
+          // normally — so swallowing it into console.error made the platform
+          // look like it was silently dropping calls.
+          console.error('Failed to start call history entry', e);
+          const msg = e instanceof Error ? e.message : 'Unknown error';
+          toast.error(`This call will not appear in Recent Calls: ${msg}`);
+        });
 
       setWebCallStatus('connected');
 
@@ -1747,6 +1960,7 @@ export default function EditAgent() {
     if (call.socketMode) {
       call.socketMode = false;
       call.capturingPcm = false;
+      call.endTurnEarly = null;
       call.turnEpoch += 1; // drop any queued sentence audio
       try { modularCallSocket.stop(); } catch { /* already closed */ }
     }
@@ -1771,20 +1985,45 @@ export default function EditAgent() {
     const finalize = async (blob: Blob | null) => {
       audioCtx?.close().catch(() => {});
       if (!logId) return;
+      // The recording is uploaded BEFORE the terminal PATCH, and in its own
+      // try/catch. `ended: true` makes the server settle billing, run LLM
+      // variable extraction and fire every Post-Call destination
+      // (webhook/email/Sheets) before it responds — seconds of work. Uploading
+      // after it meant anything that ended the page in that window (navigating
+      // off the tab, closing it, a slow webhook) took the recording with it,
+      // and a throw from the PATCH skipped the upload entirely. That is why
+      // recordings survived some calls and vanished from others.
       try {
-        await whapi.patch(`/agents/${agentId}/calls/${logId}`, { transcript: history, status: finalStatus, ended: true });
         if (blob && blob.size > 0) {
           const fd = new FormData();
           fd.append('recording', blob, 'web-call.webm');
           await whapi.postForm(`/agents/${agentId}/calls/${logId}/recording`, fd);
+        } else {
+          // Silent before: the call appeared in Recent Calls with no "recording"
+          // link and no explanation, so a missing recording looked like the
+          // feature had been removed rather than like one call having failed.
+          console.warn('Call recording was empty — nothing uploaded', { chunks: mixChunks.length });
+          toast.warning('This call was saved, but its audio recording could not be captured.');
         }
       } catch (e) {
-        console.error('Failed to store call history', e);
+        console.error('Failed to upload call recording', e);
+        toast.error(`Could not save the call recording: ${e instanceof Error ? e.message : 'unknown error'}`);
+      }
+      try {
+        await whapi.patch(`/agents/${agentId}/calls/${logId}`, { transcript: history, status: finalStatus, ended: true });
+      } catch (e) {
+        console.error('Failed to finalize call history', e);
+        toast.error(`Could not finalize the call log: ${e instanceof Error ? e.message : 'unknown error'}`);
       }
     };
     if (mixRecorder && mixRecorder.state !== 'inactive') {
       mixRecorder.onstop = () => finalize(new Blob(mixChunks, { type: mixRecorder.mimeType || 'audio/webm' }));
-      try { mixRecorder.stop(); } catch { finalize(null); }
+      try {
+        // Flush the partial timeslice still buffered, or the last <1s is lost —
+        // and on a short call that can be the ENTIRE recording.
+        mixRecorder.requestData();
+        mixRecorder.stop();
+      } catch { finalize(null); }
     } else {
       finalize(mixChunks.length ? new Blob(mixChunks, { type: 'audio/webm' }) : null);
     }
@@ -2268,11 +2507,12 @@ export default function EditAgent() {
           placeholder="Agent Name"
         />
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 10px', background: callDirection === 'OUTBOUND' ? '#1f150f' : '#0f1f12', border: `1px solid ${callDirection === 'OUTBOUND' ? '#3a2a1a' : '#1a3a22'}`, borderRadius: '12px', fontSize: '11px', color: callDirection === 'OUTBOUND' ? '#ff9800' : '#4caf50', fontWeight: '500' }}>
-          <span style={{ fontSize: '8px' }}>o</span> {callDirection === 'OUTBOUND' ? 'Outgoing' : 'Incoming'}
+        <div
+          onClick={() => setCallDirection(callDirection === 'OUTBOUND' ? 'INBOUND' : 'OUTBOUND')}
+          title="Call direction — click to switch. Incoming: customers call your agent (thanking them for calling is fine). Outgoing: your agent dials the customer (never say 'thank you for calling')."
+          style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 10px', background: callDirection === 'OUTBOUND' ? '#1f150f' : '#0f1f12', border: `1px solid ${callDirection === 'OUTBOUND' ? '#3a2a1a' : '#1a3a22'}`, borderRadius: '12px', fontSize: '11px', color: callDirection === 'OUTBOUND' ? '#ff9800' : '#4caf50', fontWeight: '500', cursor: 'pointer', userSelect: 'none' }}>
+          <span style={{ fontSize: '8px' }}>o</span> {callDirection === 'OUTBOUND' ? 'Outgoing' : 'Incoming'} <span style={{ opacity: 0.55, fontSize: '10px' }}>⇄</span>
         </div>
-
-        <div style={{ fontSize: '12px', color: '#888' }}>Cost/min: $0.115</div>
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
           {/* Ask AI Button */}
@@ -2571,6 +2811,34 @@ export default function EditAgent() {
                 </div>
               </div>
               <div style={{ padding: '18px 30px 20px' }}>
+                {/* Call direction — an inbound greeting may thank the caller for
+                    calling; an outbound one must introduce the agent instead. */}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px', flexWrap: 'wrap' }}>
+                  <span style={{ fontSize: '12px', color: '#b7b7b7', fontWeight: 600 }}>Call direction</span>
+                  <div style={{ display: 'inline-flex', background: '#141414', border: '1px solid var(--border)', borderRadius: '8px', padding: '3px' }}>
+                    {(['INBOUND', 'OUTBOUND'] as const).map((dir) => (
+                      <button
+                        key={dir}
+                        type="button"
+                        onClick={() => setCallDirection(dir)}
+                        style={{
+                          padding: '5px 14px', borderRadius: '6px', border: 'none', cursor: 'pointer',
+                          fontSize: '12px', fontWeight: 600, whiteSpace: 'nowrap',
+                          background: callDirection === dir ? (dir === 'OUTBOUND' ? '#ff9800' : '#12c8d0') : 'transparent',
+                          color: callDirection === dir ? '#0b0b0b' : '#8d8d8d',
+                          transition: 'all 0.15s',
+                        }}
+                      >
+                        {dir === 'OUTBOUND' ? 'Outgoing (agent calls)' : 'Incoming (customer calls)'}
+                      </button>
+                    ))}
+                  </div>
+                  <span style={{ fontSize: '11px', color: '#6f6f6f' }}>
+                    {callDirection === 'OUTBOUND'
+                      ? 'Your agent dials the customer — open with “this is [name] calling from [company]”, then the reason.'
+                      : 'Customers call your agent — thanking them for calling is fine.'}
+                  </span>
+                </div>
                 <textarea
                   value={welcomeMessage}
                   onChange={(e) => setWelcomeMessage(e.target.value)}
@@ -2591,6 +2859,12 @@ export default function EditAgent() {
                   placeholder="Type your welcome message here..."
                 />
                 <div style={{ fontSize: '11px', color: '#8d8d8d', textAlign: 'right', marginTop: '10px' }}>{welcomeMessage.length}/600</div>
+                {callDirection === 'OUTBOUND' && THANKS_FOR_CALLING_RE.test(welcomeMessage) && (
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '10px', padding: '10px 12px', background: '#2a1a0a', border: '1px solid #5a3a12', borderRadius: '8px', fontSize: '12px', color: '#ffb74d', lineHeight: 1.45 }}>
+                    <span aria-hidden>⚠️</span>
+                    <span>This is an <b>Outgoing</b> agent, but the greeting thanks the person “for calling.” On outbound calls your agent places the call, so it should open by naming who is calling and the company — e.g. “Hi, this is [name] calling from [company]” — then the reason. Calls auto-correct this, but it’s best to fix the text here, or use ✨ Ask AI to rewrite it.</span>
+                  </div>
+                )}
               </div>
             </div>
 
@@ -2902,7 +3176,7 @@ export default function EditAgent() {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                           <label style={{ display: 'block', color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600' }}>Select Background Noise</label>
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
-                            {['None', 'Office', 'Call Center', 'Static', 'Cafe', 'Street'].map(sound => (
+                            {AMBIENT_OPTIONS.map(sound => (
                               <div 
                                 key={sound}
                                 onClick={() => setAmbientSound(sound)}
@@ -3367,7 +3641,7 @@ export default function EditAgent() {
                       value={config.deliveryMethod}
                       onChange={(e) => {
                         const deliveryMethod = e.target.value;
-                        updatePostCallConfigAndSave(config.id, { deliveryMethod, url: '', email: '', spreadsheetId: '', spreadsheetName: '' });
+                        updatePostCallConfigAndSave(config.id, { deliveryMethod, url: '', email: '', spreadsheetId: '', spreadsheetName: '', dateVariable: '' });
                         if (deliveryMethod === 'Google Sheets' && spreadsheets.length === 0) loadSpreadsheets();
                       }}
                       style={{
@@ -3386,6 +3660,7 @@ export default function EditAgent() {
                       <option value="Webhook">Webhook</option>
                       <option value="Email">Email</option>
                       <option value="Google Sheets">Google Sheets</option>
+                      <option value="Google Calendar">Google Calendar</option>
                       <option value="CRM" disabled>CRM (coming soon)</option>
                       <option value="Slack" disabled>Slack (coming soon)</option>
                       <option value="WhatsApp" disabled>WhatsApp (coming soon)</option>
@@ -3444,6 +3719,62 @@ export default function EditAgent() {
                         {config.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(config.email) && (
                           <div style={{ fontSize: '12px', color: '#ff4d4f', marginTop: '4px' }}>Enter a valid email address</div>
                         )}
+                      </div>
+                    )}
+
+                    {/* Google Calendar — book an event from an extracted date/time.
+                        The date variable must resolve to an ISO 8601 datetime;
+                        extraction is prompted to output that, resolving relatives
+                        ("tomorrow at 3pm") against the call time. */}
+                    {config.deliveryMethod === 'Google Calendar' && (
+                      <div style={{ marginTop: '14px' }}>
+                        <div style={{ fontSize: '13px', color: '#a0a0a0', marginBottom: '8px' }}>Appointment date/time variable <span style={{ color: '#ff6b6b' }}>*</span></div>
+                        <select
+                          value={config.dateVariable || ''}
+                          onChange={(e) => updatePostCallConfigAndSave(config.id, { dateVariable: e.target.value })}
+                          style={{
+                            width: '400px',
+                            height: '42px',
+                            padding: '0 16px',
+                            background: '#181818',
+                            border: '1px solid #2d2d2d',
+                            borderRadius: '9px',
+                            color: config.dateVariable ? '#ffffff' : '#b3b3b3',
+                            fontSize: '14px',
+                            outline: 'none',
+                            boxSizing: 'border-box'
+                          }}
+                        >
+                          <option value="">Select an extracted variable</option>
+                          {config.extractedVariables.map((v) => (
+                            <option key={v.id} value={v.key}>{v.key}</option>
+                          ))}
+                        </select>
+                        <div style={{ fontSize: '12px', color: '#808080', marginTop: '6px', maxWidth: '400px' }}>
+                          The event is booked on your primary Google Calendar at this variable's value.
+                          Make sure the variable's description tells the agent to capture the appointment date and time.
+                        </div>
+
+                        <div style={{ fontSize: '13px', color: '#a0a0a0', margin: '14px 0 8px' }}>Duration (minutes)</div>
+                        <input
+                          type="number"
+                          min={5}
+                          step={5}
+                          value={config.durationMin ?? 30}
+                          onChange={(e) => updatePostCallConfig(config.id, { durationMin: Math.max(5, Number(e.target.value) || 30) })}
+                          style={{
+                            width: '140px',
+                            height: '42px',
+                            padding: '0 16px',
+                            background: '#181818',
+                            border: '1px solid #2d2d2d',
+                            borderRadius: '9px',
+                            color: '#ffffff',
+                            fontSize: '14px',
+                            outline: 'none',
+                            boxSizing: 'border-box'
+                          }}
+                        />
                       </div>
                     )}
 
@@ -4048,7 +4379,29 @@ export default function EditAgent() {
                         <div style={{ borderTop: '1px solid var(--border)', padding: '16px 20px', background: '#0d0d0d' }}>
                           {call.hasRecording && (
                             <div style={{ marginBottom: transcript.length ? '16px' : 0 }}>
-                              <div style={{ fontSize: '12px', fontWeight: '600', color: '#888', marginBottom: '8px' }}>Call recording</div>
+                              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '8px' }}>
+                                <div style={{ fontSize: '12px', fontWeight: '600', color: '#888' }}>Call recording</div>
+                                {recordingUrls[call.id] && (
+                                  <button
+                                    type="button"
+                                    onClick={() => downloadRecording(call)}
+                                    style={{
+                                      display: 'inline-flex', alignItems: 'center', gap: '6px',
+                                      fontSize: '12px', fontWeight: '600', color: '#8edce2',
+                                      background: 'transparent', border: '1px solid #28343a',
+                                      borderRadius: '8px', padding: '5px 10px', cursor: 'pointer',
+                                    }}
+                                    title="Download recording to your device"
+                                  >
+                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                      <polyline points="7 10 12 15 17 10" />
+                                      <line x1="12" y1="15" x2="12" y2="3" />
+                                    </svg>
+                                    Download
+                                  </button>
+                                )}
+                              </div>
                               {recordingUrls[call.id] ? (
                                 <audio controls src={recordingUrls[call.id]} style={{ width: '100%', height: '36px' }} />
                               ) : (

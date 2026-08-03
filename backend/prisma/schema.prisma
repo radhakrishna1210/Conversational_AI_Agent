@@ -82,6 +82,8 @@ model Workspace {
   integrationSettings IntegrationSetting[]
   integrationTokens   IntegrationToken[]
   invoices            Invoice[]
+  paymentOrders       PaymentOrder[]
+  subscription        Subscription?
   keywordTriggers     KeywordTrigger[]
   messages            Message[]
   notifications       Notification[]
@@ -361,7 +363,21 @@ model Invoice {
   invoiceDate DateTime
   pdfUrl      String?
   createdAt   DateTime  @default(now())
+  // Human-facing sequential document number (INV-2026-000123). Unique so a
+  // retried generation cannot mint two documents for the same payment.
+  number      String?   @unique
+  // topup | subscription
+  type        String    @default("topup")
+  subtotalCents Int     @default(0)
+  taxCents      Int     @default(0)
+  // The payment this invoice documents. Unique: one invoice per payment, which
+  // is what makes generation safe to retry.
+  paymentOrderId String? @unique
+  periodStart DateTime?
+  periodEnd   DateTime?
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, invoiceDate])
 }
 
 model NumberPool {
@@ -422,7 +438,24 @@ model AgentCallLog {
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
+  // ── Billing (BUG-002) ──────────────────────────────────────────────────────
+  // PENDING | BILLED | SKIPPED | FAILED. Guards against double-charging: all
+  // three call-end paths converge on settleCall(), which only charges a call
+  // still in PENDING.
+  billingStatus String   @default("PENDING")
+  billedCents   Int      @default(0)
+  billedAt      DateTime?
+  // The customer-facing rate actually applied, snapshotted so a later plan or
+  // FX change cannot retroactively alter what this call cost.
+  ratePerMinuteCents Int?
+  billedMinutes Float    @default(0)
+  // Measured provider COGS in micro-USD (millionths), RECORDED not charged —
+  // the customer pays the rate card. This is what makes per-call margin
+  // reportable instead of guessed.
+  actualCostMicroUsd Int?
+
   @@index([workspaceId, agentId, startedAt])
+  @@index([billingStatus, endedAt])
 }
 
 model Integration {
@@ -676,35 +709,154 @@ model Plan {
   name            String   @unique
   priceUsd        Float
   perMinuteUsd    Float
+  // INR is the price of record for this deployment. Nullable so a plan created
+  // before this existed still works: money.js falls back to priceUsd x FX.
+  // Keeping a real INR price (rather than deriving it) means a change to
+  // FX_USD_TO_INR cannot silently reprice the product, and lets an admin set
+  // round price points instead of 8,544.
+  priceInr        Float?
+  perMinuteInr    Float?
+  // Mirrored Razorpay plan ids, kept per MODE. Test and live are separate
+  // datasets — a plan created with rzp_test_ keys does not exist in live mode,
+  // so one shared column would carry a test id into production and fail there.
+  razorpayPlanIdTest String?
+  razorpayPlanIdLive String?
   includedMinutes Int
   kbStorageMb     Int      @default(100)
+  // Enforceable limits. `features` is a marketing string list ("3 agents") and
+  // was never machine-readable, so nothing could actually be gated on it.
+  // These are the numbers assertCanStartCall() and agent creation check.
+  maxAgents          Int   @default(1)
+  maxConcurrentCalls Int   @default(1)
   features        String
   active          Boolean  @default(true)
   sortOrder       Int      @default(0)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
+  subscriptions   Subscription[]
 }
 
+// Prepaid balance for one workspace, held in MINOR UNITS of `currency`
+// (paise for INR). Never mutated directly — every change goes through
+// applyWalletTransaction() in services/billing.service.js so that the balance
+// and the ledger can never disagree.
 model Wallet {
   id           String              @id @default(cuid())
   workspaceId  String              @unique
   balanceCents Int                 @default(0)
-  currency     String              @default("USD")
+  // INR because that is what Razorpay settles in. Plans are catalogued in USD
+  // and converted at charge time with the FX rate recorded on the transaction,
+  // so a historical charge stays reproducible even after the rate moves.
+  currency     String              @default("INR")
+  // How far below zero this wallet may go before new calls are blocked.
+  // 0 = hard stop at zero (the default). Non-zero lets an enterprise account
+  // run on invoice terms without being cut off mid-conversation.
+  overdraftLimitCents Int          @default(0)
+  // Set when a low-balance warning was last sent, so the notifier does not
+  // re-send on every single call once the balance is low.
+  lowBalanceNotifiedAt DateTime?
   updatedAt    DateTime            @updatedAt
   transactions WalletTransaction[]
 }
 
+// Append-only ledger. One row per balance mutation, and the ONLY audit record
+// of money movement — nothing else is authoritative.
 model WalletTransaction {
   id          String   @id @default(cuid())
   walletId    String
+  // Signed: positive credits (top-up, refund, admin), negative debits (usage,
+  // subscription). Summing this column for a wallet must always equal its
+  // balanceCents; that invariant is asserted in the billing tests.
   amountCents Int
+  // Balance immediately AFTER this row was applied. Lets an auditor verify the
+  // running balance without replaying the whole ledger, and makes an
+  // out-of-order or lost write visible instead of silent.
+  balanceAfterCents Int   @default(0)
+  currency    String   @default("INR")
+  // topup | usage | admin_credit | refund | subscription | adjustment
   type        String
+  // THE double-charge guard. A retried Razorpay webhook, a double-fired
+  // call-end event, or a client PATCH replay all carry the same key, and the
+  // unique constraint makes the second write fail instead of charging twice.
+  // Nullable because ad-hoc admin adjustments have no natural key, and
+  // Postgres permits many NULLs under a UNIQUE index.
+  idempotencyKey String? @unique
   note        String?
+  // JSON: callLogId, durationSec, rate applied, provider ids — whatever is
+  // needed to explain this line item back to a customer.
+  metadata    String   @default("{}")
+  // FX rate used when converting a USD-denominated plan rate into the wallet's
+  // currency. Recorded per row so an old charge can be re-derived exactly.
+  fxRateUsdToInr Float?
   createdById String?
   createdAt   DateTime @default(now())
   wallet      Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
 
   @@index([walletId, createdAt])
+  @@index([type, createdAt])
+}
+
+// A workspace's current plan and billing period. Separate from
+// Workspace.planName (a display string) because enforcement and renewal need
+// real period boundaries and usage counters, not a label.
+model Subscription {
+  id                 String    @id @default(cuid())
+  workspaceId        String    @unique
+  planId             String
+  planName           String
+  // active | past_due | cancelled | expired
+  status             String    @default("active")
+  billingPeriod      String    @default("monthly") // monthly | yearly
+  currentPeriodStart DateTime
+  currentPeriodEnd   DateTime
+  // Downgrades and cancellations take effect at the period boundary, not
+  // immediately — the customer already paid for this period.
+  cancelAtPeriodEnd  Boolean   @default(false)
+  pendingPlanId      String?
+  cancelledAt        DateTime?
+  // Included minutes for the CURRENT period, reset on renewal. Usage beyond
+  // this draws down the wallet.
+  minutesIncluded    Int       @default(0)
+  minutesUsed        Float     @default(0)
+  razorpaySubscriptionId String? @unique
+  // Renews itself on a saved card. False = the period simply lapses, which is
+  // the pre-existing wallet-funded behaviour.
+  autoRenew          Boolean   @default(false)
+  // Last gateway charge applied, so a replayed subscription.charged webhook for
+  // an already-processed cycle is recognisable.
+  lastChargeId       String?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  workspace          Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  plan               Plan      @relation(fields: [planId], references: [id])
+
+  @@index([status, currentPeriodEnd])
+  @@index([autoRenew, status])
+}
+
+// A payment initiated with the gateway. Created BEFORE the customer pays, so a
+// webhook arriving for an unknown order is detectable as fraud/misroute rather
+// than silently crediting a wallet.
+model PaymentOrder {
+  id                String    @id @default(cuid())
+  workspaceId       String
+  provider          String    @default("razorpay")
+  providerOrderId   String    @unique
+  providerPaymentId String?   @unique
+  amountCents       Int
+  currency          String    @default("INR")
+  purpose           String    @default("topup") // topup | subscription
+  planId            String?
+  // created | paid | failed | refunded
+  status            String    @default("created")
+  notes             String    @default("{}")
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  paidAt            DateTime?
+  workspace         Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([status, createdAt])
 }
 
 model documents {

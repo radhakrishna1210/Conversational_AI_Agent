@@ -15,8 +15,10 @@
 
 import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
+import { settleCall } from '../services/billing/settlement.service.js';
 import { getAgentKbText } from '../services/agentRuntime.service.js';
 import { createRealtimeSession } from '../services/voice/realtimeEngine.factory.js';
+import { createAmbiencePump } from '../services/voice/ambiencePump.js';
 import { extractAndStoreCallVariables } from '../services/postCallExtraction.service.js';
 import { deliverPostCall } from '../controllers/agentCallLog.controller.js';
 
@@ -30,6 +32,7 @@ const safeJson = (str, fallback) => {
 
 export function handleTwilioMediaUpgrade(ws, { workspaceId, agentId }) {
   let session = null;
+  let pump = null;   // ambience/pacing pump; null when ambience is off
   let streamSid = null;
   let callLogId = null;
   let finalized = false;
@@ -59,6 +62,13 @@ export function handleTwilioMediaUpgrade(ws, { workspaceId, agentId }) {
       return;
     }
 
+    // BUG-002: charge the wallet for telephony minutes. Billing only the web
+    // path would have made phone minutes free — a revenue hole and an
+    // inconsistency a customer would eventually dispute. Idempotent per call,
+    // which matters here because Twilio's `stop` event and the socket `close`
+    // both reach cleanup().
+    await settleCall(callLogId);
+
     // A phone call has no browser client to PATCH the REST call-log endpoint,
     // so extraction + Post-Call delivery (webhook / email / Google Sheets) must
     // be driven from here — mirroring updateCallLog in agentCallLog.controller.js.
@@ -75,6 +85,10 @@ export function handleTwilioMediaUpgrade(ws, { workspaceId, agentId }) {
   };
 
   const cleanup = (status) => {
+    // First: a leaked 20ms interval would outlive the call permanently.
+    // stop() is idempotent because cleanup() is reachable more than once.
+    pump?.stop();
+    pump = null;
     session?.close();
     if (status) finalizeCallLog(status);
   };
@@ -102,21 +116,42 @@ export function handleTwilioMediaUpgrade(ws, { workspaceId, agentId }) {
           const { kbText } = await getAgentKbText(workspaceId, agentId);
           session = createRealtimeSession(settings.voiceEngine, { agent, kbText, audioFormat: 'g711_ulaw' });
 
-          session.on('audio', (buf) => {
+          // Background ambience (BUG-003). Constructed ONLY when the agent has a
+          // real preset selected, so an agent without ambience keeps the exact
+          // zero-transcode passthrough below — no timer, no queue, no mixing,
+          // and no added latency on the path this repo has spent the most
+          // effort optimising.
+          const sendFrame = (payload) => {
             if (ws.readyState === ws.OPEN && streamSid) {
               ws.send(JSON.stringify({
                 event: 'media',
                 streamSid,
-                media: { payload: buf.toString('base64') },
+                media: { payload: payload.toString('base64') },
               }));
             }
-          });
+          };
+          if (process.env.AMBIENCE_PHONE_ENABLED !== 'false') {
+            pump = createAmbiencePump({
+              presetName: settings.ambientSound,
+              send: sendFrame,
+              onError: (err) => logger.warn(`Ambience pump: ${err.message}`),
+            });
+          }
+
+          // Branch ONCE here, never per frame.
+          session.on('audio', pump
+            ? (buf) => pump.push(buf)
+            : (buf) => sendFrame(buf));
           session.on('transcript', (t) => {
             if (t.done) transcript.push({ role: t.role, content: t.text });
           });
           // Barge-in: the caller interrupted — flush Twilio's buffered playback
           // (the `clear` media-stream message) so the agent stops mid-sentence.
           session.on('clear', () => {
+            // Drop OUR queued engine audio first. Twilio's `clear` only flushes
+            // what Twilio holds; anything still queued here would be emitted
+            // afterwards and resurrect the interrupted sentence.
+            pump?.flush();
             if (ws.readyState === ws.OPEN && streamSid) {
               ws.send(JSON.stringify({ event: 'clear', streamSid }));
             }
@@ -125,6 +160,9 @@ export function handleTwilioMediaUpgrade(ws, { workspaceId, agentId }) {
           session.on('close', () => ws.close());
 
           await session.connect();
+          // Start the bed as soon as the line is live — a real room has tone
+          // from the moment the call is answered, not from the first word.
+          pump?.start();
 
           if (callLogId) {
             await prisma.agentCallLog.update({
@@ -134,6 +172,10 @@ export function handleTwilioMediaUpgrade(ws, { workspaceId, agentId }) {
           }
         } catch (err) {
           logger.error(`Failed to start realtime phone call session: ${err.message}`);
+          // A pump built just before the throw must not depend on the close
+          // handler firing to be torn down.
+          pump?.stop();
+          pump = null;
           ws.close();
         }
         break;

@@ -1,34 +1,216 @@
 import { useEffect, useState } from 'react';
 import { whapi } from '../lib/whapi';
-interface PlanDto { id: string; name: string; priceUsd: number; perMinuteUsd: number; includedMinutes: number; kbStorageMb: number; features: string[]; sortOrder: number }
-interface WalletDto { balanceCents: number; currency: string; transactions: { id: string; amountCents: number; type: string; note: string | null; createdAt: string }[]; topUpAvailable: boolean; topUpUnavailableReason?: string }
+import { loadRazorpay, openCheckout } from '../lib/razorpayCheckout';
+
+interface PlanDto {
+  id: string; name: string;
+  priceUsd: number; perMinuteUsd: number;
+  // Price of record for this deployment. Null on a plan created before INR
+  // pricing existed, in which case the server falls back to priceUsd x FX.
+  priceInr: number | null; perMinuteInr: number | null;
+  includedMinutes: number; kbStorageMb: number; features: string[]; sortOrder: number;
+}
+
+/** A plan's price in wallet minor units — INR-native, falling back to USD x FX.
+ *  Mirrors planPriceMinor() on the server so the page never advertises a figure
+ *  different from the one that will actually be debited. */
+const planPriceCents = (p: Pick<PlanDto, 'priceInr' | 'priceUsd'>) =>
+  p.priceInr != null ? Math.round(p.priceInr * 100) : Math.round(p.priceUsd * 96 * 100);
+const planRateCents = (p: Pick<PlanDto, 'perMinuteInr' | 'perMinuteUsd'>) =>
+  p.perMinuteInr != null ? p.perMinuteInr * 100 : p.perMinuteUsd * 96 * 100;
+interface TxnDto { id: string; amountCents: number; balanceAfterCents: number; type: string; note: string | null; createdAt: string }
+interface SubscriptionDto {
+  status: string; planName: string; currentPeriodEnd: string;
+  minutesIncluded: number; minutesUsed: number; cancelAtPeriodEnd: boolean; pendingPlanId: string | null;
+}
+interface WalletDto {
+  balanceCents: number; currency: string; transactions: TxnDto[];
+  topUpAvailable: boolean; topUpUnavailableReason?: string | null;
+  razorpayKeyId?: string | null; minTopUpCents: number; maxTopUpCents: number;
+  plan: { id: string; name: string; perMinuteUsd: number } | null;
+  subscription: SubscriptionDto | null;
+}
+interface InvoiceDto { id: string; number: string | null; amountCents: number; currency: string; status: string; invoiceDate: string; planName: string; type: string }
+
+/**
+ * Format minor units in the wallet's OWN currency. The wallet is denominated in
+ * INR because Razorpay settles INR; this page previously divided by 100 and
+ * rendered a bare number next to a '$', which misstated every amount by the FX
+ * rate.
+ */
+const fmt = (minor: number, currency = 'INR') =>
+  new Intl.NumberFormat(currency === 'INR' ? 'en-IN' : 'en-US', {
+    style: 'currency', currency, maximumFractionDigits: 2,
+  }).format(minor / 100);
+
+// Paise. Spans the plan catalogue: the top preset must cover the most expensive
+// plan (Growth, $399 x 96 = 38,304) or the sheet cannot fund the very upgrade
+// that opened it.
+const PRESET_TOPUPS = [50_000, 100_000, 500_000, 1_000_000, 2_500_000, 4_000_000];
 
 export default function Billing() {
   const [wallet, setWallet] = useState<WalletDto | null>(null);
   const [plans, setPlans] = useState<PlanDto[]>([]);
+  const [invoices, setInvoices] = useState<InvoiceDto[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [showTopUp, setShowTopUp] = useState(false);
+  const [topUpAmount, setTopUpAmount] = useState(PRESET_TOPUPS[1]);
+  const [payBusy, setPayBusy] = useState(false);
+  const [payError, setPayError] = useState<string | null>(null);
+  const [payNotice, setPayNotice] = useState<string | null>(null);
+  const [planBusy, setPlanBusy] = useState<string | null>(null);
+  // Usage-credit flow only. Plan purchases no longer route through the wallet,
+  // so nothing sets this from a plan change any more.
+  const [topUpFor, setTopUpFor] = useState<{ planName: string; neededCents: number } | null>(null);
+
+  /** Re-read the plan catalogue. Extracted so a stale list can be recovered
+   *  without a page reload — plans can be deleted or deactivated by an admin
+   *  while a customer has this page open, and the buttons then reference ids
+   *  that no longer exist. */
+  const refreshPlans = async () => {
+    try {
+      const res = await fetch('/api/v1/config/plans');
+      const data = await res.json();
+      if (Array.isArray(data?.plans)) { setPlans(data.plans); return data.plans as PlanDto[]; }
+    } catch { /* plans stay as they are; the grid shows a fallback message */ }
+    return null;
+  };
+
+  const refreshWallet = async () => {
+    const w = await whapi.get<WalletDto>('/wallet');
+    setWallet(w);
+    return w;
+  };
 
   useEffect(() => {
     (async () => {
       try {
-        const w = await whapi.get<WalletDto>('/wallet');
-        setWallet(w);
+        await refreshWallet();
       } catch (e) {
         setLoadError(e instanceof Error ? e.message : 'Failed to load wallet');
       }
+      await refreshPlans();
       try {
-        const res = await fetch('/api/v1/config/plans');
-        const data = await res.json();
-        if (Array.isArray(data?.plans)) setPlans(data.plans);
-      } catch { /* plans stay empty; grid shows fallback message */ }
+        const inv = await whapi.get<{ invoices: InvoiceDto[] }>('/invoices');
+        if (Array.isArray(inv?.invoices)) setInvoices(inv.invoices);
+      } catch { /* invoices are non-critical to this page */ }
     })();
   }, []);
 
-  const balanceUsd = wallet ? (wallet.balanceCents / 100) : null;
-  const currentPlan = plans[0]?.name ?? 'Free';
-  const perMin = plans.find(p => p.name === currentPlan)?.perMinuteUsd ?? 0.114;
-  const minutesLeft = balanceUsd != null && perMin > 0 ? (balanceUsd / perMin) : null;
+  const currency = wallet?.currency ?? 'INR';
+  const balanceCents = wallet?.balanceCents ?? null;
+  // The plan the workspace is ACTUALLY on, reported by the server. This used to
+  // read `plans[0]` - whichever plan happened to sort first - so every
+  // workspace was shown the cheapest plan's name and per-minute rate no matter
+  // what they were really subscribed to.
+  const currentPlan = wallet?.subscription?.planName ?? wallet?.plan?.name ?? 'Free';
+  const currentPlanDto = plans.find(p => p.name === currentPlan);
+  const perMinCents = currentPlanDto
+    ? planRateCents(currentPlanDto)
+    : (wallet?.plan?.perMinuteUsd ?? 0.12) * 96 * 100;
+  const minutesLeft = balanceCents != null && perMinCents > 0 ? balanceCents / perMinCents : null;
+
+  const handleTopUp = async () => {
+    if (!wallet?.topUpAvailable || !wallet.razorpayKeyId) return;
+    setPayBusy(true); setPayError(null); setPayNotice(null);
+    try {
+      await loadRazorpay();
+      const order = await whapi.post<{ orderId: string; amountCents: number; currency: string; razorpayKeyId: string }>(
+        '/wallet/topup', { amountCents: topUpAmount },
+      );
+      const result = await openCheckout({
+        orderId: order.orderId,
+        amountCents: order.amountCents,
+        currency: order.currency,
+        razorpayKeyId: order.razorpayKeyId,
+      });
+      // Confirms the signature so the UI can report the outcome honestly. The
+      // CREDIT is applied by the server's webhook, so the balance can lag by a
+      // moment - we never claim credited unless the server says so.
+      const v = await whapi.post<{ credited: boolean; message: string }>('/wallet/topup/verify', result);
+      setPayNotice(v.message);
+      await refreshWallet();
+      if (!v.credited) {
+        setTimeout(() => { refreshWallet().catch(() => {}); }, 3000);
+      }
+    } catch (e) {
+      const err = e as Error & { code?: string };
+      if (err.code === 'DISMISSED') {
+        // Closing the modal is a normal outcome, not an error - and the payment
+        // may even be in flight, so re-read rather than asserting nothing happened.
+        setPayNotice('Payment cancelled.');
+        refreshWallet().catch(() => {});
+      } else {
+        setPayError(err.message || 'Payment could not be completed');
+      }
+    } finally {
+      setPayBusy(false);
+    }
+  };
+
+  /**
+   * Buy or change a plan. Pays by CARD for exactly the plan price (or the
+   * prorated upgrade amount) and does NOT require, spend, or check wallet
+   * balance. The wallet is prepaid credit for call USAGE; making customers
+   * pre-fund it just to buy a plan was a two-step chore with no benefit they
+   * could see.
+   *
+   * Downgrades and free plans collect nothing, so the server applies those
+   * immediately and reports that no payment is needed.
+   */
+  const handleChangePlan = async (planId: string, planName: string) => {
+    setPlanBusy(planId); setPayError(null); setPayNotice(null);
+    try {
+      const quote = await whapi.post<{
+        requiresPayment: boolean; message?: string;
+        orderId?: string; amountCents?: number; currency?: string;
+        razorpayKeyId?: string; kind?: string; planName?: string;
+      }>('/subscription/checkout', { planId });
+
+      if (!quote.requiresPayment) {
+        setPayNotice(quote.message || `You are now on ${planName}.`);
+        await refreshWallet();
+        return;
+      }
+
+      await loadRazorpay();
+      const result = await openCheckout({
+        orderId: quote.orderId!,
+        amountCents: quote.amountCents!,
+        currency: quote.currency!,
+        razorpayKeyId: quote.razorpayKeyId!,
+        workspaceName: `${quote.planName ?? planName} plan`,
+      });
+
+      // Same verify endpoint as a top-up: it confirms the payment with Razorpay
+      // directly and then activates the plan. This callback is never trusted on
+      // its own, and the webhook covers the case where it never arrives.
+      const v = await whapi.post<{ credited: boolean; message: string }>(
+        '/wallet/topup/verify', result,
+      );
+      setPayNotice(v.message);
+      await refreshWallet();
+      if (!v.credited) setTimeout(() => { refreshWallet().catch(() => {}); }, 3000);
+    } catch (e) {
+      const err = e as Error & { status?: number; code?: string };
+      if (err.code === 'DISMISSED') {
+        // Closing the payment sheet is a normal outcome, not a failure - and
+        // the payment may be in flight, so re-read rather than assert.
+        setPayNotice('Payment cancelled.');
+        refreshWallet().catch(() => {});
+      } else if (err.status === 404) {
+        // The plan id this button carries no longer exists — the catalogue
+        // changed while the page was open. Re-read it and say so plainly,
+        // rather than surfacing a bare "Plan not found" the customer cannot act on.
+        await refreshPlans();
+        setPayError('That plan is no longer available. The plan list has been refreshed — please try again.');
+      } else {
+        setPayError(err.message || 'Could not change plan');
+      }
+    } finally {
+      setPlanBusy(null);
+    }
+  };
 
   return (
     <>
@@ -51,8 +233,16 @@ export default function Billing() {
           <h4 style={{ color: 'var(--text-secondary)', fontSize: '12px', fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
             ✨ Active Plan
           </h4>
-          <div className="stat-value" style={{ fontSize: '24px', fontWeight: 700, color: 'var(--teal)', marginBottom: '8px' }}>Free</div>
-          <div style={{ color: 'var(--text-muted)', fontSize: '11px' }}>Voice AI Cost : ~ $ 0.114 / min</div>
+          <div className="stat-value" style={{ fontSize: '24px', fontWeight: 700, color: 'var(--teal)', marginBottom: '8px' }}>{currentPlan}</div>
+          <div style={{ color: 'var(--text-muted)', fontSize: '11px' }}>
+            Voice AI Cost : ~ {fmt(perMinCents, currency)} / min
+            {wallet?.subscription && wallet.subscription.minutesIncluded > 0 && (
+              <><br />{Math.max(0, wallet.subscription.minutesIncluded - wallet.subscription.minutesUsed).toFixed(0)} of {wallet.subscription.minutesIncluded} included minutes left</>
+            )}
+            {wallet?.subscription?.cancelAtPeriodEnd && (
+              <><br /><span style={{ color: '#f59e0b' }}>Ends {new Date(wallet.subscription.currentPeriodEnd).toLocaleDateString()}</span></>
+            )}
+          </div>
         </div>
 
         <div className="billing-stat-card" style={{ 
@@ -66,10 +256,16 @@ export default function Billing() {
             💲 Current Balance
           </h4>
           <div className="stat-value" style={{ fontSize: '24px', fontWeight: 700, color: 'var(--teal)', marginBottom: '8px' }}>
-            {balanceUsd == null ? '—' : `$ ${balanceUsd.toFixed(2)}`}
+            {balanceCents == null ? '—' : fmt(balanceCents, currency)}
           </div>
           <div style={{ color: 'var(--text-muted)', fontSize: '11px' }}>
-            {loadError ? `Couldn’t load balance: ${loadError}` : minutesLeft == null ? 'Live balance from your workspace wallet' : `~ ${minutesLeft.toFixed(1)} minutes left at $${perMin}/min`}
+            {loadError
+              ? `Couldn’t load balance: ${loadError}`
+              : balanceCents != null && balanceCents <= 0
+                ? 'Balance empty — new calls are blocked until you top up.'
+                : minutesLeft == null
+                  ? 'Live balance from your workspace wallet'
+                  : `~ ${minutesLeft.toFixed(0)} minutes left at ${fmt(perMinCents, currency)}/min`}
           </div>
         </div>
 
@@ -113,7 +309,7 @@ export default function Billing() {
           fontSize: '13px',
           fontWeight: 600,
           cursor: 'pointer'
-        }} onClick={() => setShowTopUp(true)}>
+        }} onClick={() => { setPayError(null); setPayNotice(null); setTopUpFor(null); setShowTopUp(true); }}>
           + Top Up Credits
         </button>
 
@@ -122,15 +318,84 @@ export default function Billing() {
             <div style={{ background: 'var(--bg-card, #111827)', border: '1px solid var(--border)', borderRadius: 12, padding: 28, maxWidth: 420, width: '92%' }} onClick={e => e.stopPropagation()}>
               <h3 style={{ marginBottom: 10, fontSize: 17 }}>Top up credits</h3>
               {wallet?.topUpAvailable ? (
-                <p style={{ color: 'var(--text-secondary)', fontSize: 14 }}>Choose a payment method to continue.</p>
+                <>
+                  <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: topUpFor ? 8 : 14 }}>
+                    Pay by UPI, card or netbanking. Your balance updates once the payment is confirmed by our payment provider.
+                  </p>
+                  {topUpFor && (
+                    <p style={{ color: 'var(--teal)', fontSize: 13, marginBottom: 14 }}>
+                      {topUpFor.planName} needs at least {fmt(topUpFor.neededCents, currency)} more.
+                    </p>
+                  )}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8, marginBottom: 14 }}>
+                    {PRESET_TOPUPS.map(amt => (
+                      <button
+                        key={amt}
+                        onClick={() => setTopUpAmount(amt)}
+                        disabled={payBusy}
+                        style={{
+                          padding: '10px', borderRadius: 8, cursor: payBusy ? 'not-allowed' : 'pointer',
+                          border: `1px solid ${topUpAmount === amt ? 'var(--teal)' : 'var(--border)'}`,
+                          background: topUpAmount === amt ? 'rgba(0,212,200,0.12)' : 'transparent',
+                          color: 'var(--text-primary, #fff)', fontWeight: topUpAmount === amt ? 700 : 400,
+                        }}
+                      >{fmt(amt, currency)}</button>
+                    ))}
+                  </div>
+                  <label style={{ display: 'block', fontSize: 12, color: 'var(--text-muted)', marginBottom: 6 }}>
+                    Or enter an amount ({currency})
+                  </label>
+                  <input
+                    type="number"
+                    min={(wallet?.minTopUpCents ?? 10_000) / 100}
+                    max={(wallet?.maxTopUpCents ?? 5_000_000) / 100}
+                    step="1"
+                    value={topUpAmount / 100}
+                    disabled={payBusy}
+                    onChange={e => {
+                      const major = Number(e.target.value);
+                      if (Number.isFinite(major)) setTopUpAmount(Math.round(major * 100));
+                    }}
+                    style={{
+                      width: '100%', padding: '10px', borderRadius: 8, marginBottom: 12,
+                      border: '1px solid var(--border)', background: 'transparent',
+                      color: 'var(--text-primary, #fff)', fontSize: 14,
+                    }}
+                  />
+                  {(topUpAmount < (wallet?.minTopUpCents ?? 10_000) || topUpAmount > (wallet?.maxTopUpCents ?? 5_000_000)) && (
+                    <div style={{ color: '#f59e0b', fontSize: 12, marginBottom: 10 }}>
+                      Enter between {fmt(wallet?.minTopUpCents ?? 10_000, currency)} and {fmt(wallet?.maxTopUpCents ?? 5_000_000, currency)}.
+                    </div>
+                  )}
+                  {payError && (
+                    <div style={{ color: '#f87171', fontSize: 13, marginBottom: 10 }}>{payError}</div>
+                  )}
+                  {(() => {
+                    const min = wallet?.minTopUpCents ?? 10_000;
+                    const max = wallet?.maxTopUpCents ?? 5_000_000;
+                    const invalid = topUpAmount < min || topUpAmount > max;
+                    return (
+                      <button
+                        onClick={handleTopUp}
+                        disabled={payBusy || invalid}
+                        style={{
+                          width: '100%', padding: '11px', borderRadius: 8, border: 'none',
+                          background: (payBusy || invalid) ? 'rgba(0,212,200,0.4)' : 'var(--teal)',
+                          color: '#04211f', fontWeight: 700,
+                          cursor: payBusy ? 'wait' : invalid ? 'not-allowed' : 'pointer',
+                        }}
+                      >{payBusy ? 'Opening payment…' : `Pay ${fmt(topUpAmount, currency)}`}</button>
+                    );
+                  })()}
+                </>
               ) : (
                 <p style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.6 }}>
-                  {wallet?.topUpUnavailableReason || 'Online payments are not configured yet.'}
+                  {wallet?.topUpUnavailableReason || 'Online payments are not configured on this deployment.'}
                   <br /><br />
-                  Your live balance and full transaction ledger are tracked server-side; once a payment gateway (UPI/Stripe/Razorpay) is connected, top-ups will appear here instantly.
+                  Your live balance and full transaction ledger are tracked server-side. An admin can credit your wallet in the meantime.
                 </p>
               )}
-              <button onClick={() => setShowTopUp(false)} style={{ marginTop: 16, width: '100%', padding: '10px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-primary, #fff)', cursor: 'pointer' }}>Close</button>
+              <button onClick={() => { setShowTopUp(false); setTopUpFor(null); }} style={{ marginTop: 12, width: '100%', padding: '10px', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-primary, #fff)', cursor: 'pointer' }}>Close</button>
             </div>
           </div>
         )}
@@ -140,11 +405,45 @@ export default function Billing() {
           <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 18, marginBottom: 24 }}>
             <h4 style={{ fontSize: 14, marginBottom: 10 }}>Recent transactions</h4>
             {wallet.transactions.slice(0, 8).map(t => (
-              <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.05)' }}>
+              <div key={t.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', gap: 12 }}>
                 <span style={{ color: 'var(--text-secondary)' }}>{new Date(t.createdAt).toLocaleString()} · {t.type}{t.note ? ` — ${t.note}` : ''}</span>
-                <span style={{ color: t.amountCents >= 0 ? '#22c55e' : '#f87171', fontWeight: 600 }}>{t.amountCents >= 0 ? '+' : ''}{(t.amountCents / 100).toFixed(2)}</span>
+                <span style={{ whiteSpace: 'nowrap' }}>
+                  <span style={{ color: t.amountCents >= 0 ? '#22c55e' : '#f87171', fontWeight: 600 }}>
+                    {t.amountCents >= 0 ? '+' : '−'}{fmt(Math.abs(t.amountCents), currency)}
+                  </span>
+                  <span style={{ color: 'var(--text-muted)', marginLeft: 8 }}>{fmt(t.balanceAfterCents, currency)}</span>
+                </span>
               </div>
             ))}
+          </div>
+        )}
+
+        {/* Invoices - wires up the previously unused Invoice model. */}
+        {invoices.length > 0 && (
+          <div style={{ border: '1px solid var(--border)', borderRadius: 8, padding: 18, marginBottom: 24 }}>
+            <h4 style={{ fontSize: 14, marginBottom: 10 }}>Invoices</h4>
+            {invoices.slice(0, 10).map(inv => (
+              <div key={inv.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 13, padding: '6px 0', borderBottom: '1px solid rgba(255,255,255,0.05)', gap: 12 }}>
+                <span style={{ color: 'var(--text-secondary)' }}>
+                  {inv.number ?? inv.id.slice(0, 8)} · {new Date(inv.invoiceDate).toLocaleDateString()} · {inv.planName}
+                </span>
+                <span style={{ whiteSpace: 'nowrap' }}>
+                  {fmt(inv.amountCents, inv.currency)}
+                  <span style={{ color: inv.status === 'Paid' ? '#22c55e' : 'var(--text-muted)', marginLeft: 8 }}>{inv.status}</span>
+                </span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {payNotice && (
+          <div style={{ border: '1px solid rgba(34,197,94,0.4)', background: 'rgba(34,197,94,0.08)', borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 13, color: '#22c55e' }}>
+            {payNotice}
+          </div>
+        )}
+        {payError && !showTopUp && (
+          <div style={{ border: '1px solid rgba(248,113,113,0.4)', background: 'rgba(248,113,113,0.08)', borderRadius: 8, padding: 12, marginBottom: 16, fontSize: 13, color: '#f87171' }}>
+            {payError}
           </div>
         )}
 
@@ -157,13 +456,25 @@ export default function Billing() {
             <PricingCard
               key={p.id}
               name={p.name}
-              price={String(p.priceUsd)}
+              price={planPriceCents(p) === 0 ? 'Free' : fmt(planPriceCents(p), currency)}
               desc={p.features[0] || ''}
-              cost={p.perMinuteUsd.toFixed(3)}
+              cost={fmt(planRateCents(p), currency)}
               mins={String(p.includedMinutes)}
               kb={`${p.kbStorageMb} MB knowledge base`}
               extra={p.features.slice(1).join(' · ')}
               highlight={i === 2}
+              isCurrent={p.name === currentPlan}
+              // A cheaper plan is a downgrade and is DEFERRED to the end of the
+              // billing period, so calling it "Upgrade" would misrepresent both
+              // the price and when it takes effect.
+              actionLabel={
+                p.name === currentPlan ? 'Current plan'
+                  : planPriceCents(p) < (currentPlanDto ? planPriceCents(currentPlanDto) : 0) ? 'Downgrade'
+                    : 'Upgrade'
+              }
+              busy={planBusy === p.id}
+              disabled={planBusy !== null}
+              onSelect={() => handleChangePlan(p.id, p.name)}
             />
           ))}
         </div>
@@ -437,7 +748,7 @@ export default function Billing() {
 }
 
 // Helper components to keep the main file cleaner
-function PricingCard({ name, price, oldPrice, badge, desc, cost, mins, extra, kb, highlight }: any) {
+function PricingCard({ name, price, oldPrice, badge, desc, cost, mins, extra, kb, highlight, isCurrent, actionLabel, busy, disabled, onSelect }: any) {
   return (
     <div className="billing-pricing-card" style={{ 
       border: highlight ? '1px solid var(--teal)' : '1px solid var(--border)', 
@@ -458,25 +769,40 @@ function PricingCard({ name, price, oldPrice, badge, desc, cost, mins, extra, kb
           </div>
         )}
 
-        <div className="plan-price" style={{ fontSize: '28px', fontWeight: 800, color: 'var(--text-primary)' }}>
-          <span style={{ fontSize: '20px', verticalAlign: 'top' }}>$ </span>{price} <span style={{ fontSize: '12px', fontWeight: 500, color: 'var(--text-muted)' }}>/month</span>
+        <div className="plan-price" style={{ fontSize: '26px', fontWeight: 800, color: 'var(--text-primary)' }}>
+          {/* `price` arrives already formatted in the wallet's currency. The
+              hardcoded '$' that used to live here advertised dollars while the
+              wallet was debited in rupees. */}
+          {price}
+          {price !== 'Free' && (
+            <span style={{ fontSize: '12px', fontWeight: 500, color: 'var(--text-muted)' }}>/month</span>
+          )}
         </div>
       </div>
       
       <p style={{ fontSize: '11px', color: 'var(--text-muted)', textAlign: 'center', marginBottom: '24px', lineHeight: 1.5, flexGrow: 1 }}>{desc}</p>
       
       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginBottom: '32px', fontSize: '11px', color: 'var(--text-primary)' }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>Cost</span><span>$ {cost}/min</span></div>
+        <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>Cost</span><span>{cost}/min</span></div>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>Minutes</span><span>~ {mins} minutes</span></div>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <span style={{ color: 'var(--text-muted)' }}>Extra Usage</span>
-          <span style={{ textAlign: 'right' }}><span style={{color:'var(--text-muted)', fontSize:'9px', display:'block'}}>Billed</span>= $ {extra}</span>
+          <span style={{ textAlign: 'right' }}><span style={{color:'var(--text-muted)', fontSize:'9px', display:'block'}}>Billed</span>{extra}</span>
         </div>
         <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: 'var(--text-muted)' }}>Knowledge base</span><span>{kb} MB</span></div>
       </div>
       
-      <button className="btn btn-primary" style={{ width: '100%', padding: '10px', fontSize: '13px' }}>
-        Upgrade
+      <button
+        className="btn btn-primary"
+        onClick={onSelect}
+        disabled={isCurrent || busy || disabled}
+        style={{
+          width: '100%', padding: '10px', fontSize: '13px',
+          opacity: isCurrent ? 0.55 : disabled && !busy ? 0.7 : 1,
+          cursor: isCurrent ? 'default' : busy ? 'wait' : disabled ? 'not-allowed' : 'pointer',
+        }}
+      >
+        {busy ? 'Working…' : (actionLabel ?? 'Upgrade')}
       </button>
     </div>
   );

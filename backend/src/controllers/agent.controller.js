@@ -5,6 +5,7 @@ import * as sarvamService from '../services/sarvam.service.js';
 import { geminiService } from '../services/gemini.service.js';
 import { invalidateAgentRuntimeCaches } from '../services/agentRuntime.service.js';
 import logger from '../lib/logger.js';
+import { assertCanStartCall } from '../services/billing/settlement.service.js';
 import fetch from 'node-fetch';
 import { env } from '../config/env.js';
 
@@ -384,6 +385,17 @@ export const testCall = async (req, res) => {
     const useBundledEngine = isBundledEngine && Boolean(env.PUBLIC_BACKEND_WS_URL);
     if (isBundledEngine && !env.PUBLIC_BACKEND_WS_URL) {
       logger.warn(`Agent uses the ${agentSettings.voiceEngine} Conversational Agent but PUBLIC_BACKEND_WS_URL is not configured — falling back to the greeting-only test call`);
+    }
+
+    // BUG-002: plan + balance gate for TELEPHONY, before Twilio is asked to
+    // dial. Placing it here rather than in the media-stream handler matters:
+    // by the time that socket opens the call is already connected and the
+    // carrier leg is already billable to us, so refusing there would cost real
+    // money on a call we did not want to allow.
+    const gate = await assertCanStartCall(workspaceId, { type: 'PHONE_CALL' });
+    if (!gate.allowed) {
+      logger.info({ workspaceId, agentId, code: gate.code }, `Phone call blocked: ${gate.code}`);
+      return res.status(402).json({ error: gate.message, code: gate.code });
     }
 
     let twiml;

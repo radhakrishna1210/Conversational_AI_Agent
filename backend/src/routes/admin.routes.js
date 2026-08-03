@@ -60,13 +60,17 @@ router.get('/analytics/recent-users',      authenticate, isAdmin, ctrl.getRecent
 
 // ─── Sprint-2 admin additions ─────────────────────────────────────────────────
 import * as platform from '../controllers/platform.controller.js';
+import * as billing from '../controllers/billing.controller.js';
 import { listAppointments } from '../controllers/appointment.controller.js';
 
 router.get('/appointments', authenticate, isAdmin, listAppointments);
 router.get('/plans', authenticate, isAdmin, platform.adminListPlans);
 router.post('/plans', authenticate, isAdmin, platform.adminUpsertPlan);
 router.delete('/plans/:id', authenticate, isAdmin, platform.adminDeletePlan);
-router.post('/wallets/credit', authenticate, isAdmin, platform.adminCreditWallet);
+router.post('/wallets/credit', authenticate, isAdmin, billing.adminCreditWallet);
+// Ledger-vs-balance reconciliation. Surfaces any balance mutated outside
+// applyWalletTransaction, which should be impossible but must be detectable.
+router.get('/wallets/:workspaceId/audit', authenticate, isAdmin, billing.adminAuditWallet);
 router.get('/health', authenticate, isAdmin, platform.adminHealth);
 
 export default router;

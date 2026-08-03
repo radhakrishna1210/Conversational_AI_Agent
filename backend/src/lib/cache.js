@@ -32,12 +32,17 @@ class CacheManager {
    * @param {Array} chatHistory - Chat history
    * @returns {string} - Cache key
    */
-  generateCacheKey(message, model, chatHistory = []) {
+  generateCacheKey(message, model, chatHistory = [], systemPrompt = "") {
     // Create a simple hash of the request
     const historyStr = chatHistory
       .map((msg) => `${msg.role}:${msg.content}`)
       .join("|");
-    const key = `gemini:${model}:${message}:${historyStr}`;
+    // systemPrompt MUST be part of the key: the same user message can carry very
+    // different system instructions (e.g. an INBOUND vs OUTBOUND greeting rewrite
+    // differ only in the system prompt). Omitting it made those requests collide
+    // and serve each other's cached answer — an OUTBOUND call getting the stale
+    // "thank you for calling" greeting produced for the INBOUND one.
+    const key = `gemini:${model}:${systemPrompt}:${message}:${historyStr}`;
     
     // Simple hash function
     let hash = 0;

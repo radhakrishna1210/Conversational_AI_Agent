@@ -12,6 +12,7 @@ import {
   ALLOWED_MODELS,
 } from "../constants/llmModels.js";
 import prisma from "../config/prisma.js";
+import { providerHasCredentials } from "../services/voice.service.js";
 
 /**
  * Agents store a human-friendly model label (e.g. "GPT-4.1-Mini",
@@ -26,6 +27,12 @@ export const mapAgentModel = (label) => {
   // Exact match against known model IDs first
   for (const [provider, models] of Object.entries(ALLOWED_MODELS)) {
     if (models.includes(norm)) return { provider, model: norm };
+  }
+
+  // Groq (LPU, ultra-low-latency) — selected explicitly as the agent's AI Model.
+  // Checked before the generic "llama" rule since Groq serves Llama models.
+  if (norm.includes("groq")) {
+    return { provider: "groq", model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile" };
   }
 
   // Heuristic mapping for label variants
@@ -381,12 +388,9 @@ export const generateAgentFlow = async (req, res) => {
 
   // Real voices from the DB, restricted to providers whose API keys are
   // actually configured — the LLM must never pick a voice that can't speak.
-  const hasVoiceCreds = (p) =>
-    p === 'Google' ? Boolean(process.env.GOOGLE_TTS_CREDENTIALS_JSON || process.env.GOOGLE_TTS_KEY_FILE)
-    : p === 'ElevenLabs' ? Boolean(process.env.ELEVENLABS_API_KEY)
-    : p === 'Sarvam' ? Boolean(process.env.SARVAM_API_KEY)
-    : p === 'Cartesia' ? Boolean(process.env.CARTESIA_API_KEY)
-    : false;
+  // Uses voice.service's providerHasCredentials rather than a second copy of
+  // the same chain: the duplicate silently went stale every time a provider was
+  // added, offering voices the runtime would then refuse to resolve.
   let voiceOptions = [];
   try {
     const voices = await prisma.voice.findMany({
@@ -396,7 +400,7 @@ export const generateAgentFlow = async (req, res) => {
     const byProvider = {};
     for (const v of voices) {
       const p = v.provider?.name;
-      if (!p || !hasVoiceCreds(p)) continue;
+      if (!p || !providerHasCredentials(p)) continue;
       (byProvider[p] ||= []).push(v);
     }
     voiceOptions = Object.values(byProvider)
@@ -428,6 +432,7 @@ Keep your chain of thought/reasoning extremely brief (under 5 sentences), then i
 The JSON must have this exact structure:
 {
   "name": "<short professional display name for this assistant, 2-5 words (e.g. 'Plumbing Appointment Agent'). If the user's description explicitly gives the agent a name, use EXACTLY that name. NEVER use the description text itself as the name.>",
+  "personaName": "<the assistant's HUMAN FIRST NAME ONLY — one word, no surname, no role, no company (e.g. 'Purva', 'Priya', 'Sarah'). This is the name it SPEAKS when introducing itself, and it MUST be the exact same name used in welcomeMessage and in the flow items. If the user's description names the assistant, use EXACTLY that name.>",
   "welcomeMessage": "The FIRST line the assistant SPEAKS to the real person on the other end of the call — the actual customer/patient/lead/caller it serves — tailored to this use case and its call direction, in the PRIMARY conversation language. It must sound like the assistant is already live and greeting that end user. Use concrete, specific names — NEVER bracketed placeholders like [Healthcare Provider Name] or [Company Name]. NEVER a meta 'setup wizard' message about onboarding, configuring, or 'setting up' the assistant/system, and never ask 'is this a good time to begin' setup talk.",
   "callDirection": "<INBOUND or OUTBOUND>",
   "languages": ["<primary conversation language first>"],
@@ -455,11 +460,12 @@ ${voiceOptions.length ? `  "voice": "<one voice label copied EXACTLY from AVAILA
 Configuration rules:
 - NEVER output bracketed placeholders such as [Healthcare Provider Name], [Company Name], [Your Name], [Agent Name], [Product], [Clinic], etc. ANYWHERE — not in the welcomeMessage and not in any flow item body. If the user's description does NOT name the company/clinic/brand, INVENT one realistic, specific, brandable name (e.g. "Sunrise Health", "Brightpath Clinic", "Northwind Insurance") and use that SAME name consistently everywhere. Likewise give the assistant a real human first name to introduce itself with (e.g. "Priya", "Sarah") — never "[Agent Name]" or "your assistant".
 - The welcomeMessage AND every flow item are the assistant TALKING TO ITS END CUSTOMER — never to whoever is building/configuring the assistant. The assistant must NEVER call itself an "onboarding agent" or "AI/virtual assistant", and NEVER offer to "help you configure / set up the ... system". That is setup-wizard language and is always wrong. BAD (never produce this): "Hello, this is your AI onboarding agent. I'm here to help you configure and set up the Patient Health Voice Assistant system. Is this a good time to begin?" GOOD: a warm greeting that speaks directly to the real caller and gets straight to serving them for this use case.
-- "callDirection": "OUTBOUND" when this agent CALLS customers (cold calling, lead generation, collections, appointment reminders, surveys, outreach); "INBOUND" when customers call the agent (support line, reception, booking hotline, helpdesk). The welcomeMessage MUST match this direction: an INBOUND greeting thanks the caller for calling (e.g. "Thank you for calling <company>, how can I help?"); an OUTBOUND greeting introduces the agent, the company, and the reason for the call, and must NEVER say "thank you for calling".
+- "callDirection": "OUTBOUND" when this agent CALLS customers (cold calling, lead generation, collections, appointment reminders, surveys, outreach); "INBOUND" when customers call the agent (support line, reception, booking hotline, helpdesk). The welcomeMessage MUST match this direction: an INBOUND greeting thanks the caller for calling (e.g. "Thank you for calling <company>, how can I help?"); an OUTBOUND greeting must OPEN by introducing the agent BY NAME and naming the company they are calling FROM — phrase it as "Hi, this is <agent name> calling from <company name>, …" — and only THEN briefly give the reason for the call. An OUTBOUND greeting must NEVER say "thank you for calling", and must NOT jump straight to the reason (e.g. "calling about your appointment") without first saying who is calling and which company they are calling from.
 - "languages": 1-3 entries, each copied EXACTLY from this list: ${LANGUAGE_OPTIONS.join(', ')}. The FIRST entry is the language the assistant speaks in — infer it from the user's description (e.g. an agent for Indian customers speaking Hindi → ["Hindi"]). Default to "English (Indian)" only when the description gives no language hint.
 - "transcription": pick "Sarvam" when the primary language is Indian (Hindi, Bengali, Gujarati, Tamil, English (Indian)); otherwise "ElevenLabs".
 - "aiModel": pick the model best suited to the use case; "Gemini-Pro" is a good general default.
-- "postCallVariables": the data points to capture from EVERY call, tailored to the use case. If the description EXPLICITLY lists fields/variables to capture, include those (up to 15, picking the most important). Otherwise infer 3-8 — e.g. an appointment-booking agent needs appointment_date, appointment_time, service_type; a lead-gen agent needs company_name, decision_maker, interest_level; a support agent needs issue_type, resolution_status. Include customer identity fields (customer_name, phone/email) when the flow collects them. Keys are snake_case; each description says exactly what to extract.
+- CALLER PHONE NUMBER — IMPORTANT: the assistant ALREADY has the caller's phone number (the call takes place on it) and it is recorded automatically as a pre-defined column in the connected Google Sheet. So the assistant must NEVER ask the caller for their phone, mobile, or WhatsApp number — not in the welcomeMessage and not in ANY flow item body — and a phone / mobile number must NEVER appear in postCallVariables.
+- "postCallVariables": the data points to capture from EVERY call, tailored to the use case. If the description EXPLICITLY lists fields/variables to capture, include those (up to 15, picking the most important). Otherwise infer 3-8 — e.g. an appointment-booking agent needs appointment_date, appointment_time, service_type; a lead-gen agent needs company_name, decision_maker, interest_level; a support agent needs issue_type, resolution_status. Include customer identity fields like customer_name or email when relevant, but NEVER include the caller's phone or mobile number — it is captured automatically from the call and is a pre-defined Google Sheet column, so it must NOT be a postCallVariable. Keys are snake_case; each description says exactly what to extract.
 ${voiceOptions.length ? `- "voice": choose from AVAILABLE VOICES a voice whose language matches the primary conversation language and whose gender fits the described persona (default female if unspecified). Copy the label EXACTLY.
 
 AVAILABLE VOICES:
@@ -665,6 +671,11 @@ Provide 4 to 8 logical, structured conversational steps (flow items) that cover 
     if (sanitized.callDirection !== 'INBOUND' && sanitized.callDirection !== 'OUTBOUND') delete sanitized.callDirection;
     if (!AI_MODEL_OPTIONS.includes(sanitized.aiModel)) delete sanitized.aiModel;
     if (!STT_OPTIONS.includes(sanitized.transcription)) delete sanitized.transcription;
+    // The caller's phone number is captured automatically from the call and is a
+    // pre-defined column in the connected Google Sheet — it must never be a
+    // post-call variable. Drop any phone/mobile key the model produced anyway.
+    const isPhoneNumberKey = (k) =>
+      /phone|mobile/.test(k) || /(^|_)(contact|caller|whatsapp|cell)_?(number|no|num)($|_)/.test(k);
     if (Array.isArray(sanitized.postCallVariables)) {
       sanitized.postCallVariables = sanitized.postCallVariables
         .filter((v) => v && typeof v.key === 'string' && v.key.trim())
@@ -673,7 +684,7 @@ Provide 4 to 8 logical, structured conversational steps (flow items) that cover 
           key: v.key.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40),
           description: typeof v.description === 'string' ? v.description.trim().slice(0, 200) : '',
         }))
-        .filter((v) => v.key);
+        .filter((v) => v.key && !isPhoneNumberKey(v.key));
       if (!sanitized.postCallVariables.length) delete sanitized.postCallVariables;
     } else {
       delete sanitized.postCallVariables;
@@ -719,6 +730,43 @@ Provide 4 to 8 logical, structured conversational steps (flow items) that cover 
           f && typeof f.body === 'string' ? { ...f, body: fill(f.body) } : f
         );
       }
+    }
+
+    // ── personaName: the name the agent SPEAKS ────────────────────────────────
+    // The display `name` is a 2-5 word label ("Purva - Hospital Receptionist"),
+    // so it cannot be spoken as-is. Persisting the human name explicitly is what
+    // keeps the greeting ("this is Purva") and the runtime persona in agreement;
+    // without it the runtime had to guess from the label and, failing that,
+    // invented an unrelated name.
+    {
+      // Words that mean the model emitted a placeholder or a role, not a name.
+      const NOT_A_NAME = new Set(['agent', 'assistant', 'bot', 'ai', 'name', 'your', 'the', 'a', 'an', 'this', 'hello', 'hi', 'namaste']);
+      const oneName = (v) => {
+        const raw = String(v ?? '').trim();
+        // "[Agent Name]" would otherwise survive as "Agent" once punctuation is
+        // stripped — reject anything that still looks like a placeholder.
+        if (/[[\]<>{}]/.test(raw)) return null;
+        // \p{M} matters: Devanagari matras (ा ि ी ू ्) are combining MARKS, not
+        // letters, so a letters-only class truncated every Hindi name.
+        const t = raw.split(/\s+/)[0]?.replace(/[^\p{L}\p{M}'’-]/gu, '') ?? '';
+        if (!/^\p{L}[\p{L}\p{M}'’-]{1,19}$/u.test(t)) return null;
+        return NOT_A_NAME.has(t.toLowerCase()) ? null : t;
+      };
+      let persona = oneName(sanitized.personaName);
+      // Fallback: recover it from the greeting the model already wrote, so the
+      // spoken name matches what the caller hears even if the field was omitted.
+      if (!persona && typeof sanitized.welcomeMessage === 'string') {
+        const m = sanitized.welcomeMessage.match(
+          /(?:this is|my name is|i'?m|i am|mera naam|मेरा नाम|मैं)\s+([\p{L}\p{M}'’-]{2,20})/iu,
+        );
+        persona = oneName(m?.[1]);
+      }
+      // Last resort: the leading name of a "<Name> - <Role>" display label.
+      if (!persona && typeof sanitized.name === 'string' && /[-–—:|,]/.test(sanitized.name)) {
+        persona = oneName(sanitized.name.split(/\s*[-–—:|,]\s*/)[0]);
+      }
+      if (persona) sanitized.personaName = persona;
+      else delete sanitized.personaName; // never ship a junk name; runtime derives one
     }
 
     res.json(sanitized);

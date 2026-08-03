@@ -173,6 +173,32 @@ const writeHeaderRow = (token, spreadsheetId, tab, headers) =>
     { method: 'PUT', body: JSON.stringify({ values: [headers] }) },
   );
 
+/** 0-based column index → A1 letter(s) (0 → A, 26 → AA). */
+const columnLetter = (index) => {
+  let n = index;
+  let letters = '';
+  do {
+    letters = String.fromCharCode(65 + (n % 26)) + letters;
+    n = Math.floor(n / 26) - 1;
+  } while (n >= 0);
+  return letters;
+};
+
+/**
+ * 1-based sheet row number of the first data row whose `colIndex` cell equals
+ * `value`, or null when no such row exists. Row 1 (the header) is skipped.
+ */
+const findRowByColumnValue = async (token, spreadsheetId, tab, colIndex, value) => {
+  const col = columnLetter(colIndex);
+  const range = encodeURIComponent(`${tab}!${col}:${col}`);
+  const data = await googleFetch(`${SHEETS_API}/${encodeURIComponent(spreadsheetId)}/values/${range}`, token);
+  const values = data.values ?? [];
+  for (let i = 1; i < values.length; i++) {
+    if ((values[i]?.[0] ?? '') === value) return i + 1; // 1-based row number
+  }
+  return null;
+};
+
 /**
  * Append one call as a row.
  *
@@ -181,9 +207,14 @@ const writeHeaderRow = (token, spreadsheetId, tab, headers) =>
  * adding or reordering extraction variables later can never shift historical
  * columns out of alignment. Genuinely new variables are appended as new columns.
  *
+ * When `record.upsertColumn` is set and its value is present in the row, an
+ * existing row carrying the same value in that column is UPDATED in place
+ * instead of a duplicate being appended. This makes re-delivery (e.g. a manual
+ * "Re-extract") idempotent rather than piling up duplicate rows.
+ *
  * @param {string} workspaceId
  * @param {string} spreadsheetId
- * @param {object} record  – { metadata: {label: value}, variables: [{key, value}] }
+ * @param {object} record  – { metadata: {label: value}, variables: [{key, value}], upsertColumn?: string }
  * @param {string} [tab]
  */
 export async function appendCallRow(workspaceId, spreadsheetId, record, tab = DEFAULT_TAB) {
@@ -218,6 +249,26 @@ export async function appendCallRow(workspaceId, spreadsheetId, record, tab = DE
     : String(v);
   const row = header.map((col) => toCell(cells.get(col)));
 
+  // Idempotent re-delivery: if this record carries an upsert column whose value
+  // already exists in the sheet, overwrite that row instead of appending.
+  const upsertCol = record.upsertColumn;
+  const upsertVal = upsertCol ? cells.get(upsertCol) : undefined;
+  if (upsertCol && upsertVal !== undefined && upsertVal !== '') {
+    const colIndex = header.indexOf(upsertCol);
+    if (colIndex !== -1) {
+      const existingRow = await findRowByColumnValue(token, spreadsheetId, sheetTab, colIndex, toCell(upsertVal));
+      if (existingRow) {
+        await googleFetch(
+          `${SHEETS_API}/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(`${sheetTab}!A${existingRow}`)}` +
+            '?valueInputOption=USER_ENTERED',
+          token,
+          { method: 'PUT', body: JSON.stringify({ values: [row] }) },
+        );
+        return { spreadsheetId, tab: sheetTab, columns: header.length, updated: true, row: existingRow };
+      }
+    }
+  }
+
   await googleFetch(
     `${SHEETS_API}/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(`${sheetTab}!A1`)}:append` +
       '?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS',
@@ -225,5 +276,5 @@ export async function appendCallRow(workspaceId, spreadsheetId, record, tab = DE
     { method: 'POST', body: JSON.stringify({ values: [row] }) },
   );
 
-  return { spreadsheetId, tab: sheetTab, columns: header.length };
+  return { spreadsheetId, tab: sheetTab, columns: header.length, updated: false };
 }

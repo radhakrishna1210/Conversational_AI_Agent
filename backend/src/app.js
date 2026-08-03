@@ -28,6 +28,12 @@ app.use(helmet());
 // Raw body for Meta webhook HMAC verification
 app.use('/api/v1/webhook/meta', express.raw({ type: 'application/json' }));
 app.use('/api/v1/integrations/webhooks', express.raw({ type: 'application/json' }));
+// Raw body for the Razorpay webhook HMAC (BUG-002). The signature is computed
+// over the EXACT bytes Razorpay sent; JSON.parse + JSON.stringify does not
+// round-trip byte-for-byte (key order, whitespace, unicode escapes), so
+// verifying a re-serialised body fails intermittently. Must be mounted before
+// express.json so that parser never sees this route.
+app.use('/api/v1/billing/razorpay/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json({ limit: env.JSON_BODY_LIMIT }));
 
 app.use((req, _res, next) => {

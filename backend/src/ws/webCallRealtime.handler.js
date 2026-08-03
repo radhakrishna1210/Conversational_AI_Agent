@@ -18,6 +18,7 @@
 
 import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
+import { settleCall, assertCanStartCall } from '../services/billing/settlement.service.js';
 import { verifyAccessToken } from '../lib/jwt.js';
 import { getAgentKbText } from '../services/agentRuntime.service.js';
 import { createRealtimeSession } from '../services/voice/realtimeEngine.factory.js';
@@ -56,6 +57,10 @@ export async function handleWebCallUpgrade(ws, { workspaceId, agentId }) {
         endedAt: new Date(),
       },
     }).catch((e) => logger.warn(`Could not finalize realtime web call log: ${e.message}`));
+
+    // BUG-002: charge the wallet for the minutes used. Idempotent per call, so
+    // a socket close racing an explicit stop cannot double-charge.
+    await settleCall(callLogId);
   };
 
   const cleanup = (status = 'COMPLETED') => {
@@ -96,6 +101,21 @@ export async function handleWebCallUpgrade(ws, { workspaceId, agentId }) {
 
       authenticated = true;
       clearTimeout(authTimer);
+
+      // BUG-002: plan + balance gate. Runs BEFORE the upstream realtime session
+      // is created -- connecting to the provider first would incur real cost
+      // for a call we are about to refuse. The close code carries the reason so
+      // the client can explain it instead of showing a generic disconnect.
+      const gate = await assertCanStartCall(workspaceId, { type: 'WEB_CALL' });
+      if (!gate.allowed) {
+        logger.info({ workspaceId, agentId, code: gate.code }, `Web call blocked: ${gate.code}`);
+        if (ws.readyState === ws.OPEN) {
+          ws.send(JSON.stringify({ type: 'error', code: gate.code, message: gate.message }));
+        }
+        ws.close(4009, gate.code);
+        return;
+      }
+
 
       try {
         const { kbText } = await getAgentKbText(workspaceId, agentId);

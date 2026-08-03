@@ -149,7 +149,9 @@ export const env = {
   //    avoid triggering on background noise; lower to catch soft speakers.
   //  - PREFIX_MS: audio kept *before* detected speech so the first word isn't
   //    clipped from the transcript.
-  XAI_VOICE_TURN_SILENCE_MS: parseInt(optional('XAI_VOICE_TURN_SILENCE_MS', '500'), 10),
+  // A1: lowered 500 → 300 for snappier bundled xAI turn-taking (every reply pays
+  // this pause once the caller stops). Raise if it cuts callers off mid-pause.
+  XAI_VOICE_TURN_SILENCE_MS: parseInt(optional('XAI_VOICE_TURN_SILENCE_MS', '300'), 10),
   XAI_VOICE_TURN_THRESHOLD: parseFloat(optional('XAI_VOICE_TURN_THRESHOLD', '0.5')),
   XAI_VOICE_TURN_PREFIX_MS: parseInt(optional('XAI_VOICE_TURN_PREFIX_MS', '300'), 10),
   // Public wss:// origin Twilio can reach to open the media-stream bridge
@@ -166,6 +168,18 @@ export const env = {
   // ElevenLabs dashboard (Agents Platform) with Prompt/First Message/Language
   // overrides enabled in its Security settings — cannot be created from code.
   ELEVENLABS_CONVAI_AGENT_ID: optional('ELEVENLABS_CONVAI_AGENT_ID', ''),
+  // Live-call ElevenLabs TTS model — quality vs latency. Default
+  // eleven_multilingual_v2 = most natural/human voice (incl. Hindi). Set
+  // eleven_turbo_v2_5 for a balanced mix, or eleven_flash_v2_5 for lowest
+  // latency. Read via process.env in elevenlabs.provider.js.
+  ELEVENLABS_TTS_MODEL: optional('ELEVENLABS_TTS_MODEL', 'eleven_multilingual_v2'),
+  // A1: bundled ElevenLabs turn-taking. Seconds of caller silence before the
+  // agent takes its turn (ElevenLabs `turn.turn_timeout`). Lower = snappier.
+  // OPT-IN: sent as a conversation_config_override only when set, and only works
+  // if turn overrides are enabled on the shell agent — otherwise ElevenLabs
+  // rejects the connection, so it stays unset by default. Read directly via
+  // process.env in elevenLabsRealtime.service.js (same convention as the key).
+  ELEVENLABS_CONVAI_TURN_TIMEOUT_S: optional('ELEVENLABS_CONVAI_TURN_TIMEOUT_S', ''),
 
   // Deepgram streaming STT (B3) — optional, lowest-latency real-time
   // transcription for the modular Web Call. When DEEPGRAM_API_KEY is set the
@@ -175,6 +189,28 @@ export const env = {
   // as ELEVENLABS_API_KEY); listed here for documentation.
   DEEPGRAM_API_KEY: optional('DEEPGRAM_API_KEY', ''),
   DEEPGRAM_MODEL: optional('DEEPGRAM_MODEL', 'nova-2'),
+  // Semantic turn detection: silence (ms) after which Deepgram marks the
+  // caller's utterance complete (speech_final) so the modular WS handler can end
+  // the turn faster than the client's RMS VAD fallback. Lower = snappier but more
+  // likely to cut in on a natural pause; higher = safer. Read in the WS handler.
+  DEEPGRAM_ENDPOINTING_MS: parseInt(optional('DEEPGRAM_ENDPOINTING_MS', '300'), 10),
+
+  // True low-latency overlap: when 'true' AND the agent uses an ElevenLabs voice,
+  // the modular web-call reply streams LLM tokens into ONE ElevenLabs WebSocket
+  // TTS stream, so the agent starts speaking on the first words (ttfa ~0.8-1.2s
+  // vs ~1.9s single-call). Off by default — falls back to the proven single-call
+  // path if unset or if the WS yields no audio. Read via process.env in
+  // agentRuntime.service.js.
+  VOICE_TTS_OVERLAP: optional('VOICE_TTS_OVERLAP', 'false'),
+
+  // Groq LLM — ultra-low-latency inference for VOICE turns (much faster TTFT
+  // than Gemini flash-lite, no spikes). When GROQ_API_KEY is set, live voice
+  // turns use Groq; chat and everything else keep their configured provider.
+  // OpenAI-compatible API. Read via process.env in groq.service.js /
+  // resolveLlmForAgent.
+  GROQ_API_KEY: optional('GROQ_API_KEY', ''),
+  GROQ_MODEL: optional('GROQ_MODEL', 'llama-3.3-70b-versatile'),
+  GROQ_BASE_URL: optional('GROQ_BASE_URL', 'https://api.groq.com/openai/v1'),
 
   isDev: () => process.env.NODE_ENV !== 'production',
 };
