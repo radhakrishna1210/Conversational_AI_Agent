@@ -174,6 +174,53 @@ STT/TTS/LLM spend per call in the voice pipeline and passing it to
 "Margin is not reportable yet" banner and renders provider cost as
 "not measured", rather than dividing by a zero COGS and displaying 100% margin.
 
+### A-15 · One payment can produce two invoices — OPEN (needs your decision)
+
+A plan upgrade paid by card issues **two** invoices for the same payment:
+
+| Source | `paymentOrderId` | Description |
+|---|---|---|
+| `billing.controller.js:334` (webhook) | set | `Subscription` |
+| `subscription.service.js:213` (upgrade) | **null** | `<Plan> (prorated upgrade)` |
+
+`generateInvoice` is idempotent on `paymentOrderId` and that column carries a
+UNIQUE index — but the second call passes `null`, so the constraint cannot
+catch it. Postgres permits many NULLs under a unique index.
+
+The file's own header states the stakes: *"Two invoices for one payment is a
+bookkeeping and tax problem, not just a duplicate row."*
+
+Observed in live data — 3 upgrades produced 6 invoices:
+
+```
+INV-2026-000009  subscription  2866014  no-order   <- pairs with 000008
+INV-2026-000008  subscription  2866050  anchored
+INV-2026-000007  subscription   490007  no-order   <- pairs with 000006
+INV-2026-000006  subscription   490013  anchored
+INV-2026-000005  subscription   343983  no-order   <- pairs with 000004
+INV-2026-000004  subscription   343987  anchored
+```
+
+Pairs differ by only a few paise (proration rounding vs the order amount).
+Over-documented total: **₹37,000**.
+
+**The wallet ledger is NOT affected.** Verified: each upgrade is a matched
+`topup` credit and `subscription` debit, and the audit reconciles
+(`balanced: true`). Balances are correct — this is a document-issuance problem,
+not a money problem.
+
+**Not fixed, deliberately.** Which document is correct depends on how you
+account: one invoice for the payment and one for the service may be intended,
+or the proration invoice may be redundant. Deleting or suppressing tax
+documents is your call, not a decision a reporting layer should make. The admin
+Invoices tab flags them (`suspectedDuplicate`) and explains the cause.
+
+Two further legacy invoices (`Pro Plan`, ₹3,499, Demo Workspace, 2026-03-01)
+have **no invoice number at all** — they predate the numbering scheme.
+`number` is nullable so this is tolerated; they are flagged `missingNumber`.
+Note the duplicate heuristic does not flag *these two as a pair*, because it
+requires one side to be payment-anchored and neither is.
+
 ## Medium
 
 ### A-06 · No admin action was audited at all — FIXED (Phase 1 scope)

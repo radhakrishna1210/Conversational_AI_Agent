@@ -46,6 +46,7 @@ import AdminPanel from './pages/AdminPanel';
 import AdminLayout from './components/AdminLayout';
 import AdminAuditLog from './pages/AdminAuditLog';
 import AdminCallLogs from './pages/AdminCallLogs';
+import AdminBilling from './pages/AdminBilling';
 import {
   AdminUsersPage, AdminNumbersPage, AdminIssuesPage, AdminAppointmentsPage,
   AdminPlansPage, AdminWalletsPage, AdminHealthPage,
@@ -242,6 +243,7 @@ function App() {
               <Route index element={<AdminPanel />} />
               <Route path="users" element={<AdminUsersPage />} />
               <Route path="appointments" element={<AdminAppointmentsPage />} />
+              <Route path="billing" element={<AdminBilling />} />
               <Route path="plans" element={<AdminPlansPage />} />
               <Route path="wallets" element={<AdminWalletsPage />} />
               <Route path="calls" element={<AdminCallLogs />} />
