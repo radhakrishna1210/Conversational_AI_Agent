@@ -6,6 +6,9 @@ import { metaGet, metaPost } from '../lib/metaApi.js';
 import fetch from 'node-fetch';
 import * as adminAnalytics from '../services/adminAnalytics.service.js';
 import * as userMgmt from '../services/userManagement.service.js';
+import * as audit from '../services/audit.service.js';
+import { writeAudit, AUDIT_ACTIONS, AUDIT_CATEGORIES } from '../services/audit.service.js';
+import { ROLES } from '../constants/roles.js';
 
 // ─── In-memory OTP store (keyed by E.164 phone number, TTL 10 min) ─────────────
 const pendingOtps = new Map(); // phoneNumber → { otp, expiresAt }
@@ -642,21 +645,116 @@ export const getUserDetail = async (req, res) => {
   return res.json(user);
 };
 
+/** Snapshot used as the audit `before`/`after` for user mutations. */
+const userSnapshot = (u) => (u ? {
+  id: u.id, email: u.email, banned: u.banned,
+  bannedAt: u.bannedAt ?? null, bannedReason: u.bannedReason ?? null,
+  planName: u.planName,
+} : null);
+
+const loadUserForAudit = (id) => prisma.user.findUnique({
+  where: { id },
+  select: { id: true, email: true, name: true, banned: true, bannedAt: true, bannedReason: true, planName: true },
+});
+
 export const banUser = async (req, res) => {
   const { reason } = req.body;
+  const before = await loadUserForAudit(req.params.id);
+  if (!before) return res.status(404).json({ error: 'User not found' });
+
   const user = await userMgmt.banUser(req.params.id, reason);
-  logger.info({ adminId: req.user?.userId, targetId: req.params.id }, 'User banned');
-  return res.json({ success: true, user });
+
+  // A ban is only half-effective while the user still holds a valid session:
+  // the access token stays verifiable until it expires. Revoking refresh tokens
+  // stops renewal, so the session dies at the next refresh instead of running
+  // for its full remaining lifetime.
+  const { count: revokedSessions } = await prisma.refreshToken.updateMany({
+    where: { userId: req.params.id, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+
+  await writeAudit(req, {
+    action: AUDIT_ACTIONS.USER_BAN,
+    category: AUDIT_CATEGORIES.USER,
+    targetType: 'User',
+    targetId: req.params.id,
+    targetLabel: before.email,
+    before: userSnapshot(before),
+    after: userSnapshot(user),
+    metadata: { reason: reason || null, revokedSessions },
+  });
+
+  logger.info({ adminId: req.user?.userId, targetId: req.params.id, revokedSessions }, 'User banned');
+  return res.json({ success: true, user, revokedSessions });
 };
 
 export const unbanUser = async (req, res) => {
+  const before = await loadUserForAudit(req.params.id);
+  if (!before) return res.status(404).json({ error: 'User not found' });
+
   const user = await userMgmt.unbanUser(req.params.id);
+
+  await writeAudit(req, {
+    action: AUDIT_ACTIONS.USER_UNBAN,
+    category: AUDIT_CATEGORIES.USER,
+    targetType: 'User',
+    targetId: req.params.id,
+    targetLabel: before.email,
+    before: userSnapshot(before),
+    after: userSnapshot(user),
+  });
+
   logger.info({ adminId: req.user?.userId, targetId: req.params.id }, 'User unbanned');
   return res.json({ success: true, user });
 };
 
 export const deleteUser = async (req, res) => {
+  const before = await loadUserForAudit(req.params.id);
+  if (!before) return res.status(404).json({ error: 'User not found' });
+
+  // Refuse to delete the last Superadmin membership — locking every human out
+  // of the admin panel is not a recoverable mistake from inside the product.
+  const superAdminMemberships = await prisma.workspaceMember.count({
+    where: { userId: req.params.id, role: ROLES.SUPER_ADMIN },
+  });
+  if (superAdminMemberships > 0) {
+    const remaining = await prisma.workspaceMember.count({
+      where: { role: ROLES.SUPER_ADMIN, NOT: { userId: req.params.id } },
+    });
+    if (remaining === 0) {
+      await writeAudit(req, {
+        action: AUDIT_ACTIONS.USER_DELETE,
+        category: AUDIT_CATEGORIES.USER,
+        targetType: 'User',
+        targetId: req.params.id,
+        targetLabel: before.email,
+        status: 'failure',
+        errorMessage: 'Refused: would remove the last Superadmin',
+      });
+      return res.status(409).json({ error: 'Cannot delete the last Superadmin account' });
+    }
+  }
+
+  // Snapshot what the cascade is about to take with it, so the audit row
+  // records the blast radius rather than just the user id.
+  const cascade = await prisma.workspaceMember.findMany({
+    where: { userId: req.params.id },
+    select: { workspaceId: true, role: true },
+  });
+
   await userMgmt.deleteUser(req.params.id);
+
+  await writeAudit(req, {
+    action: AUDIT_ACTIONS.USER_DELETE,
+    category: AUDIT_CATEGORIES.USER,
+    targetType: 'User',
+    targetId: req.params.id,
+    targetLabel: before.email,
+    before: userSnapshot(before),
+    after: null,
+    metadata: { cascadedMemberships: cascade },
+  });
+
   logger.info({ adminId: req.user?.userId, targetId: req.params.id }, 'User deleted');
   return res.json({ success: true });
 };
@@ -664,11 +762,90 @@ export const deleteUser = async (req, res) => {
 export const changeUserPlan = async (req, res) => {
   const { planName } = req.body;
   if (!planName) return res.status(400).json({ error: 'planName is required' });
-  const user = await userMgmt.changeUserPlan(req.params.id, planName);
+
+  const before = await loadUserForAudit(req.params.id);
+  if (!before) return res.status(404).json({ error: 'User not found' });
+
+  let user;
+  try {
+    user = await userMgmt.changeUserPlan(req.params.id, planName);
+  } catch (err) {
+    await writeAudit(req, {
+      action: AUDIT_ACTIONS.USER_PLAN_CHANGE,
+      category: AUDIT_CATEGORIES.USER,
+      targetType: 'User',
+      targetId: req.params.id,
+      targetLabel: before.email,
+      before: userSnapshot(before),
+      metadata: { requestedPlan: planName },
+      status: 'failure',
+      errorMessage: err.message,
+    });
+    return res.status(err.statusCode ?? 500).json({ error: err.message });
+  }
+
+  await writeAudit(req, {
+    action: AUDIT_ACTIONS.USER_PLAN_CHANGE,
+    category: AUDIT_CATEGORIES.USER,
+    targetType: 'User',
+    targetId: req.params.id,
+    targetLabel: before.email,
+    before: userSnapshot(before),
+    after: userSnapshot(user),
+    metadata: { from: before.planName, to: planName },
+  });
+
   logger.info({ adminId: req.user?.userId, targetId: req.params.id, planName }, 'User plan changed');
   return res.json({ success: true, user });
 };
 
-export const getPlans = (_req, res) => {
-  return res.json({ plans: userMgmt.PLANS });
+/**
+ * GET /admin/users/plans
+ *
+ * Reads the real Plan catalogue rather than a hardcoded list. The previous
+ * hardcoded PLANS array (`Free, Starter, Pro, Enterprise`) had drifted from the
+ * seeded catalogue (`Free, Starter, Jump Starter, Early Deployers, Growth`),
+ * so the plan dropdown offered two plans that do not exist and omitted three
+ * that do — and assigning a real plan was rejected by the validator.
+ */
+export const getPlans = async (_req, res) => {
+  const plans = await userMgmt.listAssignablePlans();
+  return res.json({ plans });
+};
+
+/**
+ * POST /admin/users/:id/force-logout
+ * Revokes every refresh token, ending the user's sessions at next renewal.
+ */
+export const forceLogoutUser = async (req, res) => {
+  const target = await loadUserForAudit(req.params.id);
+  if (!target) return res.status(404).json({ error: 'User not found' });
+
+  const { count } = await prisma.refreshToken.updateMany({
+    where: { userId: req.params.id, revokedAt: null },
+    data: { revokedAt: new Date() },
+  });
+
+  await writeAudit(req, {
+    action: AUDIT_ACTIONS.USER_FORCE_LOGOUT,
+    category: AUDIT_CATEGORIES.SECURITY,
+    targetType: 'User',
+    targetId: req.params.id,
+    targetLabel: target.email,
+    metadata: { revokedSessions: count },
+  });
+
+  logger.info({ adminId: req.user?.userId, targetId: req.params.id, count }, 'User sessions revoked');
+  return res.json({ success: true, revokedSessions: count });
+};
+
+// ─── Audit Log ────────────────────────────────────────────────────────────────
+
+export const getAuditLogs = async (req, res) => {
+  const data = await audit.listAuditLogs(req.query);
+  return res.json(data);
+};
+
+export const getAuditFilterOptions = async (_req, res) => {
+  return res.json(await audit.getAuditFilterOptions());
 };
