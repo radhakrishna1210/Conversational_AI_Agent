@@ -5,6 +5,7 @@ import { validate } from '../middleware/validate.js';
 import { addNumberToPoolSchema } from '../validators/admin.validator.js';
 import * as ctrl from '../controllers/admin.controller.js';
 import * as callLogs from '../controllers/adminCallLogs.controller.js';
+import * as adminBilling from '../controllers/adminBilling.controller.js';
 
 const router = Router();
 
@@ -54,6 +55,14 @@ router.post('/users/:id/force-logout',  authenticate, isAdmin, ctrl.forceLogoutU
 // ─── Security & Audit ─────────────────────────────────────────────────────────
 router.get('/audit-logs',         authenticate, isAdmin, ctrl.getAuditLogs);
 router.get('/audit-logs/options', authenticate, isAdmin, ctrl.getAuditFilterOptions);
+
+// ─── Billing visibility (cross-tenant, read-only) ────────────────────────────
+router.get('/billing/overview',      authenticate, isAdmin, adminBilling.getOverview);
+router.get('/billing/subscriptions', authenticate, isAdmin, adminBilling.listSubscriptions);
+router.get('/billing/payments',      authenticate, isAdmin, adminBilling.listPayments);
+router.get('/billing/invoices',      authenticate, isAdmin, adminBilling.listInvoices);
+router.get('/billing/wallets',       authenticate, isAdmin, adminBilling.listWallets);
+router.get('/billing/wallets/:workspaceId/ledger', authenticate, isAdmin, adminBilling.getWalletLedger);
 
 // ─── Call Logs & Recordings (cross-tenant, read-only) ────────────────────────
 // `/stats` and `/options` are declared before `/:id` so they are not captured

@@ -130,6 +130,49 @@ real browser**.
 | `client/src/pages/AdminCallLogs.tsx` | **New.** List, filters, stats, detail drawer with transcript + player |
 | `client/src/components/AdminLayout.tsx` | "Operations" nav group |
 
+## Phase 2b — Billing visibility
+
+Cross-tenant subscriptions, payments, invoices and wallet ledgers. Read-only:
+nothing here can move money.
+
+**Backend verified over HTTP; UI verified in a real browser.**
+
+| # | Item | Evidence | Status |
+|---|---|---|---|
+| 1 | MRR from active subscriptions | `mrrCents: 3830400` = ₹38,304 from 1 active Growth sub (₹38,304/mo) | PASS |
+| 2 | Revenue today / month | month `₹37,500.50` over 4 payments; today `₹0` | PASS |
+| 3 | Wallet float | `walletFloatCents: 50046` across 3 wallets | PASS |
+| 4 | Subscriptions list | Growth, active, period ends 01 Sep, `minutesUsed 13/5700`, `minutesUsedPct 0.2` | PASS |
+| 5 | Payments list + filters | 4 paid orders, gateway refs shown | PASS |
+| 6 | Invoices list | all 9 rendered | PASS |
+| 7 | **Duplicate invoice detection** | banner "3 invoices on this page look duplicated"; flags `INV-...009 ₹28,660.14`, `007 ₹4,900.07`, `005 ₹3,439.83` — exactly the 3 unanchored ones (A-15) | PASS |
+| 8 | Legacy unnumbered invoices surfaced | 2 rows render `(no number)` rather than blank | PASS |
+| 9 | Wallet list | 3 wallets, balances, last-changed | PASS |
+| 10 | **Paginated wallet ledger** | drawer shows `₹500.46` and 7 entries with running `balanceAfter` — replaces the previous unbounded read (A-09) | PASS |
+| 11 | Ledger 404 | unknown workspace → `404` | PASS |
+| 12 | Member refused | `GET /billing/overview` as Member → `403` | PASS |
+
+### Defect found and fixed during verification
+
+Negative ledger amounts rendered as `₹-28,660.14` — the sign landed after the
+currency symbol, which reads as a corrupted figure rather than a debit. Now
+`-₹28,660.14`. Confirmed in the DOM after the fix.
+
+### Money-safety note
+
+The wallet ledger was re-checked after this work: each upgrade is a matched
+`topup` credit and `subscription` debit, running balances reconcile, and A-15
+is a document-issuance problem only. **No balance is wrong.**
+
+### Files added in Phase 2b
+
+| File | Change |
+|---|---|
+| `backend/src/services/adminBilling.service.js` | **New.** Overview/MRR, subscriptions, payments, invoices + duplicate detection, wallets, paginated ledger |
+| `backend/src/controllers/adminBilling.controller.js` | **New.** Read-only HTTP surface |
+| `backend/src/routes/admin.routes.js` | 6 billing routes |
+| `client/src/pages/AdminBilling.tsx` | **New.** Overview cards + 4 sections + ledger drawer |
+
 ### Files changed in Phase 1
 
 | File | Change |
