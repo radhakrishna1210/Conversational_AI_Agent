@@ -31,6 +31,7 @@ import * as subs from '../services/billing/subscription.service.js';
 import * as autoRenew from '../services/billing/autoRenew.service.js';
 import { getBillingCurrency, formatMinor } from '../services/billing/money.js';
 import { resolveWorkspacePlan } from '../services/billing/settlement.service.js';
+import { writeAudit, AUDIT_ACTIONS, AUDIT_CATEGORIES } from '../services/audit.service.js';
 
 const MIN_TOPUP_CENTS = Number(process.env.MIN_TOPUP_CENTS) || 10_000;   // ₹100
 const MAX_TOPUP_CENTS = Number(process.env.MAX_TOPUP_CENTS) || 50_000_00; // ₹50,000
@@ -642,27 +643,92 @@ export const getInvoices = async (req, res) => {
 
 // ─── Admin ────────────────────────────────────────────────────────────────────
 
-/** POST /admin/wallets/credit  { workspaceId, amountCents, note } */
+/**
+ * POST /admin/wallets/credit  { workspaceId, amountCents, note, idempotencyKey }
+ *
+ * Manual wallet adjustment. This is the one place a human moves money directly,
+ * so it carries the same protections as the automated paths:
+ *
+ *  - IDEMPOTENT. Previously this passed no key at all, which meant a
+ *    double-clicked button, a retried request, or an impatient admin refreshing
+ *    a hung POST credited the wallet twice with no way to tell the duplicate
+ *    from a deliberate second credit. The client sends a key per dialog
+ *    session; absent that we derive a minute-bucketed key, which collapses
+ *    accidental repeats while still allowing a genuine second credit later.
+ *  - AUDITED. Actor, target, amount, and before/after balance are recorded.
+ */
 export const adminCreditWallet = async (req, res) => {
-  const { workspaceId, amountCents, note } = req.body ?? {};
+  const { workspaceId, amountCents, note, idempotencyKey } = req.body ?? {};
   const amount = parseInt(amountCents, 10);
   if (!workspaceId || !Number.isFinite(amount) || amount === 0) {
     return res.status(400).json({ error: 'workspaceId and a non-zero integer amountCents are required' });
   }
+
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { id: true, name: true, slug: true },
+  });
+  if (!workspace) return res.status(404).json({ error: 'Workspace not found' });
+
+  // Minute bucket: absorbs double-submits without permanently blocking a
+  // legitimate identical credit made later.
+  const bucket = Math.floor(Date.now() / 60_000);
+  const key = idempotencyKey
+    ? `admin:credit:${workspaceId}:${idempotencyKey}`
+    : `admin:credit:${workspaceId}:${amount}:${bucket}`;
+
+  let before = null;
   try {
+    before = await getBalance(workspaceId);
+
     const result = await applyWalletTransaction({
       workspaceId,
       amountCents: amount,
       type: amount > 0 ? TX_TYPES.ADMIN_CREDIT : TX_TYPES.ADJUSTMENT,
+      idempotencyKey: key,
       note: note || null,
       createdById: req.user?.userId ?? null,
       // Admin debits are corrections and may legitimately push a balance
       // negative; the admin is looking at the number as they do it.
       allowNegative: true,
     });
-    res.json({ balanceCents: result.balanceCents });
+
+    await writeAudit(req, {
+      action: amount > 0 ? AUDIT_ACTIONS.WALLET_CREDIT : AUDIT_ACTIONS.WALLET_DEBIT,
+      category: AUDIT_CATEGORIES.BILLING,
+      targetType: 'Workspace',
+      targetId: workspaceId,
+      targetLabel: workspace.name,
+      workspaceId,
+      before: { balanceCents: before.balanceCents },
+      after: { balanceCents: result.balanceCents },
+      metadata: {
+        amountCents: amount,
+        currency: before.currency,
+        note: note || null,
+        idempotencyKey: key,
+        // A duplicate is a successful no-op, and the log must distinguish it
+        // from a credit that actually moved money.
+        duplicate: result.duplicate,
+        walletTransactionId: result.transaction?.id ?? null,
+      },
+    });
+
+    res.json({ balanceCents: result.balanceCents, duplicate: result.duplicate });
   } catch (err) {
     logger.error('adminCreditWallet failed', err);
+    await writeAudit(req, {
+      action: amount > 0 ? AUDIT_ACTIONS.WALLET_CREDIT : AUDIT_ACTIONS.WALLET_DEBIT,
+      category: AUDIT_CATEGORIES.BILLING,
+      targetType: 'Workspace',
+      targetId: workspaceId,
+      targetLabel: workspace?.name ?? null,
+      workspaceId,
+      before: before ? { balanceCents: before.balanceCents } : null,
+      metadata: { amountCents: amount, note: note || null },
+      status: 'failure',
+      errorMessage: err.message,
+    });
     res.status(500).json({ error: 'Failed to credit wallet' });
   }
 };

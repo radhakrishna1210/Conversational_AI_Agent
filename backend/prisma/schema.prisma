@@ -866,3 +866,53 @@ model documents {
   file_url    String
   uploaded_at DateTime @default(now())
 }
+
+// ─── ADMIN CONSOLE ────────────────────────────────────────────────────────────
+
+/// Append-only record of every mutating action taken in the /admin panel.
+///
+/// Deliberately NOT related to User with a foreign key. An audit log whose rows
+/// vanish when the actor is deleted is worthless precisely in the case you most
+/// need it — "who deleted this account, and who deleted them?". `actorId` is a
+/// bare string and `actorEmail` is denormalised at write time, so the trail
+/// survives deletion of both actor and target.
+///
+/// `before`/`after` hold JSON snapshots as String, matching how every other
+/// model in this schema stores JSON (transcript, extractedData, metadata)
+/// rather than introducing a second convention.
+model AuditLog {
+  id                 String   @id @default(cuid())
+  // Who acted. Null only for system-initiated actions (scheduled jobs).
+  actorId            String?
+  actorEmail         String?
+  actorRole          String?
+  actorIp            String?
+  actorUserAgent     String?
+  // Set when the action was performed while impersonating a customer, so an
+  // "impersonated" action is never mistaken for the customer's own.
+  impersonatedUserId String?
+  // Dotted verb: user.ban, wallet.credit, plan.delete, impersonation.start …
+  action             String
+  // user | billing | plan | number | agent | provider | security | system | content
+  category           String   @default("general")
+  targetType         String?
+  targetId           String?
+  // Denormalised human label (email / plan name) so the log reads without joins
+  // and stays readable after the target row is gone.
+  targetLabel        String?
+  workspaceId        String?
+  before             String?
+  after              String?
+  metadata           String   @default("{}")
+  // success | failure — a blocked or errored attempt is itself security signal
+  // and must be recorded, not silently dropped.
+  status             String   @default("success")
+  errorMessage       String?
+  createdAt          DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([actorId, createdAt])
+  @@index([category, createdAt])
+  @@index([action, createdAt])
+  @@index([targetType, targetId, createdAt])
+}

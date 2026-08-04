@@ -48,6 +48,11 @@ router.patch('/users/:id/ban',          authenticate, isAdmin, ctrl.banUser);
 router.patch('/users/:id/unban',        authenticate, isAdmin, ctrl.unbanUser);
 router.delete('/users/:id',             authenticate, isAdmin, ctrl.deleteUser);
 router.patch('/users/:id/plan',         authenticate, isAdmin, ctrl.changeUserPlan);
+router.post('/users/:id/force-logout',  authenticate, isAdmin, ctrl.forceLogoutUser);
+
+// ─── Security & Audit ─────────────────────────────────────────────────────────
+router.get('/audit-logs',         authenticate, isAdmin, ctrl.getAuditLogs);
+router.get('/audit-logs/options', authenticate, isAdmin, ctrl.getAuditFilterOptions);
 
 // ─── Platform Analytics ───────────────────────────────────────────────────────
 router.get('/analytics/overview',          authenticate, isAdmin, ctrl.getPlatformOverview);
