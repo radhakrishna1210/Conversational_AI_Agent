@@ -45,6 +45,7 @@ import VoiceAssistant from './components/VoiceAssistant';
 import AdminPanel from './pages/AdminPanel';
 import AdminLayout from './components/AdminLayout';
 import AdminAuditLog from './pages/AdminAuditLog';
+import AdminCallLogs from './pages/AdminCallLogs';
 import {
   AdminUsersPage, AdminNumbersPage, AdminIssuesPage, AdminAppointmentsPage,
   AdminPlansPage, AdminWalletsPage, AdminHealthPage,
@@ -243,6 +244,7 @@ function App() {
               <Route path="appointments" element={<AdminAppointmentsPage />} />
               <Route path="plans" element={<AdminPlansPage />} />
               <Route path="wallets" element={<AdminWalletsPage />} />
+              <Route path="calls" element={<AdminCallLogs />} />
               <Route path="numbers" element={<AdminNumbersPage />} />
               <Route path="issues" element={<AdminIssuesPage />} />
               <Route path="audit" element={<AdminAuditLog />} />

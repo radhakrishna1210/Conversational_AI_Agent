@@ -82,6 +82,54 @@ Note: the Users table shows roles `Viewer` and `Admin` for three accounts —
 that is A-04 (role drift), visible now that the data is on screen. Not a
 regression from this change.
 
+## Phase 2a — Call Logs & Recordings
+
+Cross-tenant call visibility: the console previously showed no calls at all,
+despite 98 in the database.
+
+**Backend verified over HTTP** with a real Superadmin token; **UI verified in a
+real browser**.
+
+| # | Item | Evidence | Status |
+|---|---|---|---|
+| 1 | Paginated cross-tenant list | `total: 98, pages: 33, returned: 3` at `limit=3` | PASS |
+| 2 | Rows hydrate agent + workspace | `agent: "Purva - Hospital Receptionist" (Gemini-Pro)`, `workspace: "claude pro's Workspace" (Growth)` — despite no Prisma relation existing | PASS |
+| 3 | Status filter | `?status=FAILED` → `total: 8`, distinct statuses `["FAILED"]` | PASS |
+| 4 | Recording filter | `?hasRecording=true` → `total: 60`, all rows `hasRecording: true` | PASS |
+| 5 | Detail with transcript | 19 turns returned; first turn real Hindi assistant text | PASS |
+| 6 | Recording streams | `HTTP 200`, `Content-Type: audio/webm`, `Content-Length: 1643980`, `Accept-Ranges: bytes` | PASS |
+| 7 | Seek support | `Range: bytes=0-1023` → `HTTP 206`, `Content-Range: bytes 0-1023/1643980` | PASS |
+| 8 | Recording actually decodes | `<audio>` reaches `readyState: 4` (HAVE_ENOUGH_DATA), 2.3s buffered, no error | PASS |
+| 9 | Unknown id → 404 | `GET /call-logs/does-not-exist` → `404` | PASS |
+| 10 | Member refused | `GET /call-logs` as Member → `403` | PASS |
+| 11 | Stats over real data | 98 calls, 64 min, 8.2% failure rate, 60 recorded | PASS |
+| 12 | **Margin gap surfaced honestly** | banner: "recorded on 0 of 98 calls"; provider cost renders "not measured" (A-13) | PASS |
+| 13 | Auth boundary respected | recording fetched as an authenticated blob, not a `?token=` URL — `srcScheme: "blob"` | PASS |
+
+### Two defects found by verifying rather than assuming
+
+1. **I nearly introduced a security regression.** The first version put the JWT
+   in the `<audio src>` as `?token=`. `authenticate.js` explicitly refuses
+   query-string tokens ("they leak through logs, redirects, proxies, and
+   browser history"). It would have 401'd *and* undermined a deliberate
+   decision. Replaced with an authenticated `fetch` → object URL, revoked on
+   unmount.
+
+2. **My own silent-failure bug.** A transient database blip made the stats
+   query fail, and the entire statistics band rendered *nothing* — visually
+   identical to "this platform has no calls". Now renders an explicit error
+   with a Retry button, per the spec's "sensible error states on every page".
+
+### Files added in Phase 2a
+
+| File | Change |
+|---|---|
+| `backend/src/services/adminCallLogs.service.js` | **New.** Paginated cross-tenant queries, batch hydration, stats |
+| `backend/src/controllers/adminCallLogs.controller.js` | **New.** Read-only HTTP surface, range-capable recording streamer |
+| `backend/src/routes/admin.routes.js` | 5 call-log routes, `/stats` + `/options` before `/:id` |
+| `client/src/pages/AdminCallLogs.tsx` | **New.** List, filters, stats, detail drawer with transcript + player |
+| `client/src/components/AdminLayout.tsx` | "Operations" nav group |
+
 ### Files changed in Phase 1
 
 | File | Change |

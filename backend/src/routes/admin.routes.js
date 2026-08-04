@@ -4,6 +4,7 @@ import { isAdmin } from '../middleware/authorize.js';
 import { validate } from '../middleware/validate.js';
 import { addNumberToPoolSchema } from '../validators/admin.validator.js';
 import * as ctrl from '../controllers/admin.controller.js';
+import * as callLogs from '../controllers/adminCallLogs.controller.js';
 
 const router = Router();
 
@@ -53,6 +54,15 @@ router.post('/users/:id/force-logout',  authenticate, isAdmin, ctrl.forceLogoutU
 // ─── Security & Audit ─────────────────────────────────────────────────────────
 router.get('/audit-logs',         authenticate, isAdmin, ctrl.getAuditLogs);
 router.get('/audit-logs/options', authenticate, isAdmin, ctrl.getAuditFilterOptions);
+
+// ─── Call Logs & Recordings (cross-tenant, read-only) ────────────────────────
+// `/stats` and `/options` are declared before `/:id` so they are not captured
+// by the parameter route.
+router.get('/call-logs',                authenticate, isAdmin, callLogs.listCallLogs);
+router.get('/call-logs/stats',          authenticate, isAdmin, callLogs.getCallStats);
+router.get('/call-logs/options',        authenticate, isAdmin, callLogs.getCallFilterOptions);
+router.get('/call-logs/:id',            authenticate, isAdmin, callLogs.getCallLog);
+router.get('/call-logs/:id/recording',  authenticate, isAdmin, callLogs.getCallRecording);
 
 // ─── Platform Analytics ───────────────────────────────────────────────────────
 router.get('/analytics/overview',          authenticate, isAdmin, ctrl.getPlatformOverview);

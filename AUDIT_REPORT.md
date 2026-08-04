@@ -140,6 +140,40 @@ Purging it from history needs `git filter-repo`.
 
 ---
 
+### A-13 · Per-call margin is unreportable — no COGS is ever recorded — OPEN
+
+The spec asks for "cost-per-call and per-workspace margin
+(`actualCostMicroUsd` vs billed)". That cannot be computed: the column is
+**null on all 98 calls**.
+
+`settleCall()` accepts the cost as an option:
+
+```js
+export async function settleCall(callLogId, { actualCostMicroUsd = null } = {}) {
+```
+
+but all three call sites pass nothing:
+
+| Call site | Call |
+|---|---|
+| `controllers/agentCallLog.controller.js:123` | `await settleCall(callId)` |
+| `ws/twilioMediaRealtime.handler.js:70` | `await settleCall(callLogId)` |
+| `ws/webCallRealtime.handler.js:63` | `await settleCall(callLogId)` |
+
+Verified against the database:
+```
+calls with actualCostMicroUsd set: 0 / 98      (cogs.coveragePct: 0)
+```
+
+The schema comment says this is "what makes per-call margin reportable instead
+of guessed" — the plumbing exists, nothing fills it. Fixing it means measuring
+STT/TTS/LLM spend per call in the voice pipeline and passing it to
+`settleCall`, which is real work in the call path, not an admin-panel change.
+
+**The admin UI does not fake this.** The Call Logs page shows an explicit
+"Margin is not reportable yet" banner and renders provider cost as
+"not measured", rather than dividing by a zero COGS and displaying 100% margin.
+
 ## Medium
 
 ### A-06 · No admin action was audited at all — FIXED (Phase 1 scope)
@@ -196,6 +230,21 @@ denylist would not survive a restart or work across instances. Flagging rather
 than half-building it.
 
 ---
+
+### A-14 · Call recordings have no duration in the player — OPEN (cosmetic)
+
+`MediaRecorder` writes WebM without a Duration element, because it is
+recording a live stream and cannot know the length up front. The browser
+therefore reports `duration: NaN` and the scrubber reads `0:00` no matter how
+complete the file is.
+
+Verified the audio itself is fine — the files carry valid EBML magic
+(`1a45dfa3`) and the element reaches `readyState: 4` (HAVE_ENOUGH_DATA) with
+data buffered, so playback works and only the timer is wrong.
+
+Mitigated rather than fixed: the drawer shows the recorded length from
+`AgentCallLog.durationSec` beside the player. A real fix means remuxing on
+upload (e.g. ffmpeg) to write a proper duration header.
 
 ## Low
 
