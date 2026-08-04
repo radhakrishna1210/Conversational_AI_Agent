@@ -3,7 +3,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Link, useLocation, Outlet, useNavigate } from 'react-router-dom';
 import {
   Shield, BarChart3, Users, Phone, Bug, CreditCard, TrendingUp,
-  Activity, ScrollText, LogOut, Menu, X, ChevronDown, CalendarDays,
+  Activity, ScrollText, LogOut, Menu, X, ChevronDown, CalendarDays, PhoneCall,
 } from 'lucide-react';
 import { clearAuth, decodeJwtPayload, getToken } from '@/lib/authStorage';
 
@@ -44,6 +44,12 @@ const NAV: NavGroup[] = [
     items: [
       { to: '/admin/users', label: 'Users', icon: <Users size={16} /> },
       { to: '/admin/appointments', label: 'Appointments', icon: <CalendarDays size={16} /> },
+    ],
+  },
+  {
+    title: 'Operations',
+    items: [
+      { to: '/admin/calls', label: 'Call Logs', icon: <PhoneCall size={16} /> },
     ],
   },
   {
