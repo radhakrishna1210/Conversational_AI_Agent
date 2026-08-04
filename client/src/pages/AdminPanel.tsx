@@ -4,7 +4,7 @@ import {
   Users, Bot, Phone, BarChart3, TrendingUp, RefreshCw,
   Search, Filter, Plus, Trash2, UserCheck, UserX,
   PowerOff, RotateCcw, Globe, ChevronDown, X, Check,
-  AlertCircle, Shield, Ban, ChevronLeft, ChevronRight,
+  AlertCircle, Ban, ChevronLeft, ChevronRight,
   Eye, CreditCard, Bug
 } from 'lucide-react';
 
@@ -344,7 +344,7 @@ function AddNumberModal({ onClose, onAdd }: {
 
 // ─── Analytics Tab ────────────────────────────────────────────────────────────
 
-function AnalyticsTab() {
+export function AnalyticsTab() {
   const [overview, setOverview] = useState<Overview | null>(null);
   const [signups, setSignups] = useState<ChartPoint[]>([]);
   const [wsGrowth, setWsGrowth] = useState<ChartPoint[]>([]);
@@ -507,7 +507,7 @@ function AnalyticsTab() {
 
 // ─── Number Pool Tab ──────────────────────────────────────────────────────────
 
-function NumberPoolTab() {
+export function NumberPoolTab() {
   const [pool, setPool] = useState<PoolNumber[]>([]);
   const [summary, setSummary] = useState({ total: 0, available: 0, assigned: 0, inactive: 0, banned: 0 });
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
@@ -940,7 +940,7 @@ function UserDetailModal({ userId, onClose, onAction }: {
   );
 }
 
-function UserManagementTab() {
+export function UserManagementTab() {
   const [users, setUsers] = useState<UserRow[]>([]);
   const [total, setTotal] = useState(0);
   const [pages, setPages] = useState(1);
@@ -1143,7 +1143,7 @@ interface ReportIssue {
   createdAt: string;
 }
 
-function ReportIssuesTab() {
+export function ReportIssuesTab() {
   const [issues, setIssues] = useState<ReportIssue[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -1283,75 +1283,43 @@ function ReportIssuesTab() {
 
 // ─── Main AdminPanel Page ─────────────────────────────────────────────────────
 
+/**
+ * Page heading, shared by every admin route.
+ *
+ * Navigation moved out of this file and into AdminLayout's sidebar when the
+ * console became its own shell, so what used to be a row of tabs is now a
+ * per-page title.
+ */
+export function AdminPageHeader({ title, subtitle, icon }: {
+  title: string;
+  subtitle?: string;
+  icon?: React.ReactNode;
+}) {
+  return (
+    <div style={{ marginBottom: 24 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 5 }}>
+        {icon && <span style={{ color: '#0eb39e', display: 'grid', placeItems: 'center' }}>{icon}</span>}
+        <h1 style={{ fontSize: 23, fontWeight: 800, letterSpacing: '-0.5px', margin: 0, color: 'var(--text-primary)' }}>
+          {title}
+        </h1>
+      </div>
+      {subtitle && (
+        <p style={{ color: 'var(--text-secondary)', fontSize: 13.5, margin: 0 }}>{subtitle}</p>
+      )}
+    </div>
+  );
+}
+
+/** `/admin` index — platform overview. */
 export default function AdminPanel() {
-  const [tab, setTab] = useState<'analytics' | 'numbers' | 'users' | 'issues' | 'appointments' | 'plans' | 'wallets' | 'health'>('analytics');
-
-  const tabs = [
-    { id: 'analytics' as const, label: 'Analytics', icon: <BarChart3 size={15} /> },
-    { id: 'users' as const, label: 'User Management', icon: <Users size={15} /> },
-    { id: 'numbers' as const, label: 'Number Pools', icon: <Phone size={15} /> },
-    { id: 'issues' as const, label: 'Report Issues', icon: <Bug size={15} /> },
-    { id: 'appointments' as const, label: 'Appointments', icon: <CreditCard size={15} /> },
-    { id: 'plans' as const, label: 'Plans & Pricing', icon: <TrendingUp size={15} /> },
-    { id: 'wallets' as const, label: 'Wallet Credits', icon: <CreditCard size={15} /> },
-    { id: 'health' as const, label: 'System Health', icon: <Shield size={15} /> },
-  ];
-
   return (
     <>
-      <style>{`
-        @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-      `}</style>
-
-      {/* Header */}
-      <div style={{ marginBottom: 28 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 6 }}>
-          <Shield size={22} style={{ color: '#0eb39e' }} />
-          <h1 style={{ fontSize: 26, fontWeight: 800, letterSpacing: '-0.5px', margin: 0, color: 'var(--text-primary)' }}>Admin Panel</h1>
-          <span style={{ padding: '3px 10px', background: 'rgba(239,68,68,0.12)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 20, fontSize: 10, fontWeight: 800, color: '#f87171', letterSpacing: '0.5px' }}>ADMIN ONLY</span>
-        </div>
-        <p style={{ color: 'var(--text-secondary)', fontSize: 14, margin: 0 }}>
-          Platform-wide analytics, user management, and number pool administration
-        </p>
-      </div>
-
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: 4, marginBottom: 28, borderBottom: '1px solid var(--border)', paddingBottom: 0 }}>
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setTab(t.id)}
-            style={{
-              padding: '10px 20px',
-              background: 'transparent',
-              border: 'none',
-              borderBottom: tab === t.id ? '2px solid #0eb39e' : '2px solid transparent',
-              color: tab === t.id ? '#0eb39e' : 'var(--text-secondary)',
-              fontWeight: tab === t.id ? 700 : 500,
-              fontSize: 14,
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              gap: 7,
-              marginBottom: -1,
-              transition: 'color 0.15s',
-            }}
-          >
-            {t.icon} {t.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Tab content */}
-      {tab === 'analytics' && <AnalyticsTab />}
-      {tab === 'numbers' && <NumberPoolTab />}
-      {tab === 'users' && <UserManagementTab />}
-      {tab === 'issues' && <ReportIssuesTab />}
-      {tab === 'appointments' && <AppointmentsTab />}
-      {tab === 'plans' && <PlansTab />}
-      {tab === 'wallets' && <WalletCreditTab />}
-      {tab === 'health' && <SystemHealthTab />}
+      <AdminPageHeader
+        title="Platform Overview"
+        subtitle="Users, workspaces, agents and number pool across every tenant"
+        icon={<BarChart3 size={21} />}
+      />
+      <AnalyticsTab />
     </>
   );
 }
@@ -1359,7 +1327,7 @@ export default function AdminPanel() {
 
 // ─── Sprint-2 admin tabs ──────────────────────────────────────────────────────
 
-function AppointmentsTab() {
+export function AppointmentsTab() {
   const [rows, setRows] = useState<any[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -1395,7 +1363,7 @@ function AppointmentsTab() {
   );
 }
 
-function PlansTab() {
+export function PlansTab() {
   const [plans, setPlans] = useState<any[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [saving, setSaving] = useState<string | null>(null);
@@ -1447,7 +1415,7 @@ function PlansTab() {
 const adminInput: React.CSSProperties = { width: '100%', padding: '7px 9px', background: 'var(--bg-secondary, #0f172a)', border: '1px solid var(--border, #334155)', borderRadius: 6, color: 'var(--text-primary, #fff)', fontSize: 13 };
 const lbl: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, color: 'var(--text-muted)', fontSize: 11 };
 
-function WalletCreditTab() {
+export function WalletCreditTab() {
   const [workspaceId, setWorkspaceId] = useState('');
   const [amount, setAmount] = useState('');
   const [note, setNote] = useState('');
@@ -1480,7 +1448,7 @@ function WalletCreditTab() {
   );
 }
 
-function SystemHealthTab() {
+export function SystemHealthTab() {
   const [health, setHealth] = useState<any | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const load = async () => {

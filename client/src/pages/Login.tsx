@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { safeSet } from '@/lib/authStorage';
+import { safeSet, decodeJwtPayload, isAdminRole } from '@/lib/authStorage';
 import { Link } from "react-router-dom";
 
 export default function Login() {
@@ -49,7 +49,12 @@ export default function Login() {
       if (data.workspace?.id) safeSet('workspaceId', data.workspace.id);
 
       setStatus('success');
-      setTimeout(() => window.location.href = "/dashboard", 1500);
+      // A Superadmin's home is the console, not a tenant dashboard. Read the
+      // role off the freshly-issued token rather than stored state, which is
+      // still the previous session's at this point.
+      const role = decodeJwtPayload(data.accessToken)?.role;
+      const destination = isAdminRole(role) ? '/admin' : '/dashboard';
+      setTimeout(() => { window.location.href = destination; }, 1500);
     } catch {
       setErrorMsg('Network error. Please check your connection.');
       setStatus('error');
