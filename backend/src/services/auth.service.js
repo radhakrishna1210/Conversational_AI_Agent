@@ -3,9 +3,73 @@ import { hashPassword, comparePassword, hashToken, generateSecureToken } from '.
 import { signAccessToken, signRefreshToken } from '../lib/jwt.js';
 import { REFRESH_TOKEN_EXPIRY_MS, INVITE_TOKEN_BYTES } from '../constants/limits.js';
 import { env } from '../config/env.js';
+import { ROLES } from '../constants/roles.js';
+import logger from '../lib/logger.js';
+import { writeAudit, AUDIT_ACTIONS, AUDIT_CATEGORIES } from './audit.service.js';
 
 const resolveRole = (email) =>
-  (env.SUPER_ADMIN_EMAIL && email === env.SUPER_ADMIN_EMAIL ? 'Superadmin' : 'Member');
+  (env.SUPER_ADMIN_EMAIL && email === env.SUPER_ADMIN_EMAIL ? ROLES.SUPER_ADMIN : ROLES.MEMBER);
+
+/**
+ * Make SUPER_ADMIN_EMAIL authoritative at every auth event, not just at signup.
+ *
+ * `resolveRole` runs only when a membership is CREATED. An account that
+ * registered while SUPER_ADMIN_EMAIL was empty — which is every account in this
+ * deployment — was written as `Member`, and login re-reads that stored role.
+ * So setting the variable afterwards appeared to do nothing at all: the owner
+ * logged in with the configured address and still landed on the customer
+ * dashboard, with no error to explain why.
+ *
+ * Reconciling here makes the env var the single source of truth. It also
+ * DEMOTES a stale Superadmin when the variable is pointed at a different
+ * address, so ownership can actually be transferred rather than accumulating
+ * admins forever.
+ *
+ * Deliberately narrow: it only ever moves a role between Superadmin and Member.
+ * The legacy `Admin` / `Viewer` roles present in this database are left alone,
+ * because clobbering them is not this function's decision to make.
+ */
+const reconcileSuperAdminRole = async (user, membership) => {
+  if (!membership) return membership;
+
+  const shouldBeSuperAdmin = Boolean(env.SUPER_ADMIN_EMAIL) && user.email === env.SUPER_ADMIN_EMAIL;
+  const isSuperAdmin = membership.role === ROLES.SUPER_ADMIN;
+  if (shouldBeSuperAdmin === isSuperAdmin) return membership;
+
+  // Only promote Member -> Superadmin, or demote Superadmin -> Member.
+  if (!shouldBeSuperAdmin && !isSuperAdmin) return membership;
+
+  const nextRole = shouldBeSuperAdmin ? ROLES.SUPER_ADMIN : ROLES.MEMBER;
+  const updated = await prisma.workspaceMember.update({
+    where: { id: membership.id },
+    data: { role: nextRole },
+    include: { workspace: true },
+  });
+
+  logger.warn(
+    { userId: user.id, email: user.email, from: membership.role, to: nextRole },
+    `Reconciled platform role against SUPER_ADMIN_EMAIL: ${membership.role} -> ${nextRole}`,
+  );
+
+  // A privilege change is security-relevant and must be in the trail even
+  // though no human triggered it directly.
+  await writeAudit(
+    { user: { userId: user.id, email: user.email, role: nextRole }, headers: {} },
+    {
+      action: AUDIT_ACTIONS.USER_ROLE_CHANGE,
+      category: AUDIT_CATEGORIES.SECURITY,
+      targetType: 'User',
+      targetId: user.id,
+      targetLabel: user.email,
+      workspaceId: membership.workspaceId,
+      before: { role: membership.role },
+      after: { role: nextRole },
+      metadata: { reason: 'reconciled against SUPER_ADMIN_EMAIL at login', automatic: true },
+    },
+  );
+
+  return updated;
+};
 
 const makeSlug = (name) =>
   name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') + '-' + Date.now().toString(36);
@@ -66,6 +130,8 @@ export const loginUser = async ({ email, password }) => {
     });
   }
 
+  membership = await reconcileSuperAdminRole(user, membership);
+
   const payload = {
     userId: user.id,
     email: user.email,
@@ -102,9 +168,11 @@ export const refreshTokens = async (rawToken) => {
   const user = await prisma.user.findUnique({ where: { id: stored.userId } });
 
   // Re-fetch the membership role so it isn't lost after a token refresh
-  const membership = await prisma.workspaceMember.findFirst({
+  let membership = await prisma.workspaceMember.findFirst({
     where: { userId: user.id, workspaceId: stored.workspaceId ?? undefined },
   });
+
+  membership = await reconcileSuperAdminRole(user, membership);
 
   const payload = {
     userId: user.id,
@@ -169,10 +237,12 @@ export const loginOrRegisterWithGoogle = async ({ googleId, email, name, avatarU
     }
   }
 
-  const membership = await prisma.workspaceMember.findFirst({
+  let membership = await prisma.workspaceMember.findFirst({
     where: { userId: user.id },
     include: { workspace: true },
   });
+
+  membership = await reconcileSuperAdminRole(user, membership);
 
   const payload = {
     userId: user.id,
