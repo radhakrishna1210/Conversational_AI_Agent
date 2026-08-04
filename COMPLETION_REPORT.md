@@ -57,6 +57,31 @@ scenario's value. Each scenario now runs in its own process. Recorded here
 because a false FAIL that gets "fixed" by weakening the test is how real
 regressions get shipped.
 
+## Phase 1c — The console becomes its own application
+
+Reported by the owner: after gaining access, the admin panel was still just a
+tab inside the customer sidebar. It is now a separate application at `/admin`
+with its own shell, and a Superadmin never sees the tenant dashboard.
+
+**Verified in a real browser** against both servers, signed in with a real
+Superadmin JWT for the owner's account.
+
+| # | Item | Evidence | Status |
+|---|---|---|---|
+| 1 | Superadmin redirected out of the customer app | navigated to `/dashboard`, browser landed on `/admin` | PASS |
+| 2 | Console has its own shell, not the tenant sidebar | grouped nav: Overview / Customers / Billing / Telephony / Support / Security & System; no agent/whatsapp/billing tenant nav | PASS |
+| 3 | Overview renders real platform data | 10 users, 16 workspaces, 32 agents — matches DB counts | PASS |
+| 4 | Sections are addressable routes | `/admin/users`, `/admin/audit`, `/admin/plans` … deep-link and back-button work | PASS |
+| 5 | Breadcrumb reflects location | `Customers / Users`, `Security & System / Audit Log` | PASS |
+| 6 | **Audit Log page renders real entries** | captured the owner's own promotion: `before {"role":"Member"}` → `after {"role":"Superadmin"}`, metadata `reason: "reconciled against SUPER_ADMIN_EMAIL"` | PASS |
+| 7 | Filters + pagination wired to the server | category/outcome selects, search, `1 entry · page 1 of 1` | PASS |
+| 8 | Migrated pages still work | Users page lists all 10 accounts with plan/status/workspace/role | PASS |
+| 9 | Build is clean | `vite build` ✓ 2582 modules; `tsc --noEmit` reports **0** errors in any changed file | PASS |
+
+Note: the Users table shows roles `Viewer` and `Admin` for three accounts —
+that is A-04 (role drift), visible now that the data is on screen. Not a
+regression from this change.
+
 ### Files changed in Phase 1
 
 | File | Change |

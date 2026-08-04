@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { safeSet } from '@/lib/authStorage';
+import { safeSet, decodeJwtPayload, isAdminRole } from '@/lib/authStorage';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 export default function AuthCallback() {
@@ -44,7 +44,9 @@ export default function AuthCallback() {
     if (name) safeSet('userName', name);
     if (email) safeSet('userEmail', email);
 
-    navigate('/dashboard');
+    // Superadmins land in the admin console. This is the path the platform
+    // owner actually uses, since they sign in with Google.
+    navigate(isAdminRole(decodeJwtPayload(token)?.role) ? '/admin' : '/dashboard', { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 

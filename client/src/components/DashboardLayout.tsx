@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { safeGet, safeSet, decodeJwtPayload, clearAuth, isAdminRole } from '@/lib/authStorage';
+import { safeGet, safeSet, decodeJwtPayload, clearAuth } from '@/lib/authStorage';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Bot,
@@ -18,8 +18,7 @@ import {
   Key,
   Settings,
   LogOut,
-  Search,
-  Shield
+  Search
 } from "lucide-react";
 import { useTheme } from '../hooks/useTheme';
 import { CommandMenu } from './CommandMenu';
@@ -303,15 +302,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="sidebar-section">
             <div className="sidebar-category">ACCOUNT & BILLING</div>
 
-            {isAdminRole(user.role) && (
-              <Link to="/admin">
-                <div className={`sidebar-item ${path === '/admin' ? 'active' : ''}`} style={{ position: 'relative' }}>
-                  <span className="sidebar-icon"><Shield size={16} /></span>
-                  <span className="sidebar-text">Admin Panel</span>
-                  <span style={{ position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)', padding: '1px 6px', background: 'rgba(239,68,68,0.15)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: 10, fontSize: 9, fontWeight: 800, color: '#f87171', letterSpacing: '0.3px' }}>ADMIN</span>
-                </div>
-              </Link>
-            )}
+            {/*
+              The "Admin Panel" link used to live here. The console is now its
+              own application at /admin with its own shell, and a Superadmin is
+              redirected there rather than into this customer layout — so this
+              link could never be seen by anyone able to use it.
+            */}
 
             <Link to="/billing">
               <div className={`sidebar-item ${path === '/billing' ? 'active' : ''}`}>

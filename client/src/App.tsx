@@ -43,6 +43,12 @@ import AuthCallback from './pages/AuthCallback';
 import EditAgent from './pages/EditAgent';
 import VoiceAssistant from './components/VoiceAssistant';
 import AdminPanel from './pages/AdminPanel';
+import AdminLayout from './components/AdminLayout';
+import AdminAuditLog from './pages/AdminAuditLog';
+import {
+  AdminUsersPage, AdminNumbersPage, AdminIssuesPage, AdminAppointmentsPage,
+  AdminPlansPage, AdminWalletsPage, AdminHealthPage,
+} from './pages/adminPages';
 import NotificationArchive from './pages/NotificationArchive';
 import AirtelVerifiedCalling from './pages/AirtelVerifiedCalling';
 
@@ -93,6 +99,23 @@ function ProtectedRoute() {
   if (!isLoggedIn()) {
     return <Navigate to="/login" replace />;
   }
+  return <Outlet />;
+}
+
+/**
+ * Customer-app boundary.
+ *
+ * A Superadmin is the platform operator, not a tenant, so the customer
+ * dashboard is not their home — they are sent to the console instead. This is
+ * what makes "/admin only" true no matter how the user arrives: a bookmark to
+ * /dashboard, a stale tab, or the post-login redirect all land in the console.
+ *
+ * Tenant data is still reachable deliberately, through the admin console's own
+ * views, rather than by the operator wandering into a customer screen.
+ */
+function CustomerRoute() {
+  if (!isLoggedIn()) return <Navigate to="/login" replace />;
+  if (isAdminRole()) return <Navigate to="/admin" replace />;
   return <Outlet />;
 }
 
@@ -186,6 +209,7 @@ function App() {
         <Route path="/auth/callback" element={<AuthCallback />} />
         {/* Protected dashboard routes */}
         <Route element={<ProtectedRoute />}>
+          <Route element={<CustomerRoute />}>
           <Route element={<DashboardLayoutWrapper />}>
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/bulk_call" element={<BulkCall />} />
@@ -204,9 +228,27 @@ function App() {
             <Route path="/settings" element={<Settings />} />
             <Route path="/profile" element={<Settings />} />
           </Route>
+          </Route>
+          {/*
+            The admin console has its own shell (AdminLayout), NOT the customer
+            DashboardLayout. It is a different product for a different person;
+            nesting it in the tenant sidebar made platform administration look
+            like one more customer feature and left the owner one click from
+            falling back into a tenant view.
+          */}
           <Route element={<AdminRoute />}>
-            <Route element={<DashboardLayoutWrapper />}>
-              <Route path="/admin" element={<AdminPanel />} />
+            <Route path="/admin" element={<AdminLayout />}>
+              <Route index element={<AdminPanel />} />
+              <Route path="users" element={<AdminUsersPage />} />
+              <Route path="appointments" element={<AdminAppointmentsPage />} />
+              <Route path="plans" element={<AdminPlansPage />} />
+              <Route path="wallets" element={<AdminWalletsPage />} />
+              <Route path="numbers" element={<AdminNumbersPage />} />
+              <Route path="issues" element={<AdminIssuesPage />} />
+              <Route path="audit" element={<AdminAuditLog />} />
+              <Route path="health" element={<AdminHealthPage />} />
+              {/* Unknown admin path lands on the overview rather than a blank frame. */}
+              <Route path="*" element={<Navigate to="/admin" replace />} />
             </Route>
           </Route>
         </Route>
