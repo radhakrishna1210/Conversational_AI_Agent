@@ -12,10 +12,16 @@ Last updated: 2026-08-04 · Phase 1
 
 ## Critical
 
-### A-03 · No account can currently reach the admin panel — OPEN (config)
+### A-03 · No account could reach the admin panel — FIXED
 
-`backend/.env` has `SUPER_ADMIN_EMAIL=` (empty). Role is assigned only by
-`resolveRole()` in `backend/src/services/auth.service.js:7`:
+> **Reproduced by the owner:** `SUPER_ADMIN_EMAIL` was set to
+> `theteradhakrishna@gmail.com`, they logged in with that address, and still
+> landed on `/dashboard` with no error explaining why. Confirmed in the
+> database: that account's `WorkspaceMember.role` was `Member`, because it
+> signed up on 2026-07-05 while the variable was still empty.
+
+Role was assigned only by `resolveRole()` in
+`backend/src/services/auth.service.js:7`:
 
 ```js
 const resolveRole = (email) =>
@@ -34,14 +40,38 @@ Two distinct problems:
 1. With the variable empty, every signup resolves to `Member`, so `isAdmin`
    refuses everyone and the whole `/admin` panel is unreachable in this
    deployment.
-2. `resolveRole` runs **only at signup / first Google login**. Setting
-   `SUPER_ADMIN_EMAIL` now would *not* promote any of the 10 existing users —
-   their `WorkspaceMember.role` was written at signup and is never
-   re-evaluated.
+2. `resolveRole` ran **only at signup / first Google login**. Every login and
+   token refresh then re-read the *stored* role
+   (`auth.service.js:105-113`), so setting `SUPER_ADMIN_EMAIL` afterwards was
+   silently inert — the variable looked configured but changed nothing.
 
-**To unblock:** confirm which email should own the platform. Then it needs both
-the env var set *and* a one-off promotion of that user's existing membership
-row. I have not written to any real user's role without that confirmation.
+**Fix:** `reconcileSuperAdminRole()` in `auth.service.js`, called from all
+three auth entry points (password login, token refresh, Google login). The env
+var is now the single source of truth, evaluated on every login rather than
+once at signup. It also **demotes** a stale Superadmin when the variable is
+pointed at a different address, so ownership can be transferred instead of
+accumulating admins.
+
+Deliberately narrow: it only moves a role between `Superadmin` and `Member`,
+leaving the legacy `Admin`/`Viewer` rows (A-04) untouched. Every promotion and
+demotion writes a `user.role_change` audit row under the `security` category.
+
+Evidence (`scripts/verify-superadmin-role.js`, 6/6):
+```
+PASS  Baseline — account created while SUPER_ADMIN_EMAIL was unset is a Member
+PASS  Promotion — existing Member becomes Superadmin on next login
+        DB role "Member" -> "Superadmin"
+PASS  Promotion — issued access token carries role=Superadmin
+PASS  Isolation — a different account is not promoted
+PASS  Demotion — stale Superadmin drops to Member when env points elsewhere
+PASS  Audit — both privilege changes are recorded
+```
+
+**Action required by the owner:** the fix is evaluated *at login*, so the
+existing browser session still holds a JWT minted with `role: "Member"`. Log
+out and sign in with Google again (after restarting the backend so it runs the
+new code) and the role flips automatically. No manual database edit is needed,
+and none was made.
 
 ---
 

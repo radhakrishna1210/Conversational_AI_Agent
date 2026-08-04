@@ -32,6 +32,31 @@ node --env-file=.env scripts/verify-admin-phase1.js
 | 10 | Secrets redacted before storage | stored: `{"apiKey":"[redacted]","accessToken":"[redacted]","nested":{"secret":"[redacted]","keep":"visible"}}` | PASS |
 | 11 | Audit filters applied server-side | `?category=billing` → 2 rows, `categories=["billing"]` | PASS |
 
+## Phase 1b — Superadmin access (A-03)
+
+Reported by the owner: `SUPER_ADMIN_EMAIL` was set, they logged in with that
+address, and still got the customer dashboard. Root cause was that the role is
+written once at signup and never re-evaluated.
+
+**6/6 checks passed** — `backend/scripts/verify-superadmin-role.js`
+
+| # | Item | Evidence | Status |
+|---|---|---|---|
+| 1 | Baseline reproduces the bug | account created with env unset → `WorkspaceMember.role = "Member"` | PASS |
+| 2 | Promotion on next login | `DB role "Member" -> "Superadmin"` | PASS |
+| 3 | Issued JWT carries the new role | `JWT payload role = "Superadmin"` | PASS |
+| 4 | Other accounts unaffected | second user stays `"Member"` | PASS |
+| 5 | Demotion when env re-pointed | `"Superadmin" -> "Member"` | PASS |
+| 6 | Privilege changes audited | `2 rows: Member->Superadmin, Superadmin->Member` | PASS |
+
+Harness note: an earlier run reported checks 5 and 6 as FAIL. That was the test
+harness, not the product — `config/env.js` snapshots `process.env` at module
+load, and re-importing `auth.service.js` with a cache-busting query string
+still resolved the same cached `env.js`, so the second scenario kept the first
+scenario's value. Each scenario now runs in its own process. Recorded here
+because a false FAIL that gets "fixed" by weakening the test is how real
+regressions get shipped.
+
 ### Files changed in Phase 1
 
 | File | Change |
@@ -43,7 +68,9 @@ node --env-file=.env scripts/verify-admin-phase1.js
 | `backend/src/controllers/admin.controller.js` | Audit on ban/unban/delete/plan-change; session revocation on ban; last-Superadmin guard; `forceLogoutUser`; audit-log handlers |
 | `backend/src/services/userManagement.service.js` | `listAssignablePlans()` reads the `Plan` table |
 | `backend/src/routes/admin.routes.js` | `POST /users/:id/force-logout`, `GET /audit-logs`, `GET /audit-logs/options` |
+| `backend/src/services/auth.service.js` | `reconcileSuperAdminRole()` — makes `SUPER_ADMIN_EMAIL` authoritative at login/refresh/Google login, with audit |
 | `backend/scripts/verify-admin-phase1.js` | **New.** Verification harness |
+| `backend/scripts/verify-superadmin-role.js` | **New.** A-03 regression guard |
 
 ### Migration safety
 
@@ -94,7 +121,7 @@ this records honestly where the work stands.
 
 | Item | Blocker | To unblock |
 |---|---|---|
-| Anyone reaching `/admin` at all | `SUPER_ADMIN_EMAIL` is empty and role is assigned only at signup, so no user is a Superadmin (A-03) | Confirm the owner email; needs the env var **and** a one-off promotion of that user's existing membership row |
+| ~~Anyone reaching `/admin`~~ | **RESOLVED** — see Phase 1b | Owner must log out and sign in again so a fresh JWT is minted with `role: Superadmin` |
 | BullMQ queue depth, real WS connection stats | Redis unreachable (`ECONNREFUSED 127.0.0.1:6379`) | A running Redis, or accept the memory-fallback numbers as meaningless |
 | Refunds, live payment capture | Razorpay keys present but never exercised; refunding real money is not something to test speculatively | A test-mode Razorpay account, or explicit go-ahead to refund a specific real payment |
 | Access-token revocation on ban | Stateless JWT; revocation lands only at refresh (A-12) | Decide whether a Redis denylist is wanted, once Redis is available |
