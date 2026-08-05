@@ -6,6 +6,7 @@ import { geminiService } from '../services/gemini.service.js';
 import { invalidateAgentRuntimeCaches } from '../services/agentRuntime.service.js';
 import logger from '../lib/logger.js';
 import { assertCanStartCall } from '../services/billing/settlement.service.js';
+import { placeOutboundCall, resolveCallMode, telephonyStatus } from '../services/outboundCall.service.js';
 import fetch from 'node-fetch';
 import { env } from '../config/env.js';
 
@@ -348,8 +349,6 @@ export const checkSarvamHealth = async (req, res) => {
 export const testCall = async (req, res) => {
   const { agentId, phoneNumber } = req.body;
   const { workspaceId } = req.params;
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken = process.env.TWILIO_AUTH_TOKEN;
   // Caller ID: use the number chosen in the "Call from" picker when supplied,
   // otherwise fall back to the platform default. Twilio rejects an unowned/
   // unverified number with error 21210, which this handler surfaces honestly.
@@ -360,118 +359,56 @@ export const testCall = async (req, res) => {
   }
 
   // Honest behavior: if telephony isn't configured, say so — never fake success.
-  if (!accountSid || !authToken) {
-    return res.status(503).json({
-      success: false,
-      error: 'Phone calling is not configured on this server (missing TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN). Use the Chat Test tab to test the agent, or configure Twilio.',
-    });
-  }
-  if (!fromNumber) {
-    return res.status(503).json({
-      success: false,
-      error: 'TWILIO_FROM_NUMBER is not set. Add a Twilio phone number you own to backend/.env.',
-    });
-  }
+  const tw = telephonyStatus(fromNumber);
+  if (!tw.ready) return res.status(503).json({ success: false, error: tw.error });
 
   const agent = await prisma.agent.findFirst({ where: { id: agentId, workspaceId } });
   if (!agent) return res.status(404).json({ error: 'Agent not found in this workspace' });
 
   logger.info({ agentId, phoneNumber }, 'Initiating REAL test call');
 
-  try {
-    const credentials = Buffer.from(`${accountSid}:${authToken}`).toString('base64');
-    const agentSettings = (() => { try { return JSON.parse(agent.settings || '{}'); } catch { return {}; } })();
-    const isBundledEngine = agentSettings.voiceEngine === 'xai' || agentSettings.voiceEngine === 'elevenlabs';
-    const useBundledEngine = isBundledEngine && Boolean(env.PUBLIC_BACKEND_WS_URL);
-    if (isBundledEngine && !env.PUBLIC_BACKEND_WS_URL) {
-      logger.warn(`Agent uses the ${agentSettings.voiceEngine} Conversational Agent but PUBLIC_BACKEND_WS_URL is not configured — falling back to the greeting-only test call`);
-    }
+  const { mode, reason } = resolveCallMode(agent);
+  const useBundledEngine = mode === 'conversation';
+  if (reason) logger.warn(reason);
 
-    // BUG-002: plan + balance gate for TELEPHONY, before Twilio is asked to
-    // dial. Placing it here rather than in the media-stream handler matters:
-    // by the time that socket opens the call is already connected and the
-    // carrier leg is already billable to us, so refusing there would cost real
-    // money on a call we did not want to allow.
-    const gate = await assertCanStartCall(workspaceId, { type: 'PHONE_CALL' });
-    if (!gate.allowed) {
-      logger.info({ workspaceId, agentId, code: gate.code }, `Phone call blocked: ${gate.code}`);
-      return res.status(402).json({ error: gate.message, code: gate.code });
-    }
-
-    let twiml;
-    let greeting = '';
-    // Pre-create the call log so its id can be handed to the Twilio Media
-    // Stream bridge (as a <Parameter>) for the bundled-engine branch to update in place.
-    const preCallLog = await prisma.agentCallLog.create({
-      data: { workspaceId, agentId, type: 'PHONE_CALL', status: 'INITIATED', phoneNumber: String(phoneNumber).slice(0, 32) },
-    }).catch((e) => { logger.warn(`Could not pre-create phone call log: ${e.message}`); return null; });
-
-    if (useBundledEngine) {
-      // Full two-way conversation: hand the call off to the bundled Conversational
-      // Agent bridge (backend/src/ws/twilioMediaRealtime.handler.js) via Twilio Media Streams.
-      const streamUrl = `${env.PUBLIC_BACKEND_WS_URL.replace(/\/$/, '')}/api/v1/twilio-media/${workspaceId}/${agentId}`;
-      twiml = `<Response><Connect><Stream url="${streamUrl}">${preCallLog ? `<Parameter name="callLogId" value="${preCallLog.id}" />` : ''}</Stream></Connect></Response>`;
-    } else {
-      // Speak the agent's actual greeting via inline TwiML (no external URL).
-      // Full two-way conversational calling (the modular pipeline) requires a
-      // media-stream server; this verifies telephony + the agent's greeting
-      // end-to-end. (Enable a Conversational Agent for a real two-way call.)
-      greeting = (agent.welcomeMessage || `Hello, this is a test call from ${agent.name}.`)
-        .replace(/[<>&]/g, ' ')
-        .slice(0, 800);
-      twiml = `<Response><Say voice="Polly.Aditi">${greeting}</Say><Pause length="1"/><Say voice="Polly.Aditi">This was a test call. Goodbye.</Say></Response>`;
-    }
-
-    const response = await fetch(`https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Calls.json`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Basic ${credentials}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: new URLSearchParams({ To: phoneNumber, From: fromNumber, Twiml: twiml }),
-    });
-
-    const dataText = await response.text();
-    let dataJson = {}; try { dataJson = JSON.parse(dataText); } catch { /* not json */ }
-
-    if (!response.ok) {
-      logger.warn({ status: response.status, dataJson }, 'Twilio call request failed');
-      if (preCallLog) await prisma.agentCallLog.update({ where: { id: preCallLog.id }, data: { status: 'FAILED', endedAt: new Date() } }).catch(() => {});
-      return res.status(502).json({
-        success: false,
-        error: `Twilio rejected the call: ${dataJson.message || response.status}. Check your Twilio number, account balance, and destination format (+countrycode...).`,
-      });
-    }
-
-    // Non-bundled branch: nothing else will update this log, so record the
-    // one-way greeting now. The bundled-engine branch is finalized by the media bridge.
-    if (!useBundledEngine && preCallLog) {
-      await prisma.agentCallLog.update({
-        where: { id: preCallLog.id },
-        data: { transcript: JSON.stringify([{ role: 'assistant', content: greeting }]), endedAt: new Date() },
-      }).catch((e) => logger.warn(`Could not log phone test call: ${e.message}`));
-    }
-
-    // Be explicit about which kind of call this is. A greeting-only call has no
-    // two-way conversation, so NO variables can be extracted and nothing will be
-    // delivered to Post-Call destinations (webhook/email/Google Sheets). Surface
-    // that here instead of returning a bare "success" that looks like a full call.
-    const mode = useBundledEngine ? 'conversation' : 'greeting-only';
-    const message = useBundledEngine
-      ? `Calling ${phoneNumber} — your phone should ring shortly for a live conversation with ${agent.name}.`
-      : `Calling ${phoneNumber} — your phone will ring with ${agent.name}'s greeting only. `
-        + `This is a one-way test call: no variables will be extracted and nothing will be sent to your Post-Call sheet. `
-        + `To get a real conversation (and sheet delivery), set PUBLIC_BACKEND_WS_URL to a public wss:// URL for this backend and use a Conversational Agent (xAI/ElevenLabs) voice engine.`;
-
-    return res.json({
-      success: true,
-      callSid: dataJson.sid,
-      mode,
-      variablesWillExtract: useBundledEngine,
-      message,
-    });
-  } catch (err) {
-    logger.error('testCall failed', err);
-    return res.status(502).json({ success: false, error: `Call failed: ${err.message}` });
+  // BUG-002: plan + balance gate for TELEPHONY, before Twilio is asked to
+  // dial. Placing it here rather than in the media-stream handler matters:
+  // by the time that socket opens the call is already connected and the
+  // carrier leg is already billable to us, so refusing there would cost real
+  // money on a call we did not want to allow.
+  const gate = await assertCanStartCall(workspaceId, { type: 'PHONE_CALL' });
+  if (!gate.allowed) {
+    logger.info({ workspaceId, agentId, code: gate.code }, `Phone call blocked: ${gate.code}`);
+    return res.status(402).json({ error: gate.message, code: gate.code });
   }
+
+  const result = await placeOutboundCall({
+    workspaceId,
+    agent,
+    toNumber: phoneNumber,
+    fromNumber,
+    closingLine: useBundledEngine ? '' : 'This was a test call. Goodbye.',
+  });
+
+  if (!result.ok) {
+    return res.status(result.status || 502).json({ success: false, error: result.error });
+  }
+
+  // Be explicit about which kind of call this is. A greeting-only call has no
+  // two-way conversation, so NO variables can be extracted and nothing will be
+  // delivered to Post-Call destinations (webhook/email/Google Sheets). Surface
+  // that here instead of returning a bare "success" that looks like a full call.
+  const message = useBundledEngine
+    ? `Calling ${phoneNumber} — your phone should ring shortly for a live conversation with ${agent.name}.`
+    : `Calling ${phoneNumber} — your phone will ring with ${agent.name}'s greeting only. `
+      + `This is a one-way test call: no variables will be extracted and nothing will be sent to your Post-Call sheet. `
+      + `To get a real conversation (and sheet delivery), set PUBLIC_BACKEND_WS_URL to a public wss:// URL for this backend and use a Conversational Agent (xAI/ElevenLabs) voice engine.`;
+
+  return res.json({
+    success: true,
+    callSid: result.callSid,
+    mode: useBundledEngine ? 'conversation' : 'greeting-only',
+    variablesWillExtract: useBundledEngine,
+    message,
+  });
 };

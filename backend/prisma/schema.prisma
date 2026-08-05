@@ -231,13 +231,21 @@ model Campaign {
   id               String              @id @default(cuid())
   workspaceId      String
   name             String
-  templateId       String
-  whatsappNumberId String
+  // WhatsApp-only; a VOICE campaign has neither.
+  templateId       String?
+  whatsappNumberId String?
   variableMapping  String?             @default("{}")
+  // 'WHATSAPP' (template broadcast) or 'VOICE' (bulk calls).
+  channel          String              @default("WHATSAPP")
   botId            String?
   phoneNumbers     Json?
   csvFileName      String?
   fromNumber       String?
+  // Caller IDs rotated across calls, spreading volume to reduce spam flagging.
+  fromNumbers      Json?
+  // 'conversation' | 'greeting' — resolved from the agent's engine at launch.
+  callMode         String?
+  lastError        String?
   progress         Int                 @default(0)
   concurrentCalls  Int                 @default(1)
   status           String              @default("DRAFT")
@@ -251,8 +259,8 @@ model Campaign {
   failed           Int                 @default(0)
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
-  template         Template            @relation(fields: [templateId], references: [id])
-  whatsappNumber   WhatsappNumber      @relation(fields: [whatsappNumberId], references: [id])
+  template         Template?           @relation(fields: [templateId], references: [id])
+  whatsappNumber   WhatsappNumber?     @relation(fields: [whatsappNumberId], references: [id])
   workspace        Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   recipients       CampaignRecipient[]
 }
@@ -260,17 +268,25 @@ model Campaign {
 model CampaignRecipient {
   id            String    @id @default(cuid())
   campaignId    String
-  contactId     String
+  // Null for VOICE campaigns: recipients come from an uploaded CSV and have no
+  // Contact row. phoneNumber carries the target instead.
+  contactId     String?
+  phoneNumber   String?
+  callLogId     String?
+  attempts      Int       @default(0)
   metaMessageId String?
   status        String    @default("pending")
   failureReason String?
+  startedAt     DateTime?
   sentAt        DateTime?
   deliveredAt   DateTime?
   readAt        DateTime?
   campaign      Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  contact       Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  contact       Contact?  @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
   @@unique([campaignId, contactId])
+  @@unique([campaignId, phoneNumber])
+  @@index([campaignId, status])
 }
 
 model Conversation {

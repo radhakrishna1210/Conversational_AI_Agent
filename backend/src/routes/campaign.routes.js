@@ -8,6 +8,7 @@ import { createCampaignSchema, scheduleCampaignSchema, updateCampaignSchema } fr
 const router = Router({ mergeParams: true });
 
 router.get('/', ctrl.listCampaigns);
+router.get('/call-mode', ctrl.previewCampaignMode);
 router.post('/', authorize('Member'), validate(createCampaignSchema), ctrl.createCampaign);
 router.post('/bulk', authorize('Member'), uploadCsv, ctrl.createBulkCampaign);
 
@@ -22,6 +23,7 @@ router.post('/:campaignId/recipients', authorize('Member'), ctrl.addRecipients);
 router.post('/:campaignId/start', authorize('Member'), ctrl.startCampaign);
 router.post('/:campaignId/launch', authorize('Member'), validate(scheduleCampaignSchema), ctrl.launchCampaign);
 
+router.post('/:campaignId/pause', authorize('Member'), ctrl.pauseCampaign);
 router.post('/:campaignId/cancel', authorize('Member'), ctrl.cancelCampaign);
 
 export default router;

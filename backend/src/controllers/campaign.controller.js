@@ -41,10 +41,27 @@ export const createBulkCampaign = async (req, res) => {
     }
 
     const { campaignName, botId, concurrentCalls } = req.body;
+
+    // Caller IDs arrive as a JSON array (multipart makes repeated fields
+    // awkward). Rotating across several numbers spreads outbound volume, which
+    // is what keeps a bulk campaign from being flagged as spam.
+    let fromNumbers = [];
+    try {
+      const raw = req.body.fromNumbers;
+      if (raw) fromNumbers = Array.isArray(raw) ? raw : JSON.parse(raw);
+    } catch {
+      throw Object.assign(new Error('fromNumbers must be a JSON array of phone numbers'), { statusCode: 400 });
+    }
+    fromNumbers = fromNumbers.map((n) => String(n).trim()).filter(Boolean);
+
     const campaign = await campaignService.createBulkCampaign(req.params.workspaceId, {
       name: String(campaignName ?? '').trim(),
       botId: botId ? String(botId).trim() : null,
       phoneNumbers,
+      fromNumbers,
+      // Kept in sync so the campaigns table has something to show in its
+      // "From Number" column without unpacking the array.
+      fromNumber: fromNumbers[0] ?? null,
       csvFileName: req.file.originalname,
       concurrentCalls: Number(concurrentCalls) || 1,
       progress: 0,
@@ -70,6 +87,21 @@ export const deleteCampaign = async (req, res) => {
 export const startCampaign = async (req, res) => {
   const campaign = await campaignService.startCampaign(req.params.workspaceId, req.params.campaignId);
   res.json(campaign);
+};
+
+export const pauseCampaign = async (req, res) => {
+  const campaign = await campaignService.pauseCampaign(req.params.workspaceId, req.params.campaignId);
+  res.json(campaign);
+};
+
+// Tells the UI what a campaign will actually DO before it is launched: a modular
+// agent cannot hold a two-way phone conversation, so its calls play the welcome
+// message and hang up. Better to say so up front than after 10,000 dials.
+export const previewCampaignMode = async (req, res) => {
+  const preview = await campaignService.previewCampaignMode(
+    req.params.workspaceId, req.query.agentId,
+  );
+  res.json(preview);
 };
 
 export const addRecipients = async (req, res) => {

@@ -7,11 +7,17 @@ type BulkCampaign = {
   name: string;
   botId?: string | null;
   fromNumber?: string | null;
+  fromNumbers?: string[] | null;
   progress: number;
   concurrentCalls: number;
   status: string;
   createdAt: string;
   csvFileName?: string | null;
+  callMode?: 'conversation' | 'greeting' | null;
+  lastError?: string | null;
+  sent?: number;
+  failed?: number;
+  totalContacts?: number;
 };
 
 type Agent = {
@@ -19,15 +25,31 @@ type Agent = {
   name: string;
 };
 
+type NumberOpt = { phoneNumber: string; label: string; source: 'twilio' | 'own' };
+
+// What the selected agent's calls will actually be. A modular agent has no
+// telephony bridge, so its phone calls play the welcome message and hang up —
+// worth knowing before dialling a list, not after.
+type CallModePreview = {
+  mode: 'conversation' | 'greeting' | null;
+  engine?: string;
+  reason?: string;
+  agentName?: string;
+};
+
 const CONCURRENT_LIMIT = 1;
 
 const STATUS_STYLES: Record<string, { bg: string; color: string }> = {
-  RUNNING:   { bg: 'rgba(14,179,158,0.14)',  color: 'var(--teal)' },
+  RUNNING:   { bg: 'rgba(14,179,158,0.14)',  color: 'var(--teal-fg)' },
   COMPLETED: { bg: 'rgba(34,197,94,0.14)',   color: '#22c55e' },
   DRAFT:     { bg: 'rgba(148,163,184,0.14)', color: 'var(--text-secondary)' },
+  PAUSED:    { bg: 'rgba(250,204,21,0.14)',  color: '#facc15' },
   FAILED:    { bg: 'rgba(248,113,113,0.14)', color: '#f87171' },
   CANCELLED: { bg: 'rgba(251,146,60,0.14)',  color: '#fb923c' },
 };
+
+// Statuses the Start button applies to. PAUSED resumes from where it stopped.
+const STARTABLE = new Set(['DRAFT', 'SCHEDULED', 'PAUSED', 'FAILED']);
 
 const thStyle: React.CSSProperties = {
   padding: '14px 16px',
@@ -59,6 +81,14 @@ export default function BulkCall() {
     concurrentCalls: 1,
     file: null as File | null,
   });
+
+  // Caller IDs to rotate across the campaign's calls.
+  const [callerNumbers, setCallerNumbers] = useState<NumberOpt[]>([]);
+  const [callerError, setCallerError] = useState<string | null>(null);
+  const [selectedFrom, setSelectedFrom] = useState<string[]>([]);
+  const [modePreview, setModePreview] = useState<CallModePreview | null>(null);
+  const [ackGreetingOnly, setAckGreetingOnly] = useState(false);
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   // Filters (match the reference UI: search + status + bot)
   const [search, setSearch] = useState('');
@@ -115,18 +145,48 @@ export default function BulkCall() {
     load();
   }, [workspaceId]);
 
-  const refreshCampaigns = async () => {
-    setLoading(true);
+  const refreshCampaigns = async (quiet = false) => {
+    if (!quiet) setLoading(true);
     try {
       const data = await whapi.get<BulkCampaign[]>('/campaigns');
       setCampaigns(data);
-      setError(null);
+      if (!quiet) setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to refresh campaigns');
+      if (!quiet) setError(err instanceof Error ? err.message : 'Failed to refresh campaigns');
     } finally {
-      setLoading(false);
+      if (!quiet) setLoading(false);
     }
   };
+
+  // A running campaign dials over minutes or hours, so the table has to move on
+  // its own — otherwise progress looks frozen and people press Start again.
+  const hasRunning = campaigns.some((c) => c.status === 'RUNNING');
+  useEffect(() => {
+    if (!hasRunning) return;
+    const id = setInterval(() => refreshCampaigns(true), 5000);
+    return () => clearInterval(id);
+  }, [hasRunning]);
+
+  // Caller numbers come from Twilio (owned + verified), the same source the
+  // single-call picker uses.
+  useEffect(() => {
+    if (!showModal) return;
+    whapi.get<{ owned: NumberOpt[]; verified: NumberOpt[] }>('/caller-numbers')
+      .then((r) => {
+        setCallerNumbers([...(r.owned ?? []), ...(r.verified ?? [])]);
+        setCallerError(null);
+      })
+      .catch((e) => setCallerError(e instanceof Error ? e.message : 'Failed to load numbers'));
+  }, [showModal]);
+
+  // Ask the backend what the chosen agent can actually do on a phone call.
+  useEffect(() => {
+    if (!form.botId) { setModePreview(null); return; }
+    setAckGreetingOnly(false);
+    whapi.get<CallModePreview>(`/campaigns/call-mode?agentId=${encodeURIComponent(form.botId)}`)
+      .then(setModePreview)
+      .catch(() => setModePreview(null));
+  }, [form.botId]);
 
   const statuses = useMemo(
     () => Array.from(new Set(campaigns.map((c) => c.status))).sort(),
@@ -167,14 +227,28 @@ export default function BulkCall() {
     setForm((current) => ({ ...current, [field]: value }));
   };
 
+  const toggleFrom = (num: string) => {
+    setSelectedFrom((prev) => (prev.includes(num) ? prev.filter((n) => n !== num) : [...prev, num]));
+  };
+
+  const greetingOnly = modePreview?.mode === 'greeting';
+  const needsAck = greetingOnly && !ackGreetingOnly;
+
   const handleCreateCampaign = async () => {
     if (!form.campaignName.trim()) {
       setError('Campaign name is required');
       return;
     }
-
+    if (!form.botId) {
+      setError('Select a voice agent — the campaign needs one to place calls');
+      return;
+    }
     if (!form.file) {
       setError('CSV file is required');
+      return;
+    }
+    if (needsAck) {
+      setError('Tick the box to confirm you understand these will be greeting-only calls');
       return;
     }
 
@@ -186,11 +260,15 @@ export default function BulkCall() {
       payload.append('campaignName', form.campaignName.trim());
       payload.append('botId', form.botId);
       payload.append('concurrentCalls', String(form.concurrentCalls));
+      payload.append('fromNumbers', JSON.stringify(selectedFrom));
       payload.append('file', form.file);
 
       await whapi.postForm<BulkCampaign>('/campaigns/bulk', payload);
       setShowModal(false);
       setForm({ campaignName: '', botId: '', concurrentCalls: 1, file: null });
+      setSelectedFrom([]);
+      setModePreview(null);
+      setAckGreetingOnly(false);
       await refreshCampaigns();
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to create campaign');
@@ -200,19 +278,46 @@ export default function BulkCall() {
   };
 
   const selectedCampaigns = campaigns.filter((c) => selected.has(c.id));
-  const startable = selectedCampaigns.filter((c) => c.status === 'DRAFT' || c.status === 'FAILED');
+  const startable = selectedCampaigns.filter((c) => STARTABLE.has(c.status));
+  const pausable = selectedCampaigns.filter((c) => c.status === 'RUNNING');
 
-  const handleStartSelected = async () => {
-    try {
-      await Promise.all(startable.map((c) => whapi.post(`/campaigns/${c.id}/start`, {})));
-      setSelected(new Set());
-      await refreshCampaigns();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to start campaign');
+  // Start/Pause/Cancel act per campaign so one failure (e.g. no balance) reports
+  // itself instead of being swallowed by Promise.all rejecting on the first.
+  const runAction = async (targets: BulkCampaign[], action: 'start' | 'pause' | 'cancel') => {
+    setError(null);
+    const failures: string[] = [];
+    for (const c of targets) {
+      setBusyId(c.id);
+      try {
+        await whapi.post(`/campaigns/${c.id}/${action}`, {});
+      } catch (err) {
+        failures.push(`${c.name}: ${err instanceof Error ? err.message : 'failed'}`);
+      }
     }
+    setBusyId(null);
+    setSelected(new Set());
+    await refreshCampaigns();
+    if (failures.length) setError(failures.join(' · '));
+  };
+
+  const handleStartSelected = () => runAction(startable, 'start');
+  const handlePauseSelected = () => runAction(pausable, 'pause');
+
+  const handleCancelSelected = async () => {
+    const running = selectedCampaigns.filter((c) => c.status === 'RUNNING' || c.status === 'PAUSED');
+    if (!running.length) return;
+    if (!window.confirm(
+      `Cancel ${running.length} campaign(s)? Calls already placed cannot be recalled, and the `
+      + 'remaining numbers will be skipped permanently.',
+    )) return;
+    await runAction(running, 'cancel');
   };
 
   const handleDeleteSelected = async () => {
+    if (selectedCampaigns.some((c) => c.status === 'RUNNING')) {
+      setError('Pause or cancel a running campaign before deleting it');
+      return;
+    }
     if (!window.confirm(`Delete ${selectedCampaigns.length} campaign(s)?`)) return;
     try {
       await Promise.all(selectedCampaigns.map((c) => whapi.del(`/campaigns/${c.id}`)));
@@ -347,8 +452,18 @@ export default function BulkCall() {
         <div style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 16px', borderRadius: '10px', border: '1px solid var(--border)', background: 'var(--bg-card)' }}>
           <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{selected.size} selected</span>
           {startable.length > 0 && (
-            <button className="btn btn-primary btn-sm" onClick={handleStartSelected}>
-              Start
+            <button className="btn btn-primary btn-sm" onClick={handleStartSelected} disabled={Boolean(busyId)}>
+              {busyId ? 'Starting…' : startable.some((c) => c.status === 'PAUSED') ? 'Resume' : 'Start'}
+            </button>
+          )}
+          {pausable.length > 0 && (
+            <button className="btn btn-secondary btn-sm" onClick={handlePauseSelected} disabled={Boolean(busyId)}>
+              Pause
+            </button>
+          )}
+          {selectedCampaigns.some((c) => c.status === 'RUNNING' || c.status === 'PAUSED') && (
+            <button className="btn btn-secondary btn-sm" onClick={handleCancelSelected} disabled={Boolean(busyId)}>
+              Cancel
             </button>
           )}
           <button className="btn btn-secondary btn-sm" onClick={handleDeleteSelected}>
@@ -376,6 +491,7 @@ export default function BulkCall() {
                 <th style={thStyle}>Bot</th>
                 <th style={thStyle}>From Number</th>
                 <th style={thStyle}>Progress</th>
+                <th style={thStyle}>Calls</th>
                 <th style={thStyle}>Concurrent Calls</th>
                 <th style={thStyle}>Created Date</th>
               </tr>
@@ -394,14 +510,30 @@ export default function BulkCall() {
                           style={{ width: '16px', height: '16px', accentColor: 'var(--teal)', cursor: 'pointer' }}
                         />
                       </td>
-                      <td style={{ ...tdStyle, fontWeight: 600 }}>{campaign.name}</td>
+                      <td style={{ ...tdStyle, fontWeight: 600 }}>
+                        {campaign.name}
+                        {campaign.callMode === 'greeting' && (
+                          <div style={{ fontSize: '11px', fontWeight: 500, color: '#facc15', marginTop: '3px' }}>
+                            greeting-only
+                          </div>
+                        )}
+                        {campaign.lastError && (
+                          <div style={{ fontSize: '11px', fontWeight: 500, color: '#f87171', marginTop: '3px', maxWidth: '260px' }}>
+                            {campaign.lastError}
+                          </div>
+                        )}
+                      </td>
                       <td style={tdStyle}>
                         <span style={{ padding: '4px 10px', borderRadius: '999px', fontSize: '12px', fontWeight: 600, background: pill.bg, color: pill.color }}>
                           {campaign.status.charAt(0) + campaign.status.slice(1).toLowerCase()}
                         </span>
                       </td>
                       <td style={tdStyle}>{campaign.botId ? botMap[campaign.botId] ?? campaign.botId : '—'}</td>
-                      <td style={tdStyle}>{campaign.fromNumber || '—'}</td>
+                      <td style={tdStyle}>
+                        {(campaign.fromNumbers?.length ?? 0) > 1
+                          ? `${campaign.fromNumbers![0]} +${campaign.fromNumbers!.length - 1} more`
+                          : campaign.fromNumber || '—'}
+                      </td>
                       <td style={{ ...tdStyle, minWidth: '160px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                           <div style={{ flex: 1, height: '8px', borderRadius: '999px', background: 'rgba(148,163,184,0.15)', overflow: 'hidden' }}>
@@ -410,6 +542,14 @@ export default function BulkCall() {
                           <span style={{ fontSize: '12px', color: 'var(--text-secondary)', minWidth: '34px' }}>{campaign.progress}%</span>
                         </div>
                       </td>
+                      <td style={tdStyle}>
+                        <span style={{ color: '#22c55e' }}>{campaign.sent ?? 0}</span>
+                        {' / '}
+                        <span style={{ color: (campaign.failed ?? 0) > 0 ? '#f87171' : 'var(--text-secondary)' }}>
+                          {campaign.failed ?? 0}
+                        </span>
+                        <span style={{ color: 'var(--text-secondary)' }}> of {campaign.totalContacts ?? 0}</span>
+                      </td>
                       <td style={tdStyle}>{campaign.concurrentCalls}</td>
                       <td style={tdStyle}>{new Date(campaign.createdAt).toLocaleDateString()}</td>
                     </tr>
@@ -417,7 +557,7 @@ export default function BulkCall() {
                 })
               ) : (
                 <tr>
-                  <td colSpan={8} style={{ padding: '56px 20px' }}>
+                  <td colSpan={9} style={{ padding: '56px 20px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
                       <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: '12px' }}>
                         <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
@@ -479,6 +619,86 @@ export default function BulkCall() {
                 </select>
               </label>
 
+              {/* What the calls will actually be. Shown as soon as an agent is
+                  picked, because a modular agent cannot hold a phone conversation. */}
+              {modePreview?.mode && (
+                <div style={{
+                  padding: '12px 14px',
+                  borderRadius: '10px',
+                  fontSize: '12.5px',
+                  lineHeight: 1.55,
+                  background: greetingOnly ? 'rgba(250,204,21,0.10)' : 'rgba(34,197,94,0.10)',
+                  border: `1px solid ${greetingOnly ? 'rgba(250,204,21,0.35)' : 'rgba(34,197,94,0.35)'}`,
+                  color: 'var(--text-primary)',
+                }}>
+                  <strong>{greetingOnly ? '⚠️ Greeting-only broadcast' : '✅ Two-way conversation'}</strong>
+                  <div style={{ color: 'var(--text-secondary)', marginTop: '5px' }}>
+                    {greetingOnly
+                      ? modePreview.reason
+                      : 'Each recipient will have a live back-and-forth conversation with this agent.'}
+                  </div>
+                  {greetingOnly && (
+                    <label style={{ display: 'flex', gap: '8px', alignItems: 'flex-start', marginTop: '10px', cursor: 'pointer' }}>
+                      <input
+                        type="checkbox"
+                        checked={ackGreetingOnly}
+                        onChange={(e) => setAckGreetingOnly(e.target.checked)}
+                        style={{ marginTop: '2px', accentColor: 'var(--teal)' }}
+                      />
+                      <span style={{ color: 'var(--text-primary)' }}>
+                        I understand every recipient will hear a recorded message, not a conversation.
+                      </span>
+                    </label>
+                  )}
+                </div>
+              )}
+
+              {/* Caller IDs. Rotating across several numbers spreads outbound
+                  volume, which is what keeps carriers from flagging the campaign. */}
+              <div style={{ display: 'grid', gap: '8px', color: 'var(--text-secondary)', fontSize: '13px' }}>
+                Call from {selectedFrom.length > 1 && (
+                  <span style={{ color: 'var(--teal-fg)' }}>
+                    — rotating across {selectedFrom.length} numbers
+                  </span>
+                )}
+                {callerError && <div style={{ color: '#fca5a5', fontSize: '12px' }}>{callerError}</div>}
+                {!callerError && callerNumbers.length === 0 && (
+                  <div style={{ fontSize: '12px' }}>Loading your numbers…</div>
+                )}
+                {callerNumbers.length > 0 && (
+                  <div style={{
+                    maxHeight: '132px',
+                    overflowY: 'auto',
+                    border: '1px solid var(--border)',
+                    borderRadius: '10px',
+                    padding: '8px',
+                    background: 'var(--bg-elevated)',
+                  }}>
+                    {callerNumbers.map((n) => (
+                      <label key={n.phoneNumber} style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '5px 4px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={selectedFrom.includes(n.phoneNumber)}
+                          onChange={() => toggleFrom(n.phoneNumber)}
+                          style={{ accentColor: 'var(--teal)' }}
+                        />
+                        <span style={{ color: 'var(--text-primary)', fontSize: '13px' }}>
+                          {n.phoneNumber}
+                          <span style={{ color: 'var(--text-secondary)' }}>
+                            {' '}— {n.label} {n.source === 'own' ? '(your number ✓)' : '(platform)'}
+                          </span>
+                        </span>
+                      </label>
+                    ))}
+                  </div>
+                )}
+                <div style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
+                  {selectedFrom.length === 0
+                    ? 'None selected — the platform default number will be used for every call.'
+                    : 'Calls are spread evenly across the selected numbers.'}
+                </div>
+              </div>
+
               <label style={{ display: 'grid', gap: '8px', color: 'var(--text-secondary)', fontSize: '13px' }}>
                 Upload CSV File
                 <input
@@ -504,7 +724,7 @@ export default function BulkCall() {
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', flexWrap: 'wrap' }}>
                 <button className="btn btn-secondary" onClick={() => setShowModal(false)} type="button">Cancel</button>
-                <button className="btn btn-primary" onClick={handleCreateCampaign} type="button" disabled={saving}>
+                <button className="btn btn-primary" onClick={handleCreateCampaign} type="button" disabled={saving || needsAck}>
                   {saving ? 'Creating...' : 'Create Campaign'}
                 </button>
               </div>

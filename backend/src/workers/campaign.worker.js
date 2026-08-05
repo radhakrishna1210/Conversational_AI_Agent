@@ -4,6 +4,7 @@ import { env } from '../config/env.js';
 import prisma from '../config/prisma.js';
 import { sendMessage } from '../services/whatsapp.service.js';
 import { CAMPAIGN_STATUS } from '../constants/campaignStatus.js';
+import { runCampaign } from '../services/campaignRunner.service.js';
 import logger from '../lib/logger.js';
 
 const processCampaign = async (job) => {
@@ -14,6 +15,13 @@ const processCampaign = async (job) => {
     where: { id: campaignId, workspaceId },
     include: { template: true, whatsappNumber: true },
   });
+
+  // Voice campaigns place phone calls; the loop below is the WhatsApp template
+  // broadcast and would crash on campaign.template being null.
+  if (campaign.channel === 'VOICE') {
+    await runCampaign(campaignId, workspaceId);
+    return;
+  }
 
   const workspace = await prisma.workspace.findUniqueOrThrow({ where: { id: workspaceId } });
 
