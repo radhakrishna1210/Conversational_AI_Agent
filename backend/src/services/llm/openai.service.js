@@ -26,6 +26,7 @@ import {
 class OpenAIService {
   constructor() {
     this.client = null;
+    this.supportsChatHistory = true; // see GeminiService.supportsChatHistory
     this.apiKey = process.env.OPENAI_API_KEY;
     this.baseURL = process.env.OPENAI_BASE_URL || "https://api.openai.com/v1";
 

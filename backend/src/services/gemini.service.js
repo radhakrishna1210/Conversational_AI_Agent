@@ -27,6 +27,10 @@ class GeminiService {
   constructor() {
     this.client = null;
     this.apiKey = process.env.GEMINI_API_KEY;
+    // Accepts options.chatHistory as real conversation turns. agentRuntime uses
+    // this to keep prior turns OUT of the system prompt, which is what lets the
+    // provider cache the (then static) prompt prefix.
+    this.supportsChatHistory = true;
 
     if (!this.apiKey) {
       logger.warn(

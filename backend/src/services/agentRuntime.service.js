@@ -210,6 +210,23 @@ const HINGLISH_NOTE =
 
 const languageRegisterNote = (lang) => (/hindi/i.test(lang || '') ? HINGLISH_NOTE : '');
 
+// How much knowledge base actually reaches the model.
+//
+// These were 6,000 chars per file / 24,000 total, which silently starved real
+// agents: a 140 KB knowledge base contributed 6 KB — about 4% — so the agent
+// answered "I don't have that information" about documented facts. The caps also
+// held the prompt near ~2.8k tokens, and implicit caching does not engage below
+// roughly 5-10k (measured, scratch/probe_cache_threshold.mjs), so the small
+// budget was costing accuracy AND blocking the cache discount.
+//
+// Env-tunable because the trade-off is real: a bigger KB makes an UNCACHED turn
+// slower to prefill. Cached turns (2 onward, and every turn of every later call)
+// do not pay that. Lower these if first-turn latency matters more than recall.
+// The proper fix for very large documents is retrieval, not a bigger paste.
+const KB_PER_FILE_CHARS = Number(process.env.KB_PER_FILE_CHARS || 48_000);
+const KB_TOTAL_CHARS = Number(process.env.KB_TOTAL_CHARS || 96_000);
+const KB_VOICE_CHARS = Number(process.env.KB_VOICE_CHARS || 48_000);
+
 /**
  * Load the grounding text for an agent: agent-linked KB files plus
  * workspace-wide files (same sourcing rule as kbFile.controller.agentKbText).
@@ -223,12 +240,11 @@ export async function getAgentKbText(workspaceId, agentId) {
     orderBy: { createdAt: 'desc' },
     take: 20,
   });
-  const budget = 24_000;
   let used = 0;
   const sections = [];
   for (const f of rows) {
-    if (used >= budget) break;
-    const slice = (f.textContent || '').slice(0, Math.min(6000, budget - used));
+    if (used >= KB_TOTAL_CHARS) break;
+    const slice = (f.textContent || '').slice(0, Math.min(KB_PER_FILE_CHARS, KB_TOTAL_CHARS - used));
     used += slice.length;
     sections.push(`### Source: ${f.fileName}\n${slice}`);
   }
@@ -237,13 +253,26 @@ export async function getAgentKbText(workspaceId, agentId) {
   return value;
 }
 
+// Header + acknowledgement used when the KB is delivered as a conversation turn
+// instead of being inlined in the system prompt (see buildRuntimeMessages).
+// These strings are part of the cached prefix — changing them invalidates every
+// agent's cache once, so don't churn them.
+export const KB_MESSAGE_HEADER = '# Knowledge Base';
+export const KB_MESSAGE_ACK =
+  'Understood. I have the knowledge base and will ground every factual answer in it.';
+
 /**
  * Build the runtime system prompt from agent config + KB.
  * @param {object} agent   – Agent row
  * @param {string} kbText  – grounding text ('' when none)
- * @param {{ voiceMode?: boolean }} [opts] – voiceMode trims responses for TTS
+ * @param {{ voiceMode?: boolean, kbInline?: boolean }} [opts]
+ *   voiceMode trims responses for TTS.
+ *   kbInline=false omits the KB BODY (keeping the grounding rules) because the
+ *   caller is sending it as the first conversation turn instead. Bundled
+ *   realtime engines must keep kbInline=true: they push one instruction blob at
+ *   session open and have no conversation turns to attach the KB to.
  */
-export function buildAgentSystemPrompt(agent, kbText, { voiceMode = false } = {}) {
+export function buildAgentSystemPrompt(agent, kbText, { voiceMode = false, kbInline = true } = {}) {
   const flowItems = (safeJson(agent.flowItems, []) || []).filter((f) => f && f.enabled !== false);
   const settings = safeJson(agent.settings, {});
   const languages = safeJson(agent.languages, []);
@@ -267,12 +296,14 @@ export function buildAgentSystemPrompt(agent, kbText, { voiceMode = false } = {}
 ${flowSection}
 
 # Knowledge Base
-${kbText
-    ? `Ground every factual answer in the knowledge base below. If the answer is not present, say you don't have that information — NEVER invent facts, prices, bookings, or confirmations.\n\n${kbText}`
-    : `No knowledge base documents are configured. If asked for specific facts you do not know, say you don't have that information — never invent facts.`}
+${!kbText
+    ? `No knowledge base documents are configured. If asked for specific facts you do not know, say you don't have that information — never invent facts.`
+    : kbInline
+      ? `Ground every factual answer in the knowledge base below. If the answer is not present, say you don't have that information — NEVER invent facts, prices, bookings, or confirmations.\n\n${kbText}`
+      : `Your knowledge base was delivered as the FIRST message of this conversation, under the heading "${KB_MESSAGE_HEADER}". Treat it as reference material you already know — never mention that it was sent to you, and never read it out. Ground every factual answer in it. If the answer is not present, say you don't have that information — NEVER invent facts, prices, bookings, or confirmations.`}
 
 # Identity from Knowledge Base
-Derive your identity from the knowledge base above: the company/product you represent, what it does, its offerings and pricing. Speak as a representative of THAT company.
+Derive your identity from the knowledge base: the company/product you represent, what it does, its offerings and pricing. Speak as a representative of THAT company.
 Bracketed placeholders like [Your Company Name] or [Product] anywhere in this configuration are unfilled template variables — NEVER say them literally. Replace each with the real value from the knowledge base, or if the knowledge base doesn't provide one, rephrase naturally without it (e.g. "our company").
 
 # Language
@@ -528,6 +559,72 @@ const AFFECT_PROMPTS = {
   quiet: 'The caller is speaking softly — keep a gentle, unhurried, warm tone.',
 };
 
+/**
+ * Assemble the provider-facing prompt: static instructions, the KB, the prior
+ * turns and the current message.
+ *
+ * THIS IS WHAT MAKES THE KB CACHEABLE, so the ordering is load-bearing.
+ * Measured against the live API (backend/scratch/probe_gemini_cache4.mjs and
+ * 5.mjs) on gemini-2.5-flash and gemini-3.1-flash-lite:
+ *   1. A KB sitting in the system instruction is NEVER cached — 0%, every turn.
+ *      Implicit caching only ever matched a prefix of contents[].
+ *   2. Appending the transcript (or a per-turn affect line) to the system prompt
+ *      drops the hit rate to 0% even when the KB is in contents[].
+ * Hence: the system prompt must be STATIC per agent, the KB must be the first
+ * conversation turn, and anything varying per turn must come after both.
+ * Measured result: 87-88% of prompt tokens cached from turn 2 on, ~73% fewer
+ * full-price tokens per call.
+ *
+ * The same rule binds anything added later — per-contact campaign variables,
+ * A/B prompt tweaks, time-of-day greetings. Put them in `lastContent`, never in
+ * the system prompt, or every agent's hit rate goes back to zero.
+ *
+ * Providers without structured history (custom endpoints, mock) keep the old
+ * transcript-in-system-prompt shape: they gain no caching, but they must not
+ * silently lose conversation memory.
+ *
+ * Pure and exported so these invariants are testable without a DB or network.
+ */
+export function buildRuntimeMessages({
+  agent,
+  kbText = '',
+  prior = [],
+  lastContent = '',
+  affectNote = '',
+  voiceMode = false,
+  supportsChatHistory = false,
+}) {
+  if (!supportsChatHistory) {
+    let systemPrompt = buildAgentSystemPrompt(agent, kbText, { voiceMode });
+    if (prior.length) {
+      const transcript = prior
+        .map((m) => `${m.role === 'user' ? 'User' : agent.name}: ${m.content}`)
+        .join('\n');
+      systemPrompt += `\n\n# Conversation so far (welcome message included; continue from here)\n${transcript}`;
+    }
+    if (affectNote) {
+      systemPrompt += `\n\n# Caller state (detected from their voice this turn)\n${affectNote}`;
+    }
+    return { systemPrompt, chatHistory: [], message: lastContent };
+  }
+
+  const chatHistory = [];
+  if (kbText) {
+    chatHistory.push({ role: 'user', content: `${KB_MESSAGE_HEADER}\n${kbText}` });
+    chatHistory.push({ role: 'assistant', content: KB_MESSAGE_ACK });
+  }
+  chatHistory.push(...prior);
+
+  return {
+    systemPrompt: buildAgentSystemPrompt(agent, kbText, { voiceMode, kbInline: false }),
+    chatHistory,
+    // Affect rides on the current turn, never the system prompt.
+    message: affectNote
+      ? `${lastContent}\n\n[Voice note, not spoken aloud by the caller: ${affectNote}]`
+      : lastContent,
+  };
+}
+
 async function _prepareConverse(workspaceId, agentId, messages, { voiceMode = false, affect = null } = {}) {
   const agent = await loadAgent(workspaceId, agentId);
   if (!agent) {
@@ -548,41 +645,39 @@ async function _prepareConverse(workspaceId, agentId, messages, { voiceMode = fa
   }
 
   const { kbText } = await getAgentKbText(workspaceId, agentId).catch(() => ({ kbText: '' }));
-  const promptKb = voiceMode ? kbText.slice(0, 12_000) : kbText;
-  let systemPrompt = buildAgentSystemPrompt(agent, promptKb, { voiceMode });
-
-  // The LLM services take (message, config, { systemPrompt }) — a single-turn
-  // API — so prior turns are embedded as a transcript in the system prompt.
+  const promptKb = voiceMode ? kbText.slice(0, KB_VOICE_CHARS) : kbText;
   const prior = history.slice(0, -1);
-  if (prior.length) {
-    const transcript = prior
-      .map((m) => `${m.role === 'user' ? 'User' : agent.name}: ${m.content}`)
-      .join('\n');
-    systemPrompt += `\n\n# Conversation so far (welcome message included; continue from here)\n${transcript}`;
-  }
-  if (voiceMode && affect && AFFECT_PROMPTS[affect]) {
-    systemPrompt += `\n\n# Caller state (detected from their voice this turn)\n${AFFECT_PROMPTS[affect]}`;
-  }
+  const affectNote = voiceMode && affect && AFFECT_PROMPTS[affect] ? AFFECT_PROMPTS[affect] : '';
 
   const { llm, provider, model } = resolveLlmForAgent(agent, { lowLatency: voiceMode });
+
+  const { systemPrompt, chatHistory, message } = buildRuntimeMessages({
+    agent,
+    kbText: promptKb,
+    prior,
+    lastContent: last.content,
+    affectNote,
+    voiceMode,
+    supportsChatHistory: Boolean(llm.supportsChatHistory),
+  });
   // Brevity in voice mode is enforced by the prompt, not the token cap —
   // Gemini 2.5's internal "thinking" tokens count against maxTokens, so a
   // tight cap truncates replies mid-sentence. Thinking is disabled for ALL
   // conversation turns (chat AND voice): a persona chat grounded in a KB
   // doesn't need a reasoning pass, and it costs ~2-3s per reply.
-  const options = { systemPrompt, maxTokens: voiceMode ? 320 : 2000, thinkingBudget: 0 };
+  const options = { systemPrompt, chatHistory, maxTokens: voiceMode ? 320 : 2000, thinkingBudget: 0 };
   const config = { model, temperature: DEFAULT_TEMPERATURE };
-  return { agent, last, llm, provider, model, config, options, voiceMode };
+  return { agent, message, llm, provider, model, config, options, voiceMode };
 }
 
 // Markdown → speakable text. The reply is sent to TTS, so strip formatting.
 const stripForVoice = (s) => s.replace(/[*_#`>]+/g, '').replace(/\s+/g, ' ').trim();
 
 export async function converse(workspaceId, agentId, messages, { voiceMode = false, affect = null } = {}) {
-  const { agent, last, llm, provider, model, config, options } =
+  const { agent, message, llm, provider, model, config, options } =
     await _prepareConverse(workspaceId, agentId, messages, { voiceMode, affect });
 
-  const raw = await llm.generateResponse(last.content, config, options);
+  const raw = await llm.generateResponse(message, config, options);
   let reply = (typeof raw === 'object' ? raw.message : raw) || '';
   if (voiceMode) reply = stripForVoice(reply);
 
@@ -601,14 +696,14 @@ export async function converse(workspaceId, agentId, messages, { voiceMode = fal
  * @returns {AsyncGenerator<string, { provider: string, model: string }>}
  */
 export async function* converseStream(workspaceId, agentId, messages, { voiceMode = false, affect = null } = {}) {
-  const { last, llm, provider, model, config, options } =
+  const { message, llm, provider, model, config, options } =
     await _prepareConverse(workspaceId, agentId, messages, { voiceMode, affect });
 
   if (typeof llm.generateResponseStream === 'function') {
-    yield* llm.generateResponseStream(last.content, config, options);
+    yield* llm.generateResponseStream(message, config, options);
   } else {
     // Non-streaming provider: one buffered call, emitted as a single chunk.
-    const raw = await llm.generateResponse(last.content, config, options);
+    const raw = await llm.generateResponse(message, config, options);
     const reply = (typeof raw === 'object' ? raw.message : raw) || '';
     if (reply) yield reply;
   }

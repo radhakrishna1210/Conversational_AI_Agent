@@ -20,6 +20,7 @@ const DEFAULT_MODEL = 'llama-3.3-70b-versatile';
 class GroqService {
   constructor() {
     this.client = null;
+    this.supportsChatHistory = true; // see GeminiService.supportsChatHistory
     this.baseURL = process.env.GROQ_BASE_URL || 'https://api.groq.com/openai/v1';
   }
 
@@ -32,9 +33,17 @@ class GroqService {
     logger.info('✅ Groq client initialized');
   }
 
+  // System prompt first, then prior turns, then the current message. That order
+  // is what makes the prefix stable across a conversation, which is the
+  // precondition for provider-side prompt caching (see agentRuntime's
+  // buildRuntimeMessages) — history must NEVER be folded into systemPrompt.
   _messages(message, options = {}) {
     const messages = [];
     if (options.systemPrompt) messages.push({ role: 'system', content: options.systemPrompt });
+    for (const msg of options.chatHistory ?? []) {
+      if (!msg?.role || !msg?.content) continue;
+      messages.push({ role: msg.role === 'assistant' ? 'assistant' : 'user', content: msg.content });
+    }
     messages.push({ role: 'user', content: message });
     return messages;
   }

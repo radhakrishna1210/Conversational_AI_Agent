@@ -26,6 +26,7 @@ import {
 class AzureService {
   constructor() {
     this.client = null;
+    this.supportsChatHistory = true; // see GeminiService.supportsChatHistory
     this.endpoint = process.env.AZURE_OPENAI_ENDPOINT;
     this.apiKey = process.env.AZURE_OPENAI_KEY;
     this.apiVersion = process.env.AZURE_OPENAI_API_VERSION || "2024-02-15-preview";
