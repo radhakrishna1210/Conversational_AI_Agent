@@ -61,6 +61,11 @@ services:
       # or Prisma will exhaust Supabase's connection limit.
       - key: DATABASE_URL
         sync: false
+      # prisma/schema.prisma:8 declares directUrl. Migrations run through THIS
+      # url, not the pooled one — PgBouncer in transaction mode cannot execute
+      # DDL, so a migration against port 6543 fails. Use the direct 5432 string.
+      - key: DIRECT_URL
+        sync: false
       - key: JWT_ACCESS_SECRET
         generateValue: true # generated once at create, stable across deploys
       - key: JWT_REFRESH_SECRET

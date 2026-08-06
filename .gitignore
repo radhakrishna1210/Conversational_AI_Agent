@@ -55,3 +55,8 @@ node-portable/
 # secrets
 backend/.env
 client/.env
+
+# Filled-in production env (template lives at backend/.env.production.example)
+.env.production
+backend/.env.production
+client/.env.production
