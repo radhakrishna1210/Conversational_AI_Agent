@@ -1,6 +1,9 @@
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
+import path from 'path';
+import { existsSync } from 'fs';
+import { fileURLToPath } from 'url';
 import 'express-async-errors';
 
 import { env } from './config/env.js';
@@ -23,7 +26,40 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
-app.use(helmet());
+// In production this process also serves the built SPA (see the static handler
+// below), so helmet's default Content-Security-Policy applies to the app itself.
+// The default `default-src 'self'` blocks things the client genuinely needs, and
+// each exception below is load-bearing — do not "tighten" one without checking
+// the page it belongs to:
+//   - Google Fonts stylesheet + font files          (client/index.html:25-29)
+//   - 'unsafe-inline' script: the pre-paint theme script (client/index.html:37)
+//     that prevents a light-mode user seeing a dark flash. Swap for a hash if
+//     that script is ever made static.
+//   - 'unsafe-inline' style: Tailwind and framer-motion set inline styles.
+//   - blob:/data: media + worker: TTS audio is played back from Blob URLs.
+//   - ws:/wss: connect: the voice web-call sockets (modularCallSocket.ts).
+//   - Calendly: the PopupModal iframe on the Contact page (Contact.tsx:2).
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'", "'unsafe-inline'", 'https://assets.calendly.com'],
+      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com', 'https://assets.calendly.com'],
+      fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
+      imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
+      mediaSrc: ["'self'", 'data:', 'blob:'],
+      workerSrc: ["'self'", 'blob:'],
+      connectSrc: ["'self'", 'ws:', 'wss:', 'https:'],
+      frameSrc: ["'self'", 'https://calendly.com', 'https://assets.calendly.com'],
+      objectSrc: ["'none'"],
+      upgradeInsecureRequests: env.NODE_ENV === 'production' ? [] : null,
+    },
+  },
+  // The SPA loads cross-origin fonts and Calendly's iframe; COEP would reject
+  // both. It is already off by default in helmet 7 — stated here so a future
+  // helmet upgrade turning it on is an obvious diff rather than a mystery.
+  crossOriginEmbedderPolicy: false,
+}));
 
 // Raw body for Meta webhook HMAC verification
 app.use('/api/v1/webhook/meta', express.raw({ type: 'application/json' }));
@@ -44,6 +80,38 @@ app.use((req, _res, next) => {
 app.get('/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date().toISOString() }));
 
 app.use('/api/v1', routes);
+
+// ── Built SPA (single-origin deployment) ─────────────────────────────────────
+// On Render this process serves the React build as well as the API. That is not
+// a convenience: the voice web-call WebSocket is opened against
+// window.location.host (client/src/services/modularCallSocket.ts:44) and ~22
+// client files fetch relative "/api/v1" paths, so the page MUST be served from
+// the same origin as the API. Splitting the frontend onto a Render Static Site
+// breaks every web call, because static sites do not proxy WS upgrades.
+//
+// Resolved from this file rather than process.cwd() so it does not depend on
+// which directory the start command happened to cd into.
+const clientDist = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../client/dist');
+const hasClientBuild = existsSync(path.join(clientDist, 'index.html'));
+
+if (hasClientBuild) {
+  app.use(express.static(clientDist));
+
+  // History fallback for client-side routes (/admin, /agents/:id, ...). Deep
+  // links would otherwise hit the JSON 404 below. Anything under /api/v1 is
+  // left alone so a genuinely missing endpoint still answers as JSON instead of
+  // handing an API client a page of HTML.
+  app.use((req, res, next) => {
+    if (req.method !== 'GET' && req.method !== 'HEAD') return next();
+    if (req.path.startsWith('/api/')) return next();
+    res.sendFile(path.join(clientDist, 'index.html'));
+  });
+} else {
+  // Normal in local development, where Vite serves the client on :5173 and
+  // proxies /api here. Logged because in production it means the build step
+  // did not run and the site will answer every page request with JSON 404.
+  logger.warn(`No client build at ${clientDist} — serving API only.`);
+}
 
 app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
 

@@ -1,0 +1,199 @@
+# Render Blueprint — Conversational AI Agent
+#
+# ONE web service serves both the API and the built React SPA from the same
+# origin. That is deliberate, not a shortcut: the web-call WebSocket is opened
+# against window.location.host (client/src/services/modularCallSocket.ts:44,
+# xaiCallSocket.ts:47) and 22 client files fetch relative "/api/v1" paths.
+# Render Static Sites do not proxy WebSocket upgrades, so splitting the frontend
+# into a Static Site would silently break every voice web call.
+#
+# Postgres is NOT declared here — the database is the existing live Supabase
+# instance. Point DATABASE_URL at it (see notes at the bottom of this file).
+
+services:
+  - type: web
+    name: convai-api
+    runtime: node
+    plan: starter # NOT free: free instances sleep after 15m idle, which kills
+    # inbound Twilio calls and live WebSocket sessions.
+    region: oregon # switch to singapore if your callers are in India
+    branch: main
+    healthCheckPath: /health
+
+    # rootDir is intentionally unset: the build has to reach both client/ and
+    # backend/. prisma generate must run here — Render caches node_modules
+    # between deploys and a stale client is the classic "unknown column" deploy.
+    buildCommand: >-
+      cd client && npm install && npm run build &&
+      cd ../backend && npm install && npx prisma generate
+
+    # NOT `npm start`: that script is `node --env-file=.env src/server.js`
+    # (backend/package.json:20) and there is no .env file on Render — the flag
+    # aborts the process on a missing file. Render injects env vars directly.
+    #
+    # `prisma migrate deploy` runs at start rather than at build time so it
+    # executes with the runtime DATABASE_URL and cannot be skipped by a cached
+    # build. It is a no-op when the schema is already current.
+    startCommand: >-
+      cd backend && node scripts/prisma-migrate-deploy.js && node src/server.js
+
+    # KB uploads, cloned voices and call recordings are written to the local
+    # filesystem (src/controllers/kbFile.controller.js,
+    # voiceClone.controller.js, agentCallLog.controller.js). Render's disk is
+    # ephemeral, so without this every deploy wipes them.
+    #
+    # TRADE-OFF: a disk pins the service to a single instance — no horizontal
+    # scaling and no zero-downtime deploys. Migrating these writes to Supabase
+    # Storage or S3 and deleting this block is the better long-term answer.
+    disk:
+      name: convai-uploads
+      mountPath: /var/data
+      sizeGB: 10
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # PORT is injected by Render; do not set it here.
+
+      # ── Required by src/config/env.js (the process refuses to boot without) ──
+      # DATABASE_URL is validated to be postgresql:// at env.js:15. Use the
+      # Supabase POOLER string (port 6543) with ?pgbouncer=true&connection_limit=1,
+      # or Prisma will exhaust Supabase's connection limit.
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_ACCESS_SECRET
+        generateValue: true # generated once at create, stable across deploys
+      - key: JWT_REFRESH_SECRET
+        generateValue: true
+      # NOT generateValue: this key decrypts integration tokens already stored
+      # in the live Supabase DB. A fresh value makes every saved OAuth
+      # credential permanently unreadable. Paste the existing 32-char key.
+      - key: ENCRYPTION_KEY
+        sync: false
+
+      # ── Self-referencing URLs ────────────────────────────────────────────────
+      # Fill both in the dashboard after the first deploy, once the service host
+      # is known. render.yaml cannot build "https://" + host into one string.
+      #   CLIENT_URL           = https://convai-api.onrender.com
+      #   PUBLIC_BACKEND_WS_URL = wss://convai-api.onrender.com
+      # CLIENT_URL drives the CORS allowlist (app.js:13) and the OAuth callback
+      # URIs. PUBLIC_BACKEND_WS_URL is the origin Twilio dials for Media
+      # Streams; unset, bundled-engine phone calls fall back to greeting-only.
+      - key: CLIENT_URL
+        sync: false
+      - key: PUBLIC_BACKEND_WS_URL
+        sync: false
+
+      - key: UPLOAD_DIR
+        value: /var/data/uploads # must live under the disk mountPath above
+      - key: MAX_FILE_SIZE_MB
+        value: "10"
+
+      # Queues. Without REDIS_URL the campaign worker is skipped entirely
+      # (server.js:62) and campaigns fall back to in-process dispatch, losing
+      # every queued job on restart or deploy.
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: convai-keyvalue
+          property: connectionString
+
+      - key: SUPER_ADMIN_EMAIL
+        sync: false
+
+      # ── Telephony ────────────────────────────────────────────────────────────
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM_NUMBER
+        sync: false
+
+      # ── Model / voice providers (set only the ones you actually use) ─────────
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: GROQ_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: DEEPGRAM_API_KEY
+        sync: false
+      - key: ELEVENLABS_API_KEY
+        sync: false
+      - key: FISH_API_KEY
+        sync: false
+      - key: SARVAM_API_KEY
+        sync: false
+      - key: XAI_API_KEY
+        sync: false
+
+      # ── Billing (Razorpay) ───────────────────────────────────────────────────
+      # WEBHOOK_SECRET is a distinct value from KEY_SECRET and differs between
+      # test and live mode. The webhook fails CLOSED when unset, so top-ups are
+      # rejected rather than silently trusted.
+      - key: RAZORPAY_KEY_ID
+        sync: false
+      - key: RAZORPAY_KEY_SECRET
+        sync: false
+      - key: RAZORPAY_WEBHOOK_SECRET
+        sync: false
+      - key: BILLING_CURRENCY
+        value: INR
+      - key: FX_USD_TO_INR
+        value: "96"
+      - key: FALLBACK_PER_MINUTE_USD
+        value: "0.12"
+
+      # ── Email ────────────────────────────────────────────────────────────────
+      - key: SMTP_HOST
+        sync: false
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: EMAIL_FROM
+        sync: false
+
+      # ── Behaviour ────────────────────────────────────────────────────────────
+      # Must not be left to the host zone: a caller saying "3 PM" means 3 PM
+      # where THEY are, so the same call would book different times per host.
+      - key: APPOINTMENT_TIMEZONE
+        value: Asia/Kolkata
+      - key: VOICE_SENTENCE_SPLIT
+        value: "true"
+      - key: VOICE_FILLER_DELAY_MS
+        value: "400"
+      - key: DEEPGRAM_ENDPOINTING_MS
+        value: "300"
+      - key: LOG_LEVEL
+        value: info
+
+  # BullMQ backend for voice campaigns. Render's Redis-compatible Key Value
+  # store. ipAllowList must be empty for internal-only access — an open list
+  # here would expose the instance to the public internet.
+  - type: keyvalue
+    name: convai-keyvalue
+    plan: starter
+    region: oregon # must match the web service's region
+    maxmemoryPolicy: noeviction # required by BullMQ: eviction silently drops jobs
+    ipAllowList: []
+
+# ─────────────────────────────────────────────────────────────────────────────
+# BEFORE THE FIRST DEPLOY
+#
+# 1. backend/src/app.js already serves client/dist with a history fallback and
+#    a CSP that permits Google Fonts, the pre-paint theme script and Calendly.
+#    If the build step is skipped the server logs "No client build at ..." and
+#    answers every page request with a JSON 404 — check for that line first if
+#    the site loads as raw JSON.
+#
+# 2. Point Twilio's voice webhook and status callback at
+#    https://<service-host>/api/v1/... and the Razorpay webhook at
+#    https://<service-host>/api/v1/billing/razorpay/webhook.
+#
+# 3. Verify DATABASE_URL is the Supabase pooler string. server.js:29 probes for
+#    the Agent / KbFile / Plan tables at boot and logs loudly if the schema is
+#    not migrated — check the deploy logs for that banner.
+# ─────────────────────────────────────────────────────────────────────────────
