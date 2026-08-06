@@ -40,6 +40,42 @@ function ttsVoiceSettings(pace, affect) {
   return settings;
 }
 
+/**
+ * Latency-optimization level, 0-4. This is a WARMTH/LATENCY DIAL, not a free
+ * win: each step up trades prosodic planning for speed, and level 3 — the value
+ * this ran at unconditionally — is aggressive enough to audibly flatten
+ * intonation. Level 4 additionally disables the text normalizer, which mangles
+ * numbers and dates, so it is clamped out entirely.
+ *
+ * Left at 3 by default so nobody's latency budget changes without them asking.
+ * Set ELEVENLABS_STREAMING_LATENCY=1 or 2 to buy back expressiveness once the
+ * rest of the turn budget allows it; measure with scripts/measure-turn.js.
+ */
+function streamingLatency() {
+  const raw = Number(process.env.ELEVENLABS_STREAMING_LATENCY);
+  if (!Number.isFinite(raw)) return 3;
+  return Math.min(3, Math.max(0, Math.round(raw)));
+}
+
+/**
+ * How many characters the WebSocket path buffers before generating each audio
+ * chunk. A small FIRST value is what makes time-to-first-byte short, but it is
+ * also how much text the model gets to plan intonation over — at 50 characters
+ * the opening of every reply is planned almost blind, which is why replies tend
+ * to start flat and warm up. Env-tunable for the same reason as the level above.
+ */
+function chunkLengthSchedule() {
+  const raw = String(process.env.ELEVENLABS_CHUNK_SCHEDULE || '').trim();
+  if (!raw) return [50, 120, 160, 290];
+  const parsed = raw.split(',')
+    .map((n) => Math.round(Number(n.trim())))
+    .filter((n) => Number.isFinite(n) && n >= 50 && n <= 500);
+  // ElevenLabs accepts at most 4 values and requires them ascending.
+  const ok = parsed.length > 0 && parsed.length <= 4
+    && parsed.every((n, i) => i === 0 || n > parsed[i - 1]);
+  return ok ? parsed : [50, 120, 160, 290];
+}
+
 function getApiKey() {
   const key = process.env.ELEVENLABS_API_KEY;
   if (!key) throw new Error('ELEVENLABS_API_KEY is not set');
@@ -125,9 +161,10 @@ export async function previewVoice(voiceId, text, opts = {}) {
  */
 export async function streamVoice(voiceId, text, opts = {}) {
   const res = await fetch(
-    // optimize_streaming_latency=3 = max latency optimizations that keep the
-    // text normalizer on (4 would disable it and mangle numbers/dates).
-    `${BASE_URL}/text-to-speech/${voiceId}/stream?output_format=mp3_44100_128&optimize_streaming_latency=3`,
+    // Level 3 by default = max latency optimization that keeps the text
+    // normalizer on (4 would disable it and mangle numbers/dates). See
+    // streamingLatency() for why this is worth turning DOWN.
+    `${BASE_URL}/text-to-speech/${voiceId}/stream?output_format=mp3_44100_128&optimize_streaming_latency=${streamingLatency()}`,
     {
       method: 'POST',
       headers: authHeaders(),
@@ -190,7 +227,7 @@ export class ElevenLabsTtsStream extends EventEmitter {
       + `?model_id=${encodeURIComponent(this.modelId)}`
       // Same output format as the single-call/welcome path so the reply doesn't
       // audibly drop in fidelity when the overlap pipeline is active.
-      + `&output_format=mp3_44100_128&optimize_streaming_latency=3&auto_mode=true`;
+      + `&output_format=mp3_44100_128&optimize_streaming_latency=${streamingLatency()}&auto_mode=true`;
     this.ws = new WebSocket(url);
 
     this.ws.on('open', () => {
@@ -199,7 +236,7 @@ export class ElevenLabsTtsStream extends EventEmitter {
       this._raw({
         text: ' ',
         voice_settings: ttsVoiceSettings(this.pace, this.affect),
-        generation_config: { chunk_length_schedule: [50, 120, 160, 290] },
+        generation_config: { chunk_length_schedule: chunkLengthSchedule() },
         xi_api_key: key,
       });
       this._open = true;

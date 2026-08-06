@@ -20,7 +20,10 @@ export type ModularCallEvent =
   // so the client's RMS VAD is a backstop rather than the sole endpointer. It
   // must then use a LONGER silence timeout, otherwise it cuts the caller off
   // mid-sentence before the smarter signal gets to rule on the turn.
-  | { type: 'ready'; sttEndpointing?: boolean }
+  // endpointCommitMs: worst-case ms of silence before the SERVER ends a turn on
+  // its own. The client's RMS backstop is derived from this so the two cannot
+  // race — if the backstop fires first, the server's grace window is dead code.
+  | { type: 'ready'; sttEndpointing?: boolean; endpointCommitMs?: number }
   | { type: 'transcript'; role: 'user' | 'assistant'; text: string; done: boolean }
   // B4 streaming reply audio: a JSON audio-start opens the stream, raw binary
   // frames carry the audio bytes, an audio-end JSON frame closes it.

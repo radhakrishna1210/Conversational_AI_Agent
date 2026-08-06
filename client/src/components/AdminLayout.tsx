@@ -56,7 +56,7 @@ const NAV: NavGroup[] = [
     title: 'Billing',
     items: [
       { to: '/admin/billing', label: 'Revenue & Invoices', icon: <CreditCard size={16} /> },
-      { to: '/admin/plans', label: 'Plans & Pricing', icon: <TrendingUp size={16} /> },
+      { to: '/admin/plans', label: 'Wallet Rate', icon: <TrendingUp size={16} /> },
       { to: '/admin/wallets', label: 'Wallet Credits', icon: <CreditCard size={16} /> },
     ],
   },

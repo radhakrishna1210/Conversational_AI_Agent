@@ -93,7 +93,7 @@ export default function CallerNumberPicker({ value, onChange }: { value: string;
               <input value={ownNumber} onChange={(e) => setOwnNumber(e.target.value)} placeholder="+919876543210"
                 style={{ width: '100%', padding: '10px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary)', fontSize: 13, marginBottom: 8 }} />
               <button onClick={startVerify} disabled={phase === 'calling'}
-                style={{ padding: '9px 18px', borderRadius: 8, border: '1px solid var(--teal)', background: 'transparent', color: 'var(--teal)', cursor: 'pointer', fontSize: 13 }}>
+                style={{ padding: '9px 18px', borderRadius: 8, border: '1px solid var(--teal)', background: 'transparent', color: 'var(--teal-fg)', cursor: 'pointer', fontSize: 13 }}>
                 {phase === 'calling' ? 'Waiting for you to answer…' : 'Verify this number'}
               </button>
             </>
@@ -101,7 +101,7 @@ export default function CallerNumberPicker({ value, onChange }: { value: string;
           {code && phase === 'calling' && (
             <div style={{ marginTop: 10, fontSize: 13, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
               📞 We're calling <b>{ownNumber}</b> now. Answer and type this code on your keypad:
-              <div style={{ fontSize: 26, letterSpacing: 8, fontWeight: 800, color: 'var(--teal)', margin: '6px 0' }}>{code}</div>
+              <div style={{ fontSize: 26, letterSpacing: 8, fontWeight: 800, color: 'var(--teal-fg)', margin: '6px 0' }}>{code}</div>
               This screen updates automatically once verified.
             </div>
           )}
@@ -113,7 +113,7 @@ export default function CallerNumberPicker({ value, onChange }: { value: string;
             ⚠️ <b>Avoid being marked spam on Airtel/Indian networks:</b> verification lets calls show your number, but carriers may
             still flag high-volume AI calls. Get your number <b>Airtel-authorised</b> (DLT registration + Business Name Display) so
             recipients see your <b>company name with a verified badge</b> instead of "Spam likely".{' '}
-            <a href="/airtel-verified-calling" target="_blank" rel="noreferrer" style={{ color: 'var(--teal)' }}>Step-by-step guide →</a>
+            <a href="/airtel-verified-calling" target="_blank" rel="noreferrer" style={{ color: 'var(--teal-fg)' }}>Step-by-step guide →</a>
           </div>
         </div>
       )}

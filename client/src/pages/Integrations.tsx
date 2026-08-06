@@ -365,10 +365,10 @@ function ConnectModal({ provider, oauthAvailable, onClose, onConnected }: {
             </div>
             <div>
               <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#f2f2f2' }}>{provider.name} Integration</h2>
-              <p style={{ margin: '6px 0 0', fontSize: '13px', color: '#888', lineHeight: 1.5, maxWidth: '400px' }}>{provider.modalDescription}</p>
+              <p style={{ margin: '6px 0 0', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5, maxWidth: '400px' }}>{provider.modalDescription}</p>
             </div>
           </div>
-          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: '#666', cursor: 'pointer', padding: '4px', flexShrink: 0 }}>
+          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px', flexShrink: 0 }}>
             <X size={20} />
           </button>
         </div>
@@ -391,7 +391,7 @@ function ConnectModal({ provider, oauthAvailable, onClose, onConnected }: {
               >
                 {saving ? <><Loader2 size={16} className="animate-spin" /> Redirecting…</> : <>Sign in with Google</>}
               </button>
-              <button onClick={() => setShowManual(true)} style={{ background: 'transparent', border: 'none', color: '#888', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline' }}>
+              <button onClick={() => setShowManual(true)} style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline' }}>
                 Or enter access token manually
               </button>
             </div>
@@ -400,7 +400,7 @@ function ConnectModal({ provider, oauthAvailable, onClose, onConnected }: {
           {(showManual || provider.connectType !== 'oauth') && provider.connectFields.map(field => (
             <div key={field.name}>
               <label style={{ display: 'block', color: '#d4d4d4', fontSize: '14px', fontWeight: 600, marginBottom: '8px' }}>
-                {field.label}{field.optional && <span style={{ color: '#666', fontWeight: 400 }}> (Optional)</span>}
+                {field.label}{field.optional && <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> (Optional)</span>}
               </label>
 
               {field.type === 'select' ? (
@@ -428,7 +428,7 @@ function ConnectModal({ provider, oauthAvailable, onClose, onConnected }: {
                 />
               )}
 
-              {field.help && <p style={{ margin: '6px 0 0', color: '#666', fontSize: '12px', lineHeight: 1.5 }}>{field.help}</p>}
+              {field.help && <p style={{ margin: '6px 0 0', color: 'var(--text-muted)', fontSize: '12px', lineHeight: 1.5 }}>{field.help}</p>}
             </div>
           ))}
 
@@ -441,7 +441,7 @@ function ConnectModal({ provider, oauthAvailable, onClose, onConnected }: {
           {/* Buttons */}
           {(showManual || provider.connectType !== 'oauth') && (
           <div style={{ display: 'flex', gap: '12px', paddingTop: '4px' }}>
-            <button onClick={onClose} style={{ flex: 1, padding: '13px', borderRadius: '10px', border: '1px solid var(--border)', background: '#1a1a1a', color: '#ccc', fontSize: '14px', fontWeight: 600, cursor: 'pointer' }}>
+            <button onClick={onClose} style={{ flex: 1, padding: '13px', borderRadius: '10px', border: '1px solid var(--border)', background: 'var(--bg-card)', color: '#ccc', fontSize: '14px', fontWeight: 600, cursor: 'pointer' }}>
               Cancel
             </button>
             <button

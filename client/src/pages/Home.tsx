@@ -1,535 +1,872 @@
-import { useState, useEffect } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useTheme } from '../hooks/useTheme';
-import { Languages, ArrowUpRight, PhoneIncoming, Plug, Wand2, Phone, PenLine, FlaskConical, Puzzle, Rocket, LineChart, ChevronUp, ChevronDown, MessageSquare, MousePointer2, Layers, Users, Activity, Database, Code, Link2, Zap, PhoneCall, BarChart2, FileText, Star, ArrowRight, ArrowDown } from 'lucide-react';
+import {
+  CalendarCheck, Check, Filter, Globe, HeadphonesIcon, IndianRupee, MessageSquare,
+  Mic, Phone, PhoneForwarded, Plus, Radio, Send, Wallet, Webhook,
+} from 'lucide-react';
+import './Home.css';
 
-export default function Home() {
-  const { darkMode } = useTheme();
-  const [activeUseCase, setActiveUseCase] = useState('');
-  const [promptText, setPromptText] = useState('');
-  const [activeFaq, setActiveFaq] = useState<number | null>(null);
-  const [activeStep, setActiveStep] = useState(0);
+/* ═══════════════════════════════════════════════════════════════════════════
+   Landing page.
 
+   Structured as a call's timeline: each section is stamped with the second at
+   which the thing it describes happens, a fixed rail tracks how far into that
+   call you have scrolled, and the page ends where a call ends — at the wallet.
+   There is no monthly plan on this page, only a rate per talk-minute.
 
-  const useCases = {
-    'Lead Generation': 'Create a voice AI assistant that qualifies leads, collects contact information, and schedules follow-up calls automatically.',
-    'Appointments': 'Create a voice AI assistant that handles appointment booking for a medical clinic and sends confirmations.',
-    'Support': 'Create a voice AI assistant that handles customer support, answers FAQs, and escalates complex issues to human agents.',
-    'Negotiation': 'Create a voice AI assistant that can negotiate payment plans and settlements with customers.',
-    'Collections': 'Create a voice AI assistant for debt collection that handles payment reminders and arrangements.'
-  };
+   There is one price: rupees per talk-minute, from GET /config/wallet-rate.
+   That is the same value settlement deducts and the same value Super Admin →
+   Wallet Rate sets, so the advertised rate and the charged rate cannot drift
+   apart. Nothing is hardcoded, and when the endpoint is unreachable the page
+   says so rather than falling back to an invented figure.
 
-  const handleUseCaseClick = (useCase: keyof typeof useCases) => {
-    setActiveUseCase(useCase);
-    setPromptText(useCases[useCase]);
-  };
+   MOTION. Two systems, both opt-out under prefers-reduced-motion:
+     1. useReveal     — one IntersectionObserver adds .is-in to .lp-reveal nodes.
+     2. useScrollBeat — one rAF-throttled scroll listener drives the fixed rail.
+   Prices are never animated — see the note above useWalletRate.
+   ══════════════════════════════════════════════════════════════════════════ */
 
-  const toggleFaq = (index: number) => {
-    setActiveFaq(activeFaq === index ? null : index);
-  };
+/**
+ * The one number this page is about: rupees per talk-minute, deducted from the
+ * wallet. Served by GET /config/wallet-rate and set in Super Admin -> Wallet
+ * Rate. There are no plans and no tiers — the same rate applies to everyone,
+ * and it is the same value settlement charges, so the page cannot advertise a
+ * price the wallet does not take.
+ *
+ * null means "not loaded yet"; the page says so rather than inventing a figure.
+ */
+type WalletRate = number | null;
+
+const prefersReducedMotion = () =>
+  typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+const rupees = (amount: number, digits = 2) =>
+  new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }).format(amount);
+
+const clock = (seconds: number) => {
+  const s = Math.max(0, Math.floor(seconds));
+  return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+};
+
+/* ── Motion hooks ───────────────────────────────────────────────────────── */
+
+/** Adds .is-in to every .lp-reveal inside `root` as it scrolls into view.
+ *  `deps` re-scans after async content (the rate rows) mounts. */
+function useReveal(root: React.RefObject<HTMLElement>, deps: unknown[] = []) {
+  useEffect(() => {
+    const targets = root.current?.querySelectorAll<HTMLElement>('.lp-reveal:not(.is-in)');
+    if (!targets?.length) return;
+
+    if (prefersReducedMotion()) {
+      targets.forEach((el) => el.classList.add('is-in'));
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        entry.target.classList.add('is-in');
+        observer.unobserve(entry.target);
+      }),
+      { threshold: 0.1, rootMargin: '0px 0px -6% 0px' },
+    );
+    targets.forEach((el) => observer.observe(el));
+    return () => observer.disconnect();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, deps);
+}
+
+/** Drives the fixed timeline: overall scroll progress plus which beat is live.
+ *  One listener, rAF-throttled, writing a CSS custom property — the rail fill
+ *  is a scaleY, so this never triggers layout. */
+function useScrollBeat(root: React.RefObject<HTMLElement>, count: number) {
+  const [active, setActive] = useState(0);
 
   useEffect(() => {
-    const observer = new IntersectionObserver((entries) => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          (entry.target as HTMLElement).style.opacity = '1';
-          (entry.target as HTMLElement).style.transform = 'translateY(0)';
-          observer.unobserve(entry.target);
-        }
+    const host = root.current;
+    if (!host) return;
+
+    let frame = 0;
+    const measure = () => {
+      frame = 0;
+      const sections = host.querySelectorAll<HTMLElement>('[data-beat]');
+      if (!sections.length) return;
+
+      const top = host.offsetTop;
+      const span = Math.max(1, host.offsetHeight - window.innerHeight);
+      const progress = Math.min(1, Math.max(0, (window.scrollY - top) / span));
+      host.style.setProperty('--lp-progress', String(progress));
+
+      // The live beat is the last one whose top has passed the upper third of
+      // the viewport — the point at which a section reads as "the one I'm in".
+      const line = window.scrollY + window.innerHeight * 0.34;
+      let current = 0;
+      sections.forEach((section, i) => {
+        if (section.offsetTop <= line) current = i;
       });
-    }, { threshold: 0.1 });
+      setActive(current);
+    };
 
-    document.querySelectorAll('.animate-me').forEach(el => {
-      (el as HTMLElement).style.opacity = '0';
-      (el as HTMLElement).style.transform = 'translateY(24px)';
-      (el as HTMLElement).style.transition = 'opacity 0.5s ease, transform 0.5s ease';
-      observer.observe(el);
-    });
+    const onScroll = () => { if (!frame) frame = requestAnimationFrame(measure); };
+    measure();
+    window.addEventListener('scroll', onScroll, { passive: true });
+    window.addEventListener('resize', onScroll, { passive: true });
+    return () => {
+      if (frame) cancelAnimationFrame(frame);
+      window.removeEventListener('scroll', onScroll);
+      window.removeEventListener('resize', onScroll);
+    };
+  }, [root, count]);
 
-    return () => observer.disconnect();
+  return active;
+}
+
+/*
+ * There is deliberately no number-ramp helper on this page.
+ *
+ * Every figure here is a price: the spec strip, the per-minute rate, and the
+ * estimator total. requestAnimationFrame is suspended while a tab is in the
+ * background, so any ramp can stall part-way and leave a WRONG number on
+ * screen — a "< 50 ms" latency claim, or an estimator reading ₹0 for a product
+ * that costs money. A stalled animation is a cosmetic problem; a stalled price
+ * is a false statement. Prices render exact and instant; the motion budget is
+ * spent on the meter, the reveals and the rail instead.
+ */
+
+/* ── The rate ───────────────────────────────────────────────────────────── */
+
+/** undefined while in flight, null if the endpoint could not be reached. */
+function useWalletRate(): WalletRate | undefined {
+  const [rate, setRate] = useState<WalletRate | undefined>(undefined);
+
+  useEffect(() => {
+    let live = true;
+    fetch('/api/v1/config/wallet-rate')
+      .then((r) => r.json())
+      .then((d) => {
+        if (!live) return;
+        const value = Number(d?.perMinuteInr);
+        setRate(Number.isFinite(value) && value > 0 ? value : null);
+      })
+      .catch(() => live && setRate(null));
+    return () => { live = false; };
   }, []);
 
-  const howItWorksData = [
-    {
-      id: 1, title: 'Write', desc: 'Describe what type of Voice AI assistant you want', icon: PenLine,
-      paneTitle: 'Create Voice AI Assistants with Natural Language', paneDesc: "Simply describe what you want your Voice AI assistant to do, and we'll build it for you.",
-      features: [
-        { icon: MessageSquare, title: 'Conversational Creation', desc: 'Build your assistant through natural conversation - just chat with our platform about what you need.' },
-        { icon: MousePointer2, title: 'Drag-and-Drop Interface', desc: 'Fine-tune your assistant\'s capabilities with our intuitive drag-and-drop editor.' },
-        { icon: Layers, title: 'Pre-built Templates', desc: 'Start with industry-specific templates and customize to your needs.' }
-      ]
-    },
-    {
-      id: 2, title: 'Test', desc: 'Try out your assistant and see how it performs', icon: FlaskConical,
-      paneTitle: 'Test Your Assistant in Real Scenarios', paneDesc: 'Ensure your Voice AI assistant performs perfectly before deployment.',
-      features: [
-        { icon: MessageSquare, title: 'Test by chatting with the assistant', desc: 'Interact directly with your assistant to see how it handles conversations in real-time.' },
-        { icon: Users, title: 'Simulate 1000+ scenarios', desc: 'Automatically test your assistant against thousands of potential user interactions.' },
-        { icon: Activity, title: 'Evaluate performance', desc: 'Measure accuracy, response time, and user satisfaction with comprehensive metrics.' }
-      ]
-    },
-    {
-      id: 3, title: 'Add Functionalities', desc: 'Enhance through chat and drag-and-drop', icon: Puzzle,
-      paneTitle: "Extend Your Agent's Capabilities", paneDesc: 'Add powerful features to make your Voice AI assistant even more capable.',
-      features: [
-        { icon: Layers, title: 'Enhance your assistant from our node library', desc: 'Add pre-built capabilities from our extensive library of functional nodes.' },
-        { icon: Database, title: 'Add Knowledgebase', desc: 'Connect your assistant to your documentation, FAQs, and other knowledge sources.' },
-        { icon: Code, title: 'Integration marketplace', desc: 'Connect to CRMs, calendars, payment systems, and other business tools.' },
-        { icon: Link2, title: 'Add Tooling through API calls', desc: "Extend your assistant's capabilities by connecting to external APIs and services." }
-      ]
-    },
-    {
-      id: 4, title: 'Deploy', desc: 'Make your assistant available to your users', icon: Rocket,
-      paneTitle: 'Go Live with One Click', paneDesc: 'Deploy your Voice AI assistant to production environments instantly.',
-      features: [
-        { icon: Zap, title: 'Instant Deployment', desc: 'Push your assistant live with a single click - no technical setup required.' },
-        { icon: PhoneCall, title: 'Purchase phone numbers', desc: 'Get dedicated phone numbers for your assistant in multiple countries and regions.' },
-        { icon: Activity, title: 'Scalable Infrastructure', desc: 'Handle thousands of simultaneous conversations with enterprise-grade reliability.' }
-      ]
-    },
-    {
-      id: 5, title: 'Observe & Monitor', desc: 'Track performance and make improvements', icon: LineChart,
-      paneTitle: 'Gain Insights and Continuously Improve', paneDesc: "Monitor your Voice AI assistant's performance and optimize based on real data.",
-      features: [
-        { icon: BarChart2, title: 'Analytics Dashboard', desc: 'Track key metrics like call volume, resolution rates, and user satisfaction.' },
-        { icon: FileText, title: 'Logs and Traces', desc: 'Get interaction and span level overview of how your assistant is performing in real-time.' },
-        { icon: Star, title: 'Define Conversation Quality Scores', desc: "Create custom metrics to evaluate and improve your assistant's conversation quality." }
-      ]
-    }
-  ];
+  return rate;
+}
+
+/* ── The meter ──────────────────────────────────────────────────────────────
+   This page's signature. It runs a call at 6× real time and drains a wallet at
+   the entry rate, because that is the whole pricing model and it is faster to
+   watch than to read. */
+
+/** Deterministic tape: who is speaking and how loudly over one 150s call. Fixed
+ *  rather than random so the shape is designed, and so it does not re-roll on
+ *  every render. */
+const TAPE = [
+  ['caller', 0.5], ['caller', 0.8], ['caller', 0.4],
+  ['agent', 0.6], ['agent', 0.95], ['agent', 0.7], ['agent', 0.85], ['agent', 0.45],
+  ['caller', 0.7], ['caller', 0.95], ['caller', 0.55], ['caller', 0.3],
+  ['agent', 0.8], ['agent', 0.55], ['agent', 0.9], ['agent', 0.65],
+  ['caller', 0.35], ['caller', 0.6],
+  ['agent', 0.75], ['agent', 1], ['agent', 0.6], ['agent', 0.8], ['agent', 0.5], ['agent', 0.7],
+  ['caller', 0.9], ['caller', 0.5],
+  ['agent', 0.65], ['agent', 0.85], ['agent', 0.55],
+  ['caller', 0.75], ['caller', 0.4], ['caller', 0.65],
+  ['agent', 0.9], ['agent', 0.6], ['agent', 0.8], ['agent', 0.45], ['agent', 0.7],
+  ['caller', 0.55], ['caller', 0.85],
+  ['agent', 0.7], ['agent', 0.5], ['agent', 0.9], ['agent', 0.6], ['agent', 0.75], ['agent', 0.4], ['agent', 0.6],
+] as const;
+
+const CALL_SECONDS = 150;
+const OPENING_BALANCE = 1000;
+
+/** The waveform. Memoised on the integer bar index so it re-renders ~46 times
+ *  over a call instead of on every tick — otherwise the meter repaints 46 nodes
+ *  ten times a second, forever, on a marketing page. */
+const CallTape = memo(function CallTape({ spokenBars }: { spokenBars: number }) {
+  return (
+    <div className="lp-tape" aria-hidden="true">
+      {TAPE.map(([who, level], i) => {
+        const spoken = i < spokenBars;
+        return (
+          <span
+            key={i}
+            className="lp-tape-bar"
+            data-who={who}
+            data-spoken={spoken}
+            // The four bars behind the playhead are "live" and breathe; the one
+            // at the playhead is lifted, so the eye follows the call.
+            data-live={spoken && i > spokenBars - 5}
+            data-head={i === spokenBars - 1}
+            style={{ height: `${12 + level * 40}px`, ['--i' as string]: i }}
+          />
+        );
+      })}
+    </div>
+  );
+});
+
+function CallMeter({ rate }: { rate: number | null }) {
+  const [elapsed, setElapsed] = useState(0);
+  const hostRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (prefersReducedMotion()) { setElapsed(CALL_SECONDS); return; }
+
+    // 6× real time: a 2m30s call plays in 25s. Ticking at 100ms still reads as
+    // counting rather than stepping, at half the work of 50ms.
+    let timer = 0;
+    let onScreen = true;
+    const start = () => {
+      if (timer) return;
+      timer = window.setInterval(() => {
+        setElapsed((prev) => (prev >= CALL_SECONDS + 18 ? 0 : prev + 0.6));
+      }, 100);
+    };
+    const stop = () => { window.clearInterval(timer); timer = 0; };
+    // One gate for both reasons to pause: scrolled past, or tab in the
+    // background. Re-evaluated rather than one-way, so returning to the tab
+    // restarts the meter instead of leaving it frozen mid-call.
+    const sync = () => (onScreen && !document.hidden ? start() : stop());
+
+    const observer = new IntersectionObserver(
+      ([entry]) => { onScreen = entry.isIntersecting; sync(); },
+      { threshold: 0.15 },
+    );
+    if (hostRef.current) observer.observe(hostRef.current);
+
+    document.addEventListener('visibilitychange', sync);
+    sync();
+
+    return () => {
+      stop();
+      observer.disconnect();
+      document.removeEventListener('visibilitychange', sync);
+    };
+  }, []);
+
+  const onCall = Math.min(elapsed, CALL_SECONDS);
+  const spent = rate == null ? 0 : (onCall / 60) * rate;
+  const ended = elapsed >= CALL_SECONDS;
+  const spokenBars = Math.round((onCall / CALL_SECONDS) * TAPE.length);
 
   return (
-    <>
-      
-      {/* Hero Section */}
-      <section className="hero">
-        <div className="container">
-          <h1 className="hero-title">
-            <span style={{fontWeight: 700}}>Create your</span> <em style={{fontStyle: 'italic', fontWeight: 'normal'}}>Free</em> <span style={{color:'var(--teal)'}}>Voice AI</span> <span style={{fontWeight: 700}}>Assistant</span>
-          </h1>
-          <p className="hero-subtitle">Build, test, and ship reliable voice AI assistants</p>
-          
-          <div className="hero-input-wrapper">
-            <textarea 
-              className="hero-input" 
-              placeholder="Create a voice AI assistant that handles new membership applications at a gym"
-              value={promptText}
-              onChange={(e) => setPromptText(e.target.value)}
-            />
-            <div className="hero-input-footer">
-              <label style={{display:'flex', alignItems:'center', gap:'8px', fontSize:'13px', color:'var(--text-secondary)', cursor:'pointer'}}>
-                <input type="checkbox" className="custom-checkbox" defaultChecked />
-                Guided Flow
-              </label>
-              <Link to="/dashboard" className="btn btn-primary" style={{color: 'var(--bg-primary)', fontWeight: '600'}}>Create Agent →</Link>
-            </div>
-          </div>
-          
-          <div className="use-case-row">
-            <span style={{color:'var(--text-secondary)', fontSize:'14px'}}>Choose from use cases</span>
-            <div className="use-case-chips">
-              {(Object.keys(useCases) as Array<keyof typeof useCases>).map(useCase => (
-                <button 
-                  key={useCase} 
-                  className={`chip ${activeUseCase === useCase ? 'active' : ''}`}
-                  onClick={() => handleUseCaseClick(useCase)}
-                >
-                  {useCase}
-                </button>
-              ))}
-            </div>
-          </div>
+    <div className="lp-meter" ref={hostRef}>
+      <div className="lp-meter-head">
+        <span className="lp-meter-live">
+          {!ended && <span className="lp-dot" aria-hidden="true" />}
+          {ended ? 'Call ended' : 'On a call'}
+        </span>
+        <span className="lp-meter-clock lp-num">{clock(onCall)}</span>
+      </div>
+
+      {/* Teal is the agent, slate is the caller. Decorative — the readouts
+          below carry the information. */}
+      <CallTape spokenBars={spokenBars} />
+
+      <div className="lp-meter-rows">
+        <div className="lp-meter-row">
+          <span className="lp-meter-k">Wallet</span>
+          <span className="lp-meter-v lp-meter-v--balance">{rupees(OPENING_BALANCE - spent)}</span>
         </div>
-      </section>
-
-      {/* Trusted By */}
-      <section className="trusted-by" style={{marginTop:'50px'}}>
-        <div className="container" style={{textAlign:'center'}}>
-          <p style={{color:'var(--text-secondary)', fontSize:'14px', marginBottom:'32px', fontWeight:400}}>
-            Trusted by leading companies
-          </p>
-          <div className="trusted-logos">
-            <div className="trusted-logo-item">
-              <img src="https://upload.wikimedia.org/wikipedia/commons/9/9d/Capgemini_201x_logo.svg" alt="Capgemini" style={{height: '26px', filter: 'brightness(0) saturate(100%) invert(56%) sepia(61%) saturate(2335%) hue-rotate(164deg) brightness(98%) contrast(98%)'}} />
-            </div>
-            <div className="trusted-logo-item">
-              <img src="/logos/exotel.jpg" alt="exotel" style={{height: '32px', mixBlendMode: darkMode ? 'screen' : 'multiply', filter: darkMode ? 'contrast(10) brightness(0.6)' : 'grayscale(1) contrast(1.2) opacity(0.8)'}} />
-            </div>
-            <div className="trusted-logo-item" style={{display: 'flex', alignItems: 'center', gap: '10px'}}>
-              <img src="/logos/nvidia.png" alt="NVIDIA" style={{height: '48px', mixBlendMode: darkMode ? 'screen' : 'multiply', filter: darkMode ? 'contrast(10) brightness(0.6)' : 'grayscale(1) contrast(1.2) opacity(0.8)'}} />
-              <div style={{borderLeft: '1px solid var(--border)', paddingLeft: '12px', display: 'flex', flexDirection: 'column', justifyContent: 'center'}}>
-                <span style={{color: 'var(--text-primary)', fontSize: '12px', fontWeight: '700', lineHeight:'1.2'}}>Inception</span>
-                <span style={{color: 'var(--text-primary)', fontSize: '12px', fontWeight: '700', lineHeight:'1.2'}}>Program</span>
-              </div>
-            </div>
-            <div className="trusted-logo-item">
-              <img src="/logos/mg.png" alt="MG" style={{height: '54px', mixBlendMode: darkMode ? 'screen' : 'multiply', filter: darkMode ? 'grayscale(1) invert(1) brightness(2.5) sepia(1) saturate(10000%) hue-rotate(345deg)' : 'grayscale(1) contrast(1.2) opacity(0.8)'}} />
-            </div>
-            <div className="trusted-logo-item">
-              <img src="/logos/cipla.jpg" alt="Cipla" style={{height: '42px', mixBlendMode: darkMode ? 'screen' : 'multiply', filter: darkMode ? 'grayscale(1) invert(1) brightness(2.5) sepia(1) saturate(10000%) hue-rotate(200deg)' : 'grayscale(1) contrast(1.2) opacity(0.8)'}} />
-            </div>
-          </div>
+        <div className="lp-meter-drain" aria-hidden="true">
+          <i style={{ ['--fill' as string]: spent / OPENING_BALANCE }} />
         </div>
-      </section>
-
-      {/* Features Outline */}
-      <section style={{ position: 'relative', padding: '100px 0', overflow: 'hidden' }}>
-        <div className="ambient-glow top-left" />
-        <div className="ambient-glow bottom-right" />
-        
-        <div className="container" style={{ position: 'relative', zIndex: 1, maxWidth: '1100px' }}>
-          <div style={{ textAlign: 'center', marginBottom: '60px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <span style={{ color: '#0eb39e', border: '1px solid rgba(14,179,158,0.3)', background: 'rgba(14,179,158,0.05)', padding: '6px 16px', borderRadius: '24px', fontSize: '14px', fontWeight: '500', marginBottom: '24px', display: 'inline-block' }}>Core Capabilities</span>
-            <h2 style={{ fontSize: '42px', fontWeight: '700', margin: '0 0 16px', letterSpacing: '-0.5px' }}>Why Conversational AI Agent for <span style={{ color: '#0eb39e' }}>Voice AI</span> ?</h2>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '18px', margin: 0 }}>Powerful features to build, deploy, and scale your Voice AI assistants</p>
-          </div>
-
-          <div className="features-grid" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "24px" }}>
-            <div className="core-feature-card animate-me">
-              <div className="core-feature-icon-wrapper">
-                <Languages size={24} />
-              </div>
-              <h3>Multi-Language</h3>
-              <p>Serve users in हिंदी, தமிழ், Español, 日本語, and more</p>
-            </div>
-            <div className="core-feature-card animate-me">
-              <div className="core-feature-icon-wrapper">
-                <ArrowUpRight size={24} />
-              </div>
-              <h3>Scale Outbound</h3>
-              <p>Automate lead gen, reminders & collections</p>
-            </div>
-            <div className="core-feature-card animate-me">
-              <div className="core-feature-icon-wrapper">
-                <PhoneIncoming size={24} />
-              </div>
-              <h3>24/7 Inbound</h3>
-              <p>Handle bookings and inquiries around the clock</p>
-            </div>
-            <div className="core-feature-card animate-me">
-              <div className="core-feature-icon-wrapper">
-                <Plug size={24} />
-              </div>
-              <h3>Connect Stack</h3>
-              <p>Integrate with CRM, Sheets, Slack, n8n</p>
-            </div>
-            <div className="core-feature-card animate-me">
-              <div className="core-feature-icon-wrapper">
-                <Wand2 size={24} />
-              </div>
-              <h3>Quick Training</h3>
-              <p>Train AI with your own call recordings</p>
-            </div>
-            <div className="core-feature-card animate-me">
-              <div className="core-feature-icon-wrapper">
-                <Phone size={24} />
-              </div>
-              <h3>Phone Numbers</h3>
-              <p>Buy Indian (+91) or US (+1) numbers instantly</p>
-            </div>
-          </div>
+        <div className="lp-meter-row">
+          <span className="lp-meter-k">Rate</span>
+          <span className="lp-meter-v">{rate == null ? '—' : `${rupees(rate)} / min`}</span>
         </div>
-      </section>
-
-      {/* How it Works */}
-      <section style={{ padding: '100px 0', borderTop: '1px solid var(--border)', background: 'radial-gradient(ellipse at bottom, rgba(14, 179, 158, 0.03) 0%, transparent 60%)' }}>
-        <div className="container" style={{ maxWidth: '1200px' }}>
-          <div style={{ textAlign: 'center', marginBottom: '60px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <span style={{ color: '#0eb39e', border: '1px solid rgba(14,179,158,0.3)', background: 'rgba(14,179,158,0.05)', padding: '6px 16px', borderRadius: '24px', fontSize: '14px', fontWeight: '500', marginBottom: '24px', display: 'inline-block' }}>Simple Process</span>
-            <h2 style={{ fontSize: '42px', fontWeight: '700', margin: '0 0 16px', letterSpacing: '-0.5px' }}>How it Works</h2>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '18px', margin: 0 }}>Create and deploy your Voice AI assistant in five simple steps</p>
-          </div>
-
-          {/* Steps Horizontal List */}
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: "16px" }}>
-            {howItWorksData.map((step, idx) => {
-               const isActive = activeStep === idx;
-               return (
-                 <div key={idx} className="how-it-works-step" onClick={() => setActiveStep(idx)} style={{ 
-                   background: 'var(--bg-card)', 
-                   border: `1px solid ${isActive ? 'var(--teal)' : 'var(--border)'}`, 
-                   borderRadius: '16px', 
-                   padding: '32px 24px',
-                   display: 'flex',
-                   flexDirection: 'column',
-                   alignItems: 'center',
-                   textAlign: 'center',
-                   position: 'relative',
-                   transition: 'all 0.3s',
-                   cursor: 'pointer'
-                 }}>
-                   <div style={{ width: '36px', height: '36px', borderRadius: '50%', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--teal)', fontSize: '16px', fontWeight: '700', marginBottom: '16px' }}>
-                     {step.id}
-                   </div>
-                   <div style={{ width: '48px', height: '48px', borderRadius: '12px', background: 'var(--bg-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--teal)', marginBottom: '24px', border: '1px solid var(--border)' }}>
-                     <step.icon size={22} />
-                   </div>
-                   <h4 style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '12px' }}>{step.title}</h4>
-                   <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.5', margin: 0, padding: '0 8px' }}>{step.desc}</p>
-                   
-                   <div style={{ position: 'absolute', bottom: '16px', color: 'var(--teal)' }}>
-                     {isActive ? <ChevronUp size={20} /> : <ChevronDown size={20} />}
-                   </div>
-                 </div>
-               );
-             })}
-          </div>
-
-          {/* Active Step Detailed Pane */}
-          <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '16px', padding: '48px' }}>
-            <h3 style={{ fontSize: '24px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '8px' }}>{howItWorksData[activeStep].paneTitle}</h3>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '15px', marginBottom: '40px' }}>{howItWorksData[activeStep].paneDesc}</p>
-
-            <div style={{ display: 'grid', gridTemplateColumns: `repeat(auto-fit , minmax(280px, 1fr))`, gap: '24px' }}>
-              {howItWorksData[activeStep].features.map((feat, fidx) => (
-                <div key={fidx} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '12px', padding: '24px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '16px' }}>
-                    <feat.icon size={20} style={{ color: 'var(--teal)' }} />
-                    <h5 style={{ color: 'var(--text-primary)', fontSize: '16px', fontWeight: '600', margin: 0 }}>{feat.title}</h5>
-                  </div>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '14px', lineHeight: '1.6', margin: 0 }}>{feat.desc}</p>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* Try It Out CTA */}
-      <section style={{background:'var(--bg-card)', padding:'80px 0', borderTop:'1px solid var(--border)', borderBottom:'1px solid var(--border)'}}>
-        <div className="container" style={{textAlign:'center'}}>
-           <h2>Start building your voice agent today</h2>
-           <p style={{color:'var(--text-secondary)', marginBottom:'32px', maxWidth:'600px', margin:'0 auto 32px'}}>
-             Join thousands of developers building the next generation of conversational AI.
-           </p>
-           <div style={{display:'flex', gap:'16px', justifyContent:'center'}}>
-             <Link to="/dashboard" className="btn btn-primary btn-lg">Start for Free →</Link>
-             <Link to="/book-appointment" className="btn btn-secondary btn-lg">Book a Demo</Link>
-           </div>
-        </div>
-      </section>
-
-      {/* Integrations & Partners */}
-      <section style={{ position: 'relative', padding: '100px 0', overflow: 'hidden' }}>
-        {/* Ambient teal glow behind the box */}
-        <div style={{
-          position: 'absolute', top: '10%', left: '50%', transform: 'translateX(-50%)',
-          width: '700px', height: '300px',
-          background: 'radial-gradient(ellipse, rgba(14,179,158,0.18) 0%, rgba(14,179,158,0.05) 50%, transparent 80%)',
-          filter: 'blur(30px)', zIndex: 0, pointerEvents: 'none'
-        }} />
-
-        <div className="container" style={{ position: 'relative', zIndex: 1, maxWidth: '1100px' }}>
-          {/* Header */}
-          <div style={{ textAlign: 'center', marginBottom: '48px', display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <span style={{ color: '#0eb39e', border: '1px solid rgba(14,179,158,0.3)', background: 'rgba(14,179,158,0.06)', padding: '6px 16px', borderRadius: '24px', fontSize: '14px', fontWeight: '500', marginBottom: '24px', display: 'inline-block' }}>Ecosystem</span>
-            <h2 style={{ fontSize: '40px', fontWeight: '700', margin: '0 0 16px', letterSpacing: '-0.5px' }}>Integrations and Partners</h2>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '17px', maxWidth: '520px', margin: 0, lineHeight: '1.6' }}>Connect with your favorite tools and platforms. Powered by industry-leading technologies and partnerships.</p>
-          </div>
-
-          {/* Integration Card */}
-          <div style={{
-            background: 'var(--bg-secondary)',
-            border: '1px solid var(--border)',
-            borderRadius: '20px',
-            padding: '0',
-            position: 'relative',
-            overflow: 'hidden',
-            height: '340px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center'
-          }}>
-            {/* Inner subtle gradient */}
-            <div style={{ position: 'absolute', inset: 0, background: 'radial-gradient(ellipse at center, rgba(14,179,158,0.04) 0%, transparent 65%)', pointerEvents: 'none' }} />
-
-            {/* CENTER: Conversational AI Agent Logo Text */}
-            <div style={{ textAlign: 'center', zIndex: 5 }}>
-              <span style={{ fontSize: '28px', fontWeight: '700', color: 'var(--text-primary)', letterSpacing: '-1px', fontFamily: 'Space Grotesk, sans-serif' }}>
-                Conversational <span style={{ color: '#0eb39e' }}>AI</span> Agent
-              </span>
-            </div>
-
-            {/* LEFT LOGOS — absolutely positioned, scattered */}
-            {/* Cal */}
-            <div style={{ position: 'absolute', top: '14%', left: '5%' }}>
-              <div style={{ width: '52px', height: '52px', background: 'var(--bg-card)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--border)', fontSize: '13px', fontWeight: '700', color: 'var(--text-primary)' }}>Cal</div>
-            </div>
-            {/* Purple M — Make/Integromat */}
-            <div style={{ position: 'absolute', top: '8%', left: '17%' }}>
-              <div style={{ width: '52px', height: '52px', background: '#6c17c9', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '24px', fontWeight: '900', color: 'white' }}>m</div>
-            </div>
-            {/* ChatGPT / OpenAI */}
-            <div style={{ position: 'absolute', top: '30%', left: '5%' }}>
-              <div style={{ width: '52px', height: '52px', background: '#10a37f', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <svg width="28" height="28" viewBox="0 0 24 24" fill="white"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.8956zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></svg>
-              </div>
-            </div>
-            {/* Google Calendar */}
-            <div style={{ position: 'absolute', top: '50%', left: '12%', transform: 'translateY(-50%)' }}>
-              <div style={{ width: '52px', height: '52px', background: '#fff', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: '700', color: '#1a73e8', border: '1px solid var(--border)' }}>31</div>
-            </div>
-            {/* Gmail */}
-            <div style={{ position: 'absolute', top: '68%', left: '5%' }}>
-              <div style={{ width: '52px', height: '52px', background: '#fff', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--border)' }}>
-                <svg viewBox="0 0 24 24" width="32" height="32"><path fill="#EA4335" d="M1 5.5L12 13l11-7.5V18a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V5.5z"/><path fill="#FBBC05" d="M1 5.5L12 13l11-7.5"/><path fill="#34A853" d="M23 5.5V18a1 1 0 0 1-1 1H2a1 1 0 0 1-1-1V5.5l11 7.5 11-7.5z" opacity="0"/><path fill="#4285F4" d="M1 5.5A1 1 0 0 1 2 4.5h20a1 1 0 0 1 1 1L12 13 1 5.5z"/></svg>
-              </div>
-            </div>
-            {/* Mailchimp */}
-            <div style={{ position: 'absolute', top: '72%', left: '18%' }}>
-              <div style={{ width: '52px', height: '52px', background: '#FFE01B', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px' }}>🐒</div>
-            </div>
-            {/* Slack */}
-            <div style={{ position: 'absolute', top: '62%', left: '26%' }}>
-              <div style={{ width: '52px', height: '52px', background: '#4A154B', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <svg viewBox="0 0 24 24" width="30" height="30" fill="white"><path d="M5.042 15.165a2.528 2.528 0 0 1-2.52 2.523A2.528 2.528 0 0 1 0 15.165a2.527 2.527 0 0 1 2.522-2.52h2.52v2.52zm1.271 0a2.527 2.527 0 0 1 2.521-2.52 2.527 2.527 0 0 1 2.521 2.52v6.313A2.528 2.528 0 0 1 8.834 24a2.528 2.528 0 0 1-2.521-2.522v-6.313zm2.521-10.123a2.528 2.528 0 0 1-2.521-2.52A2.528 2.528 0 0 1 8.834 0a2.528 2.528 0 0 1 2.521 2.522v2.52H8.834zm0 1.271a2.528 2.528 0 0 1 2.521 2.521 2.528 2.528 0 0 1-2.521 2.521H2.522A2.528 2.528 0 0 1 0 8.834a2.528 2.528 0 0 1 2.522-2.521h6.312zm10.122 2.521a2.528 2.528 0 0 1 2.522-2.521A2.528 2.528 0 0 1 24 8.834a2.528 2.528 0 0 1-2.522 2.521h-2.522V8.834zm-1.268 0a2.528 2.528 0 0 1-2.523 2.521 2.527 2.527 0 0 1-2.52-2.521V2.522A2.527 2.527 0 0 1 15.165 0a2.528 2.528 0 0 1 2.523 2.522v6.312zm-2.523 10.122a2.528 2.528 0 0 1 2.523 2.522A2.528 2.528 0 0 1 15.165 24a2.527 2.527 0 0 1-2.52-2.522v-2.522h2.52zm0-1.268a2.527 2.527 0 0 1-2.52-2.523 2.526 2.526 0 0 1 2.52-2.52h6.313A2.527 2.527 0 0 1 24 15.165a2.528 2.528 0 0 1-2.522 2.523h-6.313z"/></svg>
-              </div>
-            </div>
-            {/* Anthropic / AI */}
-            <div style={{ position: 'absolute', top: '80%', left: '5%' }}>
-              <div style={{ width: '52px', height: '52px', background: '#CC785C', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', fontWeight: '800', color: 'white' }}>AI</div>
-            </div>
-            {/* Globe */}
-            <div style={{ position: 'absolute', top: '22%', left: '30%' }}>
-              <div style={{ width: '52px', height: '52px', background: 'var(--bg-card)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '26px', border: '1px solid var(--border)' }}>🌐</div>
-            </div>
-            {/* n8n / flow S */}
-            <div style={{ position: 'absolute', top: '55%', left: '33%' }}>
-              <div style={{ width: '52px', height: '52px', background: '#ea4b71', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px', fontWeight: '900', color: 'white' }}>n</div>
-            </div>
-
-            {/* RIGHT LOGOS */}
-            {/* Growth arrow */}
-            <div style={{ position: 'absolute', top: '6%', right: '4%' }}>
-              <div style={{ width: '52px', height: '52px', background: 'var(--bg-card)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '26px', border: '1px solid var(--border)' }}>📈</div>
-            </div>
-            {/* Flow/scatter nodes */}
-            <div style={{ position: 'absolute', top: '18%', right: '18%' }}>
-              <div style={{ width: '52px', height: '52px', background: 'var(--bg-card)', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '20px', color: '#e91e8c', border: '1px solid var(--border)' }}>⋯</div>
-            </div>
-            {/* Trello */}
-            <div style={{ position: 'absolute', top: '28%', right: '7%' }}>
-              <div style={{ width: '52px', height: '52px', background: '#0052CC', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <svg viewBox="0 0 24 24" width="28" height="28" fill="white"><path d="M21 0H3C1.343 0 0 1.343 0 3v18c0 1.656 1.343 3 3 3h18c1.656 0 3-1.344 3-3V3c0-1.657-1.344-3-3-3zM10.44 18.18c0 .795-.645 1.44-1.44 1.44H4.56c-.795 0-1.44-.645-1.44-1.44V4.56c0-.795.645-1.44 1.44-1.44H9c.795 0 1.44.645 1.44 1.44v13.62zm10.44-6c0 .794-.645 1.44-1.44 1.44H15c-.795 0-1.44-.646-1.44-1.44V4.56c0-.795.645-1.44 1.44-1.44h4.44c.795 0 1.44.645 1.44 1.44v7.62z"/></svg>
-              </div>
-            </div>
-            {/* Salesforce */}
-            <div style={{ position: 'absolute', top: '45%', right: '16%' }}>
-              <div style={{ width: '72px', height: '36px', background: '#00A1E0', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: '700', color: 'white' }}>salesforce</div>
-            </div>
-            {/* Twilio / Tokbox red */}
-            <div style={{ position: 'absolute', top: '38%', right: '4%' }}>
-              <div style={{ width: '52px', height: '52px', background: '#F22F46', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <svg viewBox="0 0 24 24" width="28" height="28" fill="white"><path d="M12 0C5.373 0 0 5.373 0 12s5.373 12 12 12 12-5.373 12-12S18.627 0 12 0zm0 2a9.994 9.994 0 0 1 7.072 2.929A9.995 9.995 0 0 1 22 12c0 5.523-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2zm-3 7a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm6 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm-6 6a2 2 0 1 0 0 4 2 2 0 0 0 0-4zm6 0a2 2 0 1 0 0 4 2 2 0 0 0 0-4z"/></svg>
-              </div>
-            </div>
-            {/* Google Sheets */}
-            <div style={{ position: 'absolute', top: '58%', right: '5%' }}>
-              <div style={{ width: '52px', height: '52px', background: '#0F9D58', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <svg viewBox="0 0 24 24" width="28" height="28" fill="white"><path d="M11.318 12.545H7.91v-1.909h3.41v1.91zm0 3.273H7.91v-1.91h3.41v1.91zm1.364-3.273v-1.909h3.41v1.91h-3.41zm0 3.273v-1.91h3.41v1.91h-3.41zM6.545 9.273H17.46v7.09H6.545v-7.09zM14.727 3l4.91 4.91H14.727V3zM6 0v24h12V7.636L13.364 0H6z"/></svg>
-              </div>
-            </div>
-            {/* Asterisk/HubSpot */}
-            <div style={{ position: 'absolute', top: '72%', right: '18%' }}>
-              <div style={{ width: '52px', height: '52px', background: '#FF7A59', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '26px', color: 'white', fontWeight: '900' }}>✺</div>
-            </div>
-            {/* HubSpot */}
-            <div style={{ position: 'absolute', top: '72%', right: '8%' }}>
-              <div style={{ width: '52px', height: '52px', background: '#FF7A59', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px' }}>🔗</div>
-            </div>
-            {/* Zoho */}
-            <div style={{ position: 'absolute', top: '78%', right: '3%' }}>
-              <div style={{ width: '52px', height: '52px', background: '#e42527', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: '800', color: 'white', letterSpacing: '-0.5px' }}>ZOHO</div>
-            </div>
-            {/* Zapier lightning */}
-            <div style={{ position: 'absolute', top: '55%', right: '28%' }}>
-              <div style={{ width: '52px', height: '52px', background: '#FF4A00', borderRadius: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '26px', color: 'white' }}>⚡</div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* FAQ */}
-      <section className="container" style={{padding:'100px 0', maxWidth:'900px', margin:'0 auto'}} id="faq">
-        <div style={{textAlign: 'center', marginBottom: '60px'}}>
-          <h2 style={{fontSize: '36px', fontWeight: '700', marginBottom: '16px', color: 'var(--text-primary)'}}>Frequently Asked Questions</h2>
-          <p style={{color: 'var(--text-secondary)', fontSize: '18px'}}>Common questions about the Conversational AI Agent platform</p>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-          {[
-            {q: "How quickly can I really create a Voice AI agent?", a: "You can create a fully functional Voice AI agent on Conversational AI Agent in under 5 minutes. Just prompt, pick a voice, and launch. No coding required."},
-            {q: "Do I need any technical or coding knowledge?", a: "Not at all. Conversational AI Agent is built for everyone, from business owners to developers. You can create, test, and deploy AI agents without writing a single line of code."},
-            {q: "What kind of Voice AI agents can I build?", a: "On Conversational AI Agent, you can build customer support bots, lead generation agents, appointment schedulers, sales assistants, IVR systems, and more. If your business talks to customers, you can automate it here."},
-            {q: "Can I customize how the AI agent sounds and responds?", a: "Absolutely. Conversational AI Agent lets you choose from a variety of natural voices, tones, speaking speeds, and emotional styles. You can also edit the agent’s conversation flow and personality to match your brand."},
-            {q: "What happens after I create my agent?", a: "Once created on Conversational AI Agent, you can instantly test your agent, deploy it on calls or your website, and track live analytics on performance and user engagement."},
-            {q: "Is there a free trial or demo available?", a: "Yes. You can sign up for a free trial on Conversational AI Agent to create your first agent and experience the platform before upgrading to a paid plan."},
-            {q: "Can I integrate my AI agent with existing systems?", a: "Yes. Conversational AI Agent integrates seamlessly with CRMs, call management tools, APIs, and databases, allowing you to personalize conversations and automate workflows."},
-            {q: "How does the AI handle multiple conversations at once?", a: "Conversational AI Agent is cloud-based and scalable. Your agents can handle thousands of simultaneous calls or chats without lag or downtime."},
-            {q: "Can the AI agent make outbound calls?", a: "Yes. On Conversational AI Agent, you can run bulk or targeted outbound call campaigns for sales, follow-ups, or surveys, complete with detailed analytics on performance."},
-            {q: "Can I train the AI on my company data?", a: "Yes. You can upload FAQs, documents, or scripts on Conversational AI Agent, and the AI will learn to respond using your brand’s tone and knowledge base."},
-            {q: "What happens if the AI doesn’t understand something?", a: "When your Conversational AI Agent agent encounters unclear inputs, it can either ask clarifying questions or transfer the conversation to a human operator, depending on your configuration."},
-            {q: "Can I use my own phone number for calls?", a: "Yes. Conversational AI Agent lets you connect your existing business number or purchase a new one for inbound and outbound calls."},
-            {q: "Can I monitor my AI agents in real time?", a: "Yes. Conversational AI Agent provides real-time dashboards with live call logs, transcripts, sentiment analysis, and detailed performance reports."},
-            {q: "How much does it cost to use the platform?", a: "Conversational AI Agent uses a flexible, usage-based pricing model. You pay for minutes used. Volume discounts and enterprise plans are also available."},
-            {q: "How do I measure the success of my AI agent?", a: "Conversational AI Agent provides detailed reports showing call outcomes, engagement rates, sentiment analysis, and lead conversion, all accessible from your dashboard."},
-            {q: "Can I pause or edit an agent after it’s live?", a: "Yes. On Conversational AI Agent, you can modify scripts, change voices, or pause campaigns anytime without losing your progress or data."},
-            {q: "What is the latency on Conversational AI Agent calls?", a: "Conversational AI Agent maintains low latency, typically under 500 milliseconds, ensuring that every response from your AI agent feels instant and natural. This near real-time performance makes conversations fluid and human-like, even in high-volume campaigns."},
-            {q: "Can I make bulk calls or outgoing calls?", a: "Yes. You can easily make bulk or outbound calls directly through Conversational AI Agent. The platform supports large-scale automated calling for sales, surveys, reminders, and customer engagement, all powered by AI-driven personalization and real-time analytics."},
-            {q: "I have my own telephony, can I use it with Conversational AI Agent?", a: "Absolutely. Conversational AI Agent supports SIP (Session Initiation Protocol) integration, allowing you to connect your existing telephony or PBX system seamlessly. This gives you full control over routing, carrier preferences, and infrastructure while leveraging Conversational AI Agent’s AI capabilities."}
-          ].map((faq, i) => (
-            <div 
-              key={i} 
-              style={{ 
-                background: 'var(--bg-card)', 
-                border: `1px solid ${activeFaq === i ? 'var(--teal)' : 'var(--border)'}`, 
-                borderRadius: '8px', 
-                overflow: 'hidden',
-                transition: 'all 0.3s'
-              }}
-            >
-              <button 
-                onClick={() => toggleFaq(i)}
-                style={{
-                  width: '100%',
-                  padding: '24px 28px',
-                  display: 'flex',
-                  justifyContent: 'space-between',
-                  alignItems: 'center',
-                  background: 'transparent',
-                  border: 'none',
-                  color: 'var(--text-primary)',
-                  cursor: 'pointer',
-                  textAlign: 'left'
-                }}
-              >
-                <span style={{ fontSize: '16px', fontWeight: 'bold' }}>{faq.q}</span>
-                {activeFaq === i 
-                  ? <ArrowDown size={20} style={{ color: 'var(--teal)', minWidth: '20px' }} /> 
-                  : <ArrowRight size={20} style={{ color: 'var(--teal)', minWidth: '20px' }} />
-                }
-              </button>
-              
-              {activeFaq === i && (
-                <div style={{ padding: '0 28px 24px 28px' }}>
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '15px', lineHeight: '1.6', margin: 0 }}>{faq.a}</p>
-                </div>
-              )}
-            </div>
-          ))}
-        </div>
-      </section>
-      
-      {/* Ask Kevin Chat Bubble */}
-      <div style={{position:'fixed', bottom:'24px', right:'24px', display: 'flex', alignItems: 'center', gap: '12px', zIndex:100}}>
-        <div style={{fontWeight:600, fontSize:'14px', color:'var(--text-primary)', background:'var(--bg-card)', border:'1px solid var(--border)', padding:'6px 12px', borderRadius:'16px', backdropFilter:'blur(4px)', boxShadow:'var(--shadow-topbar)'}}>
-          Ask Kevin
-        </div>
-        <div style={{background:'var(--bg-secondary)', width:'48px', height:'48px', borderRadius:'50%', display:'flex', alignItems:'center', justifyContent:'center', cursor:'pointer', boxShadow:'0 8px 30px rgba(0,0,0,0.3)', border:'1px solid var(--border)'}}>
-          <svg width="22" height="22" viewBox="0 0 22 22" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M8 6h3.5C14.5 6 17 8.5 17 11s-2.5 5-5.5 5H8V6z" fill="var(--teal)"/>
-          </svg>
+        <div className="lp-meter-row">
+          <span className="lp-meter-k">This call</span>
+          <span className="lp-meter-v lp-meter-v--spend">{rate == null ? '—' : `− ${rupees(spent)}`}</span>
         </div>
       </div>
+
+      <p className="lp-meter-foot">
+        Running at the rate a new workspace starts on. Top up any amount, spend it on
+        talk-minutes, and stop whenever you like.
+      </p>
+    </div>
+  );
+}
+
+/* ── Estimator ─────────────────────────────────────────────────────────────
+   Answers the only question a wallet model leaves open: how long does a top-up
+   last me? */
+
+function Estimator({ rate }: { rate: number | null }) {
+  const [callsPerDay, setCallsPerDay] = useState(120);
+  const [minutesPerCall, setMinutesPerCall] = useState(3);
+
+  const minutesPerMonth = callsPerDay * minutesPerCall * 30;
+  const monthly = rate == null ? null : minutesPerMonth * rate;
+
+  return (
+    <div className="lp-est">
+      <div className="lp-est-fields">
+        <div className="lp-field">
+          <label className="lp-field-label" htmlFor="lp-calls">
+            Calls a day <b className="lp-num">{callsPerDay}</b>
+          </label>
+          <input
+            id="lp-calls" className="lp-range" type="range" min={10} max={2000} step={10}
+            value={callsPerDay} onChange={(e) => setCallsPerDay(Number(e.target.value))}
+          />
+        </div>
+        <div className="lp-field">
+          <label className="lp-field-label" htmlFor="lp-mins">
+            Minutes a call <b className="lp-num">{minutesPerCall}</b>
+          </label>
+          <input
+            id="lp-mins" className="lp-range" type="range" min={1} max={15} step={1}
+            value={minutesPerCall} onChange={(e) => setMinutesPerCall(Number(e.target.value))}
+          />
+        </div>
+      </div>
+
+      <div className="lp-est-out">
+        <div>
+          <div className="lp-est-total">{monthly == null ? '—' : rupees(monthly, 0)}</div>
+          <p className="lp-est-sub">A month at this volume, at the rate above.</p>
+        </div>
+        <p className="lp-est-sub lp-num" style={{ textAlign: 'right' }}>
+          {minutesPerMonth.toLocaleString('en-IN')} talk-minutes
+          <br />
+          {monthly == null ? '' : `${rupees(monthly / 30, 0)} a day`}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/* ── Small animated pieces ─────────────────────────────────────────────── */
+
+/** Splits a headline into words that rise into place one after another.
+ *
+ *  Word gaps come from margin-right on .lp-word, not from space characters. A
+ *  space between two inline-blocks can be broken before (leaving a stray indent
+ *  at the start of a wrapped line), and a space INSIDE one is stripped as
+ *  trailing whitespace, running the words together. A margin is neither. */
+function Words({ text, from = 0 }: { text: string; from?: number }) {
+  return (
+    <>
+      {text.split(' ').map((word, i) => (
+        <span
+          className="lp-word"
+          key={word + '-' + i}
+          style={{ ['--d' as string]: (from + i) * 45 + 'ms' }}
+        >
+          {word}
+        </span>
+      ))}
     </>
+  );
+}
+
+/** Seamless loop: the track holds the row twice and slides exactly one copy. */
+function Marquee({ items, speed = 34, reverse = false }: {
+  items: React.ReactNode[]; speed?: number; reverse?: boolean;
+}) {
+  return (
+    <div className={`lp-marquee${reverse ? ' lp-marquee--rev' : ''}`}>
+      {[false, true].map((clone) => (
+        <div
+          key={String(clone)}
+          className="lp-marquee-track"
+          data-clone={clone}
+          aria-hidden={clone}
+          style={{ ['--speed' as string]: `${speed}s` }}
+        >
+          {items}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/* ── Page content ───────────────────────────────────────────────────────── */
+
+const BEATS = [
+  { tc: '00:00', beat: 'Incoming' },
+  { tc: '00:02', beat: 'Greeting' },
+  { tc: '00:20', beat: 'Working' },
+  { tc: '01:45', beat: 'Handoff' },
+  { tc: 'Settle', beat: 'The wallet' },
+  { tc: 'Q&A', beat: 'Before you start' },
+];
+
+const SERVICES = [
+  { icon: CalendarCheck, title: 'Books appointments', body: 'Offers real open slots from Google Calendar or Cal.com, confirms, and writes the booking back before the caller hangs up.' },
+  { icon: Filter, title: 'Qualifies leads', body: 'Asks your qualifying questions, scores the answer, and drops a clean record into Sheets, Salesforce or HubSpot.' },
+  { icon: IndianRupee, title: 'Chases payments', body: 'Runs reminder and collection calls, negotiates within the limits you set, and flags anyone who asks for a human.' },
+  { icon: HeadphonesIcon, title: 'Answers support calls', body: 'Handles the repeat questions from your own documents around the clock, and escalates the ones it should not guess at.' },
+  { icon: Send, title: 'Runs outbound campaigns', body: 'Upload a list, pick an agent, and dial the whole file with live progress, per-call outcomes and retry handling.' },
+  { icon: PhoneForwarded, title: 'Transfers to a person', body: 'Warm-transfers to your team when a call needs judgment, and passes across what it has already learned.' },
+];
+
+const CHANNELS = [
+  { icon: Phone, label: 'Inbound phone' },
+  { icon: PhoneForwarded, label: 'Outbound phone' },
+  { icon: Mic, label: 'Web call widget' },
+  { icon: MessageSquare, label: 'Chat & WhatsApp' },
+  { icon: Radio, label: 'Your SIP trunk' },
+  { icon: Webhook, label: 'REST API' },
+];
+
+const HANDOFF = [
+  { k: 'Recorded', body: 'Audio and a timestamped transcript, searchable in call logs.' },
+  { k: 'Summarised', body: 'What was asked, what was agreed, and how the call ended.' },
+  { k: 'Extracted', body: 'The fields you named — name, budget, slot, outcome — as data.' },
+  { k: 'Delivered', body: 'Pushed to the tools below, filtered by outcome if you want.' },
+];
+
+const DESTINATIONS_TOP = ['Google Sheets', 'Google Calendar', 'Google Meet', 'Cal.com', 'Calendly', 'Salesforce', 'HubSpot', 'Slack'];
+const DESTINATIONS_BOTTOM = ['WhatsApp', 'Twilio', 'Genesys', 'Make', 'n8n', 'Zapier', 'Webhook', 'Email'];
+
+/* Wordmarks rather than images: the /logos/* files the old page pointed at do
+   not exist in client/public, so every one rendered as a broken-image icon.
+   Drop real assets there and swap these back to <img>. */
+const PARTNERS = ['Capgemini', 'Exotel', 'NVIDIA Inception', 'MG Motor', 'Cipla'];
+
+const FAQ = [
+  {
+    q: 'What exactly am I charged for?',
+    a: 'Talk-minutes. The meter starts when the call connects and stops when it ends, and the rate covers the whole pipeline — speech recognition, the language model, the voice, and the phone line. There is no seat fee, no monthly minimum, and nothing to cancel.',
+  },
+  {
+    q: 'Is there a monthly plan?',
+    a: 'No. You load a wallet and spend it, at one rate that is the same for every account whatever your volume. You are never on a subscription, and unused balance is not swept at the end of a month.',
+  },
+  {
+    q: 'How do I top up?',
+    a: 'From Billing in your dashboard, by card or UPI. Pick any amount — there are no fixed recharge packs. Your balance and every debit are itemised in the wallet ledger, one line per call.',
+  },
+  {
+    q: 'What happens when my balance runs out?',
+    a: 'New calls stop being placed or answered, and you get a low-balance warning before that point. Calls already in progress finish normally. Top up and the agents resume immediately.',
+  },
+  {
+    q: 'How long does it take to build an agent?',
+    a: 'Under five minutes for a working one. Describe the job in plain language, pick a voice, and test it in the browser. Refining the script, adding your documents and wiring integrations is where the real time goes.',
+  },
+  {
+    q: 'Which languages does it speak?',
+    a: 'Hindi, Tamil, Telugu, Marathi, Bengali and other Indian languages alongside English, Spanish, Japanese and more. You can also clone a voice from a short sample and use it as the agent.',
+  },
+  {
+    q: 'Can I bring my own phone number or carrier?',
+    a: 'Yes. Buy an Indian or US number inside the platform, port an existing business number, or connect your own telephony over SIP and keep your current carrier and routing.',
+  },
+  {
+    q: 'What do I get after a call?',
+    a: 'A recording, a full transcript, a summary, and the fields you asked the agent to collect — delivered to a spreadsheet, a CRM, a webhook or your inbox, and visible in call logs and analytics.',
+  },
+];
+
+/* ── Page ───────────────────────────────────────────────────────────────── */
+
+export default function Home() {
+  const rate = useWalletRate();
+  const [openFaq, setOpenFaq] = useState<number | null>(0);
+  const [lit, setLit] = useState(false);
+
+  const pageRef = useRef<HTMLDivElement | null>(null);
+  const sectionRefs = useRef<(HTMLElement | null)[]>([]);
+
+  useReveal(pageRef, [rate]);
+  const activeBeat = useScrollBeat(pageRef, BEATS.length);
+
+  /* Hero load choreography — flipping this class starts the word-by-word rise.
+     A timer rather than requestAnimationFrame: rAF is suspended while a tab is
+     in the background, so a page opened in a background tab (ctrl-click, a
+     restored session) would sit at opacity 0 with its headline invisible until
+     focused. Timers still fire, so the hero is always resolved. 40ms is enough
+     for the initial transform to paint first, which is what makes it animate at
+     all. */
+  useEffect(() => {
+    const id = window.setTimeout(() => setLit(true), 40);
+    return () => window.clearTimeout(id);
+  }, []);
+
+  const toggleFaq = useCallback((i: number) => setOpenFaq((cur) => (cur === i ? null : i)), []);
+
+  /* Cursor spotlight. Writing the pointer position onto the card as percentages
+     keeps the effect in CSS — no re-render per mousemove. */
+  const trackPointer = useCallback((e: React.MouseEvent<HTMLElement>) => {
+    const el = e.currentTarget;
+    const box = el.getBoundingClientRect();
+    el.style.setProperty('--mx', `${((e.clientX - box.left) / box.width) * 100}%`);
+    el.style.setProperty('--my', `${((e.clientY - box.top) / box.height) * 100}%`);
+  }, []);
+
+  const jumpToBeat = (i: number) => {
+    sectionRefs.current[i]?.scrollIntoView({
+      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+      block: 'start',
+    });
+  };
+
+  const setSection = (i: number) => (el: HTMLElement | null) => { sectionRefs.current[i] = el; };
+
+  return (
+    <div className={`lp${lit ? ' lp-lit' : ''}`} ref={pageRef}>
+
+      {/* Fixed rail — a scrubber for the call the page describes. */}
+      <nav className="lp-timeline" aria-label="Page sections">
+        {BEATS.map((b, i) => (
+          <button
+            key={b.tc}
+            type="button"
+            className={`lp-tl-item${i === activeBeat ? ' is-active' : ''}${i < activeBeat ? ' is-done' : ''}`}
+            onClick={() => jumpToBeat(i)}
+            aria-current={i === activeBeat ? 'true' : undefined}
+          >
+            <span className="lp-tl-dot" aria-hidden="true" />
+            {/* Beat name only. The full "00:20 · Working" stamp lives in the
+                section itself; repeating it here runs the label into the
+                headline at the narrower end of the rail's width range. */}
+            <span className="lp-tl-label">{b.beat}</span>
+          </button>
+        ))}
+      </nav>
+
+      {/* ═══ 00:00 — the call connects ═══ */}
+      <section className="lp-hero" data-beat ref={setSection(0)}>
+        <div className="lp-aurora" aria-hidden="true"><span /><span /><span /></div>
+
+        <div className="lp-wrap">
+          <div className="lp-hero-grid">
+            <div className="lp-hero-copy">
+              <span className="lp-hero-tag lp-reveal" style={{ ['--d' as string]: '80ms' }}>
+                <span className="lp-dot" aria-hidden="true" />
+                Wallet billing · no monthly plan
+              </span>
+
+              <h1 className="lp-h1">
+                <Words text="A voice agent that picks up every call, and bills you" />
+                <em><Words text="only for the minutes it talks." from={11} /></em>
+              </h1>
+
+              <p className="lp-lede lp-reveal" style={{ ['--d' as string]: '620ms' }}>
+                Describe the job, pick a voice, point a number at it. Your wallet is
+                charged per talk-minute — no seats, no monthly plan, nothing to cancel.
+              </p>
+
+              <div className="lp-cta-row lp-reveal" style={{ ['--d' as string]: '720ms' }}>
+                <Link to="/signup" className="lp-btn lp-btn--fill">Build an agent free</Link>
+                <Link to="/book-appointment" className="lp-btn lp-btn--ghost">Hear one live</Link>
+              </div>
+
+              <div className="lp-specs lp-reveal" style={{ ['--d' as string]: '820ms' }}>
+                <div className="lp-spec">
+                  <span className="lp-spec-v">&lt;&nbsp;500&nbsp;ms</span>
+                  <span className="lp-spec-k">Reply latency on a live call</span>
+                </div>
+                <div className="lp-spec">
+                  <span className="lp-spec-v">24&nbsp;×&nbsp;7</span>
+                  <span className="lp-spec-k">Inbound, outbound and campaigns</span>
+                </div>
+                <div className="lp-spec">
+                  <span className="lp-spec-v">5&nbsp;min</span>
+                  <span className="lp-spec-k">From a prompt to a working agent</span>
+                </div>
+              </div>
+            </div>
+
+            <CallMeter rate={rate ?? null} />
+          </div>
+        </div>
+      </section>
+
+      {/* Proof strip — a slow drift, paused on hover. */}
+      <div className="lp-trust">
+        <span className="lp-trust-label">Building with</span>
+        <Marquee
+          speed={40}
+          items={PARTNERS.map((name) => (
+            <span className="lp-trust-name" key={name}>{name}</span>
+          ))}
+        />
+      </div>
+
+      {/* ═══ 00:02 — it has to sound like a person first ═══ */}
+      <section className="lp-sec" data-beat ref={setSection(1)}>
+        <div className="lp-sec-inner">
+          <div className="lp-head lp-reveal">
+            <span className="lp-stamp">
+              <span className="lp-stamp-tc lp-num">00:02</span>
+              <span className="lp-stamp-beat">Greeting</span>
+            </span>
+            <h2 className="lp-h2">First it has to sound like a person.</h2>
+            <p className="lp-lede">
+              Callers hang up on anything that stalls, talks over them, or reads a menu.
+              Four things decide whether they stay on the line.
+            </p>
+          </div>
+
+          <div className="lp-beats">
+            {[
+              {
+                metric: '<500', unit: 'ms reply',
+                title: 'It starts speaking before it has finished thinking',
+                body: 'Speech, model and voice all stream. The first words go out while the rest of the sentence is still being generated, so there is no dead air where a caller wonders whether the line dropped.',
+              },
+              {
+                metric: '2-way', unit: 'turn taking',
+                title: 'Interrupt it and it stops mid-sentence',
+                body: 'Talk over the agent and it yields, the way a person does. It also holds its turn through "umm", a cough or a half-second pause instead of treating every gap as its cue to start.',
+              },
+              {
+                metric: 'Indic', unit: '+ global',
+                title: 'It answers in the language the caller opened with',
+                body: 'Hindi, Tamil, Telugu, Marathi and Bengali alongside English, Spanish and Japanese. Clone a voice from a short sample and the agent speaks in it.',
+              },
+              {
+                metric: 'Yours', unit: 'knowledge',
+                title: 'It answers from your documents, not from guesswork',
+                body: 'Upload price lists, policies and FAQs. The agent answers out of them, and says it does not know rather than inventing something you will have to apologise for later.',
+              },
+            ].map((row, i) => (
+              <div
+                className="lp-beat-item lp-reveal lp-reveal--x"
+                key={row.title}
+                style={{ ['--d' as string]: `${i * 90}ms` }}
+              >
+                <div className="lp-beat-metric">
+                  {row.metric}
+                  <small>{row.unit}</small>
+                </div>
+                <div className="lp-beat-text">
+                  <h3 className="lp-h3">{row.title}</h3>
+                  <p className="lp-p">{row.body}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ 00:20 — the work ═══ */}
+      <section className="lp-sec" data-beat ref={setSection(2)}>
+        <div className="lp-sec-inner">
+          <div className="lp-head lp-reveal">
+            <span className="lp-stamp">
+              <span className="lp-stamp-tc lp-num">00:20</span>
+              <span className="lp-stamp-beat">Working</span>
+            </span>
+            <h2 className="lp-h2">Then it does the job you hired it for.</h2>
+            <p className="lp-lede">
+              Not a menu tree with a nicer voice. The agent takes actions in your systems
+              while the caller is still on the line.
+            </p>
+          </div>
+
+          <div className="lp-cards lp-reveal">
+            {SERVICES.map((s) => (
+              <div className="lp-card" key={s.title} onMouseMove={trackPointer}>
+                <span className="lp-card-icon"><s.icon size={18} /></span>
+                <h3 className="lp-h3">{s.title}</h3>
+                <p>{s.body}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="lp-reveal" style={{ marginTop: 34 }}>
+            <p className="lp-eyebrow">Reachable on</p>
+            <div className="lp-channels">
+              {CHANNELS.map((c, i) => (
+                <span
+                  className="lp-channel lp-reveal"
+                  key={c.label}
+                  style={{ ['--d' as string]: `${i * 70}ms` }}
+                >
+                  <c.icon size={14} /> {c.label}
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ 01:45 — the handoff ═══ */}
+      <section className="lp-sec" data-beat ref={setSection(3)}>
+        <div className="lp-sec-inner">
+          <div className="lp-head lp-reveal">
+            <span className="lp-stamp">
+              <span className="lp-stamp-tc lp-num">01:45</span>
+              <span className="lp-stamp-beat">Handoff</span>
+            </span>
+            <h2 className="lp-h2">And hands the call off clean.</h2>
+            <p className="lp-lede">
+              A call your team never hears about is worth nothing. Every one of them
+              lands somewhere you already work, within seconds of hanging up.
+            </p>
+          </div>
+
+          <div className="lp-flow">
+            {HANDOFF.map((step, i) => (
+              <div
+                className="lp-flow-step lp-reveal"
+                key={step.k}
+                style={{ ['--i' as string]: i, ['--d' as string]: `${i * 90}ms` }}
+              >
+                <span className="lp-flow-k">{step.k}</span>
+                <p className="lp-p">{step.body}</p>
+              </div>
+            ))}
+          </div>
+
+          <div className="lp-dest-rows lp-reveal">
+            <Marquee speed={46} items={DESTINATIONS_TOP.map((d) => (
+              <span className="lp-dest-item" key={d}>{d}</span>
+            ))} />
+            <Marquee speed={52} reverse items={DESTINATIONS_BOTTOM.map((d) => (
+              <span className="lp-dest-item" key={d}>{d}</span>
+            ))} />
+          </div>
+
+          <p className="lp-p lp-reveal" style={{ marginTop: 22 }}>
+            Plus dashboards for call volume, outcomes, sentiment and spend — and an API and
+            webhooks for anything not on this list.
+          </p>
+        </div>
+      </section>
+
+      {/* ═══ SETTLE — the wallet ═══ */}
+      <section className="lp-sec" id="pricing" data-beat ref={setSection(4)}>
+        <div className="lp-sec-inner">
+          <div className="lp-settle">
+            <div className="lp-reveal">
+              <span className="lp-stamp">
+                <span className="lp-stamp-tc lp-num">Settle</span>
+                <span className="lp-stamp-beat">The wallet</span>
+              </span>
+              <h2 className="lp-h2">No plans. Just a balance.</h2>
+              <p className="lp-lede" style={{ marginTop: 14 }}>
+                Top up your wallet with any amount. Every call debits the minutes it
+                actually used, at one all-in rate. Nothing renews, nothing is per seat,
+                and there is no tier to outgrow.
+              </p>
+
+              <ul className="lp-included">
+                <li><Check size={15} /><span>Speech recognition, the language model, the voice and the phone line — all inside the per-minute rate.</span></li>
+                <li><Wallet size={15} /><span>Top up by card or UPI, any amount, whenever you want.</span></li>
+                <li><Globe size={15} /><span>Every debit itemised in the ledger, one line per call.</span></li>
+                <li><Plus size={15} /><span>The same rate whether you run ten calls a month or ten thousand.</span></li>
+              </ul>
+            </div>
+
+            <div className="lp-reveal">
+              {/* The rate, as a single figure. It is the number Super Admin sets
+                  and the number settlement deducts — there is nothing else to
+                  compare it against, so there is no table. */}
+              <div className="lp-price">
+                <span className="lp-price-k">Deducted per talk-minute</span>
+
+                {rate === undefined && <span className="lp-price-v">Loading…</span>}
+
+                {rate === null && (
+                  <>
+                    <span className="lp-price-v">—</span>
+                    <p className="lp-price-note">
+                      The rate could not be loaded just now. Refresh in a moment, or{' '}
+                      <Link to="/contact">ask us directly</Link>.
+                    </p>
+                  </>
+                )}
+
+                {typeof rate === 'number' && (
+                  <>
+                    <span className="lp-price-v lp-num">
+                      {rupees(rate)}<small>/ min</small>
+                    </span>
+                    <p className="lp-price-note lp-num">
+                      A ₹1,000 top-up buys about {Math.floor(1000 / rate).toLocaleString('en-IN')} minutes.
+                    </p>
+                  </>
+                )}
+              </div>
+
+              <Estimator rate={rate ?? null} />
+
+              <p className="lp-p" style={{ marginTop: 16, fontSize: 13 }}>
+                Rented phone numbers are billed separately at the carrier's monthly rate.
+                Running high volume, or need an invoice instead of a wallet?{' '}
+                <Link to="/contact" style={{ color: 'var(--teal-fg)' }}>Talk to us</Link>.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ Questions ═══ */}
+      <section className="lp-sec" data-beat ref={setSection(5)}>
+        <div className="lp-sec-inner">
+          <div className="lp-head lp-reveal">
+            <span className="lp-stamp">
+              <span className="lp-stamp-tc lp-num">Q&amp;A</span>
+              <span className="lp-stamp-beat">Before you start</span>
+            </span>
+            <h2 className="lp-h2">Questions people ask first.</h2>
+          </div>
+
+          <div className="lp-faq lp-reveal">
+            {FAQ.map((item, i) => (
+              <div className="lp-faq-item" key={item.q}>
+                <button
+                  type="button"
+                  className="lp-faq-q"
+                  aria-expanded={openFaq === i}
+                  aria-controls={`lp-faq-a-${i}`}
+                  id={`lp-faq-q-${i}`}
+                  onClick={() => toggleFaq(i)}
+                >
+                  {item.q}
+                  <span className="lp-faq-icon" aria-hidden="true"><Plus size={15} /></span>
+                </button>
+                {/* Always mounted so the open/close height can animate — the
+                    grid row collapses to 0fr. `hidden` would set display:none
+                    and there would be nothing to animate, so the collapsed
+                    state is marked with aria-hidden instead. It holds no
+                    focusable content, so nothing is stranded in the tab order. */}
+                <div
+                  className={`lp-faq-a${openFaq === i ? ' is-open' : ''}`}
+                  id={`lp-faq-a-${i}`}
+                  role="region"
+                  aria-labelledby={`lp-faq-q-${i}`}
+                  aria-hidden={openFaq !== i}
+                >
+                  <div><p className="lp-p">{item.a}</p></div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* ═══ Close ═══ */}
+      <section className="lp-close">
+        <div className="lp-wrap lp-close-inner">
+          <p className="lp-eyebrow lp-reveal">Ready when you are</p>
+          <h2 className="lp-h2 lp-reveal" style={{ ['--d' as string]: '80ms' }}>
+            Put an agent on your busiest number.
+          </h2>
+          <p className="lp-lede lp-reveal" style={{ ['--d' as string]: '160ms' }}>
+            Build it free, test it in the browser, and only load the wallet once you
+            want it answering real calls.
+          </p>
+          <div className="lp-cta-row lp-reveal" style={{ ['--d' as string]: '240ms' }}>
+            <Link to="/signup" className="lp-btn lp-btn--fill">Build an agent free</Link>
+            <Link to="/book-appointment" className="lp-btn lp-btn--ghost">Book a walkthrough</Link>
+          </div>
+        </div>
+      </section>
+    </div>
   );
 }

@@ -36,7 +36,7 @@ export default function Pricing() {
     <>
       <div className="page-hero">
         <div className="container">
-          <h1 style={{color:'var(--teal)'}}>Pricing</h1>
+          <h1 style={{color:'var(--teal-fg)'}}>Pricing</h1>
           <p>Choose the perfect plan for your business. Start free, scale as you grow, and only pay for what you use.</p>
           <div className="pricing-perks" style={{display:'flex', alignItems:'center', gap:'20px', justifyContent:'center', marginTop:'16px', fontSize:'13px', color:'var(--text-secondary)'}}>
             <span>✓ No setup fees</span>
@@ -78,7 +78,7 @@ export default function Pricing() {
               ) : (
                 plans.filter(p => planPrice(p) > 0).slice(0, 4).map((p, i) => (
                   <div key={p.id} className={`plan-card ${i === 1 ? 'featured' : ''}`}>
-                    <div className="plan-name" style={i === 1 ? { color: 'var(--teal)' } : undefined}>{p.name}</div>
+                    <div className="plan-name" style={i === 1 ? { color: 'var(--teal-fg)' } : undefined}>{p.name}</div>
                     <div className="plan-price">
                       <span className="price-amount">{inr(planPrice(p))}</span>
                       <span className="price-period">/month</span>
@@ -100,8 +100,8 @@ export default function Pricing() {
                   <div style={{fontSize:'11px', color:'var(--text-muted)'}}>pricing</div>
                 </div>
                 <div className="plan-desc">Launch at scale with volume-based discounts.</div>
-                <div className="plan-feature"><span className="label" style={{color:'var(--teal)'}}>✓</span><span>Agent Training from Recording</span></div>
-                <div className="plan-feature"><span className="label" style={{color:'var(--teal)'}}>✓</span><span>Dedicated support</span></div>
+                <div className="plan-feature"><span className="label" style={{color:'var(--teal-fg)'}}>✓</span><span>Agent Training from Recording</span></div>
+                <div className="plan-feature"><span className="label" style={{color:'var(--teal-fg)'}}>✓</span><span>Dedicated support</span></div>
                 <Link to="/contact"><button className="btn btn-dark plan-btn">📞 Contact Us</button></Link>
               </div>
             </div>

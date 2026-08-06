@@ -233,7 +233,7 @@ export default function Billing() {
           <h4 style={{ color: 'var(--text-secondary)', fontSize: '12px', fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
             ✨ Active Plan
           </h4>
-          <div className="stat-value" style={{ fontSize: '24px', fontWeight: 700, color: 'var(--teal)', marginBottom: '8px' }}>{currentPlan}</div>
+          <div className="stat-value" style={{ fontSize: '24px', fontWeight: 700, color: 'var(--teal-fg)', marginBottom: '8px' }}>{currentPlan}</div>
           <div style={{ color: 'var(--text-muted)', fontSize: '11px' }}>
             Voice AI Cost : ~ {fmt(perMinCents, currency)} / min
             {wallet?.subscription && wallet.subscription.minutesIncluded > 0 && (
@@ -255,7 +255,7 @@ export default function Billing() {
           <h4 style={{ color: 'var(--text-secondary)', fontSize: '12px', fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
             💲 Current Balance
           </h4>
-          <div className="stat-value" style={{ fontSize: '24px', fontWeight: 700, color: 'var(--teal)', marginBottom: '8px' }}>
+          <div className="stat-value" style={{ fontSize: '24px', fontWeight: 700, color: 'var(--teal-fg)', marginBottom: '8px' }}>
             {balanceCents == null ? '—' : fmt(balanceCents, currency)}
           </div>
           <div style={{ color: 'var(--text-muted)', fontSize: '11px' }}>
@@ -279,7 +279,7 @@ export default function Billing() {
           <h4 style={{ color: 'var(--text-secondary)', fontSize: '12px', fontWeight: 600, marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}>
             🗂️ KB usage
           </h4>
-          <div className="stat-value" style={{ fontSize: '24px', fontWeight: 700, color: 'var(--teal)', marginBottom: '8px' }}>0 used / 5 MB</div>
+          <div className="stat-value" style={{ fontSize: '24px', fontWeight: 700, color: 'var(--teal-fg)', marginBottom: '8px' }}>0 used / 5 MB</div>
         </div>
       </div>
 
@@ -303,7 +303,7 @@ export default function Billing() {
           right: '0',
           background: 'transparent',
           border: '1px solid var(--teal)',
-          color: 'var(--teal)',
+          color: 'var(--teal-fg)',
           padding: '8px 16px',
           borderRadius: '6px',
           fontSize: '13px',
@@ -323,7 +323,7 @@ export default function Billing() {
                     Pay by UPI, card or netbanking. Your balance updates once the payment is confirmed by our payment provider.
                   </p>
                   {topUpFor && (
-                    <p style={{ color: 'var(--teal)', fontSize: 13, marginBottom: 14 }}>
+                    <p style={{ color: 'var(--teal-fg)', fontSize: 13, marginBottom: 14 }}>
                       {topUpFor.planName} needs at least {fmt(topUpFor.neededCents, currency)} more.
                     </p>
                   )}
@@ -490,7 +490,7 @@ export default function Billing() {
           background: 'rgba(0, 212, 200, 0.05)'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <span style={{ color: 'var(--teal)', fontSize: '20px' }}>⚙️</span>
+            <span style={{ color: 'var(--teal-fg)', fontSize: '20px' }}>⚙️</span>
             <div>
               <div style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: '14px', marginBottom: '4px' }}>Flexible Model Selection</div>
               <div style={{ color: 'var(--text-muted)', fontSize: '12px' }}>You can use any combination of supported models for your Voice AI agents.</div>
@@ -810,7 +810,7 @@ function PricingCard({ name, price, oldPrice, badge, desc, cost, mins, extra, kb
 
 function FeatureRow({ name, vals, noBorder }: any) {
   const getVal = (val: string) => {
-    if (val === 'v') return <span style={{ color: 'var(--teal)' }}>✓</span>;
+    if (val === 'v') return <span style={{ color: 'var(--teal-fg)' }}>✓</span>;
     if (val === 'x') return <span style={{ color: '#ef4444' }}>×</span>; // Red cross
     return val;
   };

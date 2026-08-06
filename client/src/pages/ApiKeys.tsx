@@ -19,7 +19,7 @@ export default function ApiKeys() {
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '32px' }}>
           <div>
             <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '16px', fontWeight: 700, margin: '0 0 4px 0', color: 'white' }}>
-              <span style={{ color: 'var(--teal)' }}>🔑</span> API Keys
+              <span style={{ color: 'var(--teal-fg)' }}>🔑</span> API Keys
             </h3>
             <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
               Create and manage API keys for different integrations
@@ -128,7 +128,7 @@ export default function ApiKeys() {
           <button style={{
             background: 'rgba(0,0,0,0.3)',
             border: '1px solid var(--teal)',
-            color: 'var(--teal)',
+            color: 'var(--teal-fg)',
             padding: '8px 16px',
             borderRadius: '6px',
             fontSize: '13px',
@@ -140,7 +140,7 @@ export default function ApiKeys() {
           <button style={{
             background: 'rgba(0,0,0,0.3)',
             border: '1px solid var(--teal)',
-            color: 'var(--teal)',
+            color: 'var(--teal-fg)',
             padding: '8px 16px',
             borderRadius: '6px',
             fontSize: '13px',

@@ -6,6 +6,7 @@ import logger from '../lib/logger.js';
 import { sendMail, isMailerConfigured } from '../lib/mailer.js';
 import { appendCallRow } from '../services/googleSheets.service.js';
 import { createEvent, resolveAppointmentStart } from '../services/googleCalendar.service.js';
+import { getWalletRate, setWalletRate, WALLET_RATE_PLAN } from '../services/billing/walletRate.js';
 
 // ─── PLANS ────────────────────────────────────────────────────────────────────
 // Seeded from the previously hardcoded Billing.tsx values so behavior matches
@@ -52,6 +53,10 @@ export const ensurePlansSeeded = async () => {
  * __tests__/README-ish comments — but this holds regardless.
  */
 const TEST_PLAN_PREFIXES = ['__test__', 'TestPlan-'];
+// The wallet-rate row is a settings squat on the plan table, not a plan — see
+// services/billing/walletRate.js. It is filtered at the QUERY so it cannot leak
+// into the admin catalogue or the public config endpoint.
+const RESERVED_PLAN_NAMES = [WALLET_RATE_PLAN];
 const EXCLUDE_TEST_PLANS = {
   AND: TEST_PLAN_PREFIXES.map((prefix) => ({ NOT: { name: { startsWith: prefix } } })),
 };
@@ -86,6 +91,9 @@ export const adminUpsertPlan = async (req, res) => {
   // The prefixes are reserved for test fixtures and filtered out of every
   // listing — a real plan named this way would be invisible to customers, which
   // is a confusing way to fail. Refuse it up front instead.
+  if (RESERVED_PLAN_NAMES.includes(String(name))) {
+    return res.status(400).json({ error: 'That name is reserved by the platform.' });
+  }
   if (TEST_PLAN_PREFIXES.some((prefix) => String(name).startsWith(prefix))) {
     return res.status(400).json({
       error: `Plan names starting with ${TEST_PLAN_PREFIXES.join(' or ')} are reserved for automated tests.`,
@@ -111,6 +119,35 @@ export const adminDeletePlan = async (req, res) => {
   const del = await prisma.plan.deleteMany({ where: { id: req.params.id } });
   if (del.count === 0) return res.status(404).json({ error: 'Plan not found' });
   res.json({ success: true });
+};
+
+// ─── WALLET RATE (the only pricing this deployment has) ──────────────────────
+
+/** GET /config/wallet-rate — public; the landing page quotes this. */
+export const getWalletRatePublic = async (_req, res) => {
+  try {
+    const rate = await getWalletRate();
+    res.json({ perMinuteInr: rate.perMinuteInr, currency: 'INR' });
+  } catch (err) {
+    logger.error('getWalletRatePublic failed', err);
+    res.status(500).json({ error: 'Failed to load the rate' });
+  }
+};
+
+/** GET /admin/wallet-rate */
+export const adminGetWalletRate = async (_req, res) => {
+  const rate = await getWalletRate();
+  res.json({ perMinuteInr: rate.perMinuteInr });
+};
+
+/** PUT /admin/wallet-rate — the one number that sets what every call costs. */
+export const adminSetWalletRate = async (req, res) => {
+  try {
+    const rate = await setWalletRate(req.body?.perMinuteInr);
+    res.json({ perMinuteInr: rate.perMinuteInr });
+  } catch (err) {
+    res.status(err.status ?? 500).json({ error: err.message ?? 'Failed to save the rate' });
+  }
 };
 
 // ─── WALLET ───────────────────────────────────────────────────────────────────

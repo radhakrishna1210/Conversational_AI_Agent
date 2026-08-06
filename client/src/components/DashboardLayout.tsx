@@ -181,6 +181,10 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
 
   return (
     <div className="dashboard-layout">
+      {/* Lets keyboard users jump the ~40-item sidebar and the topbar controls
+          instead of tabbing through them on every page. */}
+      <a href="#main-content" className="skip-link">Skip to main content</a>
+
       {/* ── Mobile sidebar overlay (mobile only) ── */}
       {sidebarOpen && (
         <div
@@ -464,7 +468,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                       <div style={{ fontWeight: '700', fontSize: '13.5px', color: 'var(--dropdown-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user.name}</div>
                       <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '1px' }}>{user.email}</div>
                       {user.plan && (
-                        <span style={{ marginTop: '5px', display: 'inline-block', fontSize: '9px', fontWeight: '800', padding: '2px 8px', background: 'var(--teal-light)', color: 'var(--teal)', borderRadius: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{user.plan}</span>
+                        <span style={{ marginTop: '5px', display: 'inline-block', fontSize: '9px', fontWeight: '800', padding: '2px 8px', background: 'var(--teal-light)', color: 'var(--teal-fg)', borderRadius: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{user.plan}</span>
                       )}
                     </div>
                   </div>
@@ -503,7 +507,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
         </div>
       </div>
 
-      <main className="dashboard-main">
+      <main className="dashboard-main" id="main-content" tabIndex={-1}>
         <div className="dashboard-content">
           {children}
         </div>

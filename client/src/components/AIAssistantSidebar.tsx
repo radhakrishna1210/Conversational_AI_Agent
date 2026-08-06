@@ -78,7 +78,7 @@ export default function AIAssistantSidebar({
       // Code blocks (inline simulation or simple pre)
       if (trimmed.startsWith('`') && trimmed.endsWith('`')) {
         return (
-          <pre key={index} style={{ background: '#0a0a0a', padding: '10px', borderRadius: '6px', border: '1px solid #222', fontSize: '12px', color: '#ff9800', overflowX: 'auto', margin: '8px 0', fontFamily: 'monospace' }}>
+          <pre key={index} style={{ background: 'var(--bg-secondary)', padding: '10px', borderRadius: '6px', border: '1px solid #222', fontSize: '12px', color: '#ff9800', overflowX: 'auto', margin: '8px 0', fontFamily: 'monospace' }}>
             {trimmed.replace(/^`|`$/g, '')}
           </pre>
         );
@@ -144,7 +144,7 @@ export default function AIAssistantSidebar({
           style={{
             background: 'none',
             border: 'none',
-            color: '#999',
+            color: 'var(--text-secondary)',
             cursor: 'pointer',
             fontSize: '18px',
             padding: '4px',
@@ -192,7 +192,7 @@ export default function AIAssistantSidebar({
             </div>
 
             <div>
-              <span style={{ fontSize: '11px', fontWeight: '600', color: '#666', textTransform: 'uppercase', letterSpacing: '1px', display: 'block', marginBottom: '12px' }}>
+              <span style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', display: 'block', marginBottom: '12px' }}>
                 Quick Suggestions
               </span>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -291,7 +291,7 @@ export default function AIAssistantSidebar({
               width: '100%',
               minHeight: '80px',
               maxHeight: '180px',
-              background: '#0a0a0a',
+              background: 'var(--bg-secondary)',
               border: '1px solid rgba(255, 255, 255, 0.1)',
               borderRadius: '8px',
               padding: '12px',

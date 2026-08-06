@@ -21,7 +21,7 @@ export default function PhoneNumbers() {
         }}>
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px' }}>
             <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '18px', margin: 0 }}>
-              <span style={{ color: 'var(--teal)' }}>📞</span> Buy a Phone Number
+              <span style={{ color: 'var(--teal-fg)' }}>📞</span> Buy a Phone Number
             </h3>
             <span style={{
               background: 'rgba(220, 100, 0, 0.2)',
@@ -48,7 +48,7 @@ export default function PhoneNumbers() {
               background: 'rgba(0, 212, 200, 0.05)'
             }}>
               <h4 style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', marginBottom: '8px', color: 'white' }}>
-                <span style={{ color: 'var(--teal)' }}>🤖</span> Connect Agents & Campaigns
+                <span style={{ color: 'var(--teal-fg)' }}>🤖</span> Connect Agents & Campaigns
               </h4>
               <p style={{ color: 'var(--text-muted)', fontSize: '12px', margin: 0, lineHeight: 1.5 }}>
                 Assign phone numbers to your AI agents for seamless voice interactions and scale your outreach with outbound campaigns.

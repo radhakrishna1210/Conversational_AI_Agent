@@ -27,6 +27,14 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
   const toggleDarkMode = () => {
     const next = !darkMode;
     setDarkMode(next);
+
+    // Enable the cross-fade only for the duration of the swap. styles.css scopes
+    // its universal colour transition to .theme-transition so it isn't paying
+    // that cost on every hover for the rest of the session.
+    const root = document.documentElement;
+    root.classList.add('theme-transition');
+    window.setTimeout(() => root.classList.remove('theme-transition'), 300);
+
     if (next) {
       // Dark mode enabled
       document.documentElement.classList.remove('light');

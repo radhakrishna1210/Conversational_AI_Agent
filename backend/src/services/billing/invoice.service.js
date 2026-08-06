@@ -55,11 +55,35 @@ export async function generateInvoice({
   const subtotalCents = total - taxCents;
   const year = new Date().getFullYear();
 
+  const yearStart = new Date(`${year}-01-01T00:00:00Z`);
+
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
-      const count = await prisma.invoice.count({
-        where: { invoiceDate: { gte: new Date(`${year}-01-01T00:00:00Z`) } },
+      /*
+       * Next sequence = highest number ALREADY ISSUED this year, plus one.
+       *
+       * This used to count the year's invoices and use count + 1, which is only
+       * correct while no invoice is ever deleted. Delete one and the count sits
+       * permanently below the highest issued number, so every later create
+       * collides on the unique index — and since the retry climbs by one per
+       * attempt, five attempts cannot bridge a gap wider than five. Invoicing
+       * then fails for good with "Could not allocate an invoice number". The
+       * billing integration suite does exactly this when its cleanup removes
+       * the invoices it created.
+       *
+       * The filter is on `number`, not on invoiceDate: rows predating numbering
+       * have number = NULL, and Postgres sorts NULLs FIRST on DESC, so ordering
+       * without it hands back a null and the sequence parses to NaN. Matching
+       * the year prefix also keeps the ordering within one year's series, where
+       * the zero-padded fixed width makes lexical order numeric order.
+       */
+      const last = await prisma.invoice.findFirst({
+        where: { number: { startsWith: `INV-${year}-` } },
+        orderBy: { number: 'desc' },
+        select: { number: true },
       });
+      const lastSeq = Number(last?.number?.slice(`INV-${year}-`.length));
+      const count = Number.isFinite(lastSeq) ? lastSeq : 0;
       const invoice = await prisma.invoice.create({
         data: {
           workspaceId,

@@ -39,6 +39,7 @@ import prisma from '../../config/prisma.js';
 import logger from '../../lib/logger.js';
 import { applyWalletTransaction, getOrCreateWallet, TX_TYPES } from './wallet.service.js';
 import { calculateCallCharge, formatMinor, billableMinutes, resolveCallRate } from './money.js';
+import { getWalletRate } from './walletRate.js';
 
 /** Call types that consume voice minutes. CHAT is text — never billed. */
 const BILLABLE_TYPES = new Set(['WEB_CALL', 'PHONE_CALL']);
@@ -141,8 +142,14 @@ export async function settleCall(callLogId, { actualCostMicroUsd = null } = {}) 
       chargeableMinutes = minutes - coveredByPlan;
     }
 
-    const { ratePerMinuteCents, fxRate } = resolveCallRate(plan);
-    const amountCents = calculateCallCharge(chargeableMinutes * 60, plan).amountCents;
+    // The rate comes from the platform wallet rate, not from the workspace's
+    // plan: this deployment bills one ₹/min for everybody, set in Super Admin →
+    // Wallet Rate, and that is the same figure the public landing page quotes.
+    // The plan is still consulted above for included minutes, so an existing
+    // subscription keeps drawing its allowance down before the wallet is hit.
+    const walletRate = await getWalletRate();
+    const { ratePerMinuteCents, fxRate } = resolveCallRate(walletRate);
+    const amountCents = calculateCallCharge(chargeableMinutes * 60, walletRate).amountCents;
 
     // Claim before charging. If the process dies between claim and ledger
     // write the call ends up BILLED with no charge — under-billing one call,
@@ -278,7 +285,9 @@ export async function assertCanStartCall(workspaceId, { type = 'WEB_CALL' } = {}
   // call with a few paise left just cuts the caller off mid-sentence, which is
   // a worse experience than a clear refusal up front.
   const wallet = await getOrCreateWallet(workspaceId);
-  const { ratePerMinuteCents } = resolveCallRate(plan);
+  // Same rate the call will actually settle at, so the pre-call balance check
+  // and the post-call charge can never disagree.
+  const { ratePerMinuteCents } = resolveCallRate(await getWalletRate());
   const planMinutesLeft = subscription && subscription.status === 'active'
     ? Math.max(0, subscription.minutesIncluded - subscription.minutesUsed)
     : 0;

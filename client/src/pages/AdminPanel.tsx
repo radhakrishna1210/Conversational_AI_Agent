@@ -94,9 +94,9 @@ function statusColor(status: string) {
   switch (status.toUpperCase()) {
     case 'AVAILABLE': return { bg: 'rgba(14,179,158,0.12)', color: '#0eb39e', dot: '#0eb39e' };
     case 'ASSIGNED':  return { bg: 'rgba(99,102,241,0.12)', color: '#818cf8', dot: '#818cf8' };
-    case 'INACTIVE':  return { bg: 'rgba(255,255,255,0.06)', color: '#888', dot: '#666' };
+    case 'INACTIVE':  return { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-secondary)', dot: '#666' };
     case 'BANNED':    return { bg: 'rgba(239,68,68,0.12)', color: '#f87171', dot: '#ef4444' };
-    default:          return { bg: 'rgba(255,255,255,0.06)', color: '#888', dot: '#666' };
+    default:          return { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-secondary)', dot: '#666' };
   }
 }
 
@@ -242,7 +242,7 @@ function AssignModal({ number, workspaces, onClose, onAssign }: {
       }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Assign Number</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><X size={18} /></button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}><X size={18} /></button>
         </div>
         <p style={{ color: 'var(--text-secondary)', fontSize: 13, marginBottom: 20 }}>
           Assign <strong style={{ color: 'var(--text-primary)' }}>{number.phoneNumber}</strong> to a workspace
@@ -262,10 +262,10 @@ function AssignModal({ number, workspaces, onClose, onAssign }: {
               <option key={w.id} value={w.id}>{w.name} ({w.planName})</option>
             ))}
           </select>
-          <ChevronDown size={14} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: '#888', pointerEvents: 'none' }} />
+          <ChevronDown size={14} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)', pointerEvents: 'none' }} />
         </div>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{ padding: '8px 18px', background: 'transparent', border: '1px solid var(--border)', borderRadius: 7, color: '#888', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={onClose} style={{ padding: '8px 18px', background: 'transparent', border: '1px solid var(--border)', borderRadius: 7, color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
           <button
             onClick={handleAssign}
             disabled={!selected || loading}
@@ -311,7 +311,7 @@ function AddNumberModal({ onClose, onAdd }: {
       <div style={{ background: '#0d1117', border: '1px solid var(--border)', borderRadius: 14, padding: 28, width: 460, maxWidth: '90vw' }} onClick={(e) => e.stopPropagation()}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>Add Number to Pool</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><X size={18} /></button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}><X size={18} /></button>
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
           {fields.map((f) => (
@@ -328,7 +328,7 @@ function AddNumberModal({ onClose, onAdd }: {
           ))}
         </div>
         <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
-          <button onClick={onClose} style={{ padding: '8px 18px', background: 'transparent', border: '1px solid var(--border)', borderRadius: 7, color: '#888', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
+          <button onClick={onClose} style={{ padding: '8px 18px', background: 'transparent', border: '1px solid var(--border)', borderRadius: 7, color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
           <button
             onClick={handleAdd}
             disabled={loading}
@@ -590,10 +590,10 @@ export function NumberPoolTab() {
       {/* Summary pills */}
       <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap' }}>
         {[
-          { label: 'Total', value: summary.total, color: '#888' },
+          { label: 'Total', value: summary.total, color: 'var(--text-secondary)' },
           { label: 'Available', value: summary.available, color: '#0eb39e' },
           { label: 'Assigned', value: summary.assigned, color: '#818cf8' },
-          { label: 'Inactive', value: summary.inactive, color: '#666' },
+          { label: 'Inactive', value: summary.inactive, color: 'var(--text-muted)' },
           { label: 'Banned', value: summary.banned, color: '#f87171' },
         ].map((s) => (
           <div key={s.label} style={{ padding: '8px 18px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -721,7 +721,7 @@ export function NumberPoolTab() {
                         )}
                         {(num.status === 'AVAILABLE' || num.status === 'ASSIGNED') && (
                           <button onClick={() => handleDeactivate(num.id)} title="Deactivate"
-                            style={{ padding: '5px 8px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: 6, color: '#888', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
+                            style={{ padding: '5px 8px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--border)', borderRadius: 6, color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
                             <PowerOff size={12} />
                           </button>
                         )}
@@ -799,7 +799,7 @@ function planColor(plan: string) {
     case 'Enterprise': return { bg: 'rgba(245,158,11,0.12)', color: '#f59e0b' };
     case 'Pro':        return { bg: 'rgba(129,140,248,0.12)', color: '#818cf8' };
     case 'Starter':    return { bg: 'rgba(14,179,158,0.12)', color: '#0eb39e' };
-    default:           return { bg: 'rgba(255,255,255,0.06)', color: '#888' };
+    default:           return { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-secondary)' };
   }
 }
 
@@ -831,7 +831,7 @@ function UserDetailModal({ userId, onClose, onAction }: {
         {/* Header */}
         <div style={{ padding: '20px 24px', borderBottom: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <h3 style={{ margin: 0, fontSize: 16, fontWeight: 700, color: 'var(--text-primary)' }}>User Details</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer' }}><X size={18} /></button>
+          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer' }}><X size={18} /></button>
         </div>
 
         {loading ? (
@@ -1363,55 +1363,109 @@ export function AppointmentsTab() {
   );
 }
 
-export function PlansTab() {
-  const [plans, setPlans] = useState<any[]>([]);
+/**
+ * The platform wallet rate — the only pricing this deployment has.
+ *
+ * Replaces the old plan-catalogue editor. There are no plans: every call is
+ * charged one rate per talk-minute against the workspace's wallet, and this is
+ * where that number is set. The public landing page reads the same value from
+ * GET /config/wallet-rate, so the advertised rate and the deducted rate cannot
+ * drift apart.
+ */
+export function WalletRateTab() {
+  const [rate, setRate] = useState<string>('');
+  const [saved, setSaved] = useState<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
-  const [saving, setSaving] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
   const hdrs = () => ({ Authorization: `Bearer ${safeGet('token')}`, 'Content-Type': 'application/json' });
+
   const load = async () => {
     try {
-      const res = await fetch(API('/plans'), { headers: hdrs() });
+      const res = await fetch(API('/wallet-rate'), { headers: hdrs() });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `Failed (${res.status})`);
-      setPlans(data.plans ?? []);
+      setRate(String(data.perMinuteInr));
+      setSaved(data.perMinuteInr);
     } catch (e) { setErr(e instanceof Error ? e.message : 'Failed'); }
   };
   useEffect(() => { load(); }, []);
-  const save = async (p: any) => {
-    setSaving(p.id);
+
+  const save = async () => {
+    setBusy(true); setMsg(null);
     try {
-      const res = await fetch(API('/plans'), { method: 'POST', headers: hdrs(), body: JSON.stringify(p) });
+      const res = await fetch(API('/wallet-rate'), {
+        method: 'PUT', headers: hdrs(), body: JSON.stringify({ perMinuteInr: Number(rate) }),
+      });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Save failed');
-      await load();
-    } catch (e) { alert(e instanceof Error ? e.message : 'Save failed'); }
-    finally { setSaving(null); }
+      setSaved(data.perMinuteInr);
+      setRate(String(data.perMinuteInr));
+      setMsg('Saved. Every call from now on is charged at this rate.');
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Save failed'); }
+    finally { setBusy(false); }
   };
-  const upd = (id: string, k: string, v: any) => setPlans(prev => prev.map(p => p.id === id ? { ...p, [k]: v } : p));
-  if (err) return <p style={{ color: '#f87171' }}>Couldn’t load plans: {err}</p>;
+
+  const parsed = Number(rate);
+  const valid = Number.isFinite(parsed) && parsed > 0;
+  const dirty = valid && parsed !== saved;
+
+  if (err) return <p style={{ color: '#f87171' }}>Couldn't load the rate: {err}</p>;
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
-      <p style={{ color: 'var(--text-muted)', fontSize: 13 }}>These values drive the public Pricing page and Billing — edits go live immediately.</p>
-      {plans.length === 0 && !err && (
-        <p style={{ color: 'var(--text-muted)', fontSize: 13, padding: '18px 0' }}>
-          No plans found yet. Plans auto-seed on first load of the public pricing page (or on backend start) — if this stays empty, the database schema likely isn’t migrated (see System Health tab).
-        </p>
-      )}
-      {plans.map(p => (
-        <div key={p.id} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 16, display: 'grid', gridTemplateColumns: '1.2fr 1fr 1fr 1fr 1fr auto', gap: 10, alignItems: 'center', fontSize: 13 }}>
-          <input value={p.name} onChange={e => upd(p.id, 'name', e.target.value)} style={adminInput} />
-          <label style={lbl}>$/mo <input type="number" value={p.priceUsd} onChange={e => upd(p.id, 'priceUsd', Number(e.target.value))} style={adminInput} /></label>
-          <label style={lbl}>$/min <input type="number" step="0.001" value={p.perMinuteUsd} onChange={e => upd(p.id, 'perMinuteUsd', Number(e.target.value))} style={adminInput} /></label>
-          <label style={lbl}>mins <input type="number" value={p.includedMinutes} onChange={e => upd(p.id, 'includedMinutes', Number(e.target.value))} style={adminInput} /></label>
-          <label style={lbl}>KB MB <input type="number" value={p.kbStorageMb} onChange={e => upd(p.id, 'kbStorageMb', Number(e.target.value))} style={adminInput} /></label>
-          <button onClick={() => save(p)} disabled={saving === p.id} style={{ padding: '8px 14px', borderRadius: 8, border: '1px solid var(--teal, #14b8a6)', background: 'transparent', color: 'var(--teal, #14b8a6)', cursor: 'pointer' }}>
-            {saving === p.id ? 'Saving…' : 'Save'}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 620 }}>
+      <p style={{ color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.6, margin: 0 }}>
+        Every call is charged this many rupees per talk-minute, deducted from the workspace's
+        wallet. It applies to all workspaces — there are no plans and no per-tier pricing.
+        The public landing page quotes this exact number.
+      </p>
+
+      <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <label style={{ ...lbl, fontSize: 12 }}>
+          Rupees per minute
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
+            <span style={{ fontSize: 20, color: 'var(--text-secondary)' }}>₹</span>
+            <input
+              type="number" step="0.01" min="0.01" value={rate}
+              onChange={e => { setRate(e.target.value); setMsg(null); }}
+              style={{ ...adminInput, fontSize: 20, padding: '10px 12px', maxWidth: 180 }}
+            />
+            <span style={{ fontSize: 13, color: 'var(--text-muted)' }}>/ minute</span>
+          </div>
+        </label>
+
+        {/* The figure an admin actually reasons about is what a top-up buys. */}
+        {valid && (
+          <p style={{ color: 'var(--text-muted)', fontSize: 12, margin: 0 }}>
+            A ₹1,000 top-up buys about {Math.floor(1000 / parsed).toLocaleString('en-IN')} minutes.
+          </p>
+        )}
+
+        {!valid && rate !== '' && (
+          <p style={{ color: '#f87171', fontSize: 12, margin: 0 }}>Enter a rate greater than zero.</p>
+        )}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button
+            onClick={save} disabled={!dirty || busy}
+            style={{
+              padding: '9px 16px', borderRadius: 8,
+              border: '1px solid var(--teal, #14b8a6)', background: dirty ? 'var(--teal, #14b8a6)' : 'transparent',
+              color: dirty ? '#04231f' : 'var(--teal, #14b8a6)', fontWeight: 600,
+              cursor: dirty && !busy ? 'pointer' : 'default', opacity: dirty || busy ? 1 : 0.5,
+            }}
+          >
+            {busy ? 'Saving…' : 'Save rate'}
           </button>
+          {msg && <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{msg}</span>}
         </div>
-      ))}
+      </div>
     </div>
   );
 }
+
+
 const adminInput: React.CSSProperties = { width: '100%', padding: '7px 9px', background: 'var(--bg-secondary, #0f172a)', border: '1px solid var(--border, #334155)', borderRadius: 6, color: 'var(--text-primary, #fff)', fontSize: 13 };
 const lbl: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, color: 'var(--text-muted)', fontSize: 11 };
 

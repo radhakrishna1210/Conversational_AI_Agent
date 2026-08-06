@@ -66,6 +66,139 @@ export function toDeepgramLanguage(value) {
   return DEEPGRAM_LANG[raw.toLowerCase()];
 }
 
+/**
+ * Words a turn does not end on.
+ *
+ * Silence duration alone cannot tell "I'm finished" from "I'm thinking", and no
+ * choice of timeout fixes that: people pause longest exactly where they are
+ * least finished — hunting for a word, mid-list, before a name or a number.
+ * But what they SAID at the moment they paused is a strong signal, and it costs
+ * nothing to read. "And general inquiry. Like, which…" is not a turn anyone
+ * would take the floor after; a human listener waits, because "which" demands a
+ * continuation.
+ *
+ * Conjunctions, articles, prepositions, determiners, question words, bare
+ * copulas and hesitations — all of them dangle. Content words do not: "book an
+ * appointment" is a complete thought even without punctuation.
+ *
+ * Deliberately a SMALL, high-precision list. A false "still talking" costs a few
+ * hundred ms of extra wait; a false "finished" cuts the caller off mid-sentence,
+ * which is the bug being fixed. When unsure, this list stays out of it.
+ */
+const DANGLING_WORDS = new Set([
+  // conjunctions / subordinators
+  'and', 'or', 'but', 'so', 'because', 'if', 'when', 'while', 'that', 'than', 'then',
+  // question words — almost never terminal in a statement
+  'which', 'what', 'who', 'whom', 'whose', 'where', 'how', 'why',
+  // articles / determiners / possessives
+  'the', 'a', 'an', 'my', 'your', 'our', 'their', 'his', 'her', 'its', 'this', 'these', 'those',
+  // prepositions
+  'to', 'of', 'for', 'in', 'on', 'at', 'with', 'from', 'about', 'into', 'over', 'under', 'like',
+  // bare copulas / auxiliaries left hanging
+  'is', 'are', 'was', 'were', 'am', 'be', 'been', 'do', 'does', 'did', 'can', 'could',
+  'will', 'would', 'should', 'have', 'has', 'had',
+  // hesitations
+  'um', 'umm', 'uh', 'uhh', 'er', 'erm', 'hmm', 'mm',
+  // Hindi / Hinglish — conjunctions, postpositions and possessives dangle for
+  // the same reasons as their English counterparts.
+  //
+  // NOTE the copulas (है / हैं / था / थे / हूँ) are deliberately ABSENT, unlike
+  // the English "is/are/was". Hindi is verb-final, so the copula is exactly
+  // where a sentence is SUPPOSED to end — "मुझे अपॉइंटमेंट बुक करनी है" is a
+  // complete thought. Listing them here (as an earlier version did) would make
+  // every properly-finished Hindi turn wait out the long grace window, i.e.
+  // add a second of dead air to every reply in the language this product is
+  // mostly used in.
+  'और', 'या', 'लेकिन', 'क्योंकि', 'अगर', 'जब', 'कि', 'जो', 'तो',
+  'का', 'की', 'के', 'में', 'से', 'को', 'पर', 'ने',
+  'मेरा', 'मेरी', 'आपका', 'आपकी', 'कौन', 'कैसे', 'कहाँ', 'क्यों',
+  // Oblique/dative pronouns — Hindi puts these BEFORE the thing being asked
+  // for ("मुझे अपॉइंटमेंट चाहिए"), so a turn ending on one is always a fragment.
+  'मुझे', 'मुझको', 'हमें', 'आपको', 'तुम्हें', 'उसे', 'उन्हें', 'इसे',
+  'मैं', 'हम', 'यह', 'वह', 'ये', 'वो', 'इस', 'उस', 'किस', 'कुछ', 'कोई',
+  'अं', 'अंम', 'हम्म',
+]);
+
+/**
+ * One-word utterances that ARE a complete turn.
+ *
+ * Needed because of the rule below: a single word is otherwise treated as a
+ * fragment, and these are the cases where that would be wrong. Answers,
+ * acknowledgements and requests-to-repeat are genuinely whole turns, and making
+ * a caller who says "हाँ" wait out the long window would be its own bug.
+ *
+ * "what"/"क्या" appear here rather than in the dangling list on purpose: alone
+ * they mean "pardon?" and are complete, while mid-sentence ("...tell me what")
+ * they dangle — and the dangling check only runs on multi-word turns.
+ */
+const COMPLETE_ONE_WORD = new Set([
+  'yes', 'yeah', 'yep', 'yup', 'no', 'nope', 'okay', 'ok', 'sure', 'right',
+  'correct', 'exactly', 'thanks', 'thank', 'hello', 'hi', 'bye', 'goodbye',
+  'maybe', 'please', 'done', 'stop', 'wait', 'repeat', 'pardon', 'sorry', 'what',
+  'हाँ', 'हां', 'जी', 'नहीं', 'ना', 'ठीक', 'अच्छा', 'सही', 'बस',
+  'धन्यवाद', 'शुक्रिया', 'नमस्ते', 'क्या', 'रुकिए', 'माफ',
+]);
+
+/**
+ * Does this transcript look like the caller was cut off mid-thought?
+ *
+ * Exported for testing — the whole value of this heuristic is that it is
+ * inspectable and adjustable without a live call.
+ *
+ * @param {string} text - the turn's transcript so far
+ * @returns {boolean}
+ */
+export function looksUnfinished(text) {
+  const raw = String(text ?? '').trim();
+  if (!raw) return false;
+  // Terminal punctuation is Deepgram's own judgement that a sentence closed.
+  // Trust it — but only when the last word is not itself a dangler, because
+  // smart_format happily punctuates "Like, which." as you can see in the logs.
+  const tokens = raw.toLowerCase().replace(/[.,!?;:।॥…"')\]]+$/g, '')
+    .split(/\s+/)
+    .map((t) => t.replace(/[^\p{L}\p{N}\p{M}']/gu, ''))
+    .filter(Boolean);
+  if (!tokens.length) return false;
+  const last = tokens[tokens.length - 1];
+
+  // SHORT-TURN RULE. An enumerated word list will always have holes — "मुझे"
+  // was one, and shipping a longer list just moves the hole somewhere else. A
+  // turn that is a SINGLE word is a fragment unless it is one of the handful of
+  // words that stand alone ("yes", "हाँ", "okay"). That generalizes: it catches
+  // every one-word opening of a sentence the caller was still building,
+  // including the ones nobody thought to list.
+  //
+  // The asymmetry justifies it. A wrong "unfinished" costs the caller an extra
+  // ~700ms of patience on a rare one-word content turn; a wrong "finished"
+  // means the agent talks over them, which is the bug this exists to stop.
+  if (tokens.length === 1) return !COMPLETE_ONE_WORD.has(last);
+
+  return DANGLING_WORDS.has(last);
+}
+
+/**
+ * Worst-case real silence before this session commits an end of turn:
+ * Deepgram's VAD timeout plus the longest grace window (the mid-thought one).
+ *
+ * PUBLISHED TO THE CLIENT so its RMS-VAD backstop can sit clear of it. These
+ * two timeouts race on every turn, and whichever is shorter decides — so when
+ * they are maintained as independent constants in two files, raising the server
+ * grace silently does nothing because the client keeps firing first. That is
+ * not hypothetical: extending the grace for mid-thought pauses had exactly zero
+ * effect until this was wired up, because the backstop sat 100ms below the new
+ * commit point. Deriving one from the other is what stops it recurring.
+ *
+ * @param {number} [endpointingMs]
+ * @returns {number}
+ */
+export function maxEndpointCommitMs(endpointingMs) {
+  const endpointing = Number.isFinite(endpointingMs) && endpointingMs > 0
+    ? endpointingMs
+    : (Number(process.env.DEEPGRAM_ENDPOINTING_MS) || 600);
+  const unfinishedGrace = Number(process.env.DEEPGRAM_UNFINISHED_GRACE_MS) || 1100;
+  return endpointing + unfinishedGrace;
+}
+
 export class DeepgramStreamSession {
   /**
    * @param {object} opts
@@ -114,7 +247,16 @@ export class DeepgramStreamSession {
     this.endpointGraceMs = Number.isFinite(endpointGraceMs)
       ? endpointGraceMs
       : (Number(process.env.DEEPGRAM_ENDPOINT_GRACE_MS) || 400);
+    // Grace applied instead when the transcript ends mid-thought (see
+    // looksUnfinished). Longer on purpose: the caller is hunting for a word, and
+    // the cost of guessing wrong here is the agent talking over them. It is only
+    // ever paid on turns that genuinely dangle, so ordinary turns keep the fast
+    // path and the average is unchanged.
+    this.unfinishedGraceMs = Number(process.env.DEEPGRAM_UNFINISHED_GRACE_MS) || 1100;
     this._endpointTimer = null;
+    // Most recent transcript text seen this turn (interim OR final). Interims
+    // are what make this work — the tail is known before Deepgram commits it.
+    this._tail = '';
     this.ws = null;
     this.finals = [];
     this._open = false;
@@ -250,11 +392,19 @@ export class DeepgramStreamSession {
       return;
     }
     // UtteranceEnd: word-timing-based end of turn (needs utterance_end_ms).
-    // Authoritative — it has already waited out a full word-timed silence, so it
-    // commits immediately with no grace window.
-    if (msg?.type === 'UtteranceEnd') { this._commitEndOfTurn('utterance_end'); return; }
+    // Authoritative about SILENCE — it has waited out a full word-timed gap —
+    // but silence is not the same as being finished. When the transcript ends
+    // mid-thought it still only arms a candidate, so a caller who paused to
+    // hunt for a word gets the rest of their sentence. Bounded either way: the
+    // candidate commits when its window expires.
+    if (msg?.type === 'UtteranceEnd') {
+      if (looksUnfinished(this._tail)) this._armEndOfTurnCandidate('utterance_end');
+      else this._commitEndOfTurn('utterance_end');
+      return;
+    }
 
     const alt = msg?.channel?.alternatives?.[0];
+    if (alt?.transcript) this._tail = alt.transcript;
 
     // ANY further speech — interim or final — means the caller is still talking,
     // so a pending speech_final candidate was a mid-sentence pause, not the end
@@ -300,13 +450,18 @@ export class DeepgramStreamSession {
    * grace window. If they resume speaking before it expires, _handleMessage
    * cancels this and the turn continues — which is the whole point.
    */
-  _armEndOfTurnCandidate() {
+  _armEndOfTurnCandidate(reason = 'speech_final') {
     if (this._endpointTimer) clearTimeout(this._endpointTimer);
-    if (this.endpointGraceMs <= 0) { this._commitEndOfTurn('speech_final'); return; }
+    // Content-aware window. A turn ending on "and", "which" or "um" is not a
+    // turn — it is a caller mid-sentence — so it gets the long window; anything
+    // that reads as a finished thought keeps the fast one.
+    const unfinished = looksUnfinished(this._tail);
+    const graceMs = unfinished ? this.unfinishedGraceMs : this.endpointGraceMs;
+    if (graceMs <= 0) { this._commitEndOfTurn(reason); return; }
     this._endpointTimer = setTimeout(() => {
       this._endpointTimer = null;
-      this._commitEndOfTurn('speech_final');
-    }, this.endpointGraceMs);
+      this._commitEndOfTurn(unfinished ? `${reason}:unfinished` : reason);
+    }, graceMs);
   }
 
   /** The caller really is done. Fire once; drop any pending candidate. */
@@ -355,6 +510,7 @@ export class DeepgramStreamSession {
   beginTurn() {
     this._turnSeq += 1;
     this.finals = [];
+    this._tail = ''; // the previous turn's last words must not judge this one
     // Drop any speech_final candidate left over from the previous turn — it
     // would otherwise commit an end-of-turn against the turn just started,
     // cutting the caller off the instant they began speaking.

@@ -3,7 +3,47 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Conversational AI Agent Clone</title>
+
+    <title>Conversational AI Agent — Build and ship voice AI assistants</title>
+    <meta
+      name="description"
+      content="Create, test, and deploy voice AI assistants that handle calls, bookings, and follow-ups. No code required."
+    />
+
+    <!-- Matches the app's default dark surface so mobile browser chrome doesn't flash white -->
+    <meta name="theme-color" content="#080d18" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#f0f4f9" media="(prefers-color-scheme: light)" />
+    <meta name="color-scheme" content="dark light" />
+
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <!--
+      Fonts load here rather than via @import in styles.css: an @import inside the
+      stylesheet forces the browser to download and parse the CSS before it even
+      discovers the font request, serialising two round trips.
+    -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"
+    />
+    <!--
+      Applies the saved theme before first paint. ThemeProvider does the same
+      thing, but from a useEffect that runs after React mounts — so without this
+      a light-mode user saw a dark flash on every page load.
+      Keep the storage key and the '0' sentinel in sync with hooks/useTheme.tsx.
+    -->
+    <script>
+      (function () {
+        try {
+          var light = localStorage.getItem('darkMode') === '0';
+          document.documentElement.classList.add(light ? 'light' : 'dark');
+        } catch (e) {
+          document.documentElement.classList.add('dark');
+        }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

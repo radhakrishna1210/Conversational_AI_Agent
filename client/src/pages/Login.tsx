@@ -68,7 +68,7 @@ export default function Login() {
       <div className="login-mobile-navbar">
         <Link to="/" className="login-logo-link">
           <div className="login-logo-icon">C</div>
-          <span className="login-logo-text">Conversational <span style={{ color: 'var(--teal)', fontStyle: 'italic' }}>AI</span> Agent</span>
+          <span className="login-logo-text">Conversational <span style={{ color: 'var(--teal-fg)', fontStyle: 'italic' }}>AI</span> Agent</span>
         </Link>
         <button
           className="login-hamburger"
@@ -98,7 +98,7 @@ export default function Login() {
         {/* Logo */}
         <Link to="/" className="login-logo-link">
           <div className="login-logo-icon">C</div>
-          <span className="login-logo-text">Conversational <span style={{ color: 'var(--teal)', fontStyle: 'italic' }}>AI</span> Agent</span>
+          <span className="login-logo-text">Conversational <span style={{ color: 'var(--teal-fg)', fontStyle: 'italic' }}>AI</span> Agent</span>
         </Link>
 
         {/* Quote / Welcome back */}

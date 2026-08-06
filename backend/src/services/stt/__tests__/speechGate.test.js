@@ -8,7 +8,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzeSpeech, isLikelySttHallucination } from '../speechGate.js';
+import { analyzeSpeech, isLikelySttHallucination, classifyCallerAffect, isEchoOfAgent, stripAgentEcho } from '../speechGate.js';
 import { AMBIENT_PRESETS, createAmbienceSource, ULAW_FRAME_BYTES } from '../../voice/ambience.js';
 
 const SR = 24000;
@@ -216,4 +216,146 @@ test('empty and whitespace-only transcripts are flagged', () => {
   for (const t of ['', '   ', '\n\t', null, undefined]) {
     assert.equal(isLikelySttHallucination(t), true);
   }
+});
+
+// ─── Caller affect: the "I'm sorry you're frustrated" misfire ────────────────
+//
+// classifyCallerAffect returned 'agitated' on `peakRms >= 0.3` alone. A close
+// microphone reaches that, so the agent opened replies by apologising for a
+// frustration the caller did not have. Agitation now needs volume AND pressured
+// delivery, well clear of ordinary loud speech.
+
+/** Synthetic analyzeSpeech() output — only the fields the classifier reads. */
+const speechStub = ({ peakRms, voicedMs = 2000, durationMs = 2200 }) => ({
+  hasSpeech: true, peakRms, voicedMs, durationMs,
+  longestRunMs: 200, noiseFloor: 0.01, contrast: 5,
+});
+
+/** A transcript of `n` words, so words-per-second can be controlled. */
+const words = (n) => Array.from({ length: n }, (_, i) => `word${i}`).join(' ');
+
+test('a loud microphone alone is NOT agitation', () => {
+  // 6 words over 2s of voiced audio = 3 wps... at ordinary speaking volume.
+  const affect = classifyCallerAffect(speechStub({ peakRms: 0.32 }), words(6));
+  assert.notEqual(affect, 'agitated');
+});
+
+test('loud AND fast still reads as agitated', () => {
+  // 0.5s of voiced audio for 2 words is not enough; use a real pressured turn.
+  const affect = classifyCallerAffect(
+    speechStub({ peakRms: 0.6, voicedMs: 2000, durationMs: 2100 }),
+    words(7), // 7 words / 2s = 3.5 wps
+  );
+  assert.equal(affect, 'agitated');
+});
+
+test('the reported turn is not classified as frustrated', () => {
+  // "And general inquiry. Like, which" — 5 words, unremarkable pace, loud mic.
+  const affect = classifyCallerAffect(
+    speechStub({ peakRms: 0.34, voicedMs: 2000, durationMs: 2400 }),
+    'And general inquiry. Like, which',
+  );
+  assert.notEqual(affect, 'agitated');
+});
+
+test('quiet speech is still detected', () => {
+  const affect = classifyCallerAffect(speechStub({ peakRms: 0.02 }), words(6));
+  assert.equal(affect, 'quiet');
+});
+
+// ─── Echo of the agent's own voice ──────────────────────────────────────────
+//
+// Deepgram reports what it hears, so streamed transcripts bypassed every
+// acoustic check. That holds until what it hears is the agent's reply coming
+// back through the caller's speakers — then the transcript is perfectly
+// accurate and completely wrong. Reported case: the agent asked
+// "...उन्हें क्या परेशानी है?" and the next "caller turn" was "पर छाती है?".
+
+test('a verbatim Hindi echo is caught', () => {
+  const agent = 'अब, क्या आप मुझे बता सकती हैं कि मरीज़ किस समस्या के लिए डॉक्टर से मिलना चाहते हैं या उन्हें क्या परेशानी है?';
+  assert.equal(isEchoOfAgent('मरीज़ किस समस्या के लिए डॉक्टर से मिलना चाहते हैं', agent), true);
+});
+
+test('re-segmented echo is left to the ACOUSTIC gate, not this one', () => {
+  // "परेशानी" coming back as "पर छाती" is not verbatim, so this text check
+  // deliberately does NOT fire — resolving toward keeping the turn. Echo that
+  // mangled is quiet echo, and quiet echo fails the voiced-speech floor in the
+  // handler. Documented here so the gap is a decision, not a surprise.
+  const agent = 'या उन्हें क्या परेशानी है?';
+  assert.equal(isEchoOfAgent('पर छाती है?', agent), false);
+});
+
+test('an English echo of the agent is caught', () => {
+  const agent = 'Would you like to book a new appointment or reschedule an existing one?';
+  assert.equal(isEchoOfAgent('book a new appointment or reschedule an existing one', agent), true);
+});
+
+test('a genuine reply to the agent is NOT treated as echo', () => {
+  const agent = 'Would you like to book a new appointment or reschedule an existing one?';
+  for (const real of [
+    'I want to book a new one',          // shares words, different sentence
+    'Tuesday afternoon if possible',
+    'मुझे नया अपॉइंटमेंट चाहिए',
+    'Can I speak to a doctor about my knee',
+  ]) {
+    assert.equal(isEchoOfAgent(real, agent), false, `real turn misread as echo: "${real}"`);
+  }
+});
+
+test('short acknowledgements are never treated as echo', () => {
+  const agent = 'Okay, I have booked that for Tuesday at four.';
+  for (const s of ['okay', 'yes', 'हाँ', 'thanks', 'sure']) {
+    assert.equal(isEchoOfAgent(s, agent), false, `"${s}" must survive`);
+  }
+});
+
+test('no agent text yet means nothing can be echo', () => {
+  assert.equal(isEchoOfAgent('I want to book an appointment', ''), false);
+});
+
+// ─── Echoed agent words glued to the front of a real turn ───────────────────
+//
+// The mixed case: capture opens while the agent's last syllables are still
+// playing, so the transcript is <agent tail> + <what the caller actually said>.
+// isEchoOfAgent must NOT fire here (the turn contains a real request); the
+// prefix has to be trimmed instead.
+
+test('the reported mixed echo is trimmed, not discarded', () => {
+  const agent = 'नमस्ते, सिटी हॉस्पिटल में कॉल करने के लिए धन्यवाद। मैं पूर्वा, आपकी कैसे मदद कर सकती हूँ?';
+  const heard = 'कर सकती हूँ मुझे appointment book करना था';
+  assert.equal(stripAgentEcho(heard, agent), 'मुझे appointment book करना था');
+  assert.equal(isEchoOfAgent(heard, agent), false, 'must not discard a turn with real content');
+});
+
+test('an English tail is trimmed', () => {
+  const agent = 'Would you like to book a new appointment or reschedule an existing one?';
+  assert.equal(
+    stripAgentEcho('an existing one I want to reschedule please', agent),
+    'I want to reschedule please',
+  );
+});
+
+test('a caller quoting the MIDDLE of the question is left alone', () => {
+  // "book a new appointment" is not where the agent's sentence ended, so it is
+  // not echo — deleting it would destroy the caller's actual words.
+  const agent = 'Would you like to book a new appointment or reschedule an existing one?';
+  const said = 'book a new appointment please';
+  assert.equal(stripAgentEcho(said, agent), said);
+});
+
+test('a single shared word at the boundary is not trimmed', () => {
+  const agent = 'How may I help you today?';
+  assert.equal(stripAgentEcho('today I need a doctor', agent), 'today I need a doctor');
+});
+
+test('never strips the whole turn away', () => {
+  const agent = 'How may I help you today?';
+  const said = 'help you today';
+  // Nothing would remain, so the prefix rule declines; the full-echo guard and
+  // the acoustic gate own that case instead.
+  assert.equal(stripAgentEcho(said, agent), said);
+});
+
+test('no previous agent turn means nothing to trim', () => {
+  assert.equal(stripAgentEcho('मुझे appointment चाहिए', ''), 'मुझे appointment चाहिए');
 });

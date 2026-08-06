@@ -56,8 +56,29 @@ describe('FishAudioTtsStream', () => {
     const { stream, frames } = openStream();
     stream.pushText('One. And a tail with no period');
     stream.end();
-    assert.deepEqual(textFrames(frames), ['One. ', 'And a tail with no period ']);
+    // ONE frame, not two: "One." is below takeCompleteSentences' minLen, so it
+    // waits rather than being synthesized as a four-character generation of its
+    // own (see the minLen note there — short fragments come out audibly flatter
+    // and louder than the sentence they introduce). What matters is that every
+    // word still reaches the socket, and that the stream is closed after.
+    assert.equal(textFrames(frames).join(''), 'One. And a tail with no period ');
     assert.equal(frames[frames.length - 1].event, 'stop');
+  });
+
+  it('does not synthesize a short hesitation opener on its own', () => {
+    process.env.FISH_WS_FLUSH = 'false';
+    const { stream, frames } = openStream();
+    stream.pushText('Hmm… ');
+    assert.equal(textFrames(frames).length, 0, 'opener should wait for the sentence');
+    stream.pushText('so that one is usually ready by Friday.');
+    assert.deepEqual(textFrames(frames), ['Hmm… so that one is usually ready by Friday. ']);
+  });
+
+  it('still releases a normal first sentence immediately (latency guard)', () => {
+    process.env.FISH_WS_FLUSH = 'false';
+    const { stream, frames } = openStream();
+    stream.pushText('That works for me.');
+    assert.deepEqual(textFrames(frames), ['That works for me. ']);
   });
 
   it('ignores text pushed after end()', () => {

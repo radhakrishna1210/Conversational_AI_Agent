@@ -18,12 +18,15 @@ import {
   Radio,
   Cloud,
   Sun,
-  Moon
+  Moon,
+  Menu,
+  X
 } from "lucide-react";
 
 export default function Navbar() {
   const { darkMode, toggleDarkMode } = useTheme();
   const [dropdownOpen, setDropdownOpen] = useState(false);
+  const [navOpen, setNavOpen] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
   const location = useLocation();
 
@@ -43,26 +46,46 @@ export default function Navbar() {
     return location.pathname === path ? 'active' : '';
   };
 
+  // Collapse the mobile panel on navigation, otherwise it stays open over the
+  // page the user just asked for.
+  useEffect(() => {
+    setNavOpen(false);
+    setDropdownOpen(false);
+  }, [location.pathname]);
+
   return (
     <nav className="navbar">
       <Link to="/" className="navbar-logo">
         <span style={{fontWeight: 800, fontSize: '18px', letterSpacing: '-1px'}}>
-          Conversational <span style={{color:'var(--teal)'}}>AI</span> Agent
+          Conversational <span style={{color:'var(--teal-fg)'}}>AI</span> Agent
         </span>
       </Link>
 
-      <ul className="navbar-nav">
+      <ul className={`navbar-nav${navOpen ? ' is-open' : ''}`} id="primary-navigation">
         <li 
           className="nav-dropdown"
           onMouseEnter={() => setDropdownOpen(true)}
           onMouseLeave={() => setDropdownOpen(false)}
         >
-          <a href="#" className="nav-link" onClick={(e) => e.preventDefault()}>
-            Solutions 
-            <svg width="12" height="12" viewBox="0 0 12 12">
+          {/*
+            A button, not an <a href="#">: this opens a panel rather than going
+            anywhere. Clicking also toggles it, so the menu is reachable on touch
+            devices where the hover handlers above never fire.
+          */}
+          <button
+            type="button"
+            className="nav-link"
+            aria-expanded={dropdownOpen}
+            aria-haspopup="true"
+            onClick={() => setDropdownOpen(open => !open)}
+            style={{ background: 'none', border: 'none', font: 'inherit', cursor: 'pointer' }}
+          >
+            Solutions
+            <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden="true"
+                 style={{ transition: 'transform 0.2s ease', transform: dropdownOpen ? 'rotate(180deg)' : 'none' }}>
               <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round"/>
             </svg>
-          </a>
+          </button>
 
           {dropdownOpen && (
             <div className="dropdown-menu" style={{display: 'flex'}}>
@@ -194,6 +217,31 @@ export default function Navbar() {
         <li><Link to="/pricing" className={`nav-link ${isActive('/pricing')}`}>Pricing</Link></li>
         <li><Link to="/contact" className={`nav-link ${isActive('/contact')}`}>Contact Us</Link></li>
         <li><Link to="/book-appointment" className={`nav-link ${isActive('/book-appointment')}`}>Book an Appointment</Link></li>
+
+        {/*
+          Below 560px the bar can't hold the logo, the auth links, the CTA and
+          the menu button at once, so .navbar-auth is hidden there and these
+          take over. CSS keeps exactly one of the two visible at any width.
+        */}
+        <li className="navbar-nav-auth">
+          {isLoggedIn ? (
+            <>
+              <Link to="/dashboard" className="nav-link">Dashboard</Link>
+              <button
+                type="button"
+                onClick={() => { clearAuth(); setIsLoggedIn(false); window.location.href = '/'; }}
+                className="btn btn-primary"
+              >
+                Sign out
+              </button>
+            </>
+          ) : (
+            <>
+              <Link to="/login" className="nav-link">Log in</Link>
+              <Link to="/signup" className="btn btn-primary">Get started free</Link>
+            </>
+          )}
+        </li>
       </ul>
 
       <div className="navbar-actions" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
@@ -218,27 +266,40 @@ export default function Navbar() {
           {darkMode ? <Sun size={18} /> : <Moon size={18} />}
         </button>
 
-        {isLoggedIn ? (
-          <>
-            <Link to="/dashboard" style={{ color: 'var(--text-secondary)', fontSize: '14px', fontWeight: 500, textDecoration: 'none' }}>Dashboard</Link>
-            <button 
-              onClick={() => {
-                clearAuth();
-                setIsLoggedIn(false);
-                window.location.href = '/';
-              }}
-              className="btn btn-primary" 
-              style={{ padding: '8px 18px', fontSize: '14px' }}
-            >
-              Sign Out
-            </button>
-          </>
-        ) : (
-          <>
-            <Link to="/login" style={{ color: 'var(--text-secondary)', fontSize: '14px', fontWeight: 500, textDecoration: 'none' }}>Log In</Link>
-            <Link to="/signup" className="btn btn-primary" style={{ padding: '8px 18px', fontSize: '14px' }}>Get Started Free</Link>
-          </>
-        )}
+        <div className="navbar-auth">
+          {isLoggedIn ? (
+            <>
+              <Link to="/dashboard" style={{ color: 'var(--text-secondary)', fontSize: '14px', fontWeight: 500, textDecoration: 'none' }}>Dashboard</Link>
+              <button
+                onClick={() => {
+                  clearAuth();
+                  setIsLoggedIn(false);
+                  window.location.href = '/';
+                }}
+                className="btn btn-primary"
+                style={{ padding: '8px 18px', fontSize: '14px' }}
+              >
+                Sign out
+              </button>
+            </>
+          ) : (
+            <>
+              <Link to="/login" style={{ color: 'var(--text-secondary)', fontSize: '14px', fontWeight: 500, textDecoration: 'none' }}>Log in</Link>
+              <Link to="/signup" className="btn btn-primary" style={{ padding: '8px 18px', fontSize: '14px' }}>Get started free</Link>
+            </>
+          )}
+        </div>
+
+        <button
+          type="button"
+          className="navbar-toggle"
+          aria-expanded={navOpen}
+          aria-controls="primary-navigation"
+          aria-label={navOpen ? 'Close menu' : 'Open menu'}
+          onClick={() => setNavOpen(open => !open)}
+        >
+          {navOpen ? <X size={20} /> : <Menu size={20} />}
+        </button>
       </div>
     </nav>
   );

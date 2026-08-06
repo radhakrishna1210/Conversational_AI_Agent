@@ -88,6 +88,10 @@ import * as billing from '../controllers/billing.controller.js';
 import { listAppointments } from '../controllers/appointment.controller.js';
 
 router.get('/appointments', authenticate, isAdmin, listAppointments);
+// The platform wallet rate — what every call is charged, per minute.
+router.get('/wallet-rate', authenticate, isAdmin, platform.adminGetWalletRate);
+router.put('/wallet-rate', authenticate, isAdmin, platform.adminSetWalletRate);
+
 router.get('/plans', authenticate, isAdmin, platform.adminListPlans);
 router.post('/plans', authenticate, isAdmin, platform.adminUpsertPlan);
 router.delete('/plans/:id', authenticate, isAdmin, platform.adminDeletePlan);

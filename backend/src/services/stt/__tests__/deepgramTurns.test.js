@@ -10,7 +10,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DeepgramStreamSession } from '../deepgramStream.service.js';
+import { DeepgramStreamSession, looksUnfinished, maxEndpointCommitMs } from '../deepgramStream.service.js';
 
 /** Minimal stand-in for the `ws` socket the session opens. */
 function fakeSocket(session) {
@@ -291,4 +291,176 @@ test('finalize times out cleanly when from_finalize never arrives', async () => 
   // Short timeout so the test does not sit for the production 1200ms.
   assert.equal(await s.finalizeTurn(30, seq), 'partial turn');
   assert.equal(s._flushTarget, null, 'flush redirection must be cleared');
+});
+
+// ─── Content-aware endpointing (premature-cutoff fix) ────────────────────────
+//
+// The reported symptom: the caller says "And general inquiry. Like, which" and
+// the agent starts replying before they finish the sentence. Silence duration
+// alone cannot tell "finished" from "thinking" — people pause longest exactly
+// where they are least finished — so the grace window now reads the tail of the
+// transcript. Each test below FAILED against the fixed-window implementation.
+
+test('looksUnfinished: dangling words are not turn endings', () => {
+  for (const t of [
+    'And general inquiry. Like, which',   // the exact reported transcript
+    'I want to book an appointment for',
+    'My name is',
+    'Can I speak to the',
+    'so',
+    'मुझे अपॉइंटमेंट चाहिए और',
+  ]) {
+    assert.equal(looksUnfinished(t), true, `expected unfinished: "${t}"`);
+  }
+});
+
+test('looksUnfinished: complete thoughts still end the turn fast', () => {
+  for (const t of [
+    'I want to book an appointment.',
+    'Yes',
+    'What are your opening hours?',
+    'Tuesday at four works',
+    'मुझे अपॉइंटमेंट बुक करनी है।',
+  ]) {
+    assert.equal(looksUnfinished(t), false, `expected finished: "${t}"`);
+  }
+});
+
+test('speech_final on a dangling tail waits longer than the normal grace', async () => {
+  const fired = [];
+  const session = new DeepgramStreamSession({
+    onEndOfTurn: (r) => fired.push(r),
+    endpointGraceMs: 40,
+    // set via the instance so the test does not depend on env
+  });
+  session.unfinishedGraceMs = 300;
+  fakeSocket(session);
+  session.beginTurn();
+
+  emitInterim(session, 'And general inquiry. Like, which');
+  session._handleMessage({ speech_final: true });
+
+  // Past the NORMAL grace: a finished turn would already have committed.
+  await new Promise((r) => setTimeout(r, 120));
+  assert.deepEqual(fired, [], 'must not cut the caller off mid-sentence');
+
+  // Past the long grace: bounded — it does commit eventually.
+  await new Promise((r) => setTimeout(r, 260));
+  assert.deepEqual(fired, ['speech_final:unfinished']);
+});
+
+test('a completed thought still commits on the fast path', async () => {
+  const fired = [];
+  const session = new DeepgramStreamSession({
+    onEndOfTurn: (r) => fired.push(r),
+    endpointGraceMs: 40,
+  });
+  session.unfinishedGraceMs = 300;
+  fakeSocket(session);
+  session.beginTurn();
+
+  emitInterim(session, 'I want to book an appointment.');
+  session._handleMessage({ speech_final: true });
+
+  await new Promise((r) => setTimeout(r, 120));
+  assert.deepEqual(fired, ['speech_final'], 'a finished turn must stay snappy');
+});
+
+test('resuming speech cancels the pending end of turn', async () => {
+  const fired = [];
+  const session = new DeepgramStreamSession({
+    onEndOfTurn: (r) => fired.push(r),
+    endpointGraceMs: 40,
+  });
+  session.unfinishedGraceMs = 200;
+  fakeSocket(session);
+  session.beginTurn();
+
+  emitInterim(session, 'Like, which');
+  session._handleMessage({ speech_final: true });
+  await new Promise((r) => setTimeout(r, 60));
+  emitInterim(session, 'Like, which doctor is available');  // they carried on
+
+  await new Promise((r) => setTimeout(r, 260));
+  assert.deepEqual(fired, [], 'further speech must cancel the candidate');
+});
+
+test('UtteranceEnd defers on a dangling tail instead of committing at once', async () => {
+  const fired = [];
+  const session = new DeepgramStreamSession({
+    onEndOfTurn: (r) => fired.push(r),
+    endpointGraceMs: 40,
+  });
+  session.unfinishedGraceMs = 250;
+  fakeSocket(session);
+  session.beginTurn();
+
+  emitInterim(session, 'I need to reschedule my');
+  session._handleMessage({ type: 'UtteranceEnd' });
+  assert.deepEqual(fired, [], 'UtteranceEnd must not cut a mid-thought turn');
+
+  await new Promise((r) => setTimeout(r, 320));
+  assert.deepEqual(fired, ['utterance_end:unfinished'], 'but it is still bounded');
+});
+
+test('UtteranceEnd commits immediately on a complete thought', () => {
+  const fired = [];
+  const session = new DeepgramStreamSession({ onEndOfTurn: (r) => fired.push(r) });
+  fakeSocket(session);
+  session.beginTurn();
+
+  emitInterim(session, 'That works for me.');
+  session._handleMessage({ type: 'UtteranceEnd' });
+  assert.deepEqual(fired, ['utterance_end']);
+});
+
+test("a new turn is not judged by the previous turn's last words", async () => {
+  const fired = [];
+  const session = new DeepgramStreamSession({
+    onEndOfTurn: (r) => fired.push(r),
+    endpointGraceMs: 40,
+  });
+  session.unfinishedGraceMs = 300;
+  fakeSocket(session);
+  session.beginTurn();
+  emitInterim(session, 'book it for');   // dangling
+  session.beginTurn();                   // next turn starts
+
+  emitInterim(session, 'Yes');
+  session._handleMessage({ speech_final: true });
+  await new Promise((r) => setTimeout(r, 120));
+  assert.deepEqual(fired, ['speech_final'], 'stale tail must not slow the new turn');
+});
+
+// A one-word turn is a fragment unless the word stands alone. An enumerated
+// dangling-word list will always have holes — "मुझे" was the reported one — so
+// short turns are judged by shape rather than by membership.
+test('looksUnfinished: a bare fragment word is not a turn', () => {
+  for (const t of ['मुझे', 'I', 'The', 'appointment', 'हमें', 'Can', 'because']) {
+    assert.equal(looksUnfinished(t), true, `expected unfinished: "${t}"`);
+  }
+});
+
+test('looksUnfinished: one-word answers still commit fast', () => {
+  for (const t of ['Yes', 'no', 'Okay.', 'हाँ', 'जी', 'नहीं', 'thanks', 'What?', 'क्या']) {
+    assert.equal(looksUnfinished(t), false, `expected finished: "${t}"`);
+  }
+});
+
+test('looksUnfinished: the reported Hindi fragment defers', () => {
+  assert.equal(looksUnfinished('मुझे'), true);
+  assert.equal(looksUnfinished('मुझे अपॉइंटमेंट बुक करनी है।'), false);
+});
+
+// The client's RMS backstop is derived from this number. If it ever drops below
+// the session's real commit point, the backstop wins the race on every turn and
+// the mid-thought grace window silently stops working — which is exactly what
+// happened when the two were maintained as separate constants.
+test('published commit budget covers the longest grace window', () => {
+  const session = new DeepgramStreamSession({ endpointingMs: 600 });
+  const budget = maxEndpointCommitMs(600);
+  assert.ok(
+    budget >= 600 + session.unfinishedGraceMs,
+    `budget ${budget} must cover endpointing + unfinished grace ${session.unfinishedGraceMs}`,
+  );
 });

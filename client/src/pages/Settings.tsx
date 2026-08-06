@@ -110,7 +110,7 @@ if (
           padding: '24px 32px'
         }}>
           <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '15px', fontWeight: 700, margin: '0 0 6px 0', color: 'white' }}>
-            <span style={{ color: 'var(--teal)', fontSize: '16px' }}>👤</span> Personal Information
+            <span style={{ color: 'var(--teal-fg)', fontSize: '16px' }}>👤</span> Personal Information
           </h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: '0 0 24px 0' }}>
             Update your name and phone number
@@ -195,7 +195,7 @@ if (
           padding: '24px 32px'
         }}>
           <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '15px', fontWeight: 700, margin: '0 0 6px 0', color: 'white' }}>
-            <span style={{ color: 'var(--teal)', fontSize: '16px' }}>🔒</span> Security
+            <span style={{ color: 'var(--teal-fg)', fontSize: '16px' }}>🔒</span> Security
           </h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: '0 0 24px 0' }}>
             Change your account password
@@ -264,7 +264,7 @@ if (
           padding: '24px 32px'
         }}>
           <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '15px', fontWeight: 700, margin: '0 0 6px 0', color: 'white' }}>
-            <span style={{ color: 'var(--teal)', fontSize: '16px' }}>🌐</span> Preferences
+            <span style={{ color: 'var(--teal-fg)', fontSize: '16px' }}>🌐</span> Preferences
           </h3>
           <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: '0 0 24px 0' }}>
             Manage your timezone and display settings

@@ -6,7 +6,9 @@
 > the full [`VOICE_AGENT_COST_MODEL.md`](./VOICE_AGENT_COST_MODEL.md) (which explains
 > the methodology, margins, and rate card).
 >
-> **Rates:** public list prices, re-verified **2026-07-24**. **FX:** 1 USD = ₹96.
+> **Rates:** public list prices, re-verified **2026-07-24**; **telephony lines corrected and
+> verified 2026-08-06** (Twilio Media Streams is not free; India rates now exact; Plivo
+> added). **FX:** 1 USD = ₹96.
 > **Talk basis:** agent speaks **~452 chars/min** (measured from 22 real calls) — this
 > is what drives TTS. LLM basis ~5,000 tokens/min processed during the call.
 
@@ -105,14 +107,34 @@ on top of these — the per-minute rate already includes all three.*
 
 *Only for actual phone calls. **Web calls skip this entirely** (₹0).*
 
+> ✅ **Verified 2026-08-06** against live carrier pricing pages. Two things changed:
+> Twilio's **Media Streams is NOT free** (it was modelled as $0), and the India rates are
+> now exact rather than guessed ranges.
+
 | Carrier / leg | **$ / min** | **₹ / min** |
 |---|---|---|
-| Airtel / Exotel / Plivo (India local) | ~$0.0078 | **~₹0.75** |
+| **Plivo → India local** ✅ | **$0.00625** | **₹0.60** |
+| Plivo → India, SIP/browser leg ✅ | $0.00354 | ₹0.34 |
+| **Plivo AudioStream** ✅ | **$0 — included** | **₹0** |
+| Exotel (India) — *indicative, unverified* | ~$0.0083–0.0104 | ~₹0.80–1.00 |
 | Twilio inbound (US local) | $0.0085 | ₹0.82 |
 | **Twilio outbound (US)** | **$0.0140** | **₹1.34** |
-| Twilio → India mobile | $0.03–0.11 | ₹3–10 ⚠️ avoid |
+| **Twilio Media Streams** ⚠️ **NOT free — add to every Twilio call** | **$0.0040 US / $0.0044 IN** | **₹0.38 / ₹0.42** |
+| **Twilio → India mobile** ✅ | **$0.0496** | **₹4.76** ⚠️ |
+| Twilio → India local/landline ✅ | $0.0699 | ₹6.71 ⚠️ |
 
-> Use **local Indian carriers (₹0.75/min)** for India — Twilio→India is 4–13× pricier.
+**Fixed monthly cost — not per-minute:** Plivo India number **₹250/mo** · Twilio international number **from $1.15/mo**.
+
+> **India, all-in per minute:** Twilio = ₹4.76 + ₹0.42 = **₹5.18** · Plivo = **₹0.60**
+> (AudioStream free). **Twilio is ~8.6× Plivo on Indian traffic** — the single biggest
+> cost lever we have.
+>
+> ⚠️ **The ₹250/mo number rental is real and unmodelled.** Effective ₹/min on one Plivo
+> number: **₹3.10 @ 100 min/mo · ₹1.10 @ 500 · ₹0.85 @ 1,000 · ₹0.63 @ 10,000.** ₹0.60 is
+> the floor at volume, not the day-one cost.
+>
+> **Airtel IQ** publishes no per-minute rates and no public bidirectional-streaming docs —
+> it cannot be priced here. See §11.3 of the cost model.
 
 ---
 
@@ -160,22 +182,36 @@ amortized across every minute that agent ever runs → effectively **₹0/min**.
 
 ### Example modular stacks (phone call, Twilio US out ₹1.34 + extraction ₹0.03)
 
+*US phone totals below include Twilio outbound ₹1.34 **+ Media Streams ₹0.38** + extraction ₹0.03.*
+
 | Stack | STT | LLM | TTS | Pipeline | **+ phone + extract = TOTAL/min** |
 |---|---|---|---|---|---|
-| **Cheapest India** (all-Sarvam) | Saaras ₹0.50 | Sarvam-30b ₹0.02 | Bulbul v2 ₹0.68 | **₹1.20** | *(Airtel ₹0.75 + ₹0.03)* → **₹1.98/min** |
-| **Balanced** | Scribe ₹0.62 | GPT-4o-mini ₹0.08 | Cartesia ₹1.08 | **₹1.78** | + ₹1.34 + ₹0.03 → **₹3.15/min** |
-| **Quality** | Scribe ₹0.62 | Gemini Flash ₹0.17 | EL Flash ₹2.16 | **₹2.95** | + ₹1.34 + ₹0.03 → **₹4.32/min** |
-| **Premium** | Scribe ₹0.62 | GPT-4o ₹1.32 | EL Multi ₹4.32 | **₹6.26** | + ₹1.34 + ₹0.03 → **₹7.63/min** |
+| **Cheapest India** (all-Sarvam + Plivo) | Saaras ₹0.50 | Sarvam-30b ₹0.02 | Bulbul v2 ₹0.68 | **₹1.20** | *(Plivo ₹0.60 + ₹0.03)* → **₹1.83/min** |
+| **Balanced** | Scribe ₹0.62 | GPT-4o-mini ₹0.08 | Cartesia ₹1.08 | **₹1.78** | + ₹1.72 + ₹0.03 → **₹3.53/min** |
+| **Quality** | Scribe ₹0.62 | Gemini Flash ₹0.17 | EL Flash ₹2.16 | **₹2.95** | + ₹1.72 + ₹0.03 → **₹4.70/min** |
+| **Premium** | Scribe ₹0.62 | GPT-4o ₹1.32 | EL Multi ₹4.32 | **₹6.26** | + ₹1.72 + ₹0.03 → **₹8.01/min** |
 
-### Example bundled stacks (phone call)
+### Example bundled stacks (US phone call — incl. Media Streams ₹0.38)
 
-| Engine | Engine/min | + phone (Twilio US) | + extraction | **TOTAL / min** |
+| Engine | Engine/min | + phone (Twilio US + streams) | + extraction | **TOTAL / min** |
 |---|---|---|---|---|
-| **xAI Grok Voice** ⭐ | ₹4.80 | ₹1.34 | ₹0.03 | **₹6.17/min** ($0.064) |
-| ElevenLabs ConvAI (Standard) | ₹7.68 | ₹1.34 | ₹0.03 | **₹9.05/min** ($0.094) |
-| ElevenLabs ConvAI (Premium) | ₹11.52 | ₹1.34 | ₹0.03 | **₹12.89/min** ($0.134) |
+| **xAI Grok Voice** ⭐ | ₹4.80 | ₹1.72 | ₹0.03 | **₹6.55/min** ($0.068) |
+| ElevenLabs ConvAI (Standard) | ₹7.68 | ₹1.72 | ₹0.03 | **₹9.43/min** ($0.098) |
+| ElevenLabs ConvAI (Premium) | ₹11.52 | ₹1.72 | ₹0.03 | **₹13.27/min** ($0.138) |
 
-> **For web calls, drop the telephony line** (₹1.34) — every total above falls by that much.
+### 🚨 India phone call — the carrier decides everything
+
+| Engine | Carrier | Carrier/min | + extraction | **TOTAL / min** |
+|---|---|---|---|---|
+| **xAI Grok Voice** | **Twilio** → IN mobile | ₹5.18 | ₹0.03 | **₹10.01/min** ($0.104) |
+| **xAI Grok Voice** ⭐ | **Plivo** → IN mobile | **₹0.60** | ₹0.03 | **₹5.43/min** ($0.057) |
+
+> Our rate card charges **₹6.72–11.52/min**. At **₹10.01** an Indian call over Twilio is
+> **loss-making on every paid tier.** Over Plivo (₹5.43) every tier is profitable.
+> Switching the carrier is worth more than every other optimization in this sheet combined.
+
+> **For web calls, drop telephony *and* Media Streams** (₹1.72 on the US rows) — every
+> total above falls by that much.
 
 ---
 
@@ -187,7 +223,8 @@ amortized across every minute that agent ever runs → effectively **₹0/min**.
 | **LLM (live)** /min | Sarvam-30b ₹0.02 | GPT-4o-mini ₹0.08 | GPT-4o ₹1.32 |
 | **TTS** /min | Bulbul v2 ₹0.68 | EL Flash ₹2.16 | EL Multilingual ₹4.32 |
 | **Bundled S2S** /min | xAI Grok ₹4.80 | — | EL ConvAI ₹7.68–11.52 |
-| **Telephony** /min | Airtel ₹0.75 | Twilio US ₹1.34 | — |
+| **Telephony (India)** /min | **Plivo ₹0.60** ✅ | Twilio ₹5.18 ⚠️ | — |
+| **Telephony (US)** /min | — | Twilio ₹1.34 **+ ₹0.38 streams** | — |
 | **Extraction** /call | GPT-4o-mini ₹0.05 | Gemini Flash ₹0.14 | GPT-4o ₹0.74 |
 | **Onboarding** /agent | GPT-4o-mini ₹0.19 | Gemini Flash ₹0.69 | — |
 

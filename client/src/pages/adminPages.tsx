@@ -14,7 +14,7 @@ import {
   NumberPoolTab,
   ReportIssuesTab,
   AppointmentsTab,
-  PlansTab,
+  WalletRateTab,
   WalletCreditTab,
   SystemHealthTab,
 } from './AdminPanel';
@@ -75,11 +75,11 @@ export function AdminPlansPage() {
   return (
     <>
       <AdminPageHeader
-        title="Plans & Pricing"
-        subtitle="The live plan catalogue — edits apply to new subscriptions immediately"
+        title="Wallet Rate"
+        subtitle="The rupees-per-minute every call is charged — the only pricing this platform has"
         icon={<TrendingUp size={21} />}
       />
-      <PlansTab />
+      <WalletRateTab />
     </>
   );
 }

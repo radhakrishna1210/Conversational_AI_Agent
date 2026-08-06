@@ -341,6 +341,133 @@ export function isLikelySttHallucination(text, { audioHadSpeech = false } = {}) 
   return false;
 }
 
+/**
+ * Is this "caller" transcript actually the AGENT's own voice, echoed back?
+ *
+ * WHY STREAMING STT NEEDS THIS AND BATCH DOESN'T
+ * ----------------------------------------------
+ * The hallucination filter above exists because batch engines INVENT text from
+ * silence. Deepgram does not — it reports what it hears — which is why streamed
+ * transcripts were trusted outright. That trust has one hole: when the caller's
+ * speakers feed the agent's own reply back into the microphone, Deepgram
+ * transcribes it faithfully, and a faithful transcript of the wrong speaker is
+ * indistinguishable from a real turn by every acoustic test.
+ *
+ * Observed: the agent asked "...उन्हें क्या परेशानी है?" and the very next
+ * "caller turn" was "पर छाती है?" — the tail of its own sentence, re-segmented
+ * by the recognizer. The caller had not spoken at all.
+ *
+ * Browser AEC removes most of this, but it is best-effort and loses to speaker
+ * volume, room reverb and cheap hardware. The reliable signal is not acoustic
+ * at all: it is that the words match what the agent just said.
+ *
+ * MATCHING: LONGEST CONTIGUOUS RUN, not scattered word or n-gram overlap.
+ *
+ * The first attempt scored character-bigram overlap and it failed on the case
+ * that matters most: replying to "would you like to book a new appointment?"
+ * with "I want to book a new one" scored as echo, because conversational
+ * replies legitimately reuse the words of the question. Any measure of
+ * SCATTERED similarity confuses those two, since that is what normal dialogue
+ * looks like. What separates echo is that it is a VERBATIM CONTIGUOUS CHUNK of
+ * the agent's sentence — a caller reuses vocabulary, a speaker does not
+ * reproduce a clause word for word.
+ *
+ * SCOPE, honestly stated. This is a high-precision, LOW-RECALL backstop for
+ * echo loud enough to look like real speech. Heavily re-segmented echo
+ * ("परेशानी" → "पर छाती") is NOT verbatim and will slip past here by design —
+ * that case is caught by the acoustic gate instead, because echo quiet enough
+ * to be mangled is also quiet enough to fall below the voiced-speech floor.
+ * The two guards cover opposite ends on purpose.
+ *
+ * Discarding a real turn makes the agent deaf, which is a worse bug than the
+ * one being fixed, so every ambiguity here resolves toward keeping the turn.
+ *
+ * @param {string} userText - the candidate caller transcript
+ * @param {string} agentText - what the agent said on its previous turn
+ * @returns {boolean}
+ */
+export function isEchoOfAgent(userText, agentText) {
+  const norm = (s) => String(s ?? '').toLowerCase().replace(/[^\p{L}\p{N}\p{M}]/gu, '');
+  // Bound the DP below; transcripts are short, but a pathological input must
+  // not turn a per-turn check into an O(n*m) stall on the hot path.
+  const a = norm(userText).slice(0, 400);
+  const b = norm(agentText).slice(0, 400);
+  // Too short to judge: a coincidental match is likelier than a real echo, and
+  // these ("okay", "हाँ") are exactly the words a caller genuinely says alone.
+  if (a.length < ECHO_MIN_CHARS || b.length < ECHO_MIN_CHARS) return false;
+
+  // Longest common substring, rolling row (O(len(a)) memory).
+  let best = 0;
+  let prev = new Uint16Array(b.length + 1);
+  let cur = new Uint16Array(b.length + 1);
+  for (let i = 1; i <= a.length; i++) {
+    for (let j = 1; j <= b.length; j++) {
+      cur[j] = a[i - 1] === b[j - 1] ? prev[j - 1] + 1 : 0;
+      if (cur[j] > best) best = cur[j];
+    }
+    const swap = prev; prev = cur; cur = swap;
+    cur.fill(0);
+  }
+
+  // Normalized against the CALLER's transcript: the echo is typically a
+  // fragment of a longer agent utterance, so "how much of what was heard is
+  // verbatim agent speech?" is the question, not how much of the agent's reply
+  // came back.
+  return best / a.length >= ECHO_SIMILARITY;
+}
+
+/**
+ * Trim the agent's own trailing words off the FRONT of a caller transcript.
+ *
+ * THE CASE isEchoOfAgent CANNOT HANDLE. That function decides whether a whole
+ * turn is echo and discards it. But the common shape is a MIXTURE: capture
+ * opens while the last syllables of the agent's reply are still leaving the
+ * speaker, so the transcript is the agent's tail followed by everything the
+ * caller actually said. Observed: the agent ended "...आपकी कैसे मदद कर सकती
+ * हूँ?" and the turn came through as "कर सकती हूँ मुझे appointment book करना
+ * था". Discarding that would throw away a real request — the fix is to cut the
+ * prefix and keep the rest.
+ *
+ * WHY MATCHING THE AGENT'S SUFFIX SPECIFICALLY, AND NOT JUST ANY OVERLAP.
+ * Echo captured at the start of listening is, by construction, the END of what
+ * was playing. Requiring the matched run to be a verbatim SUFFIX of the agent's
+ * utterance is what keeps this safe: a caller who legitimately opens by quoting
+ * the middle of the question ("book a new appointment, yes") is untouched,
+ * because that phrase is not where the agent's sentence ended. Without that
+ * constraint this would silently delete real words from real turns, which is a
+ * far worse bug than the one it fixes.
+ *
+ * Two or more tokens required: a single shared word at a boundary is
+ * coincidence, not echo, and stripping it could change the meaning.
+ *
+ * @param {string} userText - the candidate caller transcript
+ * @param {string} agentText - what the agent said on its previous turn
+ * @returns {string} the transcript with any echoed prefix removed
+ */
+export function stripAgentEcho(userText, agentText) {
+  const raw = String(userText ?? '').trim();
+  const agent = String(agentText ?? '').trim();
+  if (!raw || !agent) return raw;
+
+  const key = (t) => t.toLowerCase().replace(/[^\p{L}\p{N}\p{M}]/gu, '');
+  const userTokens = raw.split(/\s+/).filter(Boolean);
+  const agentTokens = agent.split(/\s+/).map(key).filter(Boolean);
+  if (userTokens.length < 2 || !agentTokens.length) return raw;
+
+  // Longest first: strip as much of the echo as is genuinely the agent's tail.
+  const maxK = Math.min(ECHO_PREFIX_MAX_TOKENS, userTokens.length - 1);
+  for (let k = maxK; k >= 2; k--) {
+    const candidate = userTokens.slice(0, k).map(key);
+    if (candidate.some((t) => !t)) continue;
+    const tail = agentTokens.slice(-k);
+    if (tail.length !== k) continue;
+    if (candidate.every((t, i) => t === tail[i])) {
+      return userTokens.slice(k).join(' ').trim();
+    }
+  }
+  return raw;
+}
+
 export const __testing = {
   FRAME_MS, ABS_RMS_FLOOR, MIN_CONTRAST, ZCR_MIN, ZCR_MAX,
   MIN_VOICED_MS, MIN_RUN_MS, normalizeForMatch,
@@ -358,6 +485,28 @@ export const __testing = {
  * prompt and small TTS delivery tweaks, where an occasional wrong label reads
  * as natural variation, not an error.
  */
+/**
+ * Peak level (95th-percentile frame RMS, normalized 0..1) required before
+ * loudness counts as evidence of agitation AT ALL. Ordinary conversational
+ * speech sits around 0.05-0.15; 0.3 — the old threshold, used on its own — is
+ * reached by nothing more exotic than a close microphone. This is set where a
+ * caller is genuinely raising their voice, and it still has to be corroborated
+ * by delivery rate below.
+ */
+const AGITATED_PEAK_RMS = Number(process.env.AFFECT_AGITATED_PEAK_RMS) || 0.45;
+
+/** Fraction of the caller's transcript that must be one VERBATIM contiguous run
+ *  of the agent's previous reply before it is judged an echo. High on purpose:
+ *  a genuine reply reuses the question's words scattered about, an echo
+ *  reproduces a clause intact. See isEchoOfAgent. */
+const ECHO_SIMILARITY = Number(process.env.STT_ECHO_SIMILARITY) || 0.75;
+/** Below this many characters, echo and coincidence are indistinguishable. */
+const ECHO_MIN_CHARS = Number(process.env.STT_ECHO_MIN_CHARS) || 8;
+/** Most leading tokens that can be trimmed as echoed agent speech. Capture
+ *  opens as the agent's last word or two are still leaving the speaker, so the
+ *  bleed is short; a large window would start eating real turns. */
+const ECHO_PREFIX_MAX_TOKENS = Number(process.env.STT_ECHO_PREFIX_TOKENS) || 6;
+
 export function classifyCallerAffect(speech, transcript = '') {
   if (!speech?.hasSpeech || !transcript?.trim()) return null;
   const words = transcript.trim().split(/\s+/).filter(Boolean);
@@ -366,9 +515,24 @@ export function classifyCallerAffect(speech, transcript = '') {
   const pauseRatio = speech.durationMs > 0 ? 1 - speech.voicedMs / speech.durationMs : 0;
   const disfluencies = words.filter((w) => /^(u+h+m*|u+m+|e+r+m*|h+m+|अं+|अच्छा|हम+)$/i.test(w.replace(/[.,!?]/g, ''))).length;
 
+  // AGITATED IS CHECKED FIRST, AND NEEDS TWO SIGNALS.
+  //
+  // This was `peakRms >= 0.3` alone, i.e. pure loudness, and it misfired
+  // constantly: a close mic, a boosted input, or simply a person who talks
+  // loudly got labelled frustrated, and the agent opened with "I'm sorry to
+  // hear that you're feeling frustrated" at a caller who was perfectly happy.
+  // That is worse than no affect detection at all — it is the agent confidently
+  // asserting something false about the person it is talking to.
+  //
+  // The costs are asymmetric: missing real frustration just means a neutral
+  // tone (harmless), while inventing it is memorably wrong. So this now needs
+  // volume AND pressured delivery together — which is what agitation actually
+  // sounds like, and what a loud microphone cannot fake — at a level well clear
+  // of ordinary loud speech.
+  const loud = speech.peakRms >= AGITATED_PEAK_RMS;
+  if (loud && wps >= 3.0 && words.length >= 5) return 'agitated';
   if (wps >= 3.8) return 'rushed';
   if (disfluencies >= 2 || (pauseRatio > 0.65 && words.length >= 6)) return 'hesitant';
-  if (speech.peakRms >= 0.3) return 'agitated';
   if (speech.peakRms > 0 && speech.peakRms < 0.04) return 'quiet';
   return null;
 }

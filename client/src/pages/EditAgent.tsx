@@ -10,10 +10,14 @@ import ChatComponent from '../components/ChatComponent';
 import AIAssistantSidebar from '../components/AIAssistantSidebar';
 import VoiceConfigModal from '../components/VoiceConfigModal';
 import CallerNumberPicker from '../components/CallerNumberPicker';
-import { useTheme } from '../hooks/useTheme';
 import { xaiCallSocket } from '../services/xaiCallSocket';
 import { AMBIENT_OPTIONS, startAmbientSound } from '../services/ambientSound';
 import { modularCallSocket, type ModularCallEvent } from '../services/modularCallSocket';
+import {
+  ArrowLeft, Sparkles, Rocket, Save, Link2, MessageSquare, Globe, Phone,
+  PhoneIncoming, PhoneOutgoing, Languages as LanguagesIcon, AudioLines, Cpu,
+  Volume2, MessageSquareText, ChevronDown, Loader2, Check
+} from 'lucide-react';
 
 
 interface FlowItem {
@@ -115,7 +119,8 @@ export default function EditAgent() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('details');
   const [isSaving, setIsSaving] = useState(false);
-  const { darkMode, toggleDarkMode } = useTheme();
+  // Theme is owned by the DashboardLayout topbar; this page no longer renders
+  // its own toggle, so it has nothing to read from the theme context.
 
 
   const [isLoading, setIsLoading] = useState(true);
@@ -276,6 +281,16 @@ export default function EditAgent() {
   const [callsLoading, setCallsLoading] = useState(false);
   const [expandedCallId, setExpandedCallId] = useState<string | null>(null);
   const [recordingUrls, setRecordingUrls] = useState<Record<string, string>>({});
+  // Recent Calls pagination — 10 rows per page so the list never grows tall
+  // enough to need its own scrollbar on top of the page scrollbar.
+  const CALLS_PER_PAGE = 10;
+  const [callsPage, setCallsPage] = useState(1);
+  const callsPageCount = Math.max(1, Math.ceil(recentCalls.length / CALLS_PER_PAGE));
+  // Keep the page in range when the list shrinks (refresh, deletions).
+  useEffect(() => {
+    setCallsPage((p) => Math.min(p, callsPageCount));
+  }, [callsPageCount]);
+  const visibleCalls = recentCalls.slice((callsPage - 1) * CALLS_PER_PAGE, callsPage * CALLS_PER_PAGE);
 
   // Collapse/Expand state for conversational flow items (first item expanded by default)
   const [expandedItems, setExpandedItems] = useState<Record<string, boolean>>({
@@ -310,6 +325,7 @@ export default function EditAgent() {
 
   const loadRecentCalls = async () => {
     setCallsLoading(true);
+    setCallsPage(1);
     try {
       const res = await whapi.get<{ calls?: CallRecord[] }>(`/agents/${agentId}/calls?limit=100`);
       setRecentCalls(res?.calls ?? []);
@@ -523,6 +539,12 @@ export default function EditAgent() {
     stopPlayback: (() => void) | null;
     // Interval that watches the mic for barge-in while the agent speaks.
     bargeTimer: number | null;
+    // Playback volume for the agent's voice, 0..1. Below 1 while the agent is
+    // DUCKED — the first stage of barge-in, see the barge timer. Stored on the
+    // call (not just applied to the element that happens to be playing) because
+    // reply audio arrives as a queue of segments, and a segment that starts
+    // mid-duck has to start quiet too.
+    duckLevel: number;
     // ── B2 modular WebSocket transport (voiceEngine === 'modular') ──
     // true once the persistent modular Web Call socket is running.
     socketMode: boolean;
@@ -552,7 +574,12 @@ export default function EditAgent() {
     // Server has model-based (Deepgram) endpointing, so the RMS VAD below is a
     // backstop and uses a longer silence timeout. Set from the `ready` frame.
     sttEndpointing: boolean;
-  }>({ active: false, stream: null, audioCtx: null, analyser: null, recorder: null, vadTimer: null, player: null, history: [], mixDest: null, mixRecorder: null, mixChunks: [], logId: null, bundledEngine: false, lastSpeechAt: 0, ambientStop: null, stopPlayback: null, bargeTimer: null, socketMode: false, micWorklet: null, capturingPcm: false, modularSession: null, modularQueue: [], modularPlaying: null, modularOutstanding: 0, modularDoneResolvers: [], pendingUserText: '', turnEpoch: 0, endTurnEarly: null, noiseFloor: 0, sttEndpointing: false });
+    // Worst-case ms of silence before the SERVER ends a turn itself, reported in
+    // the `ready` frame. The backstop is derived from this rather than guessed,
+    // so a change to the server's grace windows cannot silently be overridden by
+    // a client constant that still fires first.
+    endpointCommitMs: number;
+  }>({ active: false, stream: null, audioCtx: null, analyser: null, recorder: null, vadTimer: null, player: null, history: [], mixDest: null, mixRecorder: null, mixChunks: [], logId: null, bundledEngine: false, lastSpeechAt: 0, ambientStop: null, stopPlayback: null, bargeTimer: null, duckLevel: 1, socketMode: false, micWorklet: null, capturingPcm: false, modularSession: null, modularQueue: [], modularPlaying: null, modularOutstanding: 0, modularDoneResolvers: [], pendingUserText: '', turnEpoch: 0, endTurnEarly: null, noiseFloor: 0, sttEndpointing: false, endpointCommitMs: 0 });
 
   // ─── Call history logging (Recent Calls tab) ────────────────────────────────
   // Every test session — chat modal, Chat Test tab, web call, phone call — is
@@ -1394,6 +1421,23 @@ export default function EditAgent() {
     }
   };
 
+  /**
+   * Set the agent's playback volume across every element that could be making
+   * sound right now — the segment playing, the ones queued behind it, and the
+   * non-socket player. Used by barge-in stage 1 to DUCK rather than cut.
+   */
+  const setAgentVolume = (level: number) => {
+    const call = callRef.current;
+    call.duckLevel = level;
+    const apply = (el: HTMLAudioElement | null | undefined) => {
+      if (el) { try { el.volume = level; } catch { /* element already torn down */ } }
+    };
+    apply(call.player);
+    apply(call.modularPlaying?.audioEl);
+    apply(call.modularSession?.audioEl);
+    call.modularQueue.forEach((s) => apply(s.audioEl));
+  };
+
   // Give a queued segment its turn: start MediaSource playback, or fire the
   // prepared blob fallback.
   const activateModular = (session: ModularPlaybackSession) => {
@@ -1460,6 +1504,7 @@ export default function EditAgent() {
       const mediaSource = new MediaSource();
       const url = URL.createObjectURL(mediaSource);
       const audioEl = new Audio(url);
+      audioEl.volume = call.duckLevel; // a segment starting mid-duck starts quiet
       session.mediaSource = mediaSource;
       session.url = url;
       session.audioEl = audioEl;
@@ -1513,6 +1558,7 @@ export default function EditAgent() {
       const blob = new Blob(session.blobChunks as BlobPart[], { type: session.contentType });
       const url = URL.createObjectURL(blob);
       const audioEl = new Audio(url);
+      audioEl.volume = call.duckLevel; // a segment starting mid-duck starts quiet
       session.audioEl = audioEl;
       session.url = url;
       connectAgentPlayer(audioEl);
@@ -1557,6 +1603,7 @@ export default function EditAgent() {
         // Whether the server can endpoint semantically decides how long the
         // client's RMS VAD waits before ending a turn (backstop vs sole judge).
         call.sttEndpointing = event.sttEndpointing === true;
+        call.endpointCommitMs = Number(event.endpointCommitMs) || 0;
         break; // the promise itself is resolved by modularCallSocket.start()
       case 'transcript':
         if (event.role === 'user' && event.done) call.pendingUserText = event.text;
@@ -1638,17 +1685,29 @@ export default function EditAgent() {
     // server has model-based endpointing:
     //
     //  - BACKSTOP (sttEndpointing true). The server's confirmed end-of-turn
-    //    signal commits at ~1000ms of real silence (endpointing 600 + grace
-    //    400). A backstop firing at 800ms would pre-empt it on EVERY turn and
-    //    reintroduce exactly the mid-sentence cutoff the grace window exists to
-    //    prevent — the RMS path has no notion of "the caller resumed, cancel".
-    //    So it has to sit clear above the commit point.
+    //    signal commits after its own grace window. A backstop that fires first
+    //    pre-empts it on EVERY turn and reintroduces exactly the mid-sentence
+    //    cutoff the grace window exists to prevent — the RMS path has no notion
+    //    of "the caller resumed, cancel". So it has to sit clear ABOVE the
+    //    server's worst-case commit point.
+    //
+    //    That point is now READ FROM THE SERVER (`endpointCommitMs` in the
+    //    ready frame) instead of being restated here as a constant. It was a
+    //    constant, and when the server's grace was extended so a caller could
+    //    pause mid-thought, this backstop still fired 100ms earlier and the
+    //    extension did nothing at all. Deriving it removes that failure mode.
+    //
     //  - SOLE ENDPOINTER (no Deepgram). Nothing else will end the turn, so stay
     //    responsive and accept the occasional early cut.
     //
-    // A configured sttSilenceTimeoutMs still wins, clamped to a sane range.
+    // A configured sttSilenceTimeoutMs still raises the floor, but can no
+    // longer lower the backstop below the server's commit point.
+    const BACKSTOP_MARGIN_MS = 300;
+    const serverFloor = call.endpointCommitMs > 0
+      ? call.endpointCommitMs + BACKSTOP_MARGIN_MS
+      : 1600;
     const SILENCE_MS = call.sttEndpointing
-      ? Math.min(2500, Math.max(1500, sttSilenceTimeoutMs || 1600))
+      ? Math.min(3200, Math.max(serverFloor, sttSilenceTimeoutMs || 0))
       : Math.min(1600, Math.max(700, sttSilenceTimeoutMs || 800));
     const MAX_SEGMENT_MS = 20000;
 
@@ -1854,13 +1913,73 @@ export default function EditAgent() {
       // the absolute SPEECH_RMS_FLOOR governs, which is the conservative end.
       Object.assign(call, { active: true, stream, audioCtx, analyser, history: [], mixDest, mixRecorder, mixChunks, logId: null, lastSpeechAt: Date.now(), ambientStop, socketMode: true, micWorklet, capturingPcm: false, modularPlayChain: null, pendingUserText: '', turnEpoch: 0, noiseFloor: 0 });
 
-      // Barge-in: while the agent is speaking (call.stopPlayback set), watch the
-      // mic for sustained speech and cut the agent off so the caller can
-      // interrupt. Mic echo-cancellation keeps the agent's own voice out of
-      // this signal; the threshold + sustain window guard against residual echo.
+      // Barge-in, in TWO STAGES: duck first, cut only if they keep going.
+      //
+      // WHY. A single threshold cannot tell an interruption from a backchannel,
+      // and they are not the same event. "Mm-hmm", "right", "okay" are how a
+      // listener signals they are still there — a human speaker does not stop
+      // talking for those, they carry on. Cutting the agent off at the first
+      // 240ms of sound meant every acknowledgement killed the reply mid-
+      // sentence, which is both the most robotic thing in the call and a
+      // correctness problem: the rest of the answer is simply never said.
+      //
+      // Stage 1 (DUCK) is what a person does when someone starts talking — get
+      // quieter and keep going. It is free and fully reversible, so it can fire
+      // on weak evidence. Stage 2 (CUT) is destructive and irreversible, so it
+      // waits for evidence a backchannel cannot produce: continuous speech well
+      // past the length of one. If they stop before that, volume comes back and
+      // neither side ever noticed.
+      //
+      // Duration is the discriminator rather than content, deliberately: it
+      // needs no transcript, so it costs nothing and works identically when
+      // Deepgram is not configured. Mic echo-cancellation plus the adaptive
+      // threshold below keep the agent's own voice out of the signal.
+      // TIMING IS ASYMMETRIC: duck fast, restore slowly. This is not a detail,
+      // it is what makes ducking usable at all.
+      //
+      // The mic hears the agent's own voice (echo cancellation is best-effort,
+      // and we have direct evidence it leaks — it produced a phantom user
+      // transcript). Echo energy RISES AND FALLS WITH EVERY WORD the agent
+      // speaks, because speech is modulated. With a symmetric threshold that
+      // means: word crosses the threshold → duck to 25%; the gap before the next
+      // word falls below it → restore to 100%; next word → duck again. The
+      // result is the agent's own volume pumping in time with its own speech,
+      // which sounds exactly like a pause after every word. That was the
+      // reported symptom, and it was caused by ducking, not by TTS.
+      //
+      // Requiring a SUSTAINED quiet period before restoring fixes it: the gaps
+      // between words are ~100-200ms, far below RESTORE_HOLD_MS, so a talking
+      // agent can no longer pump its own volume. A caller who genuinely stops
+      // talking is silent for much longer than that, so the duck still lifts
+      // promptly for them. (Classic compressor attack/release, same reason.)
+      const DUCK_MS = 240;           // sound over the agent → lower the volume
+      const CUT_MS = 800;            // sustained speech → a real interruption
+      const RESTORE_HOLD_MS = 600;   // continuous quiet required to come back up
+      // A duck that never escalates to a cut was not an interruption.
+      //
+      // Hysteresis alone stops the pumping, but it has its own failure mode: if
+      // echo keeps crossing the threshold, the agent stays ducked for the WHOLE
+      // reply and just sounds inexplicably quiet — choppy traded for muffled.
+      // A real interrupting caller reaches CUT_MS within a second; echo never
+      // does, because the gaps between the agent's own words keep resetting the
+      // sustain counter. So a duck this long is self-evidently a false
+      // positive: undo it, and stop ducking for the rest of THIS reply.
+      const MAX_DUCK_MS = 2400;
+      const DUCK_LEVEL = 0.25;
       let bargeActiveMs = 0;
+      let quietMs = 0;
+      let duckedMs = 0;
+      let duckSuppressed = false;
       call.bargeTimer = window.setInterval(() => {
-        if (!call.active || !call.analyser || !call.stopPlayback) { bargeActiveMs = 0; return; }
+        if (!call.active || !call.analyser || !call.stopPlayback) {
+          if (call.duckLevel !== 1) setAgentVolume(1);
+          bargeActiveMs = 0;
+          quietMs = 0;
+          duckedMs = 0;
+          duckSuppressed = false; // next reply starts with a clean slate
+          return;
+        }
+        if (call.duckLevel !== 1) duckedMs += 80;
         const buf = new Uint8Array(call.analyser.fftSize);
         call.analyser.getByteTimeDomainData(buf);
         let sum = 0;
@@ -1877,10 +1996,33 @@ export default function EditAgent() {
         const BARGE_RMS_FLOOR = 0.03;
         if (rms > Math.max(BARGE_RMS_FLOOR, call.noiseFloor * BARGE_SNR)) {
           bargeActiveMs += 80;
-          if (bargeActiveMs >= 240) { // ~0.24s of speech over the agent
+          quietMs = 0;
+          // Stage 1: someone started talking. Drop back, keep speaking.
+          if (bargeActiveMs >= DUCK_MS && call.duckLevel === 1 && !duckSuppressed) {
+            setAgentVolume(DUCK_LEVEL);
+            duckedMs = 0;
+            console.info('[barge] ducked', { rms: rms.toFixed(4), noiseFloor: call.noiseFloor.toFixed(4) });
+          }
+          // Ducked far too long without ever becoming a cut → not a caller.
+          // Almost always the agent's own audio leaking back into the mic.
+          if (call.duckLevel !== 1 && duckedMs >= MAX_DUCK_MS) {
+            duckSuppressed = true;
+            setAgentVolume(1);
+            duckedMs = 0;
+            console.warn('[barge] duck released and suppressed for this reply — '
+              + 'sustained mic energy that never became an interruption (likely echo of the agent). '
+              + 'Headphones remove this entirely.');
+          }
+          // Stage 2: still talking — this is a real interruption, not an
+          // acknowledgement. Cut the reply and hand the floor over.
+          if (bargeActiveMs >= CUT_MS) {
             bargeActiveMs = 0;
             const stop = call.stopPlayback;
             call.stopPlayback = null;
+            // Restore the level BEFORE tearing down, so the next reply's
+            // segments are not created holding a stale ducked volume.
+            setAgentVolume(1);
+            quietMs = 0;
             setWebCallActivity('listening');
             if (call.socketMode) {
               // Skip any still-queued sentence audio and tell the server to
@@ -1892,7 +2034,15 @@ export default function EditAgent() {
             stop?.(); // cut the agent off; playback promise resolves → we listen
           }
         } else {
+          // Below threshold. This is where the pumping came from: an inter-word
+          // gap in the agent's OWN echo looks identical to the caller stopping.
+          // Only come back up after the quiet has held — see RESTORE_HOLD_MS.
+          quietMs += 80;
           bargeActiveMs = 0;
+          if (call.duckLevel !== 1 && quietMs >= RESTORE_HOLD_MS) {
+            setAgentVolume(1);
+            duckedMs = 0;
+          }
         }
       }, 80);
 
@@ -2055,10 +2205,10 @@ export default function EditAgent() {
 
   if (isLoading) {
     return (
-      <div style={{ width: '100%', minHeight: '100vh', background: '#0f0f0f', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
+      <div style={{ width: '100%', minHeight: '100vh', background: 'var(--bg-primary)', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
-          <div style={{ width: '40px', height: '40px', border: '3px solid #1a1a1a', borderTopColor: '#00bcd4', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-          <span style={{ fontSize: '14px', color: '#999' }}>Loading agent configuration...</span>
+          <div style={{ width: '40px', height: '40px', border: '3px solid #1a1a1a', borderTopColor: 'var(--teal)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+          <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Loading agent configuration...</span>
           <style>{`
             @keyframes spin {
               to { transform: rotate(360deg); }
@@ -2070,24 +2220,24 @@ export default function EditAgent() {
   }
 
   return (
-    <div style={{ width: '100%', minHeight: '100vh', background: '#0f0f0f', color: 'var(--text-primary)', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
+    <div style={{ width: '100%', minHeight: '100vh', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
       {/* Language Configuration Modal */}
       {showLanguageModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: '#1a1a1a', borderRadius: '8px', padding: '30px', maxWidth: '600px', width: '90%', maxHeight: '80vh', overflowY: 'auto' }}>
+          <div style={{ background: 'var(--bg-card)', borderRadius: '8px', padding: '30px', maxWidth: '600px', width: '90%', maxHeight: '80vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h2 style={{ fontSize: '18px', fontWeight: '600', margin: 0 }}>Language Configuration</h2>
-              <button onClick={() => setShowLanguageModal(false)} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '24px' }}>X</button>
+              <button onClick={() => setShowLanguageModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '24px' }}>X</button>
             </div>
-            <p style={{ fontSize: '13px', color: '#999', marginBottom: '20px' }}>Choose multiple languages for your agent to support</p>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '20px' }}>Choose multiple languages for your agent to support</p>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
               {LANGUAGES_LIST.map(lang => (
-                <label key={lang} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', background: '#0f0f0f', border: selectedLanguages.includes(lang) ? '1px solid #00bcd4' : '1px solid #333', borderRadius: '8px', cursor: 'pointer' }}>
+                <label key={lang} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', background: 'var(--bg-primary)', border: selectedLanguages.includes(lang) ? '1px solid var(--teal)' : '1px solid #333', borderRadius: '8px', cursor: 'pointer' }}>
                   <input
                     type="checkbox"
                     checked={selectedLanguages.includes(lang)}
                     onChange={() => toggleLanguage(lang)}
-                    style={{ accentColor: '#00bcd4', width: '18px', height: '18px', cursor: 'pointer' }}
+                    style={{ accentColor: 'var(--teal)', width: '18px', height: '18px', cursor: 'pointer' }}
                   />
                   <span style={{ fontSize: '13px' }}>{lang}</span>
                 </label>
@@ -2095,7 +2245,7 @@ export default function EditAgent() {
             </div>
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
               <button onClick={() => setShowLanguageModal(false)} style={{ padding: '10px 20px', background: 'transparent', border: '1px solid #333', color: 'var(--text-primary)', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>Cancel</button>
-              <button onClick={() => { setShowLanguageModal(false); handleSave(); }} style={{ padding: '10px 20px', background: '#00bcd4', color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>Done</button>
+              <button onClick={() => { setShowLanguageModal(false); handleSave(); }} style={{ padding: '10px 20px', background: 'var(--teal)', color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>Done</button>
             </div>
           </div>
         </div>
@@ -2114,12 +2264,12 @@ export default function EditAgent() {
       {/* Conversational Agent Modal — 3-way choice: Off / xAI / ElevenLabs */}
       {showXaiModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: '#1a1a1a', borderRadius: '8px', padding: '30px', maxWidth: '560px', width: '90%' }}>
+          <div style={{ background: 'var(--bg-card)', borderRadius: '8px', padding: '30px', maxWidth: '560px', width: '90%' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <h2 style={{ fontSize: '18px', fontWeight: '600', margin: 0 }}>Conversational Agent</h2>
-              <button onClick={() => setShowXaiModal(false)} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '24px' }}>X</button>
+              <button onClick={() => setShowXaiModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '24px' }}>X</button>
             </div>
-            <p style={{ fontSize: '13px', color: '#999', lineHeight: 1.6, marginBottom: '20px' }}>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: '20px' }}>
               Routes this agent's Web Call and Phone Call through a single bundled speech-to-speech
               engine that replaces Languages, Voice (TTS), AI Model (LLM) and Transcription (STT).
               Those four settings are disabled while one is active; choose Off to configure them
@@ -2134,7 +2284,7 @@ export default function EditAgent() {
                 <button
                   key={opt.value}
                   onClick={() => { setVoiceEngine(opt.value); setShowXaiModal(false); handleSave({ voiceEngine: opt.value }); }}
-                  style={{ padding: '12px', background: voiceEngine === opt.value ? '#00bcd4' : '#0f0f0f', color: voiceEngine === opt.value ? '#000' : '#fff', border: voiceEngine === opt.value ? 'none' : '1px solid #333', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: voiceEngine === opt.value ? 600 : 400, textAlign: 'left' }}
+                  style={{ padding: '12px', background: voiceEngine === opt.value ? 'var(--teal)' : '#0f0f0f', color: voiceEngine === opt.value ? '#000' : '#fff', border: voiceEngine === opt.value ? 'none' : '1px solid #333', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: voiceEngine === opt.value ? 600 : 400, textAlign: 'left' }}
                 >
                   {opt.label}
                 </button>
@@ -2147,10 +2297,10 @@ export default function EditAgent() {
       {/* AI Model Configuration Modal */}
       {showModelModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: '#1a1a1a', borderRadius: '8px', padding: '30px', maxWidth: '500px', width: '90%' }}>
+          <div style={{ background: 'var(--bg-card)', borderRadius: '8px', padding: '30px', maxWidth: '500px', width: '90%' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h2 style={{ fontSize: '18px', fontWeight: '600', margin: 0 }}>AI Model Configuration</h2>
-              <button onClick={() => setShowModelModal(false)} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '24px' }}>X</button>
+              <button onClick={() => setShowModelModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '24px' }}>X</button>
             </div>
             <div style={{ display: 'grid', gap: '12px', marginBottom: '20px' }}>
               {AI_MODELS.map(model => (
@@ -2159,7 +2309,7 @@ export default function EditAgent() {
                   onClick={() => { setAiModel(model); setShowModelModal(false); handleSave({ aiModel: model }); }}
                   style={{
                     padding: '12px',
-                    background: aiModel === model ? '#00bcd4' : '#0f0f0f',
+                    background: aiModel === model ? 'var(--teal)' : '#0f0f0f',
                     color: aiModel === model ? '#000' : '#fff',
                     border: aiModel === model ? 'none' : '1px solid #333',
                     borderRadius: '6px',
@@ -2183,7 +2333,7 @@ export default function EditAgent() {
           <div style={{ background: 'var(--bg-secondary)', border: '1px solid #1a1a1a', borderRadius: '8px', padding: '30px', maxWidth: '900px', width: '90%' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
               <h2 style={{ fontSize: '18px', fontWeight: '600', margin: 0 }}>Speech-to-Text Configuration</h2>
-              <button onClick={() => setShowTranscriptionModal(false)} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '24px' }}>X</button>
+              <button onClick={() => setShowTranscriptionModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '24px' }}>X</button>
             </div>
             
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px', marginBottom: '30px' }}>
@@ -2201,7 +2351,7 @@ export default function EditAgent() {
                       alignItems: 'center', 
                       justifyContent: 'space-between', 
                       padding: '10px 14px', 
-                      background: '#0f0f0f', 
+                      background: 'var(--bg-primary)', 
                       border: '1px solid #333', 
                       borderRadius: '6px', 
                       cursor: 'pointer',
@@ -2213,10 +2363,10 @@ export default function EditAgent() {
                       <MicIcon />
                       <span>{sttProvider}</span>
                     </div>
-                    <span style={{ fontSize: '10px', color: '#999', transform: isSttProviderDropdownOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>v</span>
+                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)', transform: isSttProviderDropdownOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>v</span>
                   </div>
                   {isSttProviderDropdownOpen && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#0f0f0f', border: '1px solid #333', borderRadius: '6px', marginTop: '4px', zIndex: 10 }}>
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--bg-primary)', border: '1px solid #333', borderRadius: '6px', marginTop: '4px', zIndex: 10 }}>
                       {['Standard Providers', 'deepgram_stream', 'Azure', 'Sarvam', 'Soniox'].map(provider => (
                         <div 
                           key={provider} 
@@ -2259,7 +2409,7 @@ export default function EditAgent() {
                       onChange={(e) => setSttSilenceTimeoutMs(Number(e.target.value))}
                       style={{ 
                         flex: 1, 
-                        accentColor: '#00bcd4', 
+                        accentColor: 'var(--teal)', 
                         height: '4px', 
                         background: '#333',
                         borderRadius: '2px',
@@ -2268,7 +2418,7 @@ export default function EditAgent() {
                       }} 
                     />
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px', fontSize: '11px', color: '#999' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px', fontSize: '11px', color: 'var(--text-secondary)' }}>
                     <span>0ms</span>
                     <span style={{ color: 'var(--text-primary)' }}>{sttSilenceTimeoutMs}ms</span>
                     <span>1500ms</span>
@@ -2284,8 +2434,8 @@ export default function EditAgent() {
                     style={{ 
                       width: '40px', 
                       height: '20px', 
-                      background: '#0f0f0f', 
-                      border: sttNoiseReducer ? '2px solid #00bcd4' : '2px solid #333', 
+                      background: 'var(--bg-primary)', 
+                      border: sttNoiseReducer ? '2px solid var(--teal)' : '2px solid #333', 
                       borderRadius: '10px', 
                       position: 'relative', 
                       cursor: 'pointer' 
@@ -2296,7 +2446,7 @@ export default function EditAgent() {
                       style={{ 
                         width: '12px', 
                         height: '12px', 
-                        background: sttNoiseReducer ? '#00bcd4' : '#666', 
+                        background: sttNoiseReducer ? 'var(--teal)' : '#666', 
                         borderRadius: '50%', 
                         position: 'absolute', 
                         top: '2px', 
@@ -2314,14 +2464,14 @@ export default function EditAgent() {
                     alignItems: 'center', 
                     justifyContent: 'space-between', 
                     padding: '14px', 
-                    background: '#0f0f0f', 
+                    background: 'var(--bg-primary)', 
                     border: '1px solid var(--border)', 
                     borderRadius: '6px', 
                     cursor: 'pointer' 
                   }}
                 >
                   <span style={{ fontSize: '13px', fontWeight: '500' }}>Advanced Settings</span>
-                  <span style={{ fontSize: '10px', color: '#999', transform: sttAdvancedSettingsOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>v</span>
+                  <span style={{ fontSize: '10px', color: 'var(--text-secondary)', transform: sttAdvancedSettingsOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>v</span>
                 </div>
               </div>
 
@@ -2335,13 +2485,13 @@ export default function EditAgent() {
                   <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '8px' }}>Model</label>
                   <div 
                     onClick={() => setIsSttModelDropdownOpen(!isSttModelDropdownOpen)}
-                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#0f0f0f', border: '1px solid #333', borderRadius: '6px', fontSize: '13px', cursor: 'pointer' }}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-primary)', border: '1px solid #333', borderRadius: '6px', fontSize: '13px', cursor: 'pointer' }}
                   >
                     <span>{sttModel}</span>
-                    <span style={{ fontSize: '10px', color: '#999' }}>v</span>
+                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>v</span>
                   </div>
                   {isSttModelDropdownOpen && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#0f0f0f', border: '1px solid #333', borderRadius: '6px', marginTop: '4px', zIndex: 10 }}>
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--bg-primary)', border: '1px solid #333', borderRadius: '6px', marginTop: '4px', zIndex: 10 }}>
                       {['Saaras V3', 'Standard V2'].map(model => (
                         <div 
                           key={model} 
@@ -2361,13 +2511,13 @@ export default function EditAgent() {
                   <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '8px' }}>Language</label>
                   <div 
                     onClick={() => setIsSttLanguageDropdownOpen(!isSttLanguageDropdownOpen)}
-                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: '#0f0f0f', border: '1px solid #333', borderRadius: '6px', fontSize: '13px', cursor: 'pointer' }}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-primary)', border: '1px solid #333', borderRadius: '6px', fontSize: '13px', cursor: 'pointer' }}
                   >
                     <span>{sttLanguage}</span>
-                    <span style={{ fontSize: '10px', color: '#999' }}>v</span>
+                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>v</span>
                   </div>
                   {isSttLanguageDropdownOpen && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: '#0f0f0f', border: '1px solid #333', borderRadius: '6px', marginTop: '4px', zIndex: 10 }}>
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--bg-primary)', border: '1px solid #333', borderRadius: '6px', marginTop: '4px', zIndex: 10 }}>
                       {['Multi', 'English', 'Hindi', 'Tamil'].map(lang => (
                         <div 
                           key={lang} 
@@ -2392,7 +2542,7 @@ export default function EditAgent() {
                   setShowTranscriptionModal(false);
                   handleSave({ transcription: sttProvider });
                 }}
-                style={{ padding: '10px 24px', background: '#00bcd4', color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}
+                style={{ padding: '10px 24px', background: 'var(--teal)', color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}
               >
                 Done
               </button>
@@ -2406,17 +2556,24 @@ export default function EditAgent() {
       {/* Web Call Modal */}
       {showWebCallModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: '#1a1a1a', borderRadius: '12px', padding: '32px', maxWidth: '480px', width: '90%', textAlign: 'center', border: '1px solid #333' }}>
+          <div style={{ background: 'var(--bg-card)', borderRadius: '12px', padding: '32px', maxWidth: '480px', width: '90%', textAlign: 'center', border: '1px solid #333' }}>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '10px' }}>
-              <button onClick={() => { cleanupWebCall(); setShowWebCallModal(false); setWebCallActive(false); setWebCallStatus('idle'); }} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '20px' }}>✕</button>
+              <button onClick={() => { cleanupWebCall(); setShowWebCallModal(false); setWebCallActive(false); setWebCallStatus('idle'); }} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '20px' }}>✕</button>
             </div>
-            <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: webCallStatus === 'connected' ? 'rgba(76,175,80,0.2)' : webCallStatus === 'connecting' ? 'rgba(255,152,0,0.2)' : 'rgba(0,188,212,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', border: webCallStatus === 'connected' ? '2px solid #4caf50' : '2px solid #00bcd4', transition: 'all 0.3s', animation: webCallStatus === 'connected' && webCallActivity === 'listening' ? 'pulse 1.6s ease-in-out infinite' : undefined }}>
-              <span style={{ fontSize: '36px' }}>{webCallStatus === 'connected' ? (webCallActivity === 'speaking' ? '🔊' : webCallActivity === 'processing' ? '💭' : '🎙️') : webCallStatus === 'connecting' ? '⏳' : '🌐'}</span>
+            <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: webCallStatus === 'connected' ? 'rgba(76,175,80,0.2)' : webCallStatus === 'connecting' ? 'rgba(255,152,0,0.2)' : 'rgba(0,188,212,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', border: webCallStatus === 'connected' ? '2px solid #4caf50' : '2px solid var(--teal)', transition: 'all 0.3s', animation: webCallStatus === 'connected' && webCallActivity === 'listening' ? 'pulse 1.6s ease-in-out infinite' : undefined }}>
+              {/* Call state as icons rather than emoji — emoji render at
+                  different sizes and weights per platform, so the 80px dial
+                  jumped around between states. */}
+              <span style={{ display: 'flex', color: webCallStatus === 'connected' ? 'var(--success)' : webCallStatus === 'connecting' ? 'var(--orange)' : 'var(--teal-fg)' }}>
+                {webCallStatus === 'connected'
+                  ? (webCallActivity === 'speaking' ? <Volume2 size={34} /> : webCallActivity === 'processing' ? <Loader2 size={34} className="animate-spin" /> : <AudioLines size={34} />)
+                  : webCallStatus === 'connecting' ? <Loader2 size={34} className="animate-spin" /> : <Globe size={34} />}
+              </span>
             </div>
             <h3 style={{ fontSize: '18px', fontWeight: '600', margin: '0 0 8px', color: 'var(--text-primary)' }}>
               {webCallStatus === 'idle' ? 'Web Call Test' : webCallStatus === 'connecting' ? 'Connecting...' : webCallStatus === 'connected' ? (webCallActivity === 'speaking' ? `${agentName} is speaking…` : webCallActivity === 'processing' ? 'Responding…' : 'Listening…') : 'Call Ended'}
             </h3>
-            <p style={{ fontSize: '13px', color: '#999', marginBottom: '16px' }}>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
               {webCallStatus === 'idle' ? `Test your agent "${agentName}" with a browser-based voice call.` : webCallStatus === 'connecting' ? 'Requesting microphone & starting the agent...' : webCallStatus === 'connected' ? 'Speak naturally — pause briefly when you finish and the agent will respond.' : 'The test call has ended.'}
             </p>
             {webCallError && (
@@ -2428,9 +2585,9 @@ export default function EditAgent() {
               </p>
             )}
             {webCallTranscript.length > 0 && (
-              <div style={{ maxHeight: '220px', overflowY: 'auto', textAlign: 'left', background: '#111', border: '1px solid #2a2a2a', borderRadius: '8px', padding: '12px', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ maxHeight: '220px', overflowY: 'auto', textAlign: 'left', background: 'var(--bg-card)', border: '1px solid #2a2a2a', borderRadius: '8px', padding: '12px', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {webCallTranscript.map((m, i) => (
-                  <div key={i} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%', padding: '8px 12px', borderRadius: '10px', fontSize: '13px', lineHeight: 1.45, background: m.role === 'user' ? '#00bcd4' : '#242424', color: m.role === 'user' ? '#000' : 'var(--text-primary)' }}>
+                  <div key={i} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%', padding: '8px 12px', borderRadius: '10px', fontSize: '13px', lineHeight: 1.45, background: m.role === 'user' ? 'var(--teal)' : '#242424', color: m.role === 'user' ? '#000' : 'var(--text-primary)' }}>
                     {m.content}
                   </div>
                 ))}
@@ -2439,7 +2596,7 @@ export default function EditAgent() {
             {!webCallActive ? (
               <button
                 onClick={handleStartWebCall}
-                style={{ padding: '14px 32px', background: '#00bcd4', color: '#000', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '600' }}
+                style={{ padding: '14px 32px', background: 'var(--teal)', color: '#000', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '600' }}
               >🎤 Start Web Call</button>
             ) : webCallStatus === 'connected' ? (
               <button
@@ -2454,12 +2611,12 @@ export default function EditAgent() {
       {/* Phone Call Modal */}
       {showPhoneCallModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: '#1a1a1a', borderRadius: '12px', padding: '30px', maxWidth: '440px', width: '90%', border: '1px solid #333' }}>
+          <div style={{ background: 'var(--bg-card)', borderRadius: '12px', padding: '30px', maxWidth: '440px', width: '90%', border: '1px solid #333' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h2 style={{ fontSize: '18px', fontWeight: '600', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>📞 Test Phone Call</h2>
-              <button onClick={() => setShowPhoneCallModal(false)} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '24px' }}>✕</button>
+              <button onClick={() => setShowPhoneCallModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '24px' }}>✕</button>
             </div>
-            <p style={{ fontSize: '13px', color: '#999', marginBottom: '16px' }}>Enter a phone number to receive a test call from your agent "{agentName}". Make sure your Twilio account is configured.</p>
+            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>Enter a phone number to receive a test call from your agent "{agentName}". Make sure your Twilio account is configured.</p>
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '8px' }}>Phone Number</label>
               <input
@@ -2467,7 +2624,7 @@ export default function EditAgent() {
                 value={phoneTestNumber}
                 onChange={e => setPhoneTestNumber(e.target.value)}
                 placeholder="+1 (555) 123-4567"
-                style={{ width: '100%', background: '#0f0f0f', border: '1px solid #333', borderRadius: '8px', padding: '12px 14px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
+                style={{ width: '100%', background: 'var(--bg-primary)', border: '1px solid #333', borderRadius: '8px', padding: '12px 14px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
               />
             </div>
             <div style={{ marginBottom: '16px' }}>
@@ -2478,7 +2635,7 @@ export default function EditAgent() {
               <button
                 onClick={handlePhoneCall}
                 disabled={!phoneTestNumber.trim()}
-                style={{ padding: '10px 20px', background: '#00bcd4', color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', opacity: !phoneTestNumber.trim() ? 0.6 : 1 }}
+                style={{ padding: '10px 20px', background: 'var(--teal)', color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', opacity: !phoneTestNumber.trim() ? 0.6 : 1 }}
               >📞 Call Now</button>
             </div>
           </div>
@@ -2487,8 +2644,15 @@ export default function EditAgent() {
 
       {/* Header */}
       <div style={{ background: 'var(--bg-secondary)', borderBottom: '1px solid #1a1a1a', padding: '12px 24px', display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
-        <button onClick={() => navigate('/dashboard')} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '18px', padding: 0 }}>{'<'}</button>
-        
+        <button
+          onClick={() => navigate('/dashboard')}
+          aria-label="Back to dashboard"
+          title="Back to dashboard"
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '32px', height: '32px', background: 'none', border: 'none', borderRadius: '8px', color: 'var(--text-secondary)', cursor: 'pointer', padding: 0 }}
+        >
+          <ArrowLeft size={18} />
+        </button>
+
         <input
           type="text"
           value={agentName}
@@ -2510,64 +2674,91 @@ export default function EditAgent() {
         <div
           onClick={() => setCallDirection(callDirection === 'OUTBOUND' ? 'INBOUND' : 'OUTBOUND')}
           title="Call direction — click to switch. Incoming: customers call your agent (thanking them for calling is fine). Outgoing: your agent dials the customer (never say 'thank you for calling')."
-          style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '4px 10px', background: callDirection === 'OUTBOUND' ? '#1f150f' : '#0f1f12', border: `1px solid ${callDirection === 'OUTBOUND' ? '#3a2a1a' : '#1a3a22'}`, borderRadius: '12px', fontSize: '11px', color: callDirection === 'OUTBOUND' ? '#ff9800' : '#4caf50', fontWeight: '500', cursor: 'pointer', userSelect: 'none' }}>
-          <span style={{ fontSize: '8px' }}>o</span> {callDirection === 'OUTBOUND' ? 'Outgoing' : 'Incoming'} <span style={{ opacity: 0.55, fontSize: '10px' }}>⇄</span>
+          style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '5px 12px', background: callDirection === 'OUTBOUND' ? 'rgba(249,115,22,0.12)' : 'var(--teal-light)', border: `1px solid ${callDirection === 'OUTBOUND' ? 'rgba(249,115,22,0.35)' : 'rgba(14,179,158,0.35)'}`, borderRadius: 'var(--radius-full)', fontSize: '12px', color: callDirection === 'OUTBOUND' ? 'var(--orange)' : 'var(--teal-fg)', fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}>
+          {callDirection === 'OUTBOUND' ? <PhoneOutgoing size={13} /> : <PhoneIncoming size={13} />}
+          {callDirection === 'OUTBOUND' ? 'Outgoing' : 'Incoming'}
         </div>
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
-          {/* Ask AI Button */}
+          {/*
+            Ask AI steps back to a ghost button. It was solid orange while
+            Deploy — the actual primary action — was grey, so the header read
+            with its hierarchy inverted.
+          */}
           <button
             onClick={() => { setShowAskAIModal(true); setAskAIResponse(''); setAskAIInput(''); }}
-            style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', background: '#ff9800', color: 'var(--text-primary)', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', transition: 'opacity 0.2s' }}
-            onMouseEnter={e => e.currentTarget.style.opacity = '0.85'}
-            onMouseLeave={e => e.currentTarget.style.opacity = '1'}
-          >✨ Ask AI</button>
-          
-          {/* Test With Buttons */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ fontSize: '12px', color: 'var(--text-primary)', fontWeight: '500' }}>Test with</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', background: 'var(--bg-elevated)', padding: '4px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-              <button
-                onClick={() => setActiveTab('chat')}
-                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', background: activeTab === 'chat' ? '#00bcd4' : '#0f0f0f', color: activeTab === 'chat' ? '#000' : '#00bcd4', border: activeTab === 'chat' ? 'none' : '1px solid #00bcd4', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '600', transition: 'all 0.2s' }}
-              >💬 Chat</button>
-              <button
-                onClick={() => setShowWebCallModal(true)}
-                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', background: '#0f0f0f', color: '#00bcd4', border: '1px solid #00bcd4', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '500', transition: 'all 0.2s' }}
-                onMouseEnter={e => (e.currentTarget.style.background = '#00bcd420')}
-                onMouseLeave={e => (e.currentTarget.style.background = '#0f0f0f')}
-              >🌐 Web Call</button>
-              <button
-                onClick={() => setShowPhoneCallModal(true)}
-                style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px', background: '#0f0f0f', color: '#00bcd4', border: '1px solid #00bcd4', borderRadius: '6px', cursor: 'pointer', fontSize: '12px', fontWeight: '500', transition: 'all 0.2s' }}
-                onMouseEnter={e => (e.currentTarget.style.background = '#00bcd420')}
-                onMouseLeave={e => (e.currentTarget.style.background = '#0f0f0f')}
-              >📞 Phone Call</button>
+            style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '8px 14px', background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+          >
+            <Sparkles size={15} /> Ask AI
+          </button>
+
+          {/*
+            One segmented control in a single accent, rather than three
+            separately outlined buttons in three different colours.
+          */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>Test with</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '2px', background: 'var(--bg-elevated)', padding: '3px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+              {[
+                { Icon: MessageSquare, label: 'Chat', active: activeTab === 'chat', onClick: () => setActiveTab('chat') },
+                { Icon: Globe, label: 'Web call', active: false, onClick: () => setShowWebCallModal(true) },
+                { Icon: Phone, label: 'Phone call', active: false, onClick: () => setShowPhoneCallModal(true) },
+              ].map(({ Icon, label, active, onClick }) => (
+                <button
+                  key={label}
+                  onClick={onClick}
+                  aria-pressed={active}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px',
+                    background: active ? 'var(--teal)' : 'transparent',
+                    color: active ? '#060c17' : 'var(--text-secondary)',
+                    border: 'none', borderRadius: '5px', cursor: 'pointer',
+                    fontSize: '12px', fontWeight: 600, whiteSpace: 'nowrap',
+                    transition: 'background 0.15s ease, color 0.15s ease',
+                  }}
+                  onMouseEnter={e => { if (!active) { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; } }}
+                  onMouseLeave={e => { if (!active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; } }}
+                >
+                  <Icon size={14} /> {label}
+                </button>
+              ))}
             </div>
           </div>
 
           {/* Deploy Button with Dropdown */}
           <div style={{ position: 'relative' }}>
+            {/* The primary action, and now styled like it. */}
             <button
               onClick={() => setShowDeployDropdown(prev => !prev)}
-              style={{ display: 'flex', alignItems: 'center', gap: '6px', padding: '8px 16px', background: deployStatus === 'done' ? '#2e7d32' : deployStatus === 'deploying' ? '#444' : '#1a1a1a', color: 'var(--text-primary)', border: '1px solid #333', borderRadius: '6px', cursor: deployStatus === 'deploying' ? 'not-allowed' : 'pointer', fontSize: '12px', fontWeight: '500', transition: 'all 0.3s' }}
+              aria-expanded={showDeployDropdown}
+              aria-haspopup="menu"
+              style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '8px 16px', background: deployStatus === 'done' ? 'var(--success)' : 'var(--teal)', color: '#060c17', border: 'none', borderRadius: 'var(--radius-sm)', cursor: deployStatus === 'deploying' ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 700, opacity: deployStatus === 'deploying' ? 0.7 : 1, transition: 'background 0.2s ease, opacity 0.2s ease' }}
               disabled={deployStatus === 'deploying'}
             >
-              {deployStatus === 'deploying' ? '⏳ Deploying...' : deployStatus === 'done' ? '✅ Deployed!' : '🚀 Deploy'} <span style={{ fontSize: '10px', opacity: 0.7 }}>▼</span>
+              {deployStatus === 'deploying' ? (
+                <><Loader2 size={15} className="animate-spin" /> Deploying…</>
+              ) : deployStatus === 'done' ? (
+                <><Check size={15} /> Deployed</>
+              ) : (
+                <><Rocket size={15} /> Deploy</>
+              )}
+              <ChevronDown size={13} style={{ opacity: 0.75 }} />
             </button>
             {showDeployDropdown && (
-              <div style={{ position: 'absolute', top: '110%', right: 0, background: '#1a1a1a', border: '1px solid #333', borderRadius: '8px', minWidth: '200px', zIndex: 200, overflow: 'hidden', boxShadow: '0 8px 32px rgba(0,0,0,0.5)' }}>
-                <div style={{ padding: '8px 0' }}>
-                  <div onClick={handleDeploy} style={{ padding: '10px 16px', cursor: 'pointer', fontSize: '13px', color: 'var(--text-primary)', display: 'flex', gap: '10px', alignItems: 'center' }} onMouseEnter={e => e.currentTarget.style.background = '#222'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                    <span>🚀</span> Save & Deploy
-                  </div>
-                  <div onClick={() => { handleSave(); setShowDeployDropdown(false); }} style={{ padding: '10px 16px', cursor: 'pointer', fontSize: '13px', color: 'var(--text-primary)', display: 'flex', gap: '10px', alignItems: 'center' }} onMouseEnter={e => e.currentTarget.style.background = '#222'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                    <span>💾</span> Save Draft
-                  </div>
-                  <div style={{ height: '1px', background: '#333', margin: '4px 0' }} />
-                  <div onClick={() => { navigator.clipboard.writeText(window.location.href); setShowDeployDropdown(false); }} style={{ padding: '10px 16px', cursor: 'pointer', fontSize: '13px', color: '#aaa', display: 'flex', gap: '10px', alignItems: 'center' }} onMouseEnter={e => e.currentTarget.style.background = '#222'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
-                    <span>🔗</span> Copy Agent Link
-                  </div>
+              <div role="menu" style={{ position: 'absolute', top: '110%', right: 0, background: 'var(--dropdown-bg)', border: '1px solid var(--dropdown-border)', borderRadius: 'var(--radius-sm)', minWidth: '210px', zIndex: 200, overflow: 'hidden', boxShadow: 'var(--shadow-card)' }}>
+                <div style={{ padding: '6px 0' }}>
+                  <button role="menuitem" onClick={handleDeploy} style={{ width: '100%', background: 'transparent', border: 'none', padding: '10px 16px', cursor: 'pointer', fontSize: '13px', color: 'var(--dropdown-text)', display: 'flex', gap: '10px', alignItems: 'center', textAlign: 'left' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--dropdown-hover)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    <Rocket size={15} /> Save and deploy
+                  </button>
+                  <button role="menuitem" onClick={() => { handleSave(); setShowDeployDropdown(false); }} style={{ width: '100%', background: 'transparent', border: 'none', padding: '10px 16px', cursor: 'pointer', fontSize: '13px', color: 'var(--dropdown-text)', display: 'flex', gap: '10px', alignItems: 'center', textAlign: 'left' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--dropdown-hover)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    <Save size={15} /> Save draft
+                  </button>
+                  <div style={{ height: '1px', background: 'var(--dropdown-border)', margin: '6px 0' }} />
+                  <button role="menuitem" onClick={() => { navigator.clipboard.writeText(window.location.href); setShowDeployDropdown(false); toast.success('Agent link copied'); }} style={{ width: '100%', background: 'transparent', border: 'none', padding: '10px 16px', cursor: 'pointer', fontSize: '13px', color: 'var(--text-secondary)', display: 'flex', gap: '10px', alignItems: 'center', textAlign: 'left' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--dropdown-hover)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                    <Link2 size={15} /> Copy agent link
+                  </button>
                 </div>
               </div>
             )}
@@ -2585,46 +2776,8 @@ export default function EditAgent() {
             >Code</div>
           </div>
 
-          <button
-            onClick={toggleDarkMode}
-            title={darkMode ? 'Switch to light mode' : 'Switch to dark mode'}
-            style={{
-              background: 'var(--bg-elevated)',
-              border: '1px solid var(--border)',
-              color: '#999',
-              cursor: 'pointer',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              padding: '6px',
-              borderRadius: '50%',
-              width: '30px',
-              height: '30px',
-              transition: 'all 0.2s',
-            }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.color = '#fff';
-              e.currentTarget.style.borderColor = '#444';
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.color = '#999';
-              e.currentTarget.style.borderColor = '#222';
-            }}
-          >
-            {darkMode ? (
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
-              </svg>
-            ) : (
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <circle cx="12" cy="12" r="5"/>
-                <line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/>
-                <line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/>
-                <line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/>
-                <line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/>
-              </svg>
-            )}
-          </button>
+          {/* The theme toggle lives in the DashboardLayout topbar, which wraps
+              this page — a second one here was the same control twice. */}
         </div>
 
       </div>
@@ -2633,10 +2786,10 @@ export default function EditAgent() {
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {agentNotFound && (
-              <div style={{ padding: '40px', background: '#1a1a1a', border: '1px solid #333', borderRadius: '12px', margin: '20px 30px', color: 'var(--text-primary)' }}>
+              <div style={{ padding: '40px', background: 'var(--bg-card)', border: '1px solid #333', borderRadius: '12px', margin: '20px 30px', color: 'var(--text-primary)' }}>
                 <h2 style={{ margin: 0, fontSize: '18px' }}>Agent not found</h2>
-                <p style={{ color: '#999', marginTop: '10px' }}>The assistant you are trying to edit does not exist or has been removed. Return to the dashboard to select a different assistant.</p>
-                <button onClick={() => navigate('/dashboard')} style={{ marginTop: '16px', padding: '10px 18px', background: '#00bcd4', color: '#000', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Back to Dashboard</button>
+                <p style={{ color: 'var(--text-secondary)', marginTop: '10px' }}>The assistant you are trying to edit does not exist or has been removed. Return to the dashboard to select a different assistant.</p>
+                <button onClick={() => navigate('/dashboard')} style={{ marginTop: '16px', padding: '10px 18px', background: 'var(--teal)', color: '#000', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Back to Dashboard</button>
               </div>
             )}
 
@@ -2658,15 +2811,17 @@ export default function EditAgent() {
               style={{
                 background: 'none',
                 border: 'none',
-                color: activeTab === tab.id ? '#fff' : '#666',
+                // Active tab carries the brand accent rather than plain white,
+                // so the current section ties to the rest of the console.
+                color: activeTab === tab.id ? 'var(--teal-fg)' : 'var(--text-muted)',
                 padding: '16px 0',
                 cursor: 'pointer',
                 fontSize: '13px',
-                fontWeight: activeTab === tab.id ? '600' : '500',
-                borderBottom: activeTab === tab.id ? '2px solid #fff' : '2px solid transparent',
+                fontWeight: activeTab === tab.id ? 600 : 500,
+                borderBottom: activeTab === tab.id ? '2px solid var(--teal)' : '2px solid transparent',
                 marginBottom: '-1px',
                 whiteSpace: 'nowrap',
-                transition: 'all 0.2s'
+                transition: 'color 0.2s ease, border-color 0.2s ease'
               }}
             >
               {tab.label}
@@ -2674,16 +2829,9 @@ export default function EditAgent() {
           ))}
         </div>
         
-        {/* Search Bar */}
-        <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: '6px', padding: '6px 12px', minWidth: '200px' }}>
-          <span style={{ color: '#666', marginRight: '8px', fontSize: '14px' }}>S</span>
-          <input 
-            type="text" 
-            placeholder="Search or jump to..." 
-            style={{ background: 'transparent', border: 'none', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', width: '100%' }}
-          />
-          <div style={{ background: '#222', color: '#999', fontSize: '10px', padding: '2px 6px', borderRadius: '4px', marginLeft: '8px' }}>Ctrl+K</div>
-        </div>
+        {/* A second "Search or jump to… Ctrl+K" field used to sit here. It had
+            no value, no onChange and no handler — dead markup duplicating the
+            working ⌘K search in the topbar directly above it. */}
       </div>
 
       {/* Content */}
@@ -2708,16 +2856,16 @@ export default function EditAgent() {
               interruptibleEnabled,
               postCallConfigs
             }, null, 2)}
-            style={{ width: '100%', minHeight: '500px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '8px', padding: '20px', color: '#00bcd4', fontSize: '13px', fontFamily: 'monospace', resize: 'vertical', outline: 'none', boxSizing: 'border-box' }}
+            style={{ width: '100%', minHeight: '500px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '8px', padding: '20px', color: 'var(--teal-fg)', fontSize: '13px', fontFamily: 'monospace', resize: 'vertical', outline: 'none', boxSizing: 'border-box' }}
           />
           <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
             <button
               onClick={() => { navigator.clipboard.writeText(JSON.stringify({ name: agentName, welcomeMessage, aiModel, voice, transcription, languages: selectedLanguages, flowItems, maxDuration, silenceTimeout, dynamicEnabled, interruptibleEnabled, postCallConfigs }, null, 2)); alert('Copied to clipboard!'); }}
-              style={{ padding: '10px 20px', background: '#1a1a1a', border: '1px solid #333', color: 'var(--text-primary)', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}
+              style={{ padding: '10px 20px', background: 'var(--bg-card)', border: '1px solid #333', color: 'var(--text-primary)', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}
             >📋 Copy JSON</button>
             <button
               onClick={() => { const blob = new Blob([JSON.stringify({ name: agentName, welcomeMessage, aiModel, voice, transcription, languages: selectedLanguages, flowItems, maxDuration, silenceTimeout, dynamicEnabled, interruptibleEnabled, postCallConfigs }, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${agentName.replace(/\s+/g, '_')}_config.json`; a.click(); URL.revokeObjectURL(url); }}
-              style={{ padding: '10px 20px', background: '#1a1a1a', border: '1px solid #333', color: 'var(--text-primary)', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}
+              style={{ padding: '10px 20px', background: 'var(--bg-card)', border: '1px solid #333', color: 'var(--text-primary)', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}
             >⬇️ Download JSON</button>
           </div>
         </div>
@@ -2725,89 +2873,113 @@ export default function EditAgent() {
       <div style={{ padding: '30px 24px' }}>
         {activeTab === 'details' && (
           <>
-            {/* Assistant Settings */}
-            <div style={{ fontSize: '15px', fontWeight: '700', marginBottom: '18px', display: 'flex', alignItems: 'center', color: 'var(--text-primary)' }}>
-              Assistant Settings <InfoIcon />
+            {/* Assistant Settings — rendered as the signal chain it actually is */}
+            <div style={{ display: 'flex', alignItems: 'baseline', gap: '12px', marginBottom: '14px' }}>
+              <h2 className="font-display" style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
+                Assistant settings
+              </h2>
+              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+                How a call flows through your agent, left to right
+              </span>
             </div>
-            <div style={{ background: '#0c0c0c', border: '1px solid var(--border)', borderRadius: '16px', padding: '24px 30px 20px', marginBottom: '20px' }}>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: '14px', marginBottom: '0' }}>
-              {[
-                { icon: 'O', label: 'Languages', value: selectedLanguages.length > 0 ? selectedLanguages.join(', ') : 'No languages selected', onClick: () => setShowLanguageModal(true) },
-                { icon: 'V', label: 'Voice (TTS)', value: voice, onClick: () => setShowVoiceModal(true) },
-                { icon: '{}', label: 'AI Model (LLM)', value: aiModel, onClick: () => setShowModelModal(true) },
-                { icon: '|||', label: 'Transcription (STT)', value: transcription, onClick: () => setShowTranscriptionModal(true) }
-              ].map((item, i) => {
-                // A bundled Conversational Agent replaces the LLM + STT entirely,
-                // but it can still take a Voice and Language — so keep those two
-                // tiles configurable and only lock down AI Model (LLM) and
-                // Transcription (STT).
-                const engineHandled = item.label === 'AI Model (LLM)' || item.label === 'Transcription (STT)';
-                const disabled = voiceEngine !== 'modular' && engineHandled;
-                const engineLabel = voiceEngine === 'xai' ? 'xAI' : voiceEngine === 'elevenlabs' ? 'ElevenLabs' : '';
-                return (
-                <div
-                  key={i}
-                  onClick={() => {
-                    if (disabled) { toast.info(`Handled automatically by the ${engineLabel} Conversational Agent. Turn it off to configure this manually.`); return; }
-                    item.onClick();
-                  }}
-                  style={{ background: '#062021', border: '1px solid #0d5154', borderRadius: '14px', padding: '20px 16px', display: 'flex', alignItems: 'center', gap: '14px', cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.45 : 1, transition: 'background 0.2s, opacity 0.2s' }}
-                  onMouseEnter={(e) => { if (!disabled) e.currentTarget.style.background = '#08282a'; }}
-                  onMouseLeave={(e) => { e.currentTarget.style.background = '#062021'; }}
-                >
-                  <div style={{ width: '34px', height: '34px', borderRadius: '11px', background: '#07393b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', color: '#11c7cf', fontWeight: '700' }}>
-                    <span>{item.icon}</span>
-                  </div>
-                  <div style={{ flex: 1, overflow: 'hidden' }}>
-                    <div style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: '700', marginBottom: '4px' }}>{item.label}</div>
-                    <div style={{ fontSize: '12px', color: '#b3b3b3', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{disabled ? `Handled by ${engineLabel}` : item.value}</div>
-                  </div>
-                  <InfoIcon />
-                </div>
-                );
-              })}
-              {/* Conversational Agent — mutually exclusive master switch for the
-                  four tiles above: when xAI or ElevenLabs is active, that bundled
-                  speech-to-speech engine replaces the modular pipeline entirely. */}
-              <div
-                onClick={() => setShowXaiModal(true)}
-                style={{ background: voiceEngine !== 'modular' ? '#0d3b2e' : '#062021', border: voiceEngine !== 'modular' ? '1px solid #11c7cf' : '1px solid #0d5154', borderRadius: '14px', padding: '20px 16px', display: 'flex', alignItems: 'center', gap: '14px', cursor: 'pointer', transition: 'background 0.2s' }}
-                onMouseEnter={(e) => e.currentTarget.style.background = voiceEngine !== 'modular' ? '#0f4636' : '#08282a'}
-                onMouseLeave={(e) => e.currentTarget.style.background = voiceEngine !== 'modular' ? '#0d3b2e' : '#062021'}
-              >
-                <div style={{ width: '34px', height: '34px', borderRadius: '11px', background: '#07393b', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '15px', color: '#11c7cf', fontWeight: '700' }}>
-                  <span>&#10022;</span>
-                </div>
-                <div style={{ flex: 1, overflow: 'hidden' }}>
-                  <div style={{ fontSize: '14px', color: 'var(--text-primary)', fontWeight: '700', marginBottom: '4px' }}>Conversational Agent</div>
-                  <div style={{ fontSize: '12px', color: voiceEngine !== 'modular' ? '#4fe0c9' : '#b3b3b3', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                    {voiceEngine === 'xai' ? 'Active — xAI Grok' : voiceEngine === 'elevenlabs' ? 'Active — ElevenLabs' : 'Off'}
-                  </div>
-                </div>
-                <InfoIcon />
+
+            <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '16px', padding: '20px', marginBottom: '20px' }}>
+              <div className="pipeline">
+                {/*
+                  Ordered by how audio actually moves: the caller speaks a
+                  language, it is transcribed, a model reasons over it, and a
+                  voice speaks the reply. The previous order put TTS second,
+                  which made the row look arbitrary.
+                */}
+                {[
+                  { Icon: LanguagesIcon, label: 'Language', value: selectedLanguages.length > 0 ? selectedLanguages.join(', ') : 'Not set', onClick: () => setShowLanguageModal(true), key: 'lang' },
+                  { Icon: AudioLines, label: 'Transcription', value: transcription, onClick: () => setShowTranscriptionModal(true), key: 'stt' },
+                  { Icon: Cpu, label: 'Model', value: aiModel, onClick: () => setShowModelModal(true), key: 'llm' },
+                  { Icon: Volume2, label: 'Voice', value: voice, onClick: () => setShowVoiceModal(true), key: 'tts' },
+                ].map(({ Icon, label, value, onClick, key }) => {
+                  // A bundled Conversational Agent replaces STT + LLM entirely,
+                  // but still takes a Language and a Voice — so only those two
+                  // stages lock.
+                  const superseded = voiceEngine !== 'modular' && (key === 'llm' || key === 'stt');
+                  const engineLabel = voiceEngine === 'xai' ? 'xAI' : voiceEngine === 'elevenlabs' ? 'ElevenLabs' : '';
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      className={`pipeline-stage${superseded ? ' is-superseded' : ''}`}
+                      aria-disabled={superseded}
+                      title={superseded ? `Handled by the ${engineLabel} Conversational Agent` : `Change ${label.toLowerCase()}`}
+                      onClick={() => {
+                        if (superseded) {
+                          toast.info(`Handled automatically by the ${engineLabel} Conversational Agent. Turn it off to configure this manually.`);
+                          return;
+                        }
+                        onClick();
+                      }}
+                    >
+                      <span className="pipeline-stage-icon"><Icon size={16} /></span>
+                      <span className="pipeline-stage-label">{label}</span>
+                      <span className="pipeline-stage-value" title={superseded ? `Handled by ${engineLabel}` : value}>
+                        {superseded ? `Handled by ${engineLabel}` : value}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
-            </div>
+
+              {/* The override rail: one bundled speech-to-speech engine standing
+                  in for the transcription and model stages above. */}
+              <button
+                type="button"
+                className={`pipeline-override${voiceEngine !== 'modular' ? ' is-active' : ''}`}
+                onClick={() => setShowXaiModal(true)}
+                aria-pressed={voiceEngine !== 'modular'}
+              >
+                <span className="pipeline-stage-icon"><Sparkles size={16} /></span>
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                    Conversational agent
+                  </span>
+                  <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                    {voiceEngine === 'xai'
+                      ? 'xAI Grok is handling transcription and reasoning'
+                      : voiceEngine === 'elevenlabs'
+                        ? 'ElevenLabs is handling transcription and reasoning'
+                        : 'Off — the four stages above run separately'}
+                  </span>
+                </span>
+                <span style={{ fontSize: '12px', fontWeight: 600, color: voiceEngine !== 'modular' ? 'var(--teal-fg)' : 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                  {voiceEngine !== 'modular' ? 'On' : 'Off'}
+                </span>
+              </button>
             </div>
 
             {/* Welcome Message */}
             <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '16px', padding: '0', marginBottom: '20px', overflow: 'hidden' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 30px', borderBottom: '1px solid #1c1c1c' }}>
-                <div style={{ display: 'flex', alignItems: 'center', fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)' }}>
-                  <span style={{ color: '#11c7cf', marginRight: '10px', fontWeight: '700' }}>[]</span> Welcome Message <InfoIcon />
-                </div>
-                <div style={{ display: 'flex', gap: '24px', fontSize: '12px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#b7b7b7' }}>
-                    <span>Dynamic</span>
-                    <div onClick={() => setDynamicEnabled(!dynamicEnabled)} style={{ width: '42px', height: '24px', background: dynamicEnabled ? '#12c8d0' : '#232323', borderRadius: '999px', position: 'relative', cursor: 'pointer' }}>
-                      <div style={{ width: '20px', height: '20px', background: '#fff', borderRadius: '50%', position: 'absolute', top: '2px', left: dynamicEnabled ? '20px' : '2px', transition: 'left 0.2s' }} />
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', color: '#b7b7b7' }}>
-                    <span>Interruptible</span>
-                    <div onClick={() => setInterruptibleEnabled(!interruptibleEnabled)} style={{ width: '42px', height: '24px', background: interruptibleEnabled ? '#12c8d0' : '#232323', borderRadius: '999px', position: 'relative', cursor: 'pointer' }}>
-                      <div style={{ width: '20px', height: '20px', background: '#fff', borderRadius: '50%', position: 'absolute', top: '2px', left: interruptibleEnabled ? '20px' : '2px', transition: 'left 0.2s' }} />
-                    </div>
-                  </div>
+                <h3 className="font-display" style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
+                  <MessageSquareText size={17} style={{ color: 'var(--teal-fg)' }} />
+                  Welcome message
+                </h3>
+                <div style={{ display: 'flex', gap: '20px', fontSize: '12px' }}>
+                  {[
+                    { label: 'Dynamic', on: dynamicEnabled, toggle: () => setDynamicEnabled(!dynamicEnabled) },
+                    { label: 'Interruptible', on: interruptibleEnabled, toggle: () => setInterruptibleEnabled(!interruptibleEnabled) },
+                  ].map(({ label, on, toggle }) => (
+                    <button
+                      key={label}
+                      type="button"
+                      role="switch"
+                      aria-checked={on}
+                      onClick={toggle}
+                      style={{ display: 'flex', alignItems: 'center', gap: '9px', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: '12px', fontWeight: 600, color: on ? 'var(--text-primary)' : 'var(--text-muted)' }}
+                    >
+                      {label}
+                      <span style={{ width: '38px', height: '22px', background: on ? 'var(--teal)' : 'var(--bg-elevated)', border: `1px solid ${on ? 'var(--teal)' : 'var(--border)'}`, borderRadius: 'var(--radius-full)', position: 'relative', transition: 'background 0.2s ease, border-color 0.2s ease', flexShrink: 0 }}>
+                        <span style={{ width: '16px', height: '16px', background: on ? '#060c17' : 'var(--text-muted)', borderRadius: '50%', position: 'absolute', top: '2px', left: on ? '18px' : '2px', transition: 'left 0.2s ease, background 0.2s ease' }} />
+                      </span>
+                    </button>
+                  ))}
                 </div>
               </div>
               <div style={{ padding: '18px 30px 20px' }}>
@@ -2815,7 +2987,7 @@ export default function EditAgent() {
                     calling; an outbound one must introduce the agent instead. */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px', flexWrap: 'wrap' }}>
                   <span style={{ fontSize: '12px', color: '#b7b7b7', fontWeight: 600 }}>Call direction</span>
-                  <div style={{ display: 'inline-flex', background: '#141414', border: '1px solid var(--border)', borderRadius: '8px', padding: '3px' }}>
+                  <div style={{ display: 'inline-flex', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '8px', padding: '3px' }}>
                     {(['INBOUND', 'OUTBOUND'] as const).map((dir) => (
                       <button
                         key={dir}
@@ -2824,8 +2996,8 @@ export default function EditAgent() {
                         style={{
                           padding: '5px 14px', borderRadius: '6px', border: 'none', cursor: 'pointer',
                           fontSize: '12px', fontWeight: 600, whiteSpace: 'nowrap',
-                          background: callDirection === dir ? (dir === 'OUTBOUND' ? '#ff9800' : '#12c8d0') : 'transparent',
-                          color: callDirection === dir ? '#0b0b0b' : '#8d8d8d',
+                          background: callDirection === dir ? (dir === 'OUTBOUND' ? 'var(--orange)' : 'var(--teal)') : 'transparent',
+                          color: callDirection === dir ? '#060c17' : 'var(--text-muted)',
                           transition: 'all 0.15s',
                         }}
                       >
@@ -2845,7 +3017,7 @@ export default function EditAgent() {
                   style={{
                     width: '100%',
                     minHeight: '142px',
-                    background: '#1a1a1a',
+                    background: 'var(--bg-card)',
                     border: '1px solid var(--border)',
                     borderRadius: '10px',
                     padding: '14px 16px',
@@ -2862,7 +3034,7 @@ export default function EditAgent() {
                 {callDirection === 'OUTBOUND' && THANKS_FOR_CALLING_RE.test(welcomeMessage) && (
                   <div style={{ display: 'flex', gap: '8px', marginTop: '10px', padding: '10px 12px', background: '#2a1a0a', border: '1px solid #5a3a12', borderRadius: '8px', fontSize: '12px', color: '#ffb74d', lineHeight: 1.45 }}>
                     <span aria-hidden>⚠️</span>
-                    <span>This is an <b>Outgoing</b> agent, but the greeting thanks the person “for calling.” On outbound calls your agent places the call, so it should open by naming who is calling and the company — e.g. “Hi, this is [name] calling from [company]” — then the reason. Calls auto-correct this, but it’s best to fix the text here, or use ✨ Ask AI to rewrite it.</span>
+                    <span>This is an <b>Outgoing</b> agent, but the greeting thanks the person “for calling.” On outbound calls your agent places the call, so it should open by naming who is calling and the company — e.g. “Hi, this is [name] calling from [company]” — then the reason. Calls auto-correct this, but it’s best to fix the text here, or use Ask AI to rewrite it.</span>
                   </div>
                 )}
               </div>
@@ -2872,13 +3044,13 @@ export default function EditAgent() {
             <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '16px', padding: '0' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 30px', borderBottom: '1px solid #1c1c1c' }}>
                 <div style={{ display: 'flex', alignItems: 'center', fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)' }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#11c7cf" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '10px' }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--teal-fg)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '10px' }}>
                     <line x1="8" y1="6" x2="21" y2="6"></line>
                     <line x1="8" y1="12" x2="21" y2="12"></line>
                     <line x1="8" y1="18" x2="21" y2="18"></line>
-                    <circle cx="3" cy="6" r="1" fill="#11c7cf"></circle>
-                    <circle cx="3" cy="12" r="1" fill="#11c7cf"></circle>
-                    <circle cx="3" cy="18" r="1" fill="#11c7cf"></circle>
+                    <circle cx="3" cy="6" r="1" fill="var(--teal-fg)"></circle>
+                    <circle cx="3" cy="12" r="1" fill="var(--teal-fg)"></circle>
+                    <circle cx="3" cy="18" r="1" fill="var(--teal-fg)"></circle>
                   </svg>
                   Conversational Flow <InfoIcon />
                 </div>
@@ -2896,7 +3068,7 @@ export default function EditAgent() {
                           style={{
                             background: 'none',
                             border: 'none',
-                            color: '#999',
+                            color: 'var(--text-secondary)',
                             cursor: 'pointer',
                             display: 'flex',
                             alignItems: 'center',
@@ -2961,7 +3133,7 @@ export default function EditAgent() {
                             }
                           }}
                           onFocus={(e) => {
-                            e.currentTarget.style.borderColor = '#11c7cf';
+                            e.currentTarget.style.borderColor = 'var(--teal)';
                             e.currentTarget.style.background = '#0f0f0f';
                           }}
                           onBlur={(e) => {
@@ -2973,14 +3145,14 @@ export default function EditAgent() {
                         {/* Right Actions */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginLeft: '12px' }}>
                           {/* Toggle ON/OFF Switch Block */}
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: '#b3b3b3', fontWeight: '700', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: '8px', padding: '0 10px', height: '32px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '700', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: '8px', padding: '0 10px', height: '32px' }}>
                             <span style={{ color: item.enabled ? '#fff' : '#666', minWidth: '24px' }}>{item.enabled ? 'ON' : 'OFF'}</span>
                             <div
                               onClick={() => toggleFlowItem(item.id)}
                               style={{
                                 width: '32px',
                                 height: '18px',
-                                background: item.enabled ? '#12c8d0' : '#333',
+                                background: item.enabled ? 'var(--teal)' : '#333',
                                 borderRadius: '999px',
                                 position: 'relative',
                                 cursor: 'pointer',
@@ -3008,7 +3180,7 @@ export default function EditAgent() {
                             style={{
                               background: 'none',
                               border: 'none',
-                              color: '#666',
+                              color: 'var(--text-muted)',
                               cursor: 'pointer',
                               display: 'flex',
                               alignItems: 'center',
@@ -3043,7 +3215,7 @@ export default function EditAgent() {
                             style={{
                               width: '100%',
                               minHeight: '120px',
-                              background: '#141414',
+                              background: 'var(--bg-card)',
                               border: '1px solid var(--border)',
                               borderRadius: '8px',
                               padding: '12px',
@@ -3055,7 +3227,7 @@ export default function EditAgent() {
                               outline: 'none',
                               transition: 'border-color 0.2s'
                             }}
-                            onFocus={(e) => e.currentTarget.style.borderColor = '#11c7cf'}
+                            onFocus={(e) => e.currentTarget.style.borderColor = 'var(--teal)'}
                             onBlur={(e) => e.currentTarget.style.borderColor = '#222'}
                           />
                         </div>
@@ -3066,7 +3238,7 @@ export default function EditAgent() {
               </div>
             </div>
 
-            <button onClick={() => handleSave()} disabled={isSaving} style={{ marginTop: '20px', padding: '10px 24px', background: '#00bcd4', color: '#000', border: 'none', borderRadius: '6px', cursor: isSaving ? 'not-allowed' : 'pointer', fontWeight: '700', fontSize: '13px', opacity: isSaving ? 0.6 : 1 }}>
+            <button onClick={() => handleSave()} disabled={isSaving} style={{ marginTop: '20px', padding: '10px 24px', background: 'var(--teal)', color: '#000', border: 'none', borderRadius: '6px', cursor: isSaving ? 'not-allowed' : 'pointer', fontWeight: '700', fontSize: '13px', opacity: isSaving ? 0.6 : 1 }}>
               {isSaving ? 'Saving...' : 'Save Changes'}
             </button>
           </>
@@ -3095,7 +3267,7 @@ export default function EditAgent() {
                     style={{ padding: '18px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                      <div style={{ width: '32px', height: '32px', borderRadius: '10px', background: '#062d2f', color: '#12c8d0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '700' }}>
+                      <div style={{ width: '32px', height: '32px', borderRadius: '10px', background: 'var(--teal-light)', color: 'var(--teal-fg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '700' }}>
                         {i === 0 ? 'o' : i === 1 ? 'X' : i === 2 ? 'R' : i === 3 ? '=' : 'n'}
                       </div>
                       <div>
@@ -3103,23 +3275,23 @@ export default function EditAgent() {
                         <div style={{ fontSize: '13px', color: '#b7b7b7' }}>{section.subtitle}</div>
                       </div>
                     </div>
-                    <div style={{ color: '#b3b3b3', fontSize: '14px', transform: expandedConfigSection === section.id ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▼</div>
+                    <div style={{ color: 'var(--text-secondary)', fontSize: '14px', transform: expandedConfigSection === section.id ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▼</div>
                   </div>
                   
                   {expandedConfigSection === section.id && (
-                    <div style={{ padding: '20px', borderTop: '1px solid #222', background: '#0f0f0f' }}>
+                    <div style={{ padding: '20px', borderTop: '1px solid #222', background: 'var(--bg-primary)' }}>
                       {section.id === 'silence' && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                           <div>
                             <label style={{ display: 'block', color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Response Delay (seconds)</label>
-                            <div style={{ fontSize: '12px', color: '#888', marginBottom: '12px' }}>How long the assistant waits after the user stops speaking before replying.</div>
-                            <input type="range" min="1" max="10" step="1" value={silenceTimeout} onChange={e => setSilenceTimeout(Number(e.target.value))} style={{ width: '100%', accentColor: '#12c8d0' }} />
-                            <div style={{ textAlign: 'right', color: '#12c8d0', fontSize: '14px', fontWeight: '700' }}>{silenceTimeout}s</div>
+                            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>How long the assistant waits after the user stops speaking before replying.</div>
+                            <input type="range" min="1" max="10" step="1" value={silenceTimeout} onChange={e => setSilenceTimeout(Number(e.target.value))} style={{ width: '100%', accentColor: 'var(--teal)' }} />
+                            <div style={{ textAlign: 'right', color: 'var(--teal-fg)', fontSize: '14px', fontWeight: '700' }}>{silenceTimeout}s</div>
                           </div>
                           <div style={{ height: '1px', background: '#222' }} />
                           <div>
                             <label style={{ display: 'block', color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Max Silence Before Hangup (seconds)</label>
-                            <input type="number" value={maxSilenceBeforeHangup} onChange={e => setMaxSilenceBeforeHangup(Number(e.target.value))} style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: '8px', color: 'var(--text-primary)', outline: 'none' }} />
+                            <input type="number" value={maxSilenceBeforeHangup} onChange={e => setMaxSilenceBeforeHangup(Number(e.target.value))} style={{ width: '100%', padding: '10px 14px', background: 'var(--bg-card)', border: '1px solid #333', borderRadius: '8px', color: 'var(--text-primary)', outline: 'none' }} />
                           </div>
                         </div>
                       )}
@@ -3128,12 +3300,12 @@ export default function EditAgent() {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                           <div>
                             <label style={{ display: 'block', color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Maximum Call Duration (minutes)</label>
-                            <input type="number" min="1" max="120" value={maxDuration} onChange={e => setMaxDuration(Number(e.target.value))} style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: '8px', color: 'var(--text-primary)', outline: 'none' }} />
+                            <input type="number" min="1" max="120" value={maxDuration} onChange={e => setMaxDuration(Number(e.target.value))} style={{ width: '100%', padding: '10px 14px', background: 'var(--bg-card)', border: '1px solid #333', borderRadius: '8px', color: 'var(--text-primary)', outline: 'none' }} />
                           </div>
                           <div>
                             <label style={{ display: 'block', color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>End Call Message</label>
-                            <div style={{ fontSize: '12px', color: '#888', marginBottom: '12px' }}>The message the agent will speak right before ending the call intentionally.</div>
-                            <input type="text" value={endCallMessage} onChange={e => setEndCallMessage(e.target.value)} style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: '8px', color: 'var(--text-primary)', outline: 'none' }} />
+                            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>The message the agent will speak right before ending the call intentionally.</div>
+                            <input type="text" value={endCallMessage} onChange={e => setEndCallMessage(e.target.value)} style={{ width: '100%', padding: '10px 14px', background: 'var(--bg-card)', border: '1px solid #333', borderRadius: '8px', color: 'var(--text-primary)', outline: 'none' }} />
                           </div>
                         </div>
                       )}
@@ -3142,12 +3314,12 @@ export default function EditAgent() {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                           <div>
                             <label style={{ display: 'block', color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Transfer Phone Number</label>
-                            <input type="text" placeholder="+1234567890" value={transferNumber} onChange={e => setTransferNumber(e.target.value)} style={{ width: '100%', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: '8px', color: 'var(--text-primary)', outline: 'none' }} />
+                            <input type="text" placeholder="+1234567890" value={transferNumber} onChange={e => setTransferNumber(e.target.value)} style={{ width: '100%', padding: '10px 14px', background: 'var(--bg-card)', border: '1px solid #333', borderRadius: '8px', color: 'var(--text-primary)', outline: 'none' }} />
                           </div>
                           <div>
                             <label style={{ display: 'block', color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Transfer Condition Prompt</label>
-                            <div style={{ fontSize: '12px', color: '#888', marginBottom: '12px' }}>When should the agent initiate a hand-off? e.g., "When the user asks to speak to a human or gets angry"</div>
-                            <textarea value={transferCondition} onChange={e => setTransferCondition(e.target.value)} style={{ width: '100%', minHeight: '80px', padding: '10px 14px', background: '#1a1a1a', border: '1px solid #333', borderRadius: '8px', color: 'var(--text-primary)', outline: 'none', resize: 'vertical' }} />
+                            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>When should the agent initiate a hand-off? e.g., "When the user asks to speak to a human or gets angry"</div>
+                            <textarea value={transferCondition} onChange={e => setTransferCondition(e.target.value)} style={{ width: '100%', minHeight: '80px', padding: '10px 14px', background: 'var(--bg-card)', border: '1px solid #333', borderRadius: '8px', color: 'var(--text-primary)', outline: 'none', resize: 'vertical' }} />
                           </div>
                         </div>
                       )}
@@ -3157,17 +3329,17 @@ export default function EditAgent() {
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div>
                               <div style={{ color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600' }}>Use Filler Words</div>
-                              <div style={{ fontSize: '12px', color: '#888', marginTop: '4px' }}>Add "umm", "ahh" to make the agent sound more human.</div>
+                              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Add "umm", "ahh" to make the agent sound more human.</div>
                             </div>
-                            <div onClick={() => setFillerWords(!fillerWords)} style={{ width: '42px', height: '24px', background: fillerWords ? '#12c8d0' : '#333', borderRadius: '999px', position: 'relative', cursor: 'pointer' }}>
+                            <div onClick={() => setFillerWords(!fillerWords)} style={{ width: '42px', height: '24px', background: fillerWords ? 'var(--teal)' : '#333', borderRadius: '999px', position: 'relative', cursor: 'pointer' }}>
                               <div style={{ width: '20px', height: '20px', background: '#fff', borderRadius: '50%', position: 'absolute', top: '2px', left: fillerWords ? '20px' : '2px', transition: 'left 0.2s' }} />
                             </div>
                           </div>
                           <div style={{ height: '1px', background: '#222' }} />
                           <div>
                             <label style={{ display: 'block', color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Speaking Rate (Speed)</label>
-                            <input type="range" min="0.5" max="2.0" step="0.1" value={speakingRate} onChange={e => setSpeakingRate(Number(e.target.value))} style={{ width: '100%', accentColor: '#12c8d0' }} />
-                            <div style={{ textAlign: 'right', color: '#12c8d0', fontSize: '14px', fontWeight: '700' }}>{speakingRate}x</div>
+                            <input type="range" min="0.5" max="2.0" step="0.1" value={speakingRate} onChange={e => setSpeakingRate(Number(e.target.value))} style={{ width: '100%', accentColor: 'var(--teal)' }} />
+                            <div style={{ textAlign: 'right', color: 'var(--teal-fg)', fontSize: '14px', fontWeight: '700' }}>{speakingRate}x</div>
                           </div>
                         </div>
                       )}
@@ -3183,9 +3355,9 @@ export default function EditAgent() {
                                 style={{
                                   padding: '14px', 
                                   background: ambientSound === sound ? '#0a2e30' : '#1a1a1a', 
-                                  border: `1px solid ${ambientSound === sound ? '#12c8d0' : '#333'}`, 
+                                  border: `1px solid ${ambientSound === sound ? 'var(--teal)' : '#333'}`, 
                                   borderRadius: '8px', 
-                                  color: ambientSound === sound ? '#12c8d0' : '#fff',
+                                  color: ambientSound === sound ? 'var(--teal)' : '#fff',
                                   cursor: 'pointer',
                                   fontWeight: '600',
                                   textAlign: 'center',
@@ -3203,7 +3375,7 @@ export default function EditAgent() {
                 </div>
               ))}
             </div>
-            <button onClick={() => handleSave()} disabled={isSaving} style={{ marginTop: '18px', alignSelf: 'flex-start', padding: '10px 24px', background: '#00bcd4', color: '#000', border: 'none', borderRadius: '8px', cursor: isSaving ? 'not-allowed' : 'pointer', fontWeight: '700', fontSize: '13px', opacity: isSaving ? 0.6 : 1 }}>
+            <button onClick={() => handleSave()} disabled={isSaving} style={{ marginTop: '18px', alignSelf: 'flex-start', padding: '10px 24px', background: 'var(--teal)', color: '#000', border: 'none', borderRadius: '8px', cursor: isSaving ? 'not-allowed' : 'pointer', fontWeight: '700', fontSize: '13px', opacity: isSaving ? 0.6 : 1 }}>
               {isSaving ? 'Saving...' : 'Save Changes'}
             </button>
           </div>
@@ -3228,7 +3400,7 @@ export default function EditAgent() {
                     style={{ border: '2px dashed #323232', borderRadius: '14px', minHeight: '168px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '18px', cursor: 'pointer' }}
                   >
                     <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".pdf,.txt,.md,.csv,.json,.docx" multiple style={{ display: 'none' }} />
-                    <div style={{ width: '54px', height: '54px', borderRadius: '18px', background: '#062d2f', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#12c8d0', fontSize: '20px', marginBottom: '16px' }}>^</div>
+                    <div style={{ width: '54px', height: '54px', borderRadius: '18px', background: 'var(--teal-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--teal-fg)', fontSize: '20px', marginBottom: '16px' }}>^</div>
                     <div style={{ fontSize: '17px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '10px' }}>Drag and drop a file here, or click to select</div>
                     <div style={{ fontSize: '13px', color: '#b7b7b7' }}>Supported formats: PDF, TXT, MD, CSV, JSON, DOCX (max 10MB)</div>
                   </div>
@@ -3265,7 +3437,7 @@ export default function EditAgent() {
                       width: '100%',
                       height: '44px',
                       padding: '0 14px',
-                      background: '#171717',
+                      background: 'var(--bg-card)',
                       border: '1px solid #2e2e2e',
                       borderRadius: '8px',
                       color: 'var(--text-primary)',
@@ -3439,7 +3611,7 @@ export default function EditAgent() {
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
-                    background: '#0f0f0f',
+                    background: 'var(--bg-primary)',
                     color: '#8f8f8f',
                     fontSize: '13px',
                     textAlign: 'center',
@@ -3482,7 +3654,7 @@ export default function EditAgent() {
                           e.currentTarget.style.transform = 'translateY(0)';
                         }}
                         style={{
-                          background: '#171717',
+                          background: 'var(--bg-card)',
                           border: '1px solid var(--border)',
                           borderRadius: '12px',
                           minHeight: '220px',
@@ -3496,7 +3668,7 @@ export default function EditAgent() {
                         <div>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', marginBottom: '10px' }}>
                             <div style={{ fontSize: '15px', fontWeight: '700', color: '#fafafa' }}>{integration.name}</div>
-                            {integration.external && <span style={{ fontSize: '12px', color: '#8e8e8e' }}>-&gt;</span>}
+                            {integration.external && <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>-&gt;</span>}
                           </div>
 
                           <div style={{ marginBottom: '12px' }}>
@@ -3627,7 +3799,7 @@ export default function EditAgent() {
               <div
                 key={config.id}
                 style={{
-                  background: '#171717',
+                  background: 'var(--bg-card)',
                   border: '1px solid var(--border)',
                   borderRadius: '14px',
                   padding: '30px 30px 24px',
@@ -3819,7 +3991,7 @@ export default function EditAgent() {
                               background: 'transparent',
                               border: '1px solid #2d2d2d',
                               borderRadius: '7px',
-                              color: '#b3b3b3',
+                              color: 'var(--text-secondary)',
                               fontSize: '13px',
                               padding: '6px 12px',
                               cursor: 'pointer',
@@ -3887,7 +4059,7 @@ export default function EditAgent() {
                               background: 'transparent',
                               border: '1px solid #2d2d2d',
                               borderRadius: '9px',
-                              color: '#b3b3b3',
+                              color: 'var(--text-secondary)',
                               fontSize: '13px',
                               cursor: spreadsheetsState === 'loading' ? 'not-allowed' : 'pointer',
                             }}
@@ -4020,7 +4192,7 @@ export default function EditAgent() {
                         whiteSpace: 'nowrap'
                       }}
                     >
-                      {testingPostCall[config.id] === 'loading' ? '⏳ Sending...' :
+                      {testingPostCall[config.id] === 'loading' ? 'Sending…' :
                        testingPostCall[config.id] === 'done' ? '✓ Sent' :
                        testingPostCall[config.id] === 'error' ? '✗ Failed' :
                        '▶ Test Delivery'}
@@ -4208,7 +4380,7 @@ export default function EditAgent() {
                           style={{
                             width: '60px',
                             height: '44px',
-                            background: '#0f0f0f',
+                            background: 'var(--bg-primary)',
                             border: '1px solid var(--border)',
                             borderRadius: '9px',
                             color: '#ff4d4f',
@@ -4283,7 +4455,7 @@ export default function EditAgent() {
                   style={{
                     height: '44px',
                     padding: '0 18px',
-                    background: '#101010',
+                    background: 'var(--bg-card)',
                     border: '1px solid var(--border)',
                     borderRadius: '10px',
                     color: 'var(--text-primary)',
@@ -4293,18 +4465,18 @@ export default function EditAgent() {
                     opacity: callsLoading ? 0.6 : 1
                   }}
                 >
-                  {callsLoading ? '⏳ Loading...' : '↻ Refresh'}
+                  {callsLoading ? 'Loading…' : 'Refresh'}
                 </button>
               </div>
             </div>
 
             {callsLoading ? (
-              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666', fontSize: '14px' }}>
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>
                 Loading call history...
               </div>
             ) : recentCalls.length > 0 ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                {recentCalls.map((call) => {
+                {visibleCalls.map((call) => {
                   const typeMeta =
                     call.type === 'WEB_CALL' ? { icon: '🌐', label: 'Web Call', bg: '#0a1f3a', fg: '#7fbfff', bd: '#1a5a9a' }
                     : call.type === 'PHONE_CALL' ? { icon: '📞', label: 'Phone Call', bg: '#2a1a0a', fg: '#ffb066', bd: '#5a3a1a' }
@@ -4323,7 +4495,7 @@ export default function EditAgent() {
                     <div
                       key={call.id}
                       style={{
-                        background: '#111',
+                        background: 'var(--bg-card)',
                         border: '1px solid var(--border)',
                         borderRadius: '12px',
                         overflow: 'hidden'
@@ -4348,7 +4520,7 @@ export default function EditAgent() {
                           <div style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)' }}>
                             {typeMeta.icon} {typeMeta.label}
                           </div>
-                          <div style={{ fontSize: '12px', color: '#666', marginTop: '2px' }}>
+                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
                             {call.type === 'PHONE_CALL' && call.phoneNumber
                               ? call.phoneNumber
                               : `${transcript.length} message${transcript.length === 1 ? '' : 's'}${call.hasRecording ? ' · 🔊 recording' : ''}`}
@@ -4366,13 +4538,13 @@ export default function EditAgent() {
                         }}>
                           {(call.status || 'UNKNOWN').replace('_', ' ').toLowerCase()}
                         </div>
-                        <div style={{ fontSize: '12px', color: '#888', textAlign: 'center' }}>
+                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', textAlign: 'center' }}>
                           {mins}:{String(secs).padStart(2, '0')}
                         </div>
-                        <div style={{ fontSize: '12px', color: '#888', textAlign: 'right' }}>
+                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', textAlign: 'right' }}>
                           {call.startedAt ? new Date(call.startedAt).toLocaleString() : '—'}
                         </div>
-                        <div style={{ fontSize: '12px', color: '#666', textAlign: 'center' }}>{isExpanded ? '▲' : '▼'}</div>
+                        <div style={{ fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center' }}>{isExpanded ? '▲' : '▼'}</div>
                       </div>
 
                       {isExpanded && (
@@ -4380,7 +4552,7 @@ export default function EditAgent() {
                           {call.hasRecording && (
                             <div style={{ marginBottom: transcript.length ? '16px' : 0 }}>
                               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '8px' }}>
-                                <div style={{ fontSize: '12px', fontWeight: '600', color: '#888' }}>Call recording</div>
+                                <div style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)' }}>Call recording</div>
                                 {recordingUrls[call.id] && (
                                   <button
                                     type="button"
@@ -4405,7 +4577,7 @@ export default function EditAgent() {
                               {recordingUrls[call.id] ? (
                                 <audio controls src={recordingUrls[call.id]} style={{ width: '100%', height: '36px' }} />
                               ) : (
-                                <div style={{ fontSize: '12px', color: '#666' }}>Loading recording…</div>
+                                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Loading recording…</div>
                               )}
                             </div>
                           )}
@@ -4466,13 +4638,13 @@ export default function EditAgent() {
                           )}
                           {transcript.length > 0 ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '320px', overflowY: 'auto' }}>
-                              <div style={{ fontSize: '12px', fontWeight: '600', color: '#888' }}>Transcript</div>
+                              <div style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)' }}>Transcript</div>
                               {transcript.map((m, i) => (
                                 <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
                                   <div style={{
                                     maxWidth: '75%', padding: '8px 12px', borderRadius: '10px', fontSize: '13px',
                                     whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                                    background: m.role === 'user' ? '#00bcd4' : '#1a1a1a',
+                                    background: m.role === 'user' ? 'var(--teal)' : '#1a1a1a',
                                     color: m.role === 'user' ? '#000' : 'var(--text-primary)',
                                     border: m.role === 'user' ? 'none' : '1px solid #333'
                                   }}>
@@ -4482,13 +4654,72 @@ export default function EditAgent() {
                               ))}
                             </div>
                           ) : (
-                            <div style={{ fontSize: '12px', color: '#666' }}>No transcript was captured for this call.</div>
+                            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No transcript was captured for this call.</div>
                           )}
                         </div>
                       )}
                     </div>
                   );
                 })}
+
+                {recentCalls.length > CALLS_PER_PAGE && (
+                  <div
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: '12px',
+                      flexWrap: 'wrap',
+                      marginTop: '8px',
+                      padding: '4px 4px 0'
+                    }}
+                  >
+                    <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                      Showing {(callsPage - 1) * CALLS_PER_PAGE + 1}–{Math.min(callsPage * CALLS_PER_PAGE, recentCalls.length)} of {recentCalls.length} calls
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <button
+                        onClick={() => { setExpandedCallId(null); setCallsPage((p) => Math.max(1, p - 1)); }}
+                        disabled={callsPage <= 1}
+                        style={{
+                          height: '36px',
+                          padding: '0 14px',
+                          background: 'var(--bg-card)',
+                          border: '1px solid var(--border)',
+                          borderRadius: '9px',
+                          color: 'var(--text-primary)',
+                          fontSize: '13px',
+                          fontWeight: '600',
+                          cursor: callsPage <= 1 ? 'not-allowed' : 'pointer',
+                          opacity: callsPage <= 1 ? 0.45 : 1
+                        }}
+                      >
+                        ← Previous
+                      </button>
+                      <div style={{ fontSize: '13px', color: 'var(--text-secondary)', minWidth: '84px', textAlign: 'center' }}>
+                        Page {callsPage} of {callsPageCount}
+                      </div>
+                      <button
+                        onClick={() => { setExpandedCallId(null); setCallsPage((p) => Math.min(callsPageCount, p + 1)); }}
+                        disabled={callsPage >= callsPageCount}
+                        style={{
+                          height: '36px',
+                          padding: '0 14px',
+                          background: 'var(--bg-card)',
+                          border: '1px solid var(--border)',
+                          borderRadius: '9px',
+                          color: 'var(--text-primary)',
+                          fontSize: '13px',
+                          fontWeight: '600',
+                          cursor: callsPage >= callsPageCount ? 'not-allowed' : 'pointer',
+                          opacity: callsPage >= callsPageCount ? 0.45 : 1
+                        }}
+                      >
+                        Next →
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
               <div
@@ -4549,13 +4780,13 @@ export default function EditAgent() {
       {/* Chat Modal */}
       {showChatModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: '#1a1a1a', borderRadius: '12px', padding: 0, maxWidth: '500px', width: '90%', height: '600px', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          <div style={{ background: 'var(--bg-card)', borderRadius: '12px', padding: 0, maxWidth: '500px', width: '90%', height: '600px', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             <div style={{ padding: '16px 20px', background: '#222', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#00bcd4', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#000', fontWeight: 'bold' }}>{agentName.charAt(0)}</div>
+                <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'var(--teal)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#000', fontWeight: 'bold' }}>{agentName.charAt(0)}</div>
                 <span style={{ fontWeight: '600', fontSize: '14px' }}>Test Chat: {agentName}</span>
               </div>
-              <button onClick={closeTestChat} style={{ background: 'none', border: 'none', color: '#999', cursor: 'pointer', fontSize: '20px' }}>X</button>
+              <button onClick={closeTestChat} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '20px' }}>X</button>
             </div>
             
             <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
@@ -4565,7 +4796,7 @@ export default function EditAgent() {
               {chatMessages.map((msg, i) => (
                 <div key={i} style={{ 
                   alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start', 
-                  background: msg.role === 'user' ? '#00bcd4' : '#333', 
+                  background: msg.role === 'user' ? 'var(--teal)' : '#333', 
                   color: msg.role === 'user' ? '#000' : '#fff',
                   padding: '10px 14px', 
                   borderRadius: msg.role === 'user' ? '12px 12px 0 12px' : '12px 12px 12px 0', 
@@ -4582,16 +4813,16 @@ export default function EditAgent() {
               )}
             </div>
 
-            <div style={{ padding: '20px', borderTop: '1px solid #333', background: '#1a1a1a' }}>
+            <div style={{ padding: '20px', borderTop: '1px solid #333', background: 'var(--bg-card)' }}>
               <form onSubmit={(e) => { e.preventDefault(); handleTestChat(); }} style={{ display: 'flex', gap: '10px' }}>
                 <input 
                   type="text" 
                   value={userMessage} 
                   onChange={(e) => setUserMessage(e.target.value)} 
                   placeholder="Type your message..." 
-                  style={{ flex: 1, background: '#0f0f0f', border: '1px solid #333', borderRadius: '8px', padding: '10px 14px', color: 'var(--text-primary)', fontSize: '13px' }}
+                  style={{ flex: 1, background: 'var(--bg-primary)', border: '1px solid #333', borderRadius: '8px', padding: '10px 14px', color: 'var(--text-primary)', fontSize: '13px' }}
                 />
-                <button type="submit" disabled={isTyping || !userMessage.trim()} style={{ background: '#00bcd4', color: '#000', border: 'none', borderRadius: '8px', padding: '0 16px', fontWeight: 'bold', cursor: 'pointer', opacity: (isTyping || !userMessage.trim()) ? 0.6 : 1 }}>Send</button>
+                <button type="submit" disabled={isTyping || !userMessage.trim()} style={{ background: 'var(--teal)', color: '#000', border: 'none', borderRadius: '8px', padding: '0 16px', fontWeight: 'bold', cursor: 'pointer', opacity: (isTyping || !userMessage.trim()) ? 0.6 : 1 }}>Send</button>
               </form>
             </div>
           </div>

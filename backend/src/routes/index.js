@@ -60,6 +60,8 @@ router.use('/report-issue', rateLimit({ windowMs: 60_000, max: 10, keyPrefix: 'i
 // the authenticated workspace router below (see `ws`).
 router.use('/integrations', integrationsPublicRoutes);
 router.get('/config/plans', platform.listPlansPublic);
+// The only pricing this deployment publishes: one wallet rate per minute.
+router.get('/config/wallet-rate', platform.getWalletRatePublic);
 
 // Razorpay webhook. NOT authenticated by session on purpose: Razorpay cannot
 // hold a token. The X-Razorpay-Signature HMAC over the raw body is the

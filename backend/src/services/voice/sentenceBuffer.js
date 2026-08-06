@@ -25,11 +25,21 @@ const TERMINATORS = '.!?…।॥\n';
  * doesn't punctuate — it releases at the last word break instead, so audio
  * still starts promptly. Never cuts mid-word.
  *
+ * `minLen` guards the other end. "…" is a terminator, so a reply that opens
+ * with a hesitation ("Hmm… so, that's usually Friday.") would otherwise release
+ * "Hmm…" as its own generation the moment the first delta landed. A five-
+ * character request gives the model no prosodic context at all, and the result
+ * is an opener that is audibly flatter and louder than the sentence it
+ * introduces — the exact seam the naturalness work is trying to remove. Below
+ * `minLen` the text simply waits for the next delta; nothing is ever dropped,
+ * because end-of-stream flushes the tail unconditionally.
+ *
  * @param {string} buf - accumulated text
- * @param {{ maxLen?: number }} [opts] - word-break release threshold
+ * @param {{ maxLen?: number, minLen?: number }} [opts] - word-break release
+ *   threshold, and the shortest chunk worth synthesizing on its own
  * @returns {{ chunk: string, rest: string }} `chunk` is '' when nothing is ready
  */
-export function takeCompleteSentences(buf, { maxLen = 160 } = {}) {
+export function takeCompleteSentences(buf, { maxLen = 160, minLen = 12 } = {}) {
   if (!buf) return { chunk: '', rest: '' };
 
   let cut = -1;
@@ -39,15 +49,31 @@ export function takeCompleteSentences(buf, { maxLen = 160 } = {}) {
   if (cut < 0 && buf.length > maxLen) cut = buf.lastIndexOf(' ');
   if (cut < 0) return { chunk: '', rest: buf };
 
-  return { chunk: buf.slice(0, cut + 1), rest: buf.slice(cut + 1) };
+  const chunk = buf.slice(0, cut + 1);
+  // Too short to synthesize well, and the buffer is still small enough that
+  // waiting costs nothing measurable — hold it for the next delta.
+  if (chunk.trim().length < minLen && buf.length <= maxLen) return { chunk: '', rest: buf };
+
+  return { chunk, rest: buf.slice(cut + 1) };
 }
 
 /**
  * Normalize one chunk for speech: markdown glyphs would be read aloud, and
  * newlines are just pauses. Returns '' when nothing speakable is left.
+ *
+ * `>` IS NOT IN THE MARKDOWN CLASS. It used to be, and that silently broke
+ * every SSML pause tag the naturalness pass emits: `<break time="300ms"/>`
+ * arrived at ElevenLabs as `<break time="300ms"/` — an unterminated tag, which
+ * the parser either speaks aloud or drops along with the text after it. The
+ * only `>` markdown actually uses is a blockquote marker at the START of a
+ * line, so match exactly that and leave tags intact.
  * @param {string} chunk
  * @returns {string}
  */
 export function cleanForSpeech(chunk) {
-  return chunk.replace(/[*_#`>]+/g, '').replace(/\s+/g, ' ').trim();
+  return chunk
+    .replace(/[*_#`]+/g, '')
+    .replace(/^\s*>+\s?/gm, '')
+    .replace(/\s+/g, ' ')
+    .trim();
 }

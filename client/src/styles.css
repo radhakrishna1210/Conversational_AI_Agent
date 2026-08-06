@@ -1,9 +1,27 @@
-@import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700;900&family=Space+Grotesk:wght@300;400;500;600;700&family=Inter:wght@300;400;500;600;700&family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&display=swap');
+/* Fonts are loaded from index.html — see the comment there for why. */
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
+/*
+  Two token systems live in this file and they must agree:
+
+   1. The HSL triples below, consumed by Tailwind + the shadcn/Radix components
+      in components/ui/*.
+   2. The hex tokens in the plain :root block further down (--teal, --bg-*,
+      --text-*), consumed by the hand-written CSS and inline styles.
+
+  They previously disagreed on the brand colour: this block said green
+  (142 70% 49%) while the rest of the app is teal (#0eb39e), so every shadcn
+  button, badge, switch and focus ring rendered off-brand. The HSL values here
+  are now the exact equivalents of the hex tokens:
+
+      172 85% 38%  ==  #0eb39e  (--teal)
+      173 89% 44%  ==  #0cd4bc  (--teal-hover)
+
+  Change one, change the other.
+*/
 @layer base {
   :root {
     --background: 222 47% 6%;
@@ -12,33 +30,31 @@
     --card-foreground: 210 40% 96%;
     --popover: 222 40% 9%;
     --popover-foreground: 210 40% 96%;
-    --primary: 142 70% 49%;
+    --primary: 172 85% 38%;
     --primary-foreground: 222 47% 6%;
     --secondary: 222 30% 14%;
     --secondary-foreground: 210 40% 96%;
     --muted: 222 25% 12%;
-    --muted-foreground: 215 20% 55%;
-    --accent: 142 70% 49%;
+    --muted-foreground: 215 25% 68%;
+    --accent: 172 85% 38%;
     --accent-foreground: 222 47% 6%;
     --destructive: 0 84% 60%;
     --destructive-foreground: 210 40% 98%;
     --border: 222 25% 16%;
     --input: 222 25% 16%;
-    --ring: 142 70% 49%;
+    --ring: 173 89% 44%;
     --radius: 0.75rem;
-    --gradient-primary: linear-gradient(135deg, hsl(142, 70%, 49%), hsl(158, 64%, 52%));
+    --gradient-primary: linear-gradient(135deg, hsl(172, 85%, 38%), hsl(173, 89%, 44%));
     --gradient-dark: linear-gradient(180deg, hsl(222, 47%, 8%), hsl(222, 47%, 4%));
     --gradient-card: linear-gradient(135deg, hsl(222, 40%, 10%), hsl(222, 40%, 7%));
-    --shadow-glow: 0 0 40px -10px hsl(142, 70%, 49%, 0.3);
-    --shadow-card: 0 4px 24px -4px hsl(222, 47%, 4%, 0.5);
     --sidebar-background: 222 47% 5%;
     --sidebar-foreground: 210 40% 85%;
-    --sidebar-primary: 142 70% 49%;
+    --sidebar-primary: 172 85% 38%;
     --sidebar-primary-foreground: 222 47% 6%;
     --sidebar-accent: 222 30% 12%;
     --sidebar-accent-foreground: 210 40% 96%;
     --sidebar-border: 222 25% 14%;
-    --sidebar-ring: 142 70% 49%;
+    --sidebar-ring: 173 89% 44%;
   }
 }
 
@@ -80,8 +96,21 @@
   --dropdown-hover:  #162136;
   --dropdown-text:   #dce8f5;
 
-  /* Brand accent */
+  /*
+    Brand accent.
+
+    --teal    is the FILL: button backgrounds, badges, the logo mark. It always
+              pairs with dark text, so one value works in both themes.
+    --teal-fg is the same brand colour used as a FOREGROUND — text, icons and
+              borders drawn on top of a page surface. It has to differ per
+              theme: #0eb39e on white is 2.3:1, failing even the 3:1 threshold
+              for non-text UI, so light mode overrides it to the dimmed teal.
+
+    Reach for --teal-fg whenever teal sits on top of a surface, --teal when it
+    is the surface.
+  */
   --teal:         #0eb39e;
+  --teal-fg:      #0eb39e;
   --teal-hover:   #0cd4bc;
   --teal-dim:     #0a8a79;
   --teal-light:   rgba(14, 179, 158, 0.12);
@@ -90,10 +119,16 @@
   --orange:       #f97316;
   --orange-hover: #fb923c;
 
-  /* Text */
-  --text-primary:   #dce8f7;
-  --text-secondary: #7a90ad;
-  --text-muted:     #3d5068;
+  /*
+    Text — contrast-checked against --bg-primary (#080d18).
+    The previous --text-secondary (#7a90ad) and --text-muted (#3d5068) measured
+    5.2:1 and 2.4:1; muted failed WCAG AA for body text by a wide margin and was
+    used for form hints, timestamps and table meta. Both were lifted, keeping a
+    visible step between the three levels.
+  */
+  --text-primary:   #dce8f7;  /* 14.9:1 */
+  --text-secondary: #8fa3bd;  /*  7.6:1 */
+  --text-muted:     #6b829e;  /*  4.9:1 */
 
   /* Borders */
   --border:       #1a2740;
@@ -102,6 +137,9 @@
   /* Status */
   --error:   #f87171;
   --success: #34d399;
+
+  /* Keyboard focus ring — bright enough to read against every dark surface */
+  --focus-ring: #0cd4bc;
 
   /* Radii */
   --radius-sm:   6px;
@@ -137,9 +175,16 @@ html.light {
   --popover: 0 0% 100%;
   --popover-foreground: 222 47% 10%;
   --muted: 210 40% 96.1%;
-  --muted-foreground: 215.4 16.3% 46.9%;
-  --accent: 142 70% 49%;
-  --accent-foreground: 222 47% 6%;
+  --muted-foreground: 215.4 16.3% 40%;
+  /*
+    Light mode darkens the brand teal so white label text on a filled button
+    clears AA (#0eb39e under white is only 2.3:1; 172 85% 26% is 5.2:1).
+  */
+  --primary: 172 85% 26%;
+  --primary-foreground: 0 0% 100%;
+  --accent: 172 85% 26%;
+  --accent-foreground: 0 0% 100%;
+  --ring: 172 85% 30%;
 
   /* Backgrounds */
   --bg-primary:    #f0f4f9;
@@ -164,25 +209,29 @@ html.light {
   --dropdown-hover:  #f1f5f9;
   --dropdown-text:   #1e293b;
 
-  /* Brand accent — same */
+  /* Brand accent — fill stays put, foreground darkens to clear contrast on white */
   --teal:         #0eb39e;
+  --teal-fg:      #0a8a79;
   --teal-hover:   #0cd4bc;
   --teal-dim:     #0a8a79;
   --teal-light:   rgba(14, 179, 158, 0.10);
   --teal-glow:    rgba(14, 179, 158, 0.20);
 
-  /* Text */
-  --text-primary:   #0f172a;
-  --text-secondary: #475569;
-  --text-muted:     #64748b;
+  /* Text — contrast-checked against --bg-primary (#f0f4f9) */
+  --text-primary:   #0f172a;  /* 15.9:1 */
+  --text-secondary: #475569;  /*  7.5:1 */
+  --text-muted:     #5a6b7f;  /*  5.2:1 — was #64748b at 4.3:1 */
 
   /* Borders */
   --border:       #e2e8f0;
   --border-light: rgba(0,0,0,0.07);
 
-  /* Status */
-  --error:   #ef4444;
-  --success: #10b981;
+  /* Status — darkened so status text clears AA on white */
+  --error:   #dc2626;
+  --success: #047857;
+
+  /* Keyboard focus ring — the dimmed teal reads against white; #0cd4bc does not */
+  --focus-ring: #0a8a79;
 
   /* Shadows */
   --shadow-subtle:      0 2px 8px rgba(15,23,42,0.08);
@@ -192,8 +241,20 @@ html.light {
   --shadow-topbar:      0 1px 0 rgba(0,0,0,0.07);
 }
 
-/* ── Theme transition — exclude width/transform so sidebar hover still animates ── */
-*:not(.sidebar):not(.sidebar *) {
+/*
+  ── Theme transition ──
+  This used to be an unconditional universal selector, which put a 0.22s
+  transition on background, colour, border and shadow for every element on every
+  page. That made every hover state lag by 220ms and forced the compositor to
+  track transitions on thousands of nodes that never change.
+
+  It only ever existed to smooth the light/dark swap, so it now applies only
+  while that swap is happening: useTheme adds .theme-transition to <html> for
+  one frame-batch around the toggle and removes it. Interactive primitives
+  (.btn, .chip, .sidebar-item, cards) declare their own transitions, so hovers
+  are unaffected — they just respond immediately now.
+*/
+html.theme-transition *:not(.sidebar):not(.sidebar *) {
   transition: background-color 0.22s ease, border-color 0.22s ease, color 0.22s ease, box-shadow 0.22s ease;
 }
 
@@ -515,10 +576,12 @@ html.light .sidebar-header {
 html.light .sidebar-bottom {
   border-top-color: rgba(255,255,255,0.08) !important;
 }
-html.light .sidebar-item { color: rgba(255,255,255,0.5); }
-html.light .sidebar-item:hover { background: rgba(255,255,255,0.07); color: rgba(255,255,255,0.9); }
-html.light .sidebar-item.active { background: rgba(14,179,158,0.18); color: #0eb39e; }
-html.light .sidebar-category { color: rgba(255,255,255,0.22); }
+html.light .sidebar-item { color: rgba(255,255,255,0.68); }
+html.light .sidebar-item:hover { background: rgba(255,255,255,0.10); color: #ffffff; }
+/* The sidebar keeps its deep navy surface in light mode, so the active teal is
+   the same token as dark mode — 6.0:1 against #14213d. */
+html.light .sidebar-item.active { background: rgba(14,179,158,0.18); color: var(--teal); }
+html.light .sidebar-category { color: rgba(255,255,255,0.48); }
 html.light .sidebar-content-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); }
 
 /* Dashboard main area */
@@ -538,7 +601,7 @@ html.light .create-textarea {
   color: var(--text-primary);
 }
 html.light .create-textarea::placeholder { color: var(--text-muted); }
-html.light .create-textarea:focus { border-color: var(--teal); box-shadow: 0 0 0 3px var(--teal-light); }
+html.light .create-textarea:focus { border-color: var(--teal-fg); box-shadow: 0 0 0 3px var(--teal-light); }
 
 /* Chips */
 html.light .chip {
@@ -548,8 +611,8 @@ html.light .chip {
 }
 html.light .chip:hover {
   background: #e2e8f0;
-  border-color: var(--teal);
-  color: var(--teal);
+  border-color: var(--teal-fg);
+  color: var(--teal-fg);
 }
 
 /* Assistant cards */
@@ -652,18 +715,35 @@ img {
   padding: 0 24px;
 }
 
-/* ── Typography ── */
+/*
+  ── Typography ──
+  A single scale, roughly 1.25 between steps, fluid between mobile and desktop.
+
+  The previous scale was inverted — h1 was 36px while h2 was 40px, so any page
+  using semantic heading order rendered its section titles larger than its page
+  title. h4/h5/h6 were also unset, inheriting the browser's 1em/0.83em/0.67em,
+  which put h5 and h6 below body copy.
+
+  Optical sizing: larger text needs tighter tracking and leading to look right,
+  so both scale down as size goes up.
+*/
 h1, h2, h3, h4, h5, h6 {
   font-weight: 700;
   line-height: 1.2;
+  color: var(--text-primary);
+  text-wrap: balance;
 }
 
-h1 { font-size: 36px; letter-spacing: -0.8px; }
-h2 { font-size: 40px; letter-spacing: -1px; }
-h3 { font-size: 24px; letter-spacing: -0.5px; }
+h1 { font-size: clamp(32px, 4.4vw, 52px); line-height: 1.06; letter-spacing: -1.4px; }
+h2 { font-size: clamp(27px, 3.2vw, 40px); line-height: 1.12; letter-spacing: -1px; }
+h3 { font-size: clamp(21px, 2.1vw, 26px); line-height: 1.22; letter-spacing: -0.5px; }
+h4 { font-size: 18px; line-height: 1.3;  letter-spacing: -0.3px; }
+h5 { font-size: 16px; line-height: 1.35; letter-spacing: -0.2px; }
+h6 { font-size: 14px; line-height: 1.4;  letter-spacing: 0; }
 
 p {
   color: var(--text-secondary);
+  text-wrap: pretty;
 }
 
 /* ── Buttons ── */
@@ -681,7 +761,7 @@ p {
 }
 
 .btn-primary {
-  background-color: var(--teal);
+  background-color: var(--teal-fg);
   color: var(--bg-primary);
 }
 
@@ -811,7 +891,7 @@ p {
 .logo-icon {
   width: 28px;
   height: 28px;
-  background-color: var(--teal);
+  background-color: var(--teal-fg);
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -905,10 +985,150 @@ p {
   justify-self: end;
 }
 
+/* ── Public navbar: mobile ──
+   The nav used to be `display: none` below 768px with nothing to replace it, so
+   Solutions, Documentation, Pricing, Contact and Book an Appointment were simply
+   unreachable on a phone. The toggle below reveals them in a stacked panel. */
+
+.navbar-toggle {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.navbar-toggle:hover {
+  background: var(--bg-hover);
+}
+
+/*
+  Between 769px and 1080px the three-column grid still rendered the full link
+  list at its desktop gap, pushing the sign-up button past the right edge and
+  giving the whole page a horizontal scrollbar. Tightening the gutters and gaps
+  buys back roughly 90px, which is enough to fit.
+*/
+@media (max-width: 1080px) {
+  .navbar {
+    padding: 14px 24px;
+  }
+
+  .navbar-nav {
+    gap: 20px;
+  }
+
+  .navbar-actions {
+    gap: 10px;
+  }
+
+  .dropdown-menu {
+    min-width: 0;
+    width: min(600px, calc(100vw - 48px));
+    left: 0;
+    flex-wrap: wrap;
+    gap: 24px;
+  }
+}
+
+@media (max-width: 860px) {
+  .navbar {
+    grid-template-columns: 1fr auto;
+    gap: 12px;
+  }
+
+  .navbar-toggle {
+    display: flex;
+  }
+
+  /* Collapse the horizontal list into a panel under the bar. */
+  .navbar-nav {
+    display: none;
+    grid-column: 1 / -1;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    justify-self: stretch;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border);
+  }
+
+  .navbar-nav.is-open {
+    display: flex;
+  }
+
+  .navbar-nav .nav-link {
+    padding: 12px 4px;
+    font-size: 15px;
+  }
+
+  /* A hover-triggered mega-menu can't work on touch, so the Solutions group
+     lays its columns out inline instead. */
+  .nav-dropdown .dropdown-menu {
+    position: static;
+    width: 100%;
+    min-width: 0;
+    flex-direction: column;
+    gap: 20px;
+    padding: 8px 0 16px;
+    border: 0;
+    box-shadow: none;
+    background: transparent;
+  }
+}
+
+/*
+  The auth actions live in the bar on wider screens and in the menu panel on
+  phones — never both. At 375px the bar can't fit the wordmark, Log in, Get
+  started free and the menu button on one line without overflowing.
+*/
+.navbar-auth {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.navbar-nav-auth {
+  display: none;
+}
+
+@media (max-width: 560px) {
+  .navbar {
+    padding: 12px 16px;
+  }
+
+  .navbar-auth {
+    display: none;
+  }
+
+  .navbar-nav-auth {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 8px;
+    padding-top: 14px;
+    border-top: 1px solid var(--border);
+  }
+
+  .navbar-nav-auth .btn {
+    justify-content: center;
+    padding: 12px 18px;
+  }
+
+  .navbar-logo span {
+    font-size: 16px !important;
+  }
+}
+
 .btn-sign-out {
   background: transparent;
   border: 1px solid var(--border);
-  color: white;
+  color: var(--text-primary);   /* transparent background, so white disappeared in light mode */
   padding: 8px 16px;
   border-radius: 6px;
   font-size: 13px;
@@ -1035,8 +1255,8 @@ p {
 }
 
 .chip.active {
-  background: #1a2e2a;
-  color: var(--teal);
+  background: var(--teal-light);
+  color: var(--teal-fg);
   border-color: rgba(14, 179, 158, 0.5);
 }
 
@@ -1070,8 +1290,8 @@ p {
 }
 
 .custom-checkbox:checked {
-  background-color: var(--teal);
-  border-color: var(--teal);
+  background-color: var(--teal-fg);
+  border-color: var(--teal-fg);
 }
 
 .custom-checkbox:checked::before {
@@ -1090,20 +1310,20 @@ p {
 .trusted-logo {
   font-size: 17px;
   font-weight: 700;
-  color: #555;
+  color: var(--text-muted);   /* was #555 — 2.0:1 on the page background */
   letter-spacing: -0.3px;
   transition: color 0.2s;
 }
 
 .trusted-logo:hover {
-  color: #888;
+  color: var(--text-secondary);
 }
 
 /* ── Enhance Prompt Button ── */
 .btn-enhance {
   background: transparent;
   border: 1px solid rgba(14, 179, 158, 0.5);
-  color: var(--teal);
+  color: var(--teal-fg);
   padding: 8px 16px;
   border-radius: 6px;
   font-size: 13px;
@@ -1114,7 +1334,7 @@ p {
 
 .btn-enhance:hover {
   background: var(--teal-light);
-  border-color: var(--teal);
+  border-color: var(--teal-fg);
 }
 
 /* ── Sections & Grids ── */
@@ -1133,8 +1353,42 @@ p {
 
 .features-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(280px, 100%), 1fr));
   gap: 24px;
+}
+
+/*
+  ── Integrations orbit (Home) ──
+  Scattered logos read well at desktop width. Below 900px the two clusters run
+  into the centre wordmark, so the layout falls back to a simple wrapped row and
+  the fixed height is released.
+*/
+@media (max-width: 900px) {
+  .integration-orbit {
+    height: auto !important;
+    flex-wrap: wrap;
+    gap: 14px;
+    padding: 32px 20px !important;
+  }
+
+  .integration-orbit-logo {
+    position: static !important;
+    top: auto !important;
+    left: auto !important;
+    right: auto !important;
+    transform: none !important;
+  }
+
+  /* Lead with the wordmark, then the logos it connects to. */
+  .integration-orbit-center {
+    order: -1;
+    flex-basis: 100%;
+    margin-bottom: 8px;
+  }
+
+  .integration-orbit-glow {
+    display: none;
+  }
 }
 
 /* ── Ambient Glows ── */
@@ -1162,7 +1416,9 @@ p {
 
 /* ── Core Feature Cards ── */
 .core-feature-card {
-  background: #050505; /* Black */
+  /* Was #050505 — a pure-black card floating on the navy page background, which
+     read as a hole rather than a raised surface. */
+  background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 40px 32px;
@@ -1188,27 +1444,27 @@ p {
 .core-feature-icon-wrapper {
   width: 48px;
   height: 48px;
-  background: #0a111a;
-  border: 1px solid rgba(255, 255, 255, 0.03);
+  background: var(--teal-light);
+  border: 1px solid rgba(14, 179, 158, 0.22);
   border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   margin-bottom: 24px;
-  color: var(--teal);
+  color: var(--teal-fg);
 }
 
 .core-feature-card h3 {
   font-size: 20px;
   font-weight: 700;
   margin-bottom: 12px;
-  color: #fff;
+  color: var(--text-primary);   /* was #fff — invisible in light mode */
 }
 
 .core-feature-card p {
   font-size: 15px;
   line-height: 1.6;
-  color: #888;
+  color: var(--text-secondary); /* was #888 */
   margin: 0;
 }
 
@@ -1263,7 +1519,7 @@ p {
   padding: 24px;
   background: none;
   border: none;
-  color: white;
+  color: var(--text-primary);   /* .faq-item is --bg-card, which is white in light mode */
   font-size: 16px;
   font-weight: 600;
   text-align: left;
@@ -1306,7 +1562,8 @@ footer {
 
 .footer-links {
   display: flex;
-  gap: 24px;
+  flex-wrap: wrap;          /* a fixed 24px gap across five links overflows ≤360px */
+  gap: 12px 24px;
 }
 
 .footer-link {
@@ -1315,7 +1572,7 @@ footer {
 }
 
 .footer-link:hover {
-  color: white;
+  color: var(--text-primary);
 }
 
 .footer-socials {
@@ -1338,7 +1595,7 @@ footer {
 }
 
 .social-icon:hover {
-  color: white;
+  color: var(--text-primary);
   border-color: var(--text-muted);
 }
 
@@ -1404,7 +1661,7 @@ footer {
   border: 1px solid rgba(14, 179, 158, 0.28);
   border-radius: var(--radius-full);
   background: var(--teal-light);
-  color: var(--teal);
+  color: var(--teal-fg);
   font-size: 13px;
   font-weight: 700;
   letter-spacing: 0.02em;
@@ -1528,7 +1785,7 @@ footer {
   border: 1px solid rgba(14, 179, 158, 0.22);
   border-radius: 12px;
   background: var(--teal-light);
-  color: var(--teal);
+  color: var(--teal-fg);
 }
 
 .solution-section {
@@ -1747,7 +2004,7 @@ footer {
 
 .solution-faq-question svg {
   flex: 0 0 auto;
-  color: var(--teal);
+  color: var(--teal-fg);
   transition: transform 0.2s ease;
 }
 
@@ -1819,7 +2076,7 @@ footer {
 }
 
 .required {
-  color: var(--teal);
+  color: var(--teal-fg);
 }
 
 .form-input, .form-select, .form-textarea {
@@ -1834,9 +2091,15 @@ footer {
   transition: border-color 0.2s;
 }
 
+/*
+  A 1px border colour change on its own is too quiet to serve as the focus
+  indicator, so pair it with a ring. The native outline stays suppressed because
+  the ring replaces it.
+*/
 .form-input:focus, .form-select:focus, .form-textarea:focus {
   outline: none;
-  border-color: var(--teal);
+  border-color: var(--teal-fg);
+  box-shadow: 0 0 0 3px var(--teal-light);
 }
 
 .form-textarea {
@@ -1865,7 +2128,7 @@ footer {
 }
 
 .form-note a {
-  color: var(--teal);
+  color: var(--teal-fg);
 }
 
 /* ── Dashboard Specific ── */
@@ -2009,7 +2272,7 @@ html.light .sidebar:hover {
 .sidebar-category {
   font-size: 10px;
   font-weight: 700;
-  color: rgba(255,255,255,0.25);
+  color: rgba(255,255,255,0.45);   /* was 0.25 — 1.6:1, effectively unreadable */
   text-transform: uppercase;
   letter-spacing: 1px;
   padding: 8px 16px 4px 68px;
@@ -2031,7 +2294,8 @@ html.light .sidebar:hover {
   height: 36px;
   margin: 4px 8px;
   border-radius: 9px;
-  color: rgba(255,255,255,0.45);
+  /* 0.45 measured 3.1:1 on --sidebar-bg, below AA for 13px text. */
+  color: rgba(255,255,255,0.62);
   font-size: 13px;
   font-weight: 500;
   transition: background 0.15s ease, color 0.15s ease;
@@ -2041,12 +2305,12 @@ html.light .sidebar:hover {
 
 .sidebar-item:hover {
   background: rgba(14,179,158,0.10);
-  color: rgba(255,255,255,0.85);
+  color: rgba(255,255,255,0.95);
 }
 
 .sidebar-item.active {
   background: var(--sidebar-item-active-bg);
-  color: var(--teal);
+  color: var(--teal-fg);
   border-left: 2px solid var(--sidebar-item-active-border);
   border-radius: 0 9px 9px 0;
   margin-left: 0;
@@ -2269,7 +2533,7 @@ html.light .topbar-icon-btn:hover {
 }
 
 .create-assistant-box h3 {
-  color: var(--teal);
+  color: var(--teal-fg);
   margin-bottom: 6px;
 }
 
@@ -2293,8 +2557,10 @@ html.light .topbar-icon-btn:hover {
   outline: none;
 }
 
+/* The textarea itself sets outline:none, so it has to show focus some other way. */
 .create-textarea:focus {
-  border-color: rgba(0,212,200,0.5);
+  border-color: var(--teal-fg);
+  box-shadow: 0 0 0 3px var(--teal-light);
 }
 
 .create-actions {
@@ -2350,7 +2616,7 @@ html.light .topbar-icon-btn:hover {
   background: none;
   border: none;
   padding: 0;
-  color: var(--teal);
+  color: var(--teal-fg);
   cursor: pointer;
   font-size: 12px;
   text-decoration: underline;
@@ -2384,11 +2650,22 @@ html.light .topbar-icon-btn:hover {
   outline: none;
 }
 
+/* The inner input suppresses its outline, so the wrapper carries the indicator. */
+.assistants-search:focus-within {
+  border-color: var(--teal-dim);
+  box-shadow: 0 0 0 3px var(--teal-light);
+}
+
 .assistants-grid {
   border-top: 1px dashed var(--border);
   padding-top: 18px;
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
+  /*
+    minmax(380px, …) can't shrink below 380px, so on a 375px viewport the track
+    overflowed the container and the page scrolled sideways. min() lets the
+    track collapse to the container width when there isn't room.
+  */
+  grid-template-columns: repeat(auto-fill, minmax(min(360px, 100%), 1fr));
   gap: 24px;
 }
 
@@ -2440,10 +2717,10 @@ html.light .topbar-icon-btn:hover {
   position: absolute;
   top: 30px;
   right: 0;
-  background: #1e1e1e;
-  border: 1px solid #333;
+  background: var(--dropdown-bg);
+  border: 1px solid var(--dropdown-border);
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+  box-shadow: var(--shadow-card);
   display: flex;
   flex-direction: column;
   min-width: 160px;
@@ -2454,7 +2731,7 @@ html.light .topbar-icon-btn:hover {
 .assistant-menu-dropdown button {
   background: transparent;
   border: none;
-  color: #fff;
+  color: var(--dropdown-text);
   padding: 12px 16px;
   text-align: left;
   font-size: 14px;
@@ -2466,11 +2743,11 @@ html.light .topbar-icon-btn:hover {
 }
 
 .assistant-menu-dropdown button:hover {
-  background: #2a2a2a;
+  background: var(--dropdown-hover);
 }
 
 .assistant-menu-dropdown button.delete-btn {
-  color: #ef4444;
+  color: var(--error);
 }
 
 .assistant-menu-dropdown button.delete-btn:hover {
@@ -2543,6 +2820,184 @@ html.light .topbar-icon-btn:hover {
   margin-bottom: 24px;
 }
 
+/* ═══════════════════════════════════════════
+   AGENT CONSOLE — signal pipeline
+   -------------------------------------------
+   The four modular settings are not peers, they are a chain: what the caller
+   speaks (Language) is transcribed (STT), reasoned over (LLM), and spoken back
+   (TTS). A bundled Conversational Agent replaces the middle two.
+
+   The old UI rendered five identical tiles and dimmed the superseded ones to
+   opacity 0.45, which read as "broken" rather than "handled elsewhere". Laying
+   it out as a chain with an explicit override rail states the real structure.
+   ═══════════════════════════════════════════ */
+
+.pipeline {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0;
+  align-items: stretch;
+}
+
+.pipeline-stage {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 18px 18px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: inherit;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+
+/* One continuous rail: collapse the seams between adjacent stages. */
+.pipeline-stage:not(:last-child) {
+  border-right: 0;
+}
+.pipeline-stage:first-child {
+  border-radius: var(--radius-md) 0 0 var(--radius-md);
+}
+.pipeline-stage:last-child {
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+}
+
+.pipeline-stage:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--teal-dim);
+}
+
+/* The connector: a chevron sitting on the seam, pointing downstream. */
+.pipeline-stage:not(:last-child)::after {
+  content: '';
+  position: absolute;
+  right: -5px;
+  top: 50%;
+  width: 9px;
+  height: 9px;
+  border-top: 1.5px solid var(--border);
+  border-right: 1.5px solid var(--border);
+  transform: translateY(-50%) rotate(45deg);
+  background: var(--bg-elevated);
+  z-index: 1;
+}
+
+.pipeline-stage-label {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.pipeline-stage-value {
+  display: block;
+  overflow: hidden;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pipeline-stage-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--teal-light);
+  color: var(--teal-fg);
+}
+
+/*
+  Superseded, not disabled. The stage stays legible and keeps its own colour —
+  only the icon and value dim, and the label says who took over.
+*/
+.pipeline-stage.is-superseded {
+  cursor: not-allowed;
+  background: repeating-linear-gradient(
+    -45deg,
+    transparent,
+    transparent 6px,
+    var(--border-light) 6px,
+    var(--border-light) 7px
+  ), var(--bg-secondary);
+}
+
+.pipeline-stage.is-superseded .pipeline-stage-icon {
+  background: var(--bg-card);
+  color: var(--text-muted);
+}
+
+.pipeline-stage.is-superseded .pipeline-stage-value {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+/* The override rail — visually clamps the stages it replaces. */
+.pipeline-override {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  margin-top: 10px;
+  padding: 14px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-elevated);
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease;
+}
+
+.pipeline-override:hover {
+  background: var(--bg-hover);
+  border-color: var(--teal-dim);
+}
+
+.pipeline-override.is-active {
+  border-color: var(--teal);
+  background:
+    linear-gradient(90deg, var(--teal-light), transparent 60%),
+    var(--bg-elevated);
+}
+
+.pipeline-override.is-active .pipeline-stage-icon {
+  background: var(--teal);
+  color: #060c17;
+}
+
+@media (max-width: 900px) {
+  .pipeline {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+  }
+  /* Wrapped into a 2x2 the chevrons would point at nothing. */
+  .pipeline-stage::after {
+    display: none;
+  }
+  .pipeline-stage,
+  .pipeline-stage:first-child,
+  .pipeline-stage:last-child {
+    border-right: 1px solid var(--border);
+    border-radius: var(--radius-md);
+  }
+}
+
+@media (max-width: 560px) {
+  .pipeline {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* ── Pricing Page Specific ── */
 .pricing-tabs {
   display: flex;
@@ -2568,7 +3023,9 @@ html.light .topbar-icon-btn:hover {
 
 .pricing-tab.active {
   background: var(--bg-card);
-  color: white;
+  /* --bg-card is #ffffff in light mode, so `white` here made the selected tab
+     label vanish entirely. */
+  color: var(--text-primary);
   box-shadow: 0 2px 4px rgba(0,0,0,0.2);
 }
 
@@ -2592,7 +3049,7 @@ html.light .topbar-icon-btn:hover {
 }
 
 .plan-card.featured {
-  border-color: var(--teal);
+  border-color: var(--teal-fg);
   box-shadow: 0 10px 30px rgba(0,212,200,0.1);
   transform: translateY(-8px);
 }
@@ -2663,7 +3120,7 @@ html.light .topbar-icon-btn:hover {
 
 .plan-feature .value {
   font-weight: 600;
-  color: white;
+  color: var(--text-primary);
 }
 
 .plan-btn {
@@ -2685,7 +3142,7 @@ html.light .topbar-icon-btn:hover {
   padding: 16px;
   border-bottom: 1px solid var(--border);
   font-weight: 600;
-  color: white;
+  color: var(--text-primary);
 }
 
 .feature-table th:first-child {
@@ -2700,7 +3157,7 @@ html.light .topbar-icon-btn:hover {
 
 .feature-table td:first-child {
   text-align: left;
-  color: white;
+  color: var(--text-primary);
 }
 
 .check-yes {
@@ -2726,7 +3183,7 @@ html.light .topbar-icon-btn:hover {
 }
 
 .breadcrumb a:hover {
-  color: white;
+  color: var(--text-primary);
 }
 
 .doc-hero {
@@ -2795,7 +3252,7 @@ html.light .topbar-icon-btn:hover {
 
 .video-play-btn:hover {
   background: var(--teal);
-  border-color: var(--teal);
+  border-color: var(--teal-fg);
   transform: scale(1.1);
 }
 
@@ -2854,7 +3311,7 @@ html.light .topbar-icon-btn:hover {
 
 .learn-more {
   font-size: 13px;
-  color: var(--teal);
+  color: var(--teal-fg);
   font-weight: 600;
 }
 
@@ -2946,7 +3403,8 @@ html.light .topbar-icon-btn:hover {
   /* .sidebar { display: none; }  REMOVED - sidebar now visible on mobile */
   .dashboard-main { margin-left: 0; }
   .trusted-logos { gap: 20px; }
-  .navbar-nav { display: none; }
+  /* .navbar-nav visibility is handled by the ≤860px block, which toggles it
+     open rather than hiding it outright. */
   .create-actions { flex-direction: column; gap: 20px; align-items: stretch; }
   .plan-card { width: 100%; }
 
@@ -3169,6 +3627,36 @@ html.light .topbar-icon-btn:hover {
   }
 }
 
+/*
+  ── Solution pages – tablet and narrow desktop (≤ 900px) ──
+  These grids previously collapsed only at 480px, so between 481px and 900px the
+  hero ran a minmax(340px)/minmax(420px) two-column split and the feature list
+  ran three fixed columns inside a container that couldn't hold them. The result
+  overflowed horizontally on every tablet.
+*/
+@media (max-width: 900px) {
+  .solution-hero-grid,
+  .solution-hero-collections .solution-hero-grid,
+  .solution-template-panel,
+  .solution-template-panel-collections,
+  .solution-cta {
+    grid-template-columns: 1fr;
+    gap: 32px;
+  }
+
+  .solution-feature-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .solution-cta .solution-actions {
+    justify-content: flex-start;
+  }
+
+  .solution-section {
+    padding: 72px 0;
+  }
+}
+
 /* ── Extra-small screens (≤ 480px) – Pricing / Contact / BookAppointment ── */
 @media (max-width: 480px) {
   .page-hero {
@@ -3284,9 +3772,18 @@ html.light .topbar-icon-btn:hover {
   background: transparent !important;
   border: none !important;
   outline: none !important;
-  color: white !important;
+  color: var(--text-primary) !important;   /* was white — invisible in light mode */
   font-size: 14px;
 }
+
+/* The library forces `outline: none !important` on the inner input, so the
+   wrapper has to carry the focus indicator. */
+.PhoneInput:focus-within {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 4px;
+  border-radius: var(--radius-sm);
+}
+
 .PhoneInputCountry {
   display: flex;
   align-items: center;
@@ -3295,20 +3792,25 @@ html.light .topbar-icon-btn:hover {
 
 .PhoneInputCountrySelect {
   background-color: transparent;
-  color: white;
+  color: var(--text-primary);
 }
 .PhoneInputCountrySelect option {
-  background-color: #0e1015;
-  color: white;
+  background-color: var(--bg-card);
+  color: var(--text-primary);
 }
 
-/* Fix browser autofill background in dark mode */
+/*
+  Chrome paints its own pale-yellow background on autofilled fields. The only way
+  to override it is an inset box-shadow. This used to hardcode black + white
+  text, which turned every autofilled field into a black box in light mode.
+*/
 input:-webkit-autofill,
 input:-webkit-autofill:hover,
 input:-webkit-autofill:focus,
 input:-webkit-autofill:active {
-  -webkit-box-shadow: 0 0 0 30px #000000 inset !important;
-  -webkit-text-fill-color: white !important;
+  -webkit-box-shadow: 0 0 0 30px var(--bg-card) inset !important;
+  -webkit-text-fill-color: var(--text-primary) !important;
+  caret-color: var(--text-primary);
   transition: background-color 5000s ease-in-out 0s;
 }
 /* =========================
@@ -3508,7 +4010,7 @@ html:not(.light) .notification-panel-footer {
 .notification-mark-all {
   background: transparent;
   border: none;
-  color: #23c7b5;
+  color: var(--teal-fg);
   cursor: pointer;
   font-size: 13px;
   padding: 0;
@@ -3519,9 +4021,9 @@ html:not(.light) .notification-panel-footer {
   width: 40px;
   height: 40px;
   border-radius: 12px;
-  border: 2px solid #67d8c9;
+  border: 2px solid var(--teal);
   background: transparent;
-  color: #67d8c9;
+  color: var(--teal-fg);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3581,7 +4083,7 @@ html:not(.light) .notification-panel-footer {
 }
 
 .notification-item.is-unread {
-  border-left: 4px solid #23c7b5;
+  border-left: 4px solid var(--teal);
 }
 
 .notification-item-header {
@@ -3591,7 +4093,7 @@ html:not(.light) .notification-panel-footer {
 }
 
 .notification-item-type {
-  color: #23c7b5;
+  color: var(--teal-fg);
   font-size: 11px;
   font-weight: 700;
   text-transform: uppercase;
@@ -3612,7 +4114,7 @@ html:not(.light) .notification-panel-footer {
 }
 
 .notification-item-action {
-  color: #23c7b5;
+  color: var(--teal-fg);
 }
 
 .notification-item-actions {
@@ -3647,13 +4149,13 @@ html:not(.light) .notification-panel-footer {
 .notification-archived-link {
   border: none;
   background: transparent;
-  color: #23c7b5;
+  color: var(--teal-fg);
   font-size: 16px;
   cursor: pointer;
 }
 
 .notification-archived-link:hover {
-  color: #38d9ca;
+  color: var(--teal-hover);
 }
 /* =========================
    NOTIFICATION ARCHIVE
@@ -3661,8 +4163,8 @@ html:not(.light) .notification-panel-footer {
 
 .archive-page {
   min-height: 100vh;
-  background: #000;
-  color: #fff;
+  background: var(--bg-primary);   /* was #000, ignoring the palette entirely */
+  color: var(--text-primary);
 }
 
 /* =========================
@@ -3671,7 +4173,7 @@ html:not(.light) .notification-panel-footer {
 
 .archive-banner {
   height: 48px;
-  background: #17a69d;
+  background: var(--teal);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3683,7 +4185,7 @@ html:not(.light) .notification-panel-footer {
 
 .archive-banner-btn {
   border: none;
-  background: #ff8f1f;
+  background: var(--orange);
   color: white;
   padding: 7px 16px;
   border-radius: 999px;
@@ -3697,7 +4199,7 @@ html:not(.light) .notification-panel-footer {
 ========================= */
 
 .archive-content {
-  padding: 45px 55px;
+  padding: clamp(24px, 4vw, 45px) clamp(16px, 4vw, 55px);
 }
 
 /* =========================
@@ -3715,13 +4217,13 @@ html:not(.light) .notification-panel-footer {
   font-size: 32px;
   font-weight: 800;
   margin: 0;
-  color: white;
+  color: var(--text-primary);
 }
 
 .archive-subtitle {
   margin-top: 6px;
   font-size: 14px;
-  color: #94a3b8;
+  color: var(--text-secondary);
 }
 
 /* =========================
@@ -3730,9 +4232,10 @@ html:not(.light) .notification-panel-footer {
 
 .archive-filters {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
-  background: #1a1a1a;
-  border: 1px solid #262626;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   padding: 4px;
   border-radius: 10px;
 }
@@ -3740,16 +4243,21 @@ html:not(.light) .notification-panel-footer {
 .archive-filters button {
   border: none;
   background: transparent;
-  color: #94a3b8;
+  color: var(--text-secondary);
   padding: 8px 14px;
   border-radius: 8px;
   font-size: 12px;
   cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.archive-filters button:hover {
+  color: var(--text-primary);
 }
 
 .archive-filters button.active {
-  background: #000;
-  color: white;
+  background: var(--bg-primary);
+  color: var(--text-primary);
   font-weight: 600;
 }
 
@@ -3759,7 +4267,12 @@ html:not(.light) .notification-panel-footer {
 
 .archive-grid {
   display: grid;
-  grid-template-columns: repeat(3, 390px);
+  /*
+    Was `repeat(3, 390px)` — three fixed tracks plus gaps need 1280px of content
+    box, so the page scrolled horizontally on anything narrower than a large
+    desktop, including every tablet and phone.
+  */
+  grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 390px));
   gap: 24px;
   justify-content: start;
 }
@@ -3769,16 +4282,17 @@ html:not(.light) .notification-panel-footer {
 ========================= */
 
 .archive-card {
-  background: #070707;
-  border: 1px solid #232323;
-  border-radius: 16px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
   padding: 22px;
   min-height: 300px;
-  transition: all 0.2s ease;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
 }
 
 .archive-card:hover {
-  border-color: #343434;
+  border-color: var(--teal-dim);
+  box-shadow: var(--shadow-card);
 }
 
 .archive-card-header,
@@ -3786,7 +4300,13 @@ html:not(.light) .notification-panel-footer {
   display: flex;
   justify-content: space-between;
   align-items: center;
+  gap: 12px;
   margin-bottom: 16px;
+}
+
+.archive-top-row {
+  flex-wrap: wrap;
+  gap: 16px;
 }
 
 /* =========================
@@ -3794,8 +4314,8 @@ html:not(.light) .notification-panel-footer {
 ========================= */
 
 .archive-badge {
-  background: #18d1c5;
-  color: #000;
+  background: var(--teal);
+  color: #060c17;
   font-size: 10px;
   font-weight: 700;
   padding: 5px 11px;
@@ -3804,7 +4324,7 @@ html:not(.light) .notification-panel-footer {
 
 .archive-date {
   font-size: 11px;
-  color: #94a3b8;
+  color: var(--text-muted);
 }
 
 /* =========================
@@ -3812,14 +4332,14 @@ html:not(.light) .notification-panel-footer {
 ========================= */
 
 .archive-card h3 {
-  color: white;
+  color: var(--text-primary);
   font-size: 16px;
   font-weight: 700;
   margin-bottom: 10px;
 }
 
 .archive-card p {
-  color: #cbd5e1;
+  color: var(--text-secondary);
   font-size: 13px;
   line-height: 1.7;
   margin-bottom: 14px;
@@ -3846,7 +4366,7 @@ html:not(.light) .notification-panel-footer {
 ========================= */
 
 .archive-card h4 {
-  color: white;
+  color: var(--text-primary);
   font-size: 14px;
   font-weight: 700;
   margin-bottom: 12px;
@@ -3863,7 +4383,7 @@ html:not(.light) .notification-panel-footer {
 }
 
 .archive-card li {
-  color: #cbd5e1;
+  color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.6;
   margin-bottom: 10px;
@@ -3873,29 +4393,12 @@ html:not(.light) .notification-panel-footer {
    LIGHT MODE
 ========================= */
 
-.light .archive-page {
-  background: #eef2f4;
-  color: #111827;
-}
-
-.light .archive-title,
-.light .archive-card h3,
-.light .archive-card h4 {
-  color: #111827;
-}
-
-.light .archive-subtitle,
-.light .archive-card p,
-.light .archive-card li,
-.light .archive-date {
-  color: #475569;
-}
-
-.light .archive-card {
-  background: white;
-  border: 1px solid #d8dee6;
-}
-
+/*
+  The archive page now reads the --bg and --text tokens directly, so the
+  per-element light overrides that restated every colour here are gone. Only the
+  segmented filter control still needs theme-specific treatment, because its
+  active state inverts (dark pill on light track, light pill on dark track).
+*/
 .light .archive-filters {
   background: #e8edf2;
   border: none;
@@ -4041,5 +4544,121 @@ html:not(.light) .notification-panel-footer {
   }
   .omni-hamburger {
     display: none !important;
+  }
+}
+
+/* ============================================
+   KEYBOARD FOCUS
+   --------------------------------------------
+   Nothing in the hand-written CSS showed a focus indicator: the shadcn
+   components in components/ui/* carry Tailwind's focus-visible ring, but every
+   .btn, .chip, .sidebar-item, nav link, card and icon button relied on the
+   browser default — which several rules then removed with `outline: none`.
+   Keyboard-only users had no way to tell where they were.
+
+   :focus-visible rather than :focus so pointer users don't see a ring on click.
+   This block sits at the end of the file so it wins ordering ties against the
+   equal-specificity rules above it.
+   ============================================ */
+
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Elements whose own styling would clip or hide a default outline. */
+.btn:focus-visible,
+.chip:focus-visible,
+.nav-link:focus-visible,
+.dropdown-item:focus-visible,
+.sidebar-item:focus-visible,
+.topbar-icon-btn:focus-visible,
+.topbar-avatar:focus-visible,
+.assistant-menu:focus-visible,
+.faq-question:focus-visible,
+.solution-faq-question:focus-visible,
+.pricing-tab:focus-visible,
+.doc-card:focus-visible,
+.social-icon:focus-visible,
+.close-btn:focus-visible,
+.notification-action-btn:focus-visible,
+.archive-filters button:focus-visible,
+.how-it-works-step:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  /* Keep the ring clear of the sidebar's flush-left active state */
+  border-radius: var(--radius-sm);
+}
+
+/* Sidebar sits on the darkest surface; give the ring room to breathe. */
+.sidebar-item:focus-visible {
+  outline-offset: -2px;
+}
+
+/*
+  The hover-to-expand sidebar is unreachable by keyboard on desktop, because
+  width is driven purely by :hover. Expand it while anything inside has focus.
+*/
+.sidebar:focus-within {
+  width: var(--sidebar-expanded-width);
+}
+.sidebar:focus-within .sidebar-logo-text,
+.sidebar:focus-within .sidebar-text,
+.sidebar:focus-within .sidebar-category,
+.sidebar:focus-within .badge-new {
+  opacity: 1;
+}
+.sidebar:focus-within .sidebar-category {
+  padding-left: 20px;
+}
+
+/* Skip link — lets keyboard users jump the sidebar and topbar. */
+.skip-link {
+  position: absolute;
+  left: 8px;
+  top: -100px;
+  z-index: 1000;
+  padding: 10px 18px;
+  border-radius: var(--radius-sm);
+  background: var(--teal);
+  color: #060c17;
+  font-size: 14px;
+  font-weight: 700;
+  transition: top 0.15s ease;
+}
+.skip-link:focus {
+  top: 8px;
+}
+
+/* ============================================
+   REDUCED MOTION
+   --------------------------------------------
+   The app ships infinite `float` and `pulse-glow` animations, scroll-triggered
+   reveals, a 280ms sidebar width transition and a 300ms mobile drawer slide,
+   none of which previously honoured the OS setting. Vestibular triggers are a
+   real accessibility failure, not a preference.
+
+   Durations collapse to ~0 rather than `animation: none` so that animations
+   which finish in an end state (the scroll reveals set opacity to 1) still
+   reach it — `none` would strand those elements invisible.
+   ============================================ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  /* Hover lifts read as motion too. */
+  .core-feature-card:hover,
+  .feature-card:hover,
+  .doc-card:hover,
+  .solution-feature-card:hover,
+  .topbar-avatar:hover,
+  .video-play-btn:hover {
+    transform: none;
   }
 }

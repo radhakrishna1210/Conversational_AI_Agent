@@ -335,7 +335,7 @@ export default function Analytics() {
               {timeSeries?.summary && (
                 <div style={{ textAlign:'right' }}>
                   <div style={{ fontSize:'11px', color:'var(--text-muted)' }}>Total</div>
-                  <div style={{ fontSize:'18px', fontWeight:700, color:'var(--teal)' }}>{timeSeries.summary.total?.toLocaleString()}{metric==='duration'?' min':''}</div>
+                  <div style={{ fontSize:'18px', fontWeight:700, color:'var(--teal-fg)' }}>{timeSeries.summary.total?.toLocaleString()}{metric==='duration'?' min':''}</div>
                 </div>
               )}
             </div>
@@ -487,7 +487,7 @@ export default function Analytics() {
               {/* KPI cards */}
               <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))', gap:'16px', marginBottom:'24px' }}>
                 {[
-                  { label:'💬 Messages',     val: chatbot.messages.total,       sub:`${chatbot.messages.inbound} in · ${chatbot.messages.outbound} out`, color:'var(--teal)' },
+                  { label:'💬 Messages',     val: chatbot.messages.total,       sub:`${chatbot.messages.inbound} in · ${chatbot.messages.outbound} out`, color:'var(--teal-fg)' },
                   { label:'🗨️ Conversations', val: chatbot.conversations.total,  sub:`${chatbot.conversations.open} open · ${chatbot.conversations.resolved} resolved`, color:'#45b7d1' },
                   { label:'👥 Contacts',      val: chatbot.contacts.total,       sub:`+${chatbot.contacts.new} new this period`, color:'#96ceb4' },
                   { label:'📣 Campaigns',     val: chatbot.campaigns.total,      sub:`${chatbot.campaigns.active} active`, color:'#ffeaa7' },

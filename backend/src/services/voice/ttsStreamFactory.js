@@ -77,3 +77,30 @@ export function createTokenTtsStream(voice, opts = {}) {
 export function synthesisProviderName(voice) {
   try { return resolveSynthesisTarget(voice).providerName; } catch { return voice?.provider?.name ?? 'unknown'; }
 }
+
+/**
+ * Will this voice PARSE `<break time="…"/>`, or would it read the tag aloud?
+ *
+ * This has to be a capability check rather than an assumption, because the
+ * failure is not graceful: a provider that does not implement SSML speaks the
+ * literal characters, so a pause meant to sound thoughtful becomes the agent
+ * saying "break time three hundred milliseconds" to a customer. Callers use it
+ * to decide whether to keep pause markup or convert it back to a comma (see
+ * services/voice/disfluency.js).
+ *
+ * ElevenLabs honours break tags on every model EXCEPT eleven_v3 — which has no
+ * realtime WebSocket tier and so cannot serve a live call anyway, but the model
+ * is env-selectable (ELEVENLABS_TTS_MODEL) and this must not silently break if
+ * someone points it there. Sarvam, Google, Cartesia and Fish Audio are not
+ * wired for SSML here, so they get commas.
+ *
+ * @param {object} voice - Voice row including { provider: { name } }
+ * @returns {boolean}
+ */
+export function supportsSsmlBreaks(voice) {
+  if (!voice) return false;
+  let providerName;
+  try { providerName = resolveSynthesisTarget(voice).providerName; } catch { return false; }
+  if (providerName !== 'ElevenLabs') return false;
+  return !/v3/i.test(process.env.ELEVENLABS_TTS_MODEL || '');
+}

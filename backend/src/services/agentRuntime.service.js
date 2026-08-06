@@ -17,10 +17,11 @@ import { getLLMProviderWithFallback } from './llm.factory.js';
 import { mapAgentModel } from '../controllers/llm.controller.js';
 import { DEFAULT_TEMPERATURE } from '../constants/llmModels.js';
 import { resolveAgentVoice, streamSynthesizeVoice } from './voice.service.js';
-import { createTokenTtsStream, supportsTokenStreaming, synthesisProviderName } from './voice/ttsStreamFactory.js';
+import { createTokenTtsStream, supportsTokenStreaming, synthesisProviderName, supportsSsmlBreaks } from './voice/ttsStreamFactory.js';
+import { createReplyTextFilter, filterReplyText, stripSpeechMarkup } from './voice/disfluency.js';
 import { groqService } from './groq.service.js';
 import { transcribeAudio } from './stt.service.js';
-import { isLikelySttHallucination } from './stt/speechGate.js';
+import { isLikelySttHallucination, stripAgentEcho } from './stt/speechGate.js';
 
 const safeJson = (str, fallback) => {
   try { return JSON.parse(str); } catch { return fallback; }
@@ -253,6 +254,35 @@ export async function getAgentKbText(workspaceId, agentId) {
   return value;
 }
 
+/**
+ * Naturalness rules, appended to the Conversation Rules when the agent's
+ * "Filler Words" toggle is on AND the reply is being spoken (never in chat,
+ * where a `<break/>` tag would just be visible garbage on screen).
+ *
+ * WHY IT LOOKS LIKE THIS. "Be conversational" does nothing — models are
+ * post-trained toward clean prose and treat an abstract instruction as a style
+ * hint, so the reliable levers are worked examples, explicit placement rules,
+ * and repetition of the same rule from more than one angle. The BAD examples
+ * matter as much as the good ones: they name the two failure modes (a filler
+ * mid-sentence, and a filler in front of a price) that make an agent sound
+ * worse than a plainly robotic one.
+ *
+ * This is guidance, not enforcement. The hard ceiling on how often a hesitation
+ * actually reaches the caller lives in services/voice/disfluency.js, because a
+ * prompt cannot hold a rate — see the header there. Keep this block STATIC: it
+ * is part of the cached prompt prefix, so anything that varies per turn belongs
+ * in the message, not here.
+ */
+const NATURAL_SPEECH_RULES = `- Talk the way people talk, not the way they write: contractions always, short sentences, and it's fine to open with "And", "But" or "So".
+- PAUSES ARE YOUR MAIN TOOL. Write <break time="300ms"/> where a real person would pause to think — before a considered answer, or between a thought and a correction. At most two in a reply. Never inside a number, price, date or phone number.
+- Hesitation words ("umm", "hmm", "let me see") are allowed ONLY as the very first word of a reply, and only once every few turns. Always pair one with a pause and then a restart — a bare filler with nothing after it sounds worse than none at all.
+- NEVER hesitate before a price, a number, a date, or a confirmation. There you sound certain.
+  GOOD: "Hmm, <break time="300ms"/> so, that one's usually ready by Friday."
+  GOOD: "Right, <break time="300ms"/> let me check that for you."
+  BAD:  "Umm, the price is umm 4,999 rupees."  (mid-sentence, and in front of a price)
+  BAD:  "Um. Yes."  (filler with no pause and no restart)
+- Do not open consecutive replies the same way, and do not use a filler at all when the caller is in a hurry.`;
+
 // Header + acknowledgement used when the KB is delivered as a conversation turn
 // instead of being inlined in the system prompt (see buildRuntimeMessages).
 // These strings are part of the cached prefix — changing them invalidates every
@@ -319,12 +349,12 @@ ${languages.length
 - Ask for at most one piece of information per turn.
 - If the user asks for a human, or the request is outside your configured scope, offer to transfer/escalate.
 - If the caller signals they're finished ("thank you", "thanks, bye", "that's all", "no, that's it"), stop asking questions — warmly acknowledge and wrap up${settings.endCallMessage ? `, closing with: "${settings.endCallMessage}"` : ''}. Never keep interrogating after a clear goodbye.
-${settings.fillerWords ? `- Sound human: now and then open a reply with a short natural filler ("umm", "hmm", "let me see", "right") — sparingly, at most once every few turns, and never in the same breath as a price, number, or confirmation.` : ''}
+${settings.fillerWords && voiceMode ? NATURAL_SPEECH_RULES : ''}
 ${(settings.transferNumber || settings.transferCondition)
     ? `- Escalation/transfer: ${settings.transferCondition ? `When ${String(settings.transferCondition).trim()}, ` : 'If the caller asks for a human or needs something beyond your scope, '}let them know warmly that you'll connect them to a team member and are transferring them now. Never claim the transfer already went through or invent what the other person says.`
     : ''}
 ${voiceMode
-    ? `- This is a live VOICE call: reply in 1-2 short natural spoken sentences (never more). Answer ONLY what was asked — give one fact/price at a time and offer to share more instead of listing everything. Absolutely no markdown, no bullet points, no emojis, no stage directions — only words to be spoken aloud.`
+    ? `- This is a live VOICE call: reply in 1-2 short natural spoken sentences (never more). Answer ONLY what was asked — give one fact/price at a time and offer to share more instead of listing everything. Absolutely no markdown, no bullet points, no emojis, and no stage directions or narration like *sighs* or (pauses)${settings.fillerWords ? ' — the ONLY markup allowed is the <break time="..."/> pause tag described above' : ''}. Everything else you write is spoken aloud verbatim.`
     : `- Keep replies to 2-4 short sentences — answer what was asked and ask at most one follow-up. No markdown headings or bullet-point walls; write like a person chatting.`}`;
 }
 
@@ -555,7 +585,14 @@ export async function getRenderedWelcome(workspaceId, agentId) {
 const AFFECT_PROMPTS = {
   rushed: 'The caller sounds rushed — be brisk and efficient, skip pleasantries, get straight to the answer.',
   hesitant: 'The caller sounds hesitant or unsure — be patient and reassuring, offer to clarify, avoid rapid-fire questions.',
-  agitated: 'The caller sounds agitated or frustrated — acknowledge their frustration first, stay calm and concrete, do not be chirpy.',
+  // "Acknowledge their frustration first" produced replies that OPEN by naming
+  // the caller's emotional state ("I'm sorry to hear that you're feeling
+  // frustrated…"). That is presumptuous even when the read is right, and it is
+  // mortifying when it is wrong — and this signal is a coarse acoustic
+  // heuristic, so it will sometimes be wrong. Adapt the DELIVERY, don't announce
+  // the diagnosis: a calm, concrete, unpadded answer is what actually helps
+  // someone who is annoyed.
+  agitated: 'The caller sounds tense — be calm, concrete and efficient, lead with the answer, and skip pleasantries and chirpiness. Do NOT tell them how they seem to be feeling or apologise for their mood; just help.',
   quiet: 'The caller is speaking softly — keep a gentle, unhurried, warm tone.',
 };
 
@@ -671,7 +708,15 @@ async function _prepareConverse(workspaceId, agentId, messages, { voiceMode = fa
 }
 
 // Markdown → speakable text. The reply is sent to TTS, so strip formatting.
-const stripForVoice = (s) => s.replace(/[*_#`>]+/g, '').replace(/\s+/g, ' ').trim();
+//
+// `>` is handled as a LINE-START blockquote marker only, not as a bare
+// character: stripping every `>` turned `<break time="300ms"/>` into an
+// unterminated tag, which a TTS engine either speaks aloud or drops the rest of
+// the sentence with. Pause markup is deliberately preserved here — this is the
+// text that goes TO the engine. Use stripSpeechMarkup() for anything a human
+// reads (transcripts, call logs).
+const stripForVoice = (s) =>
+  s.replace(/[*_#`]+/g, '').replace(/^\s*>+\s?/gm, '').replace(/\s+/g, ' ').trim();
 
 export async function converse(workspaceId, agentId, messages, { voiceMode = false, affect = null } = {}) {
   const { agent, message, llm, provider, model, config, options } =
@@ -769,12 +814,17 @@ const hashText = (s) => {
 // agent taking a breath instead of dead air. Synthesized ONCE per (voice,
 // language) and cached as raw audio; emitting one is pure memory I/O.
 // Rotated so back-to-back turns don't repeat the identical sound.
+//
+// More variants than strictly needed, and picked at RANDOM rather than in
+// order: three clips cycling round-robin is audibly a loop within a minute of
+// conversation, which reads as more machine-like than having no filler at all.
+// The cost is one extra short synthesis per voice per process, paid once.
 const FILLER_TEXTS = {
-  en: ['Mm-hmm.', 'Okay, one second.', 'Right.'],
+  en: ['Mm-hmm.', 'Okay, one second.', 'Right.', 'Sure.'],
   // Gender-neutral phrasing on purpose — the voice may be male or female.
-  hi: ['हम्म।', 'जी, एक सेकंड।'],
+  hi: ['हम्म।', 'जी, एक सेकंड।', 'ठीक है।'],
 };
-const fillerCache = new Map(); // `${voiceId}|${lang}` -> { variants: [{buf, contentType}], next }
+const fillerCache = new Map(); // `${voiceId}|${lang}` -> { variants: [{buf, contentType}], last }
 const fillerWarmInFlight = new Set();
 
 /** Pre-synthesize this voice's filler variants (idempotent, fire-and-forget). */
@@ -792,7 +842,7 @@ export async function warmFillers(voice, lang, pace) {
       const buf = Buffer.concat(chunks);
       if (buf.length) variants.push({ buf, contentType });
     }
-    if (variants.length) fillerCache.set(key, { variants, next: 0 });
+    if (variants.length) fillerCache.set(key, { variants, last: -1 });
   } catch (err) {
     logger.warn(`Filler synthesis failed (${lang}): ${err.message}`);
   } finally {
@@ -800,12 +850,15 @@ export async function warmFillers(voice, lang, pace) {
   }
 }
 
+/** Pick a filler clip at random, never the same one twice in a row. */
 function takeFiller(voice, lang) {
   const entry = fillerCache.get(`${voice.id}|${lang}`);
   if (!entry || !entry.variants.length) return null;
-  const v = entry.variants[entry.next % entry.variants.length];
-  entry.next += 1;
-  return v;
+  if (entry.variants.length === 1) return entry.variants[0];
+  let i = entry.last;
+  while (i === entry.last) i = Math.floor(Math.random() * entry.variants.length);
+  entry.last = i;
+  return entry.variants[i];
 }
 
 const fillerLangFor = (settings, agent) => {
@@ -969,12 +1022,18 @@ export async function voiceTurn(workspaceId, agentId, audioBuffer, mimeType, his
 
   const messages = [...history, { role: 'user', content: userText }];
   const llmStartedAt = performance.now();
-  const { reply, provider: llmProvider, model } = await converse(
+  const { reply: rawReply, provider: llmProvider, model } = await converse(
     workspaceId,
     agentId,
     messages,
     { voiceMode: true }
   );
+  // Apply the same naturalness rules as the streaming path, with pause markup
+  // converted back to commas rather than kept. This is the legacy buffered
+  // endpoint: it hands text to speakAsAgent() without resolving the voice
+  // first, so it cannot know whether the engine parses SSML — and a tag spoken
+  // aloud to a customer is a far worse failure than a slightly shorter pause.
+  const reply = filterReplyText(rawReply, { ssmlBreaks: false });
   const llmMs = Math.round(performance.now() - llmStartedAt);
 
   let audioBase64 = null;
@@ -1026,8 +1085,13 @@ export async function voiceTurn(workspaceId, agentId, audioBuffer, mimeType, his
  * @param {{ onEvent?: (e: object) => void, shouldAbort?: () => boolean }} [opts]
  *   shouldAbort — polled before synthesizing/emitting each sentence so a caller
  *   (e.g. the B2 WebSocket handler on barge-in) can stop the reply mid-flight.
+ *   fillerBudget — call-scoped hesitation budget (createFillerBudget). Owned by
+ *   the transport because "at most once every few turns" is a property of the
+ *   CONVERSATION, and a single turn cannot see that the last three already
+ *   hesitated. Omitting it keeps the per-reply rules and lets the LLM's own
+ *   restraint set the rate.
  */
-export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeType, history = [], { onEvent, shouldAbort, userText: providedText, audioHadSpeech = false, affect = null } = {}) {
+export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeType, history = [], { onEvent, shouldAbort, userText: providedText, audioHadSpeech = false, affect = null, fillerBudget = null } = {}) {
   const emit = typeof onEvent === 'function' ? onEvent : () => {};
   const aborted = typeof shouldAbort === 'function' ? shouldAbort : () => false;
   const turnStartedAt = performance.now();
@@ -1073,6 +1137,30 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
     }));
   }
   const sttMs = Math.round(performance.now() - sttStartedAt);
+
+  // ── Trim the agent's own trailing words off the front of the transcript ────
+  //
+  // Capture opens while the last syllables of the reply are still leaving the
+  // caller's speaker, so the recognizer hears the agent's tail and then the
+  // caller. Observed: the agent ended "...आपकी कैसे मदद कर सकती हूँ?" and the
+  // turn arrived as "कर सकती हूँ मुझे appointment book करना था" — a real
+  // request with three of the agent's own words glued to the front.
+  //
+  // Done HERE rather than in the WS handler so the batch-STT path gets it too;
+  // both paths converge on `userText` at this point. It runs before the
+  // hallucination gate on purpose: stripping can leave nothing behind, and a
+  // turn that was ENTIRELY echo should then fall through to the silence check
+  // below rather than reaching the LLM as a phantom question.
+  const lastAgentReply = (Array.isArray(history) ? history : [])
+    .filter((m) => m?.role === 'assistant' && typeof m.content === 'string')
+    .pop()?.content || '';
+  if (userText && lastAgentReply) {
+    const trimmed = stripAgentEcho(userText, lastAgentReply);
+    if (trimmed !== userText) {
+      logger.info(`Trimmed echoed agent speech from transcript: "${userText}" → "${trimmed}"`);
+      userText = trimmed;
+    }
+  }
 
   // ── Silence / noise only — resume listening without an LLM/TTS call ────────
   //
@@ -1120,7 +1208,12 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
   // (VOICE_FILLER=always forces it on for testing, =false kills it globally).
   const fillerEnabled = process.env.VOICE_FILLER === 'always'
     || (settings.fillerWords === true && process.env.VOICE_FILLER !== 'false');
-  if (voice && fillerEnabled) {
+  // A caller who sounds rushed or frustrated does not want "umm, let me see" —
+  // it reads as stalling, which is the one thing that makes those two states
+  // worse. Same signal the reply tone and TTS delivery already adapt to, so the
+  // agent stops hesitating exactly when a person would.
+  const affectAllowsFiller = affect !== 'rushed' && affect !== 'agitated';
+  if (voice && fillerEnabled && affectAllowsFiller) {
     const fillerDelayMs = Number(process.env.VOICE_FILLER_DELAY_MS) || 400;
     const lang = fillerLangFor(settings, agent);
     fillerTimer = setTimeout(() => {
@@ -1174,6 +1267,32 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
   // ElevenLabs and Fish Audio today; anything else falls to the split path.
   const canOverlap = process.env.VOICE_TTS_OVERLAP === 'true'
     && supportsTokenStreaming(voice);
+
+  // Naturalness filter for THIS reply. Sits between the LLM's tokens and TTS on
+  // every synthesis path below, so pause markup, the hesitation ceiling and the
+  // "never in front of a price" rule are enforced in exactly one place instead
+  // of three. `ssmlBreaks` is a capability check, not an assumption: a provider
+  // that cannot parse SSML would otherwise SPEAK the tag to the customer.
+  if (fillerBudget) fillerBudget.nextTurn();
+  const ssmlBreaks = supportsSsmlBreaks(voice);
+  // The naturalness pass has two independent preconditions and BOTH fail
+  // silently, which is how an agent can be configured for informal speech and
+  // sound exactly as it did before with nothing in any log to explain why.
+  // State it once per turn instead (see `natural` in the latency record below),
+  // and warn on the case that looks enabled but half-works: the toggle is on,
+  // so the model is writing pause markup, but the voice cannot parse SSML so
+  // every pause is being flattened to a comma.
+  if (fillerEnabled && !ssmlBreaks && voice) {
+    logger.warn(
+      `Naturalness: "${synthesisProviderName(voice)}" does not parse SSML, so <break/> pauses are `
+      + 'being converted to commas. Use an ElevenLabs voice for controlled pauses.',
+    );
+  }
+  const replyFilterOpts = {
+    allowFiller: fillerEnabled && affectAllowsFiller,
+    ssmlBreaks,
+    ...(fillerBudget ? { budget: fillerBudget } : {}),
+  };
 
   let reply = '';
   let provider;
@@ -1259,13 +1378,23 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
       }
       if (first) {
         llmTtftMs = Math.round(performance.now() - llmStartedAt);
+        const filter = createReplyTextFilter(replyFilterOpts);
         let result = first;
         while (!result.done) {
-          reply += result.value;
           if (aborted()) { await iterator.return?.(); break; }
-          if (firstTtsTextAt == null) firstTtsTextAt = performance.now();
-          tts.pushText(result.value); // stream the token straight into TTS
+          // Filtered text is what gets spoken AND what `reply` accumulates, so
+          // the transcript can never claim the agent said something it didn't.
+          const piece = filter.push(result.value);
+          if (piece) {
+            reply += piece;
+            if (firstTtsTextAt == null) firstTtsTextAt = performance.now();
+            tts.pushText(piece); // stream the token straight into TTS
+          }
           result = await iterator.next();
+        }
+        if (!aborted()) {
+          const tail = filter.flush(); // opener held back on a very short reply
+          if (tail) { reply += tail; tts.pushText(tail); }
         }
         if (result.done) ({ provider, model } = result.value || {});
         llmMs = Math.round(performance.now() - llmStartedAt); // LLM done (audio may still be arriving)
@@ -1309,9 +1438,12 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
       const boundary = /[.!?…।॥]["')\]]?\s/g;
       let splitIdx = -1;
       let firstSegment = null; // in-flight synthesis of sentence 1
+      const filter = createReplyTextFilter(replyFilterOpts);
       let result = first;
       while (!result.done) {
-        reply += result.value;
+        // `reply` holds FILTERED text, so splitIdx and the slices below all
+        // index the same string the caller will hear.
+        reply += filter.push(result.value);
         if (aborted()) { await iterator.return?.(); break; }
         if (splitIdx < 0) {
           boundary.lastIndex = 0;
@@ -1323,6 +1455,7 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
         }
         result = await iterator.next();
       }
+      if (!aborted()) reply += filter.flush();
       if (result.done) ({ provider, model } = result.value || {});
       llmMs = Math.round(performance.now() - llmStartedAt);
       // splitIdx indexes the RAW reply — take the remainder before stripping,
@@ -1351,7 +1484,7 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
       converseResult = await runConverse(); // fresh attempt; almost always fast
     }
     ({ provider, model } = converseResult);
-    reply = stripForVoice(converseResult.reply || '');
+    reply = stripForVoice(filterReplyText(converseResult.reply || '', replyFilterOpts));
     llmMs = Math.round(performance.now() - llmStartedAt);
     llmTtftMs = llmMs; // buffered call: first token only exists once the reply is done
     if (reply && !aborted()) await streamTtsForText(reply);
@@ -1370,10 +1503,22 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
   const ttsTtfaMs = firstAudioAt != null && firstTtsTextAt != null
     ? Math.round(firstAudioAt - firstTtsTextAt) : null;
   if (fillerTimer) clearTimeout(fillerTimer);
-  const latency = { agentId, sttProvider, llmProvider: provider, model, prepMs, sttMs, voiceWaitMs, llmMs, llmTtftMs, ttsMs, ttsTtfaMs, ttfaMs, totalMs, streamed: true, mode: ttsMode, filler: fillerPlayed };
+  // `natural` answers "why does this agent still sound robotic?" from the log
+  // alone: 'off' = the agent's Filler Words toggle is not on, so the prompt
+  // never asks for any of it; 'filler-only' = on, but the voice cannot parse
+  // SSML so pauses degraded to commas; 'filler+pauses' = fully active.
+  const naturalMode = !fillerEnabled ? 'off'
+    : !affectAllowsFiller ? `suppressed:${affect}`
+    : ssmlBreaks ? 'filler+pauses' : 'filler-only';
+  const latency = { agentId, sttProvider, llmProvider: provider, model, prepMs, sttMs, voiceWaitMs, llmMs, llmTtftMs, ttsMs, ttsTtfaMs, ttfaMs, totalMs, streamed: true, mode: ttsMode, filler: fillerPlayed, natural: naturalMode };
   logger.info(latency, 'Web call streaming turn latency');
   logTurnLatency(latency);
 
-  emit({ type: 'done', reply, timings: { sttMs, llmMs, ttsMs, ttfaMs, totalMs } });
-  return { userText, reply, timings: { sttMs, llmMs, ttsMs, ttfaMs, totalMs } };
+  // `reply` is the text that was SPOKEN, pause markup included. What leaves
+  // here is read by humans — the live transcript, the Recent Calls log, and the
+  // history fed back into the next prompt — so the markup comes off. Leaving it
+  // in would also teach the model, turn by turn, to write more of it.
+  const displayReply = stripSpeechMarkup(reply);
+  emit({ type: 'done', reply: displayReply, timings: { sttMs, llmMs, ttsMs, ttfaMs, totalMs } });
+  return { userText, reply: displayReply, timings: { sttMs, llmMs, ttsMs, ttfaMs, totalMs } };
 }

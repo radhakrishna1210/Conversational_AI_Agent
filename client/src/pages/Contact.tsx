@@ -109,9 +109,9 @@ if (formData.useCase.trim().length < 10) {
   if (status === 'success') {
     return (
       <div className="min-h-screen flex items-center justify-center bg-[#050505] text-white pt-20 pb-12 px-4 sm:px-6 lg:px-8" style={{ background: 'radial-gradient(ellipse at center, rgba(14,179,158,0.05) 0%, #000 60%)' }}>
-        <div className="mx-auto max-w-2xl w-full rounded-2xl p-10 text-center" style={{ background: '#0a0a0a', border: '1px solid rgba(255,255,255,0.05)' }}>
+        <div className="mx-auto max-w-2xl w-full rounded-2xl p-10 text-center" style={{ background: 'var(--bg-secondary)', border: '1px solid rgba(255,255,255,0.05)' }}>
           <div className="w-16 h-16 rounded-full mx-auto flex items-center justify-center mb-6" style={{ background: 'rgba(14,179,158,0.1)', border: '2px solid rgba(14,179,158,0.2)' }}>
-             <Check size={32} style={{ color: 'var(--teal)' }} />
+             <Check size={32} style={{ color: 'var(--teal-fg)' }} />
           </div>
           <h2 className="text-3xl font-bold mb-4">Thank You!</h2>
           <p className="text-[#888] mb-8">

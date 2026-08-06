@@ -14,13 +14,28 @@ const HAS_DB = Boolean(process.env.DATABASE_URL);
 
 let prisma; let settleCall; let assertCanStartCall; let assertCanCreateAgent;
 let applyWalletTransaction; let getBalance; let auditWallet; let TX_TYPES;
+let getWalletRate;
 if (HAS_DB) {
   ({ default: prisma } = await import('../../../config/prisma.js'));
   ({ settleCall, assertCanStartCall, assertCanCreateAgent } = await import('../settlement.service.js'));
   ({ applyWalletTransaction, getBalance, auditWallet, TX_TYPES } = await import('../wallet.service.js'));
+  ({ getWalletRate } = await import('../walletRate.js'));
 }
 
 const created = { workspaces: [], plans: [] };
+
+/**
+ * Paise per minute every call is charged.
+ *
+ * Read from the live platform wallet rate rather than hardcoded, because that
+ * is now the contract: one rate for everybody, set in Super Admin -> Wallet
+ * Rate, with the workspace's plan no longer affecting the price. Deliberately
+ * READ and never written — these tests run against the real database, and
+ * mutating the platform price to suit a test would change what live customers
+ * are charged for as long as the run lasts.
+ */
+let RATE_PAISE;
+if (HAS_DB) RATE_PAISE = Math.round((await getWalletRate()).perMinuteInr * 100);
 
 /** Workspace on a known plan, with a funded wallet. */
 async function scenario({ perMinuteUsd = 0.085, balanceCents = 100_000,
@@ -80,20 +95,20 @@ test.after(async () => {
   await prisma.$disconnect();
 });
 
-test('a completed call is charged at the plan rate', { skip: !HAS_DB }, async () => {
+test('a completed call is charged at the platform wallet rate', { skip: !HAS_DB }, async () => {
   const s = await scenario();
   const call = await makeCall(s, { durationSec: 150 }); // 3 billed minutes
   const r = await settleCall(call.id);
 
   assert.equal(r.billed, true);
   assert.equal(r.minutes, 3);
-  assert.equal(r.amountCents, 3 * 816); // $0.085 x 96 x 100 = 816 paise/min
-  assert.equal((await getBalance(s.workspaceId)).balanceCents, 100_000 - 2_448);
+  assert.equal(r.amountCents, 3 * RATE_PAISE);
+  assert.equal((await getBalance(s.workspaceId)).balanceCents, 100_000 - 3 * RATE_PAISE);
 
   const row = await prisma.agentCallLog.findUnique({ where: { id: call.id } });
   assert.equal(row.billingStatus, 'BILLED');
-  assert.equal(row.billedCents, 2_448);
-  assert.equal(row.ratePerMinuteCents, 816, 'rate is snapshotted onto the call');
+  assert.equal(row.billedCents, 3 * RATE_PAISE);
+  assert.equal(row.ratePerMinuteCents, RATE_PAISE, 'rate is snapshotted onto the call');
   assert.equal((await auditWallet(s.workspaceId)).balanced, true);
 });
 
@@ -109,7 +124,7 @@ test('settling the same call twice charges once', { skip: !HAS_DB }, async () =>
   assert.equal(first.billed, true);
   assert.equal(second.billed, false);
   assert.equal(second.reason, 'already-billed');
-  assert.equal((await getBalance(s.workspaceId)).balanceCents, 100_000 - 816);
+  assert.equal((await getBalance(s.workspaceId)).balanceCents, 100_000 - RATE_PAISE);
   assert.equal((await auditWallet(s.workspaceId)).balanced, true);
 });
 
@@ -121,7 +136,7 @@ test('CONCURRENT settlements of one call charge once', { skip: !HAS_DB }, async 
 
   const results = await Promise.all(Array.from({ length: 5 }, () => settleCall(call.id)));
   assert.equal(results.filter((r) => r.billed && r.amountCents > 0).length, 1);
-  assert.equal((await getBalance(s.workspaceId)).balanceCents, 100_000 - 816);
+  assert.equal((await getBalance(s.workspaceId)).balanceCents, 100_000 - RATE_PAISE);
   assert.equal((await auditWallet(s.workspaceId)).balanced, true);
 });
 
@@ -147,11 +162,11 @@ test('usage is recorded even when the wallet cannot cover it', { skip: !HAS_DB }
   // The minutes were served. Refusing to record them would lose the revenue
   // AND hide the usage; blocking is the PRE-call gate's job.
   const s = await scenario({ balanceCents: 100 });
-  const call = await makeCall(s, { durationSec: 300 }); // 5 min = 4080 paise
+  const call = await makeCall(s, { durationSec: 300 }); // 5 billed minutes
   const r = await settleCall(call.id);
 
   assert.equal(r.billed, true);
-  assert.equal((await getBalance(s.workspaceId)).balanceCents, 100 - 4_080);
+  assert.equal((await getBalance(s.workspaceId)).balanceCents, 100 - 5 * RATE_PAISE);
   assert.equal((await auditWallet(s.workspaceId)).balanced, true);
 });
 
@@ -187,8 +202,8 @@ test('usage beyond included minutes spills to the wallet', { skip: !HAS_DB }, as
   const r = await settleCall(call.id);
 
   assert.equal(r.coveredByPlan, 2);
-  assert.equal(r.amountCents, 3 * 816);
-  assert.equal((await getBalance(s.workspaceId)).balanceCents, 100_000 - 2_448);
+  assert.equal(r.amountCents, 3 * RATE_PAISE);
+  assert.equal((await getBalance(s.workspaceId)).balanceCents, 100_000 - 3 * RATE_PAISE);
 });
 
 // ── Pre-call gate ───────────────────────────────────────────────────────────
@@ -207,7 +222,7 @@ test('an empty wallet blocks new calls with a clear reason', { skip: !HAS_DB }, 
 });
 
 test('a balance below one minute blocks rather than cutting off mid-call', { skip: !HAS_DB }, async () => {
-  const s = await scenario({ balanceCents: 10 }); // < 816 paise/min
+  const s = await scenario({ balanceCents: 10 }); // below one minute at any sane rate
   const g = await assertCanStartCall(s.workspaceId);
   assert.equal(g.allowed, false);
   assert.equal(g.code, 'INSUFFICIENT_BALANCE');

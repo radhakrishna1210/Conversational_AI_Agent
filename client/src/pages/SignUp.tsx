@@ -127,14 +127,14 @@ if (form.password !== form.confirm) {
         {/* Logo */}
         <Link to="/" style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '12px' }}>
           <div style={{ width: '40px', height: '40px', background: 'var(--teal)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: '18px', color: 'var(--bg-primary)' }}>C</div>
-          <span style={{ fontWeight: 800, fontSize: '18px', color: 'var(--text-primary)', letterSpacing: '-0.5px' }}>Conversational <span style={{ color: 'var(--teal)', fontStyle: 'italic' }}>AI</span> Agent</span>
+          <span style={{ fontWeight: 800, fontSize: '18px', color: 'var(--text-primary)', letterSpacing: '-0.5px' }}>Conversational <span style={{ color: 'var(--teal-fg)', fontStyle: 'italic' }}>AI</span> Agent</span>
         </Link>
 
         {/* Feature List */}
         <div>
           <h2 style={{ fontSize: '28px', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1.3, marginBottom: '32px' }}>
             Build voice AI agents<br />
-            <span style={{ color: 'var(--teal)' }}>in minutes, not months.</span>
+            <span style={{ color: 'var(--teal-fg)' }}>in minutes, not months.</span>
           </h2>
 
           {[
@@ -169,10 +169,10 @@ if (form.password !== form.confirm) {
         <div style={{ width: '100%', maxWidth: '420px' }}>
 
           <div style={{ marginBottom: '32px' }}>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(14,179,158,0.08)', border: '1px solid rgba(14,179,158,0.2)', borderRadius: '20px', padding: '4px 12px', fontSize: '12px', color: 'var(--teal)', fontWeight: 600, marginBottom: '16px' }}>✨ Free plan — no credit card needed</div>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(14,179,158,0.08)', border: '1px solid rgba(14,179,158,0.2)', borderRadius: '20px', padding: '4px 12px', fontSize: '12px', color: 'var(--teal-fg)', fontWeight: 600, marginBottom: '16px' }}>✨ Free plan — no credit card needed</div>
             <h1 style={{ fontSize: '26px', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.5px', marginBottom: '6px' }}>Create your account</h1>
             <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-              Already have an account? <Link to="/dashboard" style={{ color: 'var(--teal)', fontWeight: 600, textDecoration: 'none' }}>Sign in →</Link>
+              Already have an account? <Link to="/dashboard" style={{ color: 'var(--teal-fg)', fontWeight: 600, textDecoration: 'none' }}>Sign in →</Link>
             </p>
           </div>
 
@@ -330,8 +330,8 @@ if (form.password !== form.confirm) {
 
             <p style={{ fontSize: '12px', color: 'var(--text-secondary)', opacity: 0.8, lineHeight: 1.5, margin: 0 }}>
               By signing up, you agree to our{' '}
-              <a href="#" style={{ color: 'var(--teal)', textDecoration: 'none' }}>Terms of Service</a> and{' '}
-              <a href="#" style={{ color: 'var(--teal)', textDecoration: 'none' }}>Privacy Policy</a>.
+              <a href="#" style={{ color: 'var(--teal-fg)', textDecoration: 'none' }}>Terms of Service</a> and{' '}
+              <a href="#" style={{ color: 'var(--teal-fg)', textDecoration: 'none' }}>Privacy Policy</a>.
             </p>
 
             <button

@@ -198,7 +198,7 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
         display: 'flex',
         flexDirection: 'column',
         height: '100%',
-        background: '#0f0f0f',
+        background: 'var(--bg-primary)',
         borderRadius: '8px',
         border: '1px solid #333',
         overflow: 'hidden',
@@ -208,7 +208,7 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
       <div
         style={{
           padding: '16px',
-          background: '#1a1a1a',
+          background: 'var(--bg-card)',
           borderBottom: '1px solid #333',
           display: 'flex',
           justifyContent: 'space-between',
@@ -219,7 +219,7 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
           <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: '#fff' }}>
             Chat Assistant
           </h3>
-          <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: '#999' }}>
+          <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: 'var(--text-secondary)' }}>
             Languages: {selectedLanguages.join(', ')}
           </p>
         </div>
@@ -240,7 +240,7 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
           <div
             style={{
               textAlign: 'center',
-              color: '#999',
+              color: 'var(--text-secondary)',
               paddingTop: '40px',
               fontSize: '13px',
             }}
@@ -280,7 +280,7 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
                 <div
                   style={{
                     fontSize: '10px',
-                    color: '#999',
+                    color: 'var(--text-secondary)',
                     marginTop: '6px',
                     fontStyle: 'italic',
                   }}
@@ -298,8 +298,8 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
               style={{
                 padding: '10px 14px',
                 borderRadius: '8px',
-                background: '#1a1a1a',
-                color: '#999',
+                background: 'var(--bg-card)',
+                color: 'var(--text-secondary)',
                 border: '1px solid #333',
                 fontSize: '13px',
               }}
@@ -332,7 +332,7 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
         onSubmit={handleSendMessage}
         style={{
           padding: '12px',
-          background: '#1a1a1a',
+          background: 'var(--bg-card)',
           borderTop: '1px solid #333',
           display: 'flex',
           gap: '8px',
@@ -347,7 +347,7 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
           style={{
             flex: 1,
             padding: '8px 12px',
-            background: '#0f0f0f',
+            background: 'var(--bg-primary)',
             border: '1px solid #333',
             borderRadius: '6px',
             color: '#fff',

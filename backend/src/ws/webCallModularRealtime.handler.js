@@ -36,8 +36,9 @@ import logger from '../lib/logger.js';
 import { verifyAccessToken } from '../lib/jwt.js';
 import prisma from '../config/prisma.js';
 import { voiceTurnStream, warmVoiceTurn } from '../services/agentRuntime.service.js';
-import { DeepgramStreamSession, isDeepgramConfigured, toDeepgramLanguage } from '../services/stt/deepgramStream.service.js';
-import { analyzeSpeech, classifyCallerAffect } from '../services/stt/speechGate.js';
+import { DeepgramStreamSession, isDeepgramConfigured, toDeepgramLanguage, maxEndpointCommitMs } from '../services/stt/deepgramStream.service.js';
+import { analyzeSpeech, classifyCallerAffect, isEchoOfAgent } from '../services/stt/speechGate.js';
+import { createFillerBudget } from '../services/voice/disfluency.js';
 
 const AUTH_TIMEOUT_MS = 10_000;
 
@@ -91,6 +92,12 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
   // neither steal that turn's words nor donate the previous turn's (BUG-001).
   let dgTurnSeq = 0;
   const useDeepgram = isDeepgramConfigured();
+  // Hesitation budget for the WHOLE call. It lives here rather than inside the
+  // turn because the rule it enforces — roughly one filler every few turns, the
+  // rate real speech actually has — is a property of the conversation. A turn
+  // in isolation cannot tell that the previous three already opened with "umm",
+  // which is exactly how a prompt-only version drifts into sounding nervous.
+  const fillerBudget = createFillerBudget();
 
   const authTimer = setTimeout(() => {
     if (!authenticated) ws.close(4001, 'Auth timeout');
@@ -174,6 +181,47 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
       return;
     }
 
+    // ── Echo gate: the agent's own voice coming back through the mic ─────────
+    //
+    // Everything above is conditional on `!streamedText`, so a NON-EMPTY
+    // Deepgram transcript bypassed every acoustic check in the pipeline. That
+    // was a deliberate choice — Deepgram reports what it hears instead of
+    // inventing filler, so second-guessing it risked dropping real speech — and
+    // it holds right up until what it hears is the agent. Then the transcript
+    // is perfectly accurate and completely wrong, and nothing downstream can
+    // tell, because a faithful transcription of the wrong speaker passes every
+    // test built to catch a bad transcription.
+    //
+    // Two independent signals, either sufficient:
+    //  1. NO VOICED SPEECH in the caller's own audio. Post-AEC echo residual
+    //     sits below the absolute noise floor, so when Deepgram returns words
+    //     and the microphone shows nothing, the words did not come from this
+    //     side of the call.
+    //  2. THE WORDS MATCH WHAT THE AGENT JUST SAID. Catches the case where the
+    //     echo IS loud enough to look like speech — which is precisely when
+    //     signal 1 cannot help.
+    if (streamedText && audioMs >= 400 && !speech.hasSpeech) {
+      logger.info(
+        `Modular web call: discarding "${streamedText}" — Deepgram returned words but the ` +
+        `caller's mic had no voiced speech (voicedMs=${speech.voicedMs} ` +
+        `contrast=${speech.contrast.toFixed(2)} peak=${speech.peakRms.toFixed(4)}); ` +
+        'almost certainly the agent\'s own audio echoing back',
+      );
+      send({ type: 'done', timings: null });
+      return;
+    }
+    const lastAgentText = (Array.isArray(history) ? history : [])
+      .filter((m) => m?.role === 'assistant' && typeof m.content === 'string')
+      .pop()?.content || '';
+    if (streamedText && isEchoOfAgent(streamedText, lastAgentText)) {
+      logger.info(
+        `Modular web call: discarding "${streamedText}" — echo of the agent's own ` +
+        `previous reply ("${lastAgentText.slice(0, 60)}…")`,
+      );
+      send({ type: 'done', timings: null });
+      return;
+    }
+
     turnActive = true;
     bargeRequested = false;
     const wav = pcm16ToWav(pcm, sampleRate);
@@ -194,6 +242,7 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
           // is not enough to drop "okay"/"thank you" (a caller really says
           // those); text + "the audio had no voiced speech" is.
           audioHadSpeech: speech.hasSpeech,
+          fillerBudget,
           shouldAbort: () => bargeRequested,
           onEvent: (e) => {
             if (bargeRequested && e.type !== 'done') return; // caller cut in; drop reply audio
@@ -275,7 +324,17 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
       // clear of a natural mid-sentence pause (or it cuts the caller off before
       // the smarter signal can rule), while a sole endpointer has to stay
       // responsive. The client can't infer this, so state it.
-      send({ type: 'ready', sttEndpointing: useDeepgram });
+      // endpointCommitMs: the worst case this server will wait before ending a
+      // turn itself. The client's RMS backstop must stay clear of it, or the
+      // backstop wins the race on every turn and the server's mid-thought grace
+      // window is dead code. Sent rather than duplicated so the two cannot drift.
+      send({
+        type: 'ready',
+        sttEndpointing: useDeepgram,
+        endpointCommitMs: useDeepgram
+          ? maxEndpointCommitMs(Number(process.env.DEEPGRAM_ENDPOINTING_MS) || 600)
+          : 0,
+      });
       return;
     }
 

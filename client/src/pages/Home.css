@@ -1,0 +1,1248 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   LANDING PAGE — "The call meter"
+   ═══════════════════════════════════════════════════════════════════════════
+
+   Everything is scoped under .lp so it cannot reach the app shell or any other
+   page. The landing page deliberately does NOT reuse .hero / .plan-card /
+   .feature-card from styles.css: those carry a decade of overrides (including
+   the html.light [style*="…"] attribute selectors) and the page needs its own
+   voice.
+
+   The organising idea is a phone call's timeline. Sections are stamped with the
+   second of a call at which the thing they describe happens, a fixed rail on
+   the left tracks how far through that call you have scrolled, and the last
+   beat — SETTLE — is the wallet. Colour is a legend, not decoration:
+
+       --lp-live    teal    the agent
+       --lp-caller  slate   the person on the other end
+       --lp-meter   amber   money leaving the wallet
+
+   Nothing on this page may use amber for anything that is not currency.
+
+   MOTION BUDGET. Animation here has to sell, so it is generous — but every
+   effect is transform/opacity only (no animated blur, width, or box-shadow
+   spread on scroll paths), everything scroll-driven runs through one rAF-
+   throttled listener, and the whole system collapses to static under
+   prefers-reduced-motion at the bottom of this file.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+.lp {
+  --lp-live: #0eb39e;
+  --lp-caller: #8aa9cc;
+  --lp-meter: #f5a524;
+
+  --lp-mono: 'IBM Plex Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  --lp-display: 'Space Grotesk', var(--font-main);
+
+  --lp-gutter: clamp(20px, 5vw, 56px);
+  --lp-max: 1180px;
+
+  /* Set by JS: 0 → 1 across the whole page. Drives the fixed rail's fill. */
+  --lp-progress: 0;
+
+  --lp-ease: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --lp-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+
+  color: var(--text-primary);
+}
+/* Deliberately no overflow clip on .lp: `overflow` other than visible
+   establishes a containing block for fixed-position descendants, which would
+   break the fixed timeline rail. Each thing that can overflow — the aurora, the
+   marquees, the closing orb — clips itself instead. */
+
+html.light .lp {
+  --lp-caller: #4a6b90;
+  --lp-meter: #a9660b;
+}
+
+/* ── Primitives ─────────────────────────────────────────────────────────── */
+
+.lp-wrap {
+  max-width: var(--lp-max);
+  margin: 0 auto;
+  padding: 0 var(--lp-gutter);
+}
+
+.lp-eyebrow {
+  font-family: var(--lp-mono);
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.lp-h1 {
+  font-family: var(--lp-display);
+  font-size: clamp(32px, 3.4vw, 50px);
+  font-weight: 700;
+  line-height: 1.07;
+  letter-spacing: -0.032em;
+  margin: 0;
+  text-wrap: balance;
+}
+
+.lp-h2 {
+  font-family: var(--lp-display);
+  font-size: clamp(27px, 3.8vw, 44px);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  margin: 0;
+  text-wrap: balance;
+}
+
+.lp-h3 {
+  font-family: var(--lp-display);
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.lp-lede {
+  font-size: clamp(16px, 1.5vw, 19px);
+  line-height: 1.55;
+  color: var(--text-secondary);
+  margin: 0;
+  max-width: 52ch;
+}
+
+.lp-p {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--text-secondary);
+  margin: 0;
+}
+
+.lp-num {
+  font-family: var(--lp-mono);
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum' 1;
+}
+
+/* ── Reveal system ──────────────────────────────────────────────────────────
+   One class, one observer. `--d` staggers children without a keyframe per item. */
+
+.lp-reveal {
+  opacity: 0;
+  transform: translate3d(0, 22px, 0);
+  transition:
+    opacity 0.7s var(--lp-ease-out) var(--d, 0ms),
+    transform 0.7s var(--lp-ease-out) var(--d, 0ms);
+  will-change: opacity, transform;
+}
+.lp-reveal.is-in { opacity: 1; transform: none; will-change: auto; }
+
+/* Sideways variant for list rows — they read as arriving on the rail. */
+.lp-reveal--x { transform: translate3d(-26px, 0, 0); }
+
+/* Headline words rise into place one after another, so the hero reads as
+   authored rather than as a block that faded in.
+
+   Deliberately NOT the overflow:hidden "slot" mask this effect normally wants:
+   the headline wraps across three or four lines, and a per-word clip box sized
+   to the inline box shears descenders and strands words on their own baselines.
+   Opacity plus a short lift survives wrapping at every width. */
+.lp-word {
+  display: inline-block;
+  /* The word gap. Not a space character — see the note on <Words>. Tuned to
+     Space Grotesk's space at this tracking. */
+  margin-right: 0.26em;
+  opacity: 0;
+  transform: translate3d(0, 0.36em, 0);
+  transition:
+    opacity 0.55s var(--lp-ease-out) var(--d, 0ms),
+    transform 0.7s var(--lp-ease-out) var(--d, 0ms);
+  will-change: opacity, transform;
+}
+.lp-lit .lp-word { opacity: 1; transform: none; will-change: auto; }
+
+/* ── Buttons ────────────────────────────────────────────────────────────── */
+
+.lp-btn {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 14px 24px;
+  border-radius: 11px;
+  font-family: var(--font-main);
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1;
+  text-decoration: none;
+  border: 1px solid transparent;
+  cursor: pointer;
+  overflow: hidden;
+  isolation: isolate;
+  transition: transform 0.22s var(--lp-ease), background-color 0.22s ease,
+              border-color 0.22s ease, color 0.22s ease, box-shadow 0.22s ease;
+}
+
+/* Sheen. A single skewed highlight swept across on hover — one gesture, not a
+   permanent shimmer, so it reads as a response rather than as noise. */
+.lp-btn::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 -60%;
+  width: 45%;
+  background: linear-gradient(100deg, transparent, rgba(255, 255, 255, 0.38), transparent);
+  transform: skewX(-18deg) translateX(0);
+  opacity: 0;
+  z-index: -1;
+}
+.lp-btn:hover::after { animation: lp-sheen 0.7s var(--lp-ease) forwards; }
+
+@keyframes lp-sheen {
+  from { opacity: 1; transform: skewX(-18deg) translateX(0); }
+  to   { opacity: 1; transform: skewX(-18deg) translateX(380%); }
+}
+
+.lp-btn--fill {
+  background: var(--lp-live);
+  color: #04231f;
+  border-color: var(--lp-live);
+  box-shadow: 0 6px 22px -8px var(--teal-glow);
+}
+.lp-btn--fill:hover {
+  background: var(--teal-hover);
+  border-color: var(--teal-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 14px 34px -10px var(--teal-glow);
+}
+.lp-btn--fill:active { transform: translateY(0); }
+
+.lp-btn--ghost {
+  background: transparent;
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+.lp-btn--ghost:hover {
+  border-color: var(--teal-fg);
+  color: var(--teal-fg);
+  transform: translateY(-2px);
+}
+.lp-btn--ghost::after { background: linear-gradient(100deg, transparent, rgba(14, 179, 158, 0.16), transparent); }
+
+.lp :focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+  border-radius: 6px;
+}
+
+/* ── Fixed timeline rail ────────────────────────────────────────────────────
+   The page's spine. It is a scrubber for a call: the filled portion is how far
+   into the call you have read, and the lit marker is the beat you are in. */
+
+.lp-timeline {
+  position: fixed;
+  left: max(18px, calc((100vw - var(--lp-max)) / 2 - 74px));
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 26px;
+  padding: 4px 0;
+}
+
+/* The track sits behind the markers; the fill is a scaleY driven by --lp-progress. */
+.lp-timeline::before,
+.lp-timeline::after {
+  content: '';
+  position: absolute;
+  left: 4px;
+  top: 8px;
+  bottom: 8px;
+  width: 1px;
+}
+.lp-timeline::before { background: var(--border); }
+.lp-timeline::after {
+  background: linear-gradient(180deg, var(--lp-live), var(--lp-meter));
+  transform: scaleY(var(--lp-progress));
+  transform-origin: top;
+  transition: transform 0.12s linear;
+}
+
+.lp-tl-item {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: none;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-family: var(--lp-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  transition: color 0.3s ease;
+}
+
+.lp-tl-dot {
+  position: relative;
+  width: 9px;
+  height: 9px;
+  flex: 0 0 9px;
+  border-radius: 50%;
+  background: var(--bg-primary);
+  box-shadow: inset 0 0 0 1.5px var(--border);
+  transition: box-shadow 0.35s var(--lp-ease), transform 0.35s var(--lp-ease);
+}
+
+.lp-tl-label {
+  opacity: 0;
+  transform: translateX(-6px);
+  transition: opacity 0.3s ease, transform 0.35s var(--lp-ease);
+  white-space: nowrap;
+}
+
+.lp-timeline:hover .lp-tl-label,
+.lp-tl-item.is-active .lp-tl-label { opacity: 1; transform: none; }
+
+.lp-tl-item.is-active { color: var(--text-primary); }
+.lp-tl-item.is-active .lp-tl-dot {
+  background: var(--lp-live);
+  box-shadow: inset 0 0 0 1.5px var(--lp-live), 0 0 0 4px var(--teal-light);
+  transform: scale(1.25);
+}
+.lp-tl-item.is-done .lp-tl-dot { box-shadow: inset 0 0 0 4px var(--lp-live); }
+.lp-tl-item:hover .lp-tl-dot { transform: scale(1.25); }
+
+@media (max-width: 1280px) { .lp-timeline { display: none; } }
+
+/* ── Section frame ──────────────────────────────────────────────────────── */
+
+.lp-sec {
+  padding: clamp(66px, 9vw, 118px) 0;
+  border-top: 1px solid var(--border);
+}
+
+.lp-sec-inner {
+  max-width: var(--lp-max);
+  margin: 0 auto;
+  padding: 0 var(--lp-gutter);
+}
+
+/* The in-flow timecode. Kept as the section's eyebrow so the beat survives on
+   mobile, where the fixed rail is hidden. */
+.lp-stamp {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 12px;
+  padding-left: 14px;
+  position: relative;
+  margin-bottom: 18px;
+}
+.lp-stamp::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 2px;
+  bottom: 2px;
+  width: 2px;
+  background: var(--lp-live);
+  transform: scaleY(0);
+  transform-origin: top;
+  transition: transform 0.6s var(--lp-ease-out) 0.1s;
+}
+.is-in .lp-stamp::before,
+.lp-stamp.is-in::before { transform: scaleY(1); }
+
+.lp-stamp-tc {
+  font-family: var(--lp-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 15px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.lp-stamp-beat {
+  font-family: var(--lp-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.lp-head { display: flex; flex-direction: column; gap: 14px; margin-bottom: clamp(32px, 4vw, 48px); }
+
+/* ═══ HERO ═══════════════════════════════════════════════════════════════ */
+
+.lp-hero {
+  position: relative;
+  padding: clamp(56px, 7vw, 96px) 0 clamp(50px, 6vw, 84px);
+  isolation: isolate;
+}
+
+/* Aurora. Two soft radial fields drifting on long, offset cycles — the hero
+   breathes instead of sitting still. Pure transform, no animated filter. */
+.lp-aurora {
+  position: absolute;
+  inset: -30% -10% auto -10%;
+  height: 760px;
+  z-index: -1;
+  pointer-events: none;
+  overflow: hidden;
+}
+
+.lp-aurora span {
+  position: absolute;
+  display: block;
+  border-radius: 50%;
+  will-change: transform;
+}
+
+/* Weighted to the right half, behind the meter. Spreading it across the whole
+   hero turned the headline's background into murk without adding any light. */
+.lp-aurora span:nth-child(1) {
+  width: 720px; height: 560px;
+  right: 1%; top: 16%;
+  background: radial-gradient(closest-side, rgba(14, 179, 158, 0.24), transparent 70%);
+  animation: lp-drift-a 22s ease-in-out infinite;
+}
+.lp-aurora span:nth-child(2) {
+  width: 520px; height: 420px;
+  right: 22%; top: 2%;
+  background: radial-gradient(closest-side, rgba(245, 165, 36, 0.10), transparent 68%);
+  animation: lp-drift-b 27s ease-in-out infinite;
+}
+.lp-aurora span:nth-child(3) {
+  width: 460px; height: 380px;
+  right: 34%; top: 46%;
+  background: radial-gradient(closest-side, rgba(138, 169, 204, 0.13), transparent 70%);
+  animation: lp-drift-a 31s ease-in-out infinite reverse;
+}
+
+html.light .lp-aurora span:nth-child(1) { background: radial-gradient(closest-side, rgba(14, 179, 158, 0.22), transparent 70%); }
+html.light .lp-aurora span:nth-child(2) { background: radial-gradient(closest-side, rgba(245, 165, 36, 0.13), transparent 68%); }
+
+@keyframes lp-drift-a {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
+  50%      { transform: translate3d(-7%, 6%, 0) scale(1.13); }
+}
+@keyframes lp-drift-b {
+  0%, 100% { transform: translate3d(0, 0, 0) scale(1.06); }
+  50%      { transform: translate3d(9%, -5%, 0) scale(0.94); }
+}
+
+.lp-hero-grid {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1.12fr) minmax(0, 0.88fr);
+  gap: clamp(28px, 4vw, 56px);
+  align-items: center;
+}
+
+@media (max-width: 940px) {
+  .lp-hero-grid { grid-template-columns: minmax(0, 1fr); gap: 36px; }
+}
+
+.lp-hero-copy { display: flex; flex-direction: column; gap: 22px; align-items: flex-start; }
+.lp-hero-copy .lp-h1 em { font-style: normal; color: var(--teal-fg); }
+
+/* A live badge, not a static pill: something is happening on this page. */
+.lp-hero-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 14px 7px 11px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-card);
+  font-family: var(--lp-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+
+.lp-cta-row { display: flex; flex-wrap: wrap; gap: 12px; }
+
+.lp-specs {
+  display: flex;
+  flex-wrap: wrap;
+  border: 1px solid var(--border);
+  border-radius: 13px;
+  overflow: hidden;
+  width: 100%;
+  max-width: 560px;
+  background: var(--bg-card);
+}
+
+.lp-spec {
+  flex: 1 1 150px;
+  padding: 15px 17px;
+  border-right: 1px solid var(--border);
+  position: relative;
+  transition: background-color 0.3s ease;
+}
+.lp-spec:last-child { border-right: 0; }
+.lp-spec:hover { background: var(--bg-elevated); }
+
+.lp-spec-v {
+  display: block;
+  font-family: var(--lp-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.lp-spec-k {
+  display: block;
+  margin-top: 3px;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.35;
+}
+
+/* ── The meter — this page's signature ──────────────────────────────────── */
+
+.lp-meter {
+  position: relative;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  overflow: hidden;
+  box-shadow: 0 30px 70px -34px rgba(0, 0, 0, 0.7), var(--shadow-card);
+  opacity: 0;
+  transform: translate3d(0, 30px, 0) scale(0.97);
+  transition: opacity 0.9s var(--lp-ease-out) 0.45s, transform 0.9s var(--lp-ease-out) 0.45s;
+}
+.lp-lit .lp-meter { opacity: 1; transform: none; }
+
+/* A slow conic sweep on the border, so the panel reads as instrumentation that
+   is switched on. Sits under the content via a padded inset. */
+.lp-meter::before {
+  content: '';
+  position: absolute;
+  inset: -140%;
+  background: conic-gradient(from 0deg, transparent 0deg, var(--lp-live) 26deg, transparent 60deg);
+  opacity: 0.5;
+  animation: lp-spin 7s linear infinite;
+  z-index: 0;
+}
+.lp-meter::after {
+  content: '';
+  position: absolute;
+  inset: 1px;
+  border-radius: 17px;
+  background: var(--bg-card);
+  z-index: 0;
+}
+.lp-meter > * { position: relative; z-index: 1; }
+
+@keyframes lp-spin { to { transform: rotate(1turn); } }
+
+.lp-meter-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 13px 17px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+}
+
+.lp-meter-live {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--lp-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--teal-fg);
+}
+
+.lp-dot {
+  position: relative;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--lp-live);
+}
+.lp-dot::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: var(--lp-live);
+  animation: lp-ping 1.9s var(--lp-ease-out) infinite;
+}
+
+@keyframes lp-ping {
+  0%   { transform: scale(1); opacity: 0.6; }
+  70%  { transform: scale(3.4); opacity: 0; }
+  100% { transform: scale(3.4); opacity: 0; }
+}
+
+.lp-meter-clock {
+  font-family: var(--lp-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+/* The tape doubles as the call's progress bar. Spoken bars breathe; the bar at
+   the playhead is lifted and glowing, so the eye is pulled to where the call
+   currently is. */
+.lp-tape {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 66px;
+  padding: 0 17px;
+  border-bottom: 1px solid var(--border);
+}
+
+.lp-tape-bar {
+  flex: 1 1 0;
+  min-width: 0;
+  border-radius: 2px;
+  transform-origin: center;
+  transition: background-color 0.25s ease, transform 0.35s var(--lp-ease);
+}
+
+.lp-tape-bar[data-who='agent'] { background: var(--lp-live); }
+.lp-tape-bar[data-who='caller'] { background: var(--lp-caller); }
+
+.lp-tape-bar[data-spoken='false'] {
+  background: rgba(255, 255, 255, 0.11);
+  transform: scaleY(0.62);
+}
+html.light .lp-tape-bar[data-spoken='false'] { background: rgba(15, 23, 42, 0.11); }
+
+/* Live bars near the playhead pulse; the stagger comes from an inline --i. */
+.lp-tape-bar[data-live='true'] {
+  animation: lp-breathe 0.9s ease-in-out infinite;
+  animation-delay: calc(var(--i, 0) * -70ms);
+}
+
+.lp-tape-bar[data-head='true'] {
+  transform: scaleY(1.18);
+  box-shadow: 0 0 12px var(--teal-glow);
+}
+
+@keyframes lp-breathe {
+  0%, 100% { transform: scaleY(0.82); }
+  50%      { transform: scaleY(1.12); }
+}
+
+.lp-meter-rows { padding: 4px 17px 17px; }
+
+.lp-meter-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px 0;
+  border-bottom: 1px dashed var(--border);
+}
+.lp-meter-row:last-child { border-bottom: 0; }
+
+.lp-meter-k {
+  font-family: var(--lp-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.lp-meter-v {
+  font-family: var(--lp-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
+}
+
+.lp-meter-v--balance { font-size: clamp(23px, 6vw, 32px); font-weight: 600; letter-spacing: -0.03em; }
+.lp-meter-v--spend { color: var(--lp-meter); }
+
+/* Spend bar: the visible fraction of the wallet this call has eaten. */
+.lp-meter-drain {
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border);
+  overflow: hidden;
+  margin: 2px 0 4px;
+}
+.lp-meter-drain i {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: linear-gradient(90deg, var(--lp-live), var(--lp-meter));
+  transform-origin: left;
+  transform: scaleX(var(--fill, 0));
+  transition: transform 0.25s linear;
+}
+
+.lp-meter-foot {
+  padding: 13px 17px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+}
+
+/* ── Marquee ────────────────────────────────────────────────────────────────
+   Used twice: the proof strip and the integration wall. The track holds the
+   content twice and translates exactly -50%, so the loop is seamless. */
+
+.lp-marquee {
+  display: flex;
+  overflow: hidden;
+  mask-image: linear-gradient(90deg, transparent, #000 9%, #000 91%, transparent);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 9%, #000 91%, transparent);
+}
+
+.lp-marquee-track {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: clamp(28px, 5vw, 60px);
+  padding-right: clamp(28px, 5vw, 60px);
+  animation: lp-slide var(--speed, 34s) linear infinite;
+  will-change: transform;
+}
+.lp-marquee:hover .lp-marquee-track { animation-play-state: paused; }
+.lp-marquee--rev .lp-marquee-track { animation-direction: reverse; }
+
+@keyframes lp-slide { to { transform: translate3d(-100%, 0, 0); } }
+
+.lp-trust {
+  padding: 26px 0;
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 26px;
+  padding-left: var(--lp-gutter);
+}
+
+.lp-trust-label {
+  flex: 0 0 auto;
+  font-family: var(--lp-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.lp-trust-name {
+  font-family: var(--lp-display);
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text-muted);
+  white-space: nowrap;
+  transition: color 0.25s ease;
+}
+.lp-trust-name:hover { color: var(--text-primary); }
+
+@media (max-width: 700px) {
+  .lp-trust { flex-direction: column; align-items: flex-start; gap: 14px; padding-right: 0; }
+}
+
+/* ── Beat list ──────────────────────────────────────────────────────────── */
+
+.lp-beats { border-top: 1px solid var(--border); }
+
+.lp-beat-item {
+  display: grid;
+  grid-template-columns: 104px minmax(0, 1fr);
+  gap: clamp(16px, 3vw, 34px);
+  padding: 26px 0;
+  border-bottom: 1px solid var(--border);
+  position: relative;
+}
+
+/* A teal wash that wipes in from the left on hover — the row lights up like a
+   channel being selected. */
+.lp-beat-item::before {
+  content: '';
+  position: absolute;
+  inset: 0 -18px;
+  border-radius: 10px;
+  background: linear-gradient(90deg, var(--teal-light), transparent 62%);
+  opacity: 0;
+  transform: scaleX(0.94);
+  transform-origin: left;
+  transition: opacity 0.35s ease, transform 0.45s var(--lp-ease);
+  pointer-events: none;
+}
+.lp-beat-item:hover::before { opacity: 1; transform: none; }
+
+.lp-beat-metric {
+  font-family: var(--lp-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 22px;
+  font-weight: 600;
+  color: var(--teal-fg);
+  letter-spacing: -0.03em;
+  line-height: 1.2;
+  transition: transform 0.35s var(--lp-ease);
+}
+.lp-beat-item:hover .lp-beat-metric { transform: translateX(4px); }
+
+.lp-beat-metric small {
+  display: block;
+  font-size: 10px;
+  font-weight: 400;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-top: 5px;
+}
+
+.lp-beat-text { display: flex; flex-direction: column; gap: 7px; position: relative; }
+
+@media (max-width: 560px) {
+  .lp-beat-item { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+}
+
+/* ── Service cards ──────────────────────────────────────────────────────── */
+
+/* Explicit column counts, not auto-fit: there are exactly six cards, and
+   auto-fit packs them 4 + 2 on a wide screen, leaving half the second row as a
+   hole in the panel. 3 + 3 and 2 + 2 + 2 always fill. */
+.lp-cards {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1px;
+  background: var(--border);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  overflow: hidden;
+}
+
+.lp-card {
+  position: relative;
+  background: var(--bg-card);
+  padding: 26px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  isolation: isolate;
+  transition: background-color 0.3s ease;
+}
+
+/* Cursor spotlight. --mx/--my are written by a mousemove handler on the card,
+   so the light tracks the pointer instead of the whole tile just changing fill. */
+.lp-card::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: 0;
+  background: radial-gradient(320px circle at var(--mx, 50%) var(--my, 50%), var(--teal-light), transparent 70%);
+  transition: opacity 0.35s ease;
+}
+.lp-card:hover::before { opacity: 1; }
+.lp-card:hover { background: var(--bg-elevated); }
+
+.lp-card-icon {
+  width: 38px;
+  height: 38px;
+  display: grid;
+  place-items: center;
+  border-radius: 11px;
+  background: var(--teal-light);
+  color: var(--teal-fg);
+  margin-bottom: 4px;
+  transition: transform 0.4s var(--lp-ease), background-color 0.3s ease;
+}
+.lp-card:hover .lp-card-icon { transform: translateY(-3px) scale(1.08) rotate(-4deg); }
+
+.lp-card p { font-size: 14px; line-height: 1.6; color: var(--text-secondary); margin: 0; }
+
+@media (max-width: 900px) { .lp-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (max-width: 580px) { .lp-cards { grid-template-columns: minmax(0, 1fr); } }
+
+.lp-channels { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 14px; }
+
+.lp-channel {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 15px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-card);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  transition: transform 0.28s var(--lp-ease), border-color 0.28s ease, color 0.28s ease;
+}
+.lp-channel svg { color: var(--teal-fg); transition: transform 0.28s var(--lp-ease); }
+.lp-channel:hover {
+  transform: translateY(-3px);
+  border-color: var(--teal-fg);
+  color: var(--text-primary);
+}
+.lp-channel:hover svg { transform: scale(1.16); }
+
+/* ── Handoff flow ───────────────────────────────────────────────────────── */
+
+.lp-flow {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(210px, 100%), 1fr));
+  gap: 14px;
+}
+
+.lp-flow-step {
+  position: relative;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 22px;
+  background: var(--bg-card);
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  overflow: hidden;
+  transition: transform 0.3s var(--lp-ease), border-color 0.3s ease;
+}
+.lp-flow-step:hover { transform: translateY(-4px); border-color: var(--teal-fg); }
+
+/* A packet of light travelling along the top edge — the call's data moving on
+   to the next stage. Staggered per card by --i. */
+.lp-flow-step::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -35%;
+  width: 35%;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, var(--lp-live), transparent);
+  animation: lp-packet 3.4s var(--lp-ease) infinite;
+  animation-delay: calc(var(--i, 0) * 420ms);
+}
+
+@keyframes lp-packet {
+  0%        { transform: translateX(0); opacity: 0; }
+  12%       { opacity: 1; }
+  60%, 100% { transform: translateX(390%); opacity: 0; }
+}
+
+.lp-flow-k {
+  font-family: var(--lp-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--teal-fg);
+}
+
+.lp-dest-item {
+  font-family: var(--lp-mono);
+  font-size: 13px;
+  padding: 9px 15px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  color: var(--text-secondary);
+  background: var(--bg-card);
+  white-space: nowrap;
+  transition: border-color 0.25s ease, color 0.25s ease, transform 0.25s var(--lp-ease);
+}
+.lp-dest-item:hover { border-color: var(--teal-fg); color: var(--text-primary); transform: translateY(-2px); }
+
+.lp-dest-rows { display: flex; flex-direction: column; gap: 12px; margin-top: 26px; }
+
+/* ── Wallet / the price ─────────────────────────────────────────────────── */
+
+.lp-settle {
+  display: grid;
+  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
+  gap: clamp(26px, 4vw, 48px);
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .lp-settle { grid-template-columns: minmax(0, 1fr); }
+}
+
+.lp-included { display: flex; flex-direction: column; gap: 12px; margin-top: 22px; list-style: none; padding: 0; }
+
+.lp-included li {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr);
+  gap: 11px;
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: var(--text-secondary);
+}
+.lp-included svg { color: var(--teal-fg); margin-top: 3px; }
+
+/* The price. One figure, sized like a headline, because it is the whole offer.
+   No table: with a single platform rate there is nothing to compare against,
+   and a one-row table reads as a tier list with the other rows missing. */
+.lp-price {
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--bg-card);
+  padding: 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  position: relative;
+  overflow: hidden;
+}
+
+/* A slow amber wash behind the figure — the only place on the page amber is
+   allowed to be ambient, because this IS the money. */
+.lp-price::before {
+  content: '';
+  position: absolute;
+  right: -18%;
+  top: -60%;
+  width: 460px;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(245, 165, 36, 0.13), transparent 70%);
+  pointer-events: none;
+  animation: lp-drift-b 24s ease-in-out infinite;
+}
+.lp-price > * { position: relative; }
+
+.lp-price-k {
+  font-family: var(--lp-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.lp-price-v {
+  font-family: var(--lp-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(44px, 7vw, 68px);
+  font-weight: 600;
+  line-height: 1;
+  letter-spacing: -0.045em;
+  color: var(--lp-meter);
+}
+
+.lp-price-v small {
+  font-size: 0.30em;
+  font-weight: 500;
+  letter-spacing: 0;
+  color: var(--text-secondary);
+  margin-left: 10px;
+}
+
+.lp-price-note { font-size: 13.5px; color: var(--text-muted); margin: 4px 0 0; line-height: 1.5; }
+.lp-price-note a { color: var(--teal-fg); }
+
+/* Estimator */
+.lp-est {
+  margin-top: 18px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--bg-card);
+  padding: 22px;
+}
+
+.lp-est-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr)); gap: 18px; }
+
+.lp-field { display: flex; flex-direction: column; gap: 9px; }
+
+.lp-field-label {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.lp-field-label b {
+  font-family: var(--lp-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--teal-fg);
+}
+
+.lp-range {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 4px;
+  border-radius: 3px;
+  background: var(--border);
+  cursor: pointer;
+}
+
+.lp-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--lp-live);
+  border: 2px solid var(--bg-card);
+  box-shadow: 0 0 0 0 var(--teal-glow);
+  transition: box-shadow 0.25s ease, transform 0.2s var(--lp-ease);
+}
+.lp-range:hover::-webkit-slider-thumb,
+.lp-range:focus::-webkit-slider-thumb { box-shadow: 0 0 0 7px var(--teal-light); transform: scale(1.1); }
+
+.lp-range::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--bg-card);
+  border-radius: 50%;
+  background: var(--lp-live);
+}
+
+.lp-est-out {
+  margin-top: 22px;
+  padding-top: 19px;
+  border-top: 1px dashed var(--border);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.lp-est-total {
+  font-family: var(--lp-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: clamp(29px, 4vw, 40px);
+  font-weight: 600;
+  color: var(--lp-meter);
+  letter-spacing: -0.035em;
+  line-height: 1;
+}
+
+.lp-est-sub { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+
+/* ── FAQ ────────────────────────────────────────────────────────────────── */
+
+.lp-faq { border-top: 1px solid var(--border); }
+.lp-faq-item { border-bottom: 1px solid var(--border); }
+
+.lp-faq-q {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  padding: 22px 0;
+  background: none;
+  border: 0;
+  color: var(--text-primary);
+  font-family: var(--font-main);
+  font-size: 16px;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+  transition: color 0.25s ease, padding-left 0.35s var(--lp-ease);
+}
+.lp-faq-q:hover { color: var(--teal-fg); padding-left: 8px; }
+
+.lp-faq-icon {
+  flex-shrink: 0;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  color: var(--teal-fg);
+  transition: transform 0.4s var(--lp-ease), background-color 0.3s ease, border-color 0.3s ease;
+}
+.lp-faq-q[aria-expanded='true'] .lp-faq-icon {
+  transform: rotate(135deg);
+  background: var(--teal-light);
+  border-color: var(--teal-fg);
+}
+
+/* Height animation without measuring: 0fr → 1fr on a grid row. */
+.lp-faq-a {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.42s var(--lp-ease-out), opacity 0.3s ease;
+  opacity: 0;
+}
+.lp-faq-a.is-open { grid-template-rows: 1fr; opacity: 1; }
+.lp-faq-a > div { overflow: hidden; }
+.lp-faq-a p { padding: 0 0 24px; max-width: 68ch; }
+
+/* ── Closing CTA ────────────────────────────────────────────────────────── */
+
+.lp-close {
+  position: relative;
+  padding: clamp(72px, 10vw, 124px) 0;
+  border-top: 1px solid var(--border);
+  text-align: center;
+  overflow: hidden;
+  isolation: isolate;
+}
+
+.lp-close::before {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -46%;
+  width: min(1000px, 130%);
+  aspect-ratio: 1;
+  transform: translateX(-50%);
+  border-radius: 50%;
+  background: radial-gradient(closest-side, rgba(14, 179, 158, 0.20), transparent 70%);
+  z-index: -1;
+  animation: lp-pulse-orb 9s ease-in-out infinite;
+}
+
+@keyframes lp-pulse-orb {
+  0%, 100% { transform: translateX(-50%) scale(1); opacity: 0.85; }
+  50%      { transform: translateX(-50%) scale(1.12); opacity: 1; }
+}
+
+.lp-close-inner { display: flex; flex-direction: column; align-items: center; gap: 22px; }
+.lp-close .lp-lede { max-width: 46ch; }
+.lp-close .lp-cta-row { justify-content: center; }
+
+/* ── Reduced motion ─────────────────────────────────────────────────────────
+   Everything above collapses to a static, fully-visible page. Reveals resolve
+   rather than being disabled, so nothing is stranded invisible. */
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-reveal { opacity: 1; transform: none; transition: none; }
+  .lp-word > span { transform: none; transition: none; }
+  .lp-meter { opacity: 1; transform: none; transition: none; }
+  .lp-stamp::before { transform: scaleY(1); transition: none; }
+
+  .lp-aurora span,
+  .lp-meter::before,
+  .lp-dot::after,
+  .lp-tape-bar[data-live='true'],
+  .lp-flow-step::before,
+  .lp-close::before,
+  .lp-marquee-track { animation: none; }
+
+  /* A paused marquee must still show its content, not an off-screen track. */
+  .lp-marquee { mask-image: none; -webkit-mask-image: none; overflow-x: auto; }
+  .lp-marquee-track { flex-wrap: wrap; }
+  .lp-marquee-track[data-clone='true'] { display: none; }
+
+  .lp-btn:hover,
+  .lp-channel:hover,
+  .lp-flow-step:hover,
+  .lp-dest-item:hover { transform: none; }
+  .lp-btn:hover::after { animation: none; opacity: 0; }
+  .lp-card:hover .lp-card-icon,
+  .lp-beat-item:hover .lp-beat-metric { transform: none; }
+  .lp-faq-a { transition: none; }
+}
