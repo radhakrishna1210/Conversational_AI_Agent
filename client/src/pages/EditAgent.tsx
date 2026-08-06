@@ -65,7 +65,6 @@ const LANGUAGES_LIST = [
 
 const AI_MODELS = ['Groq Llama 3.3', 'GPT-4.1-Mini', 'GPT-4-Turbo', 'Claude-3-Opus', 'Gemini-Pro', 'Llama-2-70B'];
 const POST_CALL_TRIGGER_OPTIONS = ['Completed', 'Voicemail Detected', 'No Answer', 'Busy', 'Failed'];
-const POST_CALL_DELIVERY_OPTIONS = ['Email', 'Webhook', 'CRM', 'Slack', 'WhatsApp'];
 
 const createDefaultPostCallConfig = (): PostCallConfig => ({
   id: Date.now().toString(),

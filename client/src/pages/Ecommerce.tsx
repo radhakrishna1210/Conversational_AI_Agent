@@ -299,23 +299,6 @@ export default function EcommercePage() {
   );
 }
 
-function NavButton({ label }: { label: string }) {
-  return (
-    <button type="button" className="inline-flex items-center gap-1.5 text-white/55 transition-colors hover:text-white">
-      <span>{label}</span>
-      <ChevronDown className="h-3 w-3 opacity-75" />
-    </button>
-  );
-}
-
-function NavLink({ to, label }: { to: string; label: string }) {
-  return (
-    <Link to={to} className="text-white/55 transition-colors hover:text-white">
-      {label}
-    </Link>
-  );
-}
-
 function TemplateChip({ label, icon: Icon }: { label: string; icon: LucideIcon }) {
   return (
     <button
