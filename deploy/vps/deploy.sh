@@ -83,9 +83,7 @@ if [ "${DEPLOY_SNAPSHOT:-}" != "1" ]; then
   _snap="$(mktemp /tmp/convai-deploy.XXXXXX)"
   cp "$0" "$_snap"
   chmod +x "$_snap"
-  # DEPLOY_SNAP_SRC records which file the snapshot was taken from, so step 1
-  # can tell whether the pull changed it.
-  DEPLOY_SNAPSHOT=1 DEPLOY_SNAP_SRC="$(readlink -f "$0")" exec "$_snap" "$@"
+  DEPLOY_SNAPSHOT=1 exec "$_snap" "$@"
 fi
 # Clean up the snapshot on exit — but ONLY if we are actually running from one.
 # An unguarded `rm -f "$0"` here would delete deploy.sh out of the repository on
@@ -141,7 +139,11 @@ fi
 # than finishing this run with the logic that shipped before it. Re-exec reads
 # the file fresh from the top (and re-snapshots), so there is no offset to get
 # out of sync. --skip-fetch stops it pulling a second time.
-if ! cmp -s "${DEPLOY_SNAP_SRC:-$REPO_SELF}" "$REPO_SELF"; then
+# Compares the SNAPSHOT we are executing ($0, which holds the pre-pull content)
+# against the repo copy as it stands after the reset. Comparing DEPLOY_SNAP_SRC
+# instead was a no-op: that variable held the repo path, so the test compared
+# the file to itself and never fired.
+if ! cmp -s "$0" "$REPO_SELF"; then
   log "deploy.sh changed in this pull — restarting with the updated script"
   # DEPLOY_SNAPSHOT is cleared so the new process takes its own snapshot rather
   # than running the repo copy directly.
