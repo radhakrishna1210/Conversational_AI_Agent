@@ -119,9 +119,8 @@ The server automatically switched to mock auth. You can still:
 
 ### To use a real database (optional)
 1. Get a free PostgreSQL database from:
-   - https://railway.app (Recommended)
-   - https://render.com
-   - https://supabase.com
+   - https://supabase.com (this is what production uses)
+   - https://railway.app
 
 2. Update `.env` with connection string:
    ```

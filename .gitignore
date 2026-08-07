@@ -51,12 +51,13 @@ node-portable/
 
 .eslintcache
 
--e 
 # secrets
 backend/.env
 client/.env
 
-# Filled-in production env (template lives at backend/.env.production.example)
+# Filled-in production env (template lives at backend/.env.vps.example).
+# On the VPS the real file is /root/apps/convai-voice/shared/.env, symlinked
+# to backend/.env — it never lives inside the git working tree.
 .env.production
 backend/.env.production
 client/.env.production

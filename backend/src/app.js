@@ -82,12 +82,12 @@ app.get('/health', (_req, res) => res.json({ status: 'ok', timestamp: new Date()
 app.use('/api/v1', routes);
 
 // ── Built SPA (single-origin deployment) ─────────────────────────────────────
-// On Render this process serves the React build as well as the API. That is not
-// a convenience: the voice web-call WebSocket is opened against
+// In production this process serves the React build as well as the API. That is
+// not a convenience: the voice web-call WebSocket is opened against
 // window.location.host (client/src/services/modularCallSocket.ts:44) and ~22
 // client files fetch relative "/api/v1" paths, so the page MUST be served from
-// the same origin as the API. Splitting the frontend onto a Render Static Site
-// breaks every web call, because static sites do not proxy WS upgrades.
+// the same origin as the API. Serving the frontend from a separate host or a
+// CDN breaks every web call unless that host also proxies WS upgrades.
 //
 // Resolved from this file rather than process.cwd() so it does not depend on
 // which directory the start command happened to cd into.

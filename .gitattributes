@@ -1,0 +1,12 @@
+# The repo is authored on Windows (core.autocrlf=true) but deploy/vps/*.sh runs
+# on Ubuntu. A CRLF checkout there fails with the notoriously opaque
+# "bash\r: bad interpreter: No such file or directory", so force LF on
+# everything the VPS executes or parses.
+*.sh            text eol=lf
+*.yml           text eol=lf
+*.yaml          text eol=lf
+*.cjs           text eol=lf
+.env.*.example  text eol=lf
+
+# nginx rejects a config file with CR characters in some directives.
+deploy/vps/nginx/*.conf text eol=lf
