@@ -85,10 +85,11 @@ fi
 # ── 3. Backend dependencies ──────────────────────────────────────────────────
 log "Installing backend dependencies"
 cd "$REPO_DIR/backend"
-# `npm ci`, NOT `--omit=dev`: prisma (the CLI) is a devDependency and both
-# `generate` and `migrate deploy` below need it. Omitting dev deps here is the
-# single most common way this deploy breaks.
-npm ci --no-audit --no-fund
+# --include=dev, NOT --omit=dev: prisma (the CLI) is a devDependency and both
+# `generate` and `migrate deploy` below need it. Stated explicitly because npm
+# also omits dev deps whenever NODE_ENV=production is in the environment, and
+# this script sources an .env that sets exactly that.
+NODE_ENV=development npm ci --include=dev --no-audit --no-fund
 
 log "Generating Prisma client"
 # Every deploy, unconditionally. A stale generated client against a migrated
@@ -106,12 +107,21 @@ else
   #
   # This is why every value in shared/.env containing a space, #, & or @ must be
   # single-quoted — REDIS_URL especially.
-  set -a
-  # shellcheck disable=SC1091
-  . "$SHARED_DIR/.env"
-  set +a
-  [ -n "${DIRECT_URL:-}" ] || die "DIRECT_URL unset — migrations need the direct 5432 connection, not the pooler"
-  PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK=1 npx prisma migrate deploy
+  #
+  # IN A SUBSHELL, deliberately. `set -a` exports everything in that file into
+  # the current shell, including NODE_ENV=production — and npm reads NODE_ENV
+  # and silently turns it into --omit=dev. That skipped typescript and vite in
+  # the client install below, and the build died with "tsc: not found".
+  # Confining the export to a subshell keeps the app's runtime config out of
+  # the build environment entirely.
+  (
+    set -a
+    # shellcheck disable=SC1091
+    . "$SHARED_DIR/.env"
+    set +a
+    [ -n "${DIRECT_URL:-}" ] || die "DIRECT_URL unset — migrations need the direct 5432 connection, not the pooler"
+    PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK=1 npx prisma migrate deploy
+  )
 fi
 
 # ── 5. Client build ──────────────────────────────────────────────────────────
@@ -140,8 +150,17 @@ else
     die "Only ${AVAIL_MB}MB available. Building now risks an OOM kill that could hit another app. Free memory first, or deploy with --skip-client."
   fi
 
-  # devDependencies are required here (vite, typescript) — do not add --omit=dev.
-  npm ci --no-audit --no-fund
+  # --include=dev is explicit and required. vite and typescript are
+  # devDependencies, and npm silently omits those whenever NODE_ENV=production
+  # is in the environment — which is exactly what shared/.env sets. The subshell
+  # in step 4 already prevents that leak; this flag means the build still works
+  # even if NODE_ENV arrives from somewhere else (a login shell, a cron env).
+  NODE_ENV=development npm ci --include=dev --no-audit --no-fund
+
+  # Fail here with a useful message rather than letting npm run build die with
+  # the near-meaningless "sh: 1: tsc: not found".
+  [ -x node_modules/.bin/tsc ] && [ -x node_modules/.bin/vite ] \
+    || die "typescript/vite missing after npm ci — devDependencies were omitted. Check for NODE_ENV=production in the environment."
 
   rm -rf dist.new
   # `npm run build -- --outDir dist.new` appends the flag to the end of the
