@@ -14,7 +14,7 @@ decision below.
 | Ports 3000, 3001, 3100, 3200, 5000, 5100, 6379, 8000, 8001, 9100, 27017 also bound | 4300 is the free slot; changing it means changing three files together. |
 | **Redis is shared and password-protected** (`requirepass` set) | BullMQ uses **db index 3** to stay clear of the other project's keys. |
 | Redis `maxmemory-policy` is **global** | BullMQ needs `noeviction`; flipping it affects the other consumer. Must be checked, not assumed. |
-| **2 vCPUs, ~4.3 GB free, 17 PM2 processes** | The React build runs in GitHub Actions. An OOM on-box would kill a *neighbour's* app. |
+| **2 vCPUs, ~4.3 GB free, 17 PM2 processes** | The client build is capped at a 1536MB heap and gated on free memory — an OOM here could kill a *neighbour's* app, not just the build. |
 | Node is **v20.10.0 via nvm**, but `/usr/bin/node` is older | PM2 runs from a systemd unit with no nvm in PATH — the interpreter path is pinned absolutely. |
 | Only 2 of 5 nginx sites handle `Upgrade` | Voice calls need a WebSocket block with a long `proxy_read_timeout`. |
 | `map $connection_upgrade` may already exist at http scope | Our config avoids `map` entirely — a duplicate would break **all five** existing sites. |
@@ -31,8 +31,7 @@ Everything mutable lives outside the git working tree, because `deploy.sh` runs
 ├── shared/
 │   ├── .env                  real env file (chmod 600)
 │   └── uploads/              UPLOAD_DIR — KB files, cloned voices, recordings
-├── logs/                     pm2 stdout/stderr, rotated at 20MB × 14
-└── .deploy-incoming/dist/    staging area for the CI-built client
+└── logs/                     pm2 stdout/stderr, rotated at 20MB × 14
 ```
 
 ## First-time setup
@@ -78,48 +77,84 @@ Then, in order:
    - Razorpay → `https://voice.herbsmagic.in/api/v1/billing/razorpay/webhook`
    - Google OAuth redirect URIs → re-register in Google Cloud Console
 
-## Continuous deployment
+## Deploying
 
-Push to `main` → GitHub Actions builds the client, rsyncs it, and runs
-`deploy.sh` over SSH.
-
-**Repository secrets** (Settings → Secrets and variables → Actions):
-
-| Secret | Value |
-|---|---|
-| `VPS_HOST` | `62.72.12.185` |
-| `VPS_USER` | `root` |
-| `VPS_SSH_KEY` | private key whose public half is in `/root/.ssh/authorized_keys` |
-| `VPS_PORT` | `22` (optional) |
-
-Generate the keypair:
+Manual and deliberate: SSH in, run one script.
 
 ```bash
-ssh-keygen -t ed25519 -f ~/.ssh/convai_deploy -N "" -C "github-actions-convai"
-ssh-copy-id -i ~/.ssh/convai_deploy.pub root@62.72.12.185
-cat ~/.ssh/convai_deploy          # → paste into the VPS_SSH_KEY secret
+ssh root@62.72.12.185
+/root/apps/convai-voice/repo/deploy/vps/deploy.sh
 ```
+
+| Flag | Use it when |
+|---|---|
+| `--skip-client` | The change is backend-only. Skips the 2–4 minute build and its memory spike. |
+| `--skip-migrate` | Re-running a deploy whose migrations already applied. |
+
+### Make git stop asking for a password
+
+`deploy.sh` runs `git fetch`. If it prompts, every deploy stalls. Fix it once —
+a read-only deploy key is the cleaner option:
+
+```bash
+ssh-keygen -t ed25519 -f /root/.ssh/hm_voice_deploy -N "" -C "vps-deploy"
+cat /root/.ssh/hm_voice_deploy.pub
+# → GitHub repo → Settings → Deploy keys → Add (leave write access OFF)
+
+cat >> /root/.ssh/config <<'EOF'
+Host github-hmvoice
+  HostName github.com
+  User git
+  IdentityFile /root/.ssh/hm_voice_deploy
+  IdentitiesOnly yes
+EOF
+
+git -C /root/apps/convai-voice/repo remote set-url origin \
+  git@github-hmvoice:HerbsMagic/HM-Voice-agent.git
+git -C /root/apps/convai-voice/repo fetch origin main   # verify: no prompt
+```
+
+The alternative, `git config credential.helper store`, writes a Personal Access
+Token in plaintext to `/root/.git-credentials`.
 
 ### What a deploy does
 
 1. `git fetch` + `reset --hard origin/main` — never `pull` (an unresolvable
    merge conflict on a server checkout needs a human) and never `clean -fdx`
-   (it would delete `client/dist`, `node_modules` and the `.env` symlink).
+   (it would delete `node_modules`, `client/dist` and the `.env` symlink).
 2. `npm ci` in `backend/` — the **full** install, not `--omit=dev`: `prisma`
    is a devDependency and both `generate` and `migrate deploy` need the CLI.
 3. `prisma generate` — every time. A stale client against a migrated schema is
    what produces "column does not exist" at runtime.
 4. `prisma migrate deploy` through `DIRECT_URL` (port 5432). PgBouncer in
    transaction mode cannot execute DDL, so migrating via the 6543 pooler fails.
-5. Atomic `mv` of the CI-built `dist` into place.
+5. Builds the client into `dist.new`, then swaps it in with two renames.
+   The running site serves the **old** bundle throughout — building straight
+   into `dist/` would empty it first and serve 404s for the whole build.
 6. `pm2 startOrReload ecosystem.config.cjs --only convai-voice-api`.
-   > `--only` is load-bearing. 17 PM2 processes from four other projects are
+   > `--only` is load-bearing. 17 PM2 processes from five other projects are
    > registered here; a bare `pm2 reload` restarts all of them.
-7. Health check against `127.0.0.1:4300/health`, 30s budget, then a public
-   `https://voice.herbsmagic.in/health` check from CI.
+7. Health check against `127.0.0.1:4300/health`, 30s budget.
 
 A failed health check prints the last 40 log lines and exact rollback commands,
-and fails the workflow.
+and leaves the previous bundle at `client/dist.old`.
+
+### The build is the risky step
+
+This box has 2 vCPUs and ~4.3 GB free, with five other production apps on it.
+`tsc && vite build` over this dependency tree can peak past 2 GB, and the kernel
+picks its OOM victim by `oom_score` — so an overrun could kill a **neighbour's**
+app rather than the build.
+
+Two mitigations, both in `deploy.sh`:
+
+- It refuses to build below **1200 MB available** and tells you to use
+  `--skip-client` instead.
+- The build runs under `NODE_OPTIONS=--max-old-space-size=1536`, so V8 garbage
+  collects under pressure rather than growing until the kernel intervenes.
+
+If builds become a recurring problem, the better answer is to build on your
+own machine and `rsync client/dist/` up — the VPS never needs to compile.
 
 ## Operations
 
@@ -148,7 +183,7 @@ migration.
 
 | Symptom | Cause |
 |---|---|
-| Every page returns JSON `{"error":"Not found"}` | `client/dist` is missing. `app.js:113` logs `No client build at ...`. The CI rsync step failed. |
+| Every page returns JSON `{"error":"Not found"}` | `client/dist` is missing. `app.js:113` logs `No client build at ...`. Re-run `deploy.sh` without `--skip-client`. |
 | Calls disconnect at exactly 60 seconds | nginx `proxy_read_timeout` reverted to its default on the WebSocket blocks. |
 | Phone calls answer with a greeting then go silent | `PUBLIC_BACKEND_WS_URL` is wrong or unset — the bundled engine degrades to greeting-only *silently*. |
 | Every API call from the page is CORS-rejected | `CLIENT_URL` mismatch. Production excludes the localhost fallbacks (`app.js:18`). |

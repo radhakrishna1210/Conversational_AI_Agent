@@ -46,12 +46,13 @@ echo "  port $PORT: free"
 command -v pm2 >/dev/null || die "pm2 not found"
 echo "  pm2: $(pm2 --version)"
 
-# CI ships the built client over rsync; without it every deploy fails at the
-# upload step with a confusing exit 127 from the remote shell.
-command -v rsync >/dev/null || die "rsync not found — install it: apt-get install -y rsync"
-echo "  rsync: $(rsync --version | head -1 | awk '{print $3}')"
-
 command -v flock >/dev/null || die "flock not found (util-linux) — deploy.sh uses it as a concurrency guard"
+
+# The client is built on this box, so the build needs headroom. deploy.sh
+# re-checks at build time and refuses below 1200MB.
+AVAIL_MB="$(free -m | awk '/^Mem:/ {print $7}')"
+echo "  available memory: ${AVAIL_MB}MB"
+[ "$AVAIL_MB" -ge 1200 ] || warn "Below 1200MB — deploy.sh will refuse to build the client until memory frees up."
 
 # ── 1. Directory layout ──────────────────────────────────────────────────────
 # Everything mutable lives OUTSIDE the git working tree, because deploy.sh runs
@@ -62,7 +63,7 @@ command -v flock >/dev/null || die "flock not found (util-linux) — deploy.sh u
 #   $APP_ROOT/shared/uploads  UPLOAD_DIR — KB files, cloned voices, recordings
 #   $APP_ROOT/logs            pm2 stdout/stderr
 log "Creating layout under $APP_ROOT"
-mkdir -p "$APP_ROOT"/{shared/uploads,logs,.deploy-incoming}
+mkdir -p "$APP_ROOT"/{shared/uploads,logs}
 
 # ── 2. Clone ─────────────────────────────────────────────────────────────────
 if [ -d "$APP_ROOT/repo/.git" ]; then
@@ -93,7 +94,24 @@ if [ -z "$REDIS_PASS" ]; then
   warn "No requirepass found in /etc/redis/redis.conf — check for an include file."
 else
   echo "  password: found in /etc/redis/redis.conf"
-  echo "  REDIS_URL=redis://:${REDIS_PASS}@127.0.0.1:6379/3"
+  # Percent-encode it. The password on this box is "#Herbs@1234": the '@' would
+  # make the URL parser read the host as "1234@127.0.0.1", and '#' would start a
+  # URL fragment — and, separately, begin a comment when deploy.sh sources the
+  # .env file. Printing the raw password here produced a URL that silently
+  # pointed at the wrong host.
+  urlencode() {
+    local s="$1" out="" c i
+    for (( i=0; i<${#s}; i++ )); do
+      c="${s:i:1}"
+      case "$c" in
+        [a-zA-Z0-9.~_-]) out+="$c" ;;
+        *) out+=$(printf '%%%02X' "'$c") ;;
+      esac
+    done
+    printf '%s' "$out"
+  }
+  echo "  REDIS_URL='redis://:$(urlencode "$REDIS_PASS")@127.0.0.1:6379/3'"
+  echo "  (percent-encoded, and single-quoted because .env is sourced by deploy.sh)"
   POLICY="$(redis-cli -a "$REDIS_PASS" --no-auth-warning CONFIG GET maxmemory-policy 2>/dev/null | tail -1)"
   echo "  maxmemory-policy: ${POLICY:-unknown}"
   if [ "$POLICY" != "noeviction" ]; then
