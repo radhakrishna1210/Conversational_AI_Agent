@@ -29,13 +29,42 @@ NODE_BIN="/root/.nvm/versions/node/v20.10.0/bin"
 
 SKIP_CLIENT=0
 SKIP_MIGRATE=0
+SKIP_FETCH=0
 for arg in "$@"; do
   case "$arg" in
     --skip-client)  SKIP_CLIENT=1 ;;
     --skip-migrate) SKIP_MIGRATE=1 ;;
+    # Internal: set when this script re-execs itself after a pull updated it.
+    --skip-fetch)   SKIP_FETCH=1 ;;
     *) echo "Unknown flag: $arg" >&2; exit 2 ;;
   esac
 done
+
+# ── Run from a snapshot, not from the repo copy ──────────────────────────────
+# THIS IS NOT OPTIONAL. bash reads a script lazily, by byte offset, as it
+# executes. Step 1 below runs `git reset --hard` on the repository that contains
+# THIS FILE. When a pull changes deploy.sh mid-run, bash carries on reading at
+# its old offset into the new file and silently executes shifted, mismatched
+# lines — no error, just wrong behaviour. That produced a deploy where a guard
+# clause and an npm flag were skipped entirely.
+#
+# Copying to /tmp first makes the file bash is reading immutable for the run.
+REPO_SELF="$REPO_DIR/deploy/vps/deploy.sh"
+if [ "${DEPLOY_SNAPSHOT:-}" != "1" ]; then
+  find /tmp -maxdepth 1 -name 'convai-deploy.*' -mtime +1 -delete 2>/dev/null || true
+  _snap="$(mktemp /tmp/convai-deploy.XXXXXX)"
+  cp "$0" "$_snap"
+  chmod +x "$_snap"
+  # DEPLOY_SNAP_SRC records which file the snapshot was taken from, so step 1
+  # can tell whether the pull changed it.
+  DEPLOY_SNAPSHOT=1 DEPLOY_SNAP_SRC="$(readlink -f "$0")" exec "$_snap" "$@"
+fi
+# Clean up the snapshot on exit — but ONLY if we are actually running from one.
+# An unguarded `rm -f "$0"` here would delete deploy.sh out of the repository on
+# any path that reaches this line running the repo copy directly.
+case "$0" in
+  /tmp/convai-deploy.*) trap 'rm -f "$0" 2>/dev/null || true' EXIT ;;
+esac
 
 export PATH="$NODE_BIN:$PATH"
 
@@ -54,6 +83,10 @@ PREVIOUS_SHA="$(git rev-parse HEAD)"
 log "Current revision: $PREVIOUS_SHA"
 
 # ── 1. Sync code ─────────────────────────────────────────────────────────────
+if [ "$SKIP_FETCH" -eq 1 ]; then
+  log "Skipping fetch (already pulled by the previous stage)"
+  NEW_SHA="$PREVIOUS_SHA"
+else
 log "Fetching $REMOTE/$BRANCH"
 # If this prompts for a GitHub username/password, credentials are not cached.
 # Fix once with either:
@@ -74,6 +107,18 @@ if [ "$PREVIOUS_SHA" = "$NEW_SHA" ]; then
 else
   log "Deploying: $PREVIOUS_SHA → $NEW_SHA"
   git --no-pager log --oneline "$PREVIOUS_SHA..$NEW_SHA" | sed 's/^/    /'
+fi
+
+# If the pull changed deploy.sh itself, hand over to the NEW version rather
+# than finishing this run with the logic that shipped before it. Re-exec reads
+# the file fresh from the top (and re-snapshots), so there is no offset to get
+# out of sync. --skip-fetch stops it pulling a second time.
+if ! cmp -s "${DEPLOY_SNAP_SRC:-$REPO_SELF}" "$REPO_SELF"; then
+  log "deploy.sh changed in this pull — restarting with the updated script"
+  # DEPLOY_SNAPSHOT is cleared so the new process takes its own snapshot rather
+  # than running the repo copy directly.
+  DEPLOY_SNAPSHOT= exec "$REPO_SELF" --skip-fetch "$@"
+fi
 fi
 
 # ── 2. Environment file ──────────────────────────────────────────────────────
