@@ -211,7 +211,6 @@ export default function AdminCallLogs() {
                     <td style={tdStyle}>{fmtDate(c.startedAt)}</td>
                     <td style={tdStyle}>
                       <div style={{ color: 'var(--text-primary)' }}>{c.workspace?.name ?? '—'}</div>
-                      {c.workspace && <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{c.workspace.planName}</div>}
                     </td>
                     <td style={tdStyle}>
                       <div style={{ color: 'var(--text-primary)' }}>{c.agent?.name ?? '(deleted)'}</div>

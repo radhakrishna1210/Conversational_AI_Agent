@@ -51,8 +51,6 @@ mkdirSync(env.UPLOAD_DIR, { recursive: true });
 
 logger.info(`Config sanity → DATABASE_URL protocol OK | JSON_BODY_LIMIT=${env.JSON_BODY_LIMIT} | SMTP=${env.SMTP_HOST ? 'configured' : 'NOT configured'} | GEMINI=${process.env.GEMINI_API_KEY ? 'set' : 'missing'}`);
 
-import('./controllers/platform.controller.js').then(m => m.ensurePlansSeeded().catch(e => logger.warn('Plan seed skipped: ' + e.message)));
-
 const campaignWorker = createCampaignWorker();
 if (campaignWorker) {
   campaignWorker.on('completed', (job) => logger.info({ jobId: job.id }, 'Campaign job completed'));

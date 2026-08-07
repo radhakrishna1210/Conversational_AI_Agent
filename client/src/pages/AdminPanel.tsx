@@ -5,7 +5,7 @@ import {
   Search, Filter, Plus, Trash2, UserCheck, UserX,
   PowerOff, RotateCcw, Globe, ChevronDown, X, Check,
   AlertCircle, Ban, ChevronLeft, ChevronRight,
-  Eye, CreditCard, Bug
+  Eye, Bug
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -259,7 +259,7 @@ function AssignModal({ number, workspaces, onClose, onAssign }: {
           >
             <option value="">Select workspace...</option>
             {workspaces.map((w) => (
-              <option key={w.id} value={w.id}>{w.name} ({w.planName})</option>
+              <option key={w.id} value={w.id}>{w.name}</option>
             ))}
           </select>
           <ChevronDown size={14} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)', pointerEvents: 'none' }} />
@@ -463,7 +463,7 @@ export function AnalyticsTab() {
                 <span style={{ width: 22, height: 22, borderRadius: '50%', background: 'rgba(14,179,158,0.12)', color: '#0eb39e', fontSize: 11, fontWeight: 800, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>{i + 1}</span>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{w.name}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{w.planName} · {w.memberCount} members</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{w.memberCount} members</div>
                 </div>
                 <div style={{ textAlign: 'right', flexShrink: 0 }}>
                   <div style={{ fontSize: 16, fontWeight: 800, color: '#0eb39e' }}>{w.agentCount}</div>
@@ -792,16 +792,13 @@ interface UserDetail extends UserRow {
   }[];
 }
 
-const PLANS = ['Free', 'Starter', 'Pro', 'Enterprise'];
-
-function planColor(plan: string) {
-  switch (plan) {
-    case 'Enterprise': return { bg: 'rgba(245,158,11,0.12)', color: '#f59e0b' };
-    case 'Pro':        return { bg: 'rgba(129,140,248,0.12)', color: '#818cf8' };
-    case 'Starter':    return { bg: 'rgba(14,179,158,0.12)', color: '#0eb39e' };
-    default:           return { bg: 'rgba(255,255,255,0.06)', color: 'var(--text-secondary)' };
-  }
-}
+/*
+ * The plan badge, the plan filter and the "Change Plan" control used to live
+ * here. All three are gone: there are no plans to assign, filter by or display.
+ * A workspace's spending power is its wallet balance, managed under
+ * Super Admin -> Wallets, and the rate it is charged is one platform-wide
+ * number under Super Admin -> Wallet Rate.
+ */
 
 function UserDetailModal({ userId, onClose, onAction }: {
   userId: string;
@@ -812,11 +809,10 @@ function UserDetailModal({ userId, onClose, onAction }: {
   const [loading, setLoading] = useState(true);
   const [banReason, setBanReason] = useState('');
   const [showBanInput, setShowBanInput] = useState(false);
-  const [selectedPlan, setSelectedPlan] = useState('');
   const { toasts, show: toast } = useToast();
 
   useEffect(() => {
-    apiFetch(`/users/${userId}`).then((d) => { setUser(d); setSelectedPlan(d.planName); setLoading(false); }).catch(() => setLoading(false));
+    apiFetch(`/users/${userId}`).then((d) => { setUser(d); setLoading(false); }).catch(() => setLoading(false));
   }, [userId]);
 
   const act = async (fn: () => Promise<unknown>, msg: string) => {
@@ -849,7 +845,6 @@ function UserDetailModal({ userId, onClose, onAction }: {
                 <div style={{ fontSize: 17, fontWeight: 700, color: 'var(--text-primary)' }}>{user.name}</div>
                 <div style={{ fontSize: 13, color: 'var(--text-secondary)' }}>{user.email}</div>
                 <div style={{ display: 'flex', gap: 8, marginTop: 8, flexWrap: 'wrap' }}>
-                  <span style={{ padding: '2px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, ...planColor(user.planName) }}>{user.planName}</span>
                   {user.role && <span style={{ padding: '2px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: 'rgba(14,179,158,0.1)', color: '#0eb39e' }}>{user.role}</span>}
                   {user.banned && <span style={{ padding: '2px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: 'rgba(239,68,68,0.12)', color: '#f87171' }}>BANNED</span>}
                 </div>
@@ -893,21 +888,6 @@ function UserDetailModal({ userId, onClose, onAction }: {
 
             {/* Actions */}
             <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginTop: 8 }}>
-              {/* Change plan */}
-              <div style={{ display: 'flex', gap: 6, alignItems: 'center', flex: 1, minWidth: 200 }}>
-                <div style={{ position: 'relative', flex: 1 }}>
-                  <CreditCard size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#555' }} />
-                  <select value={selectedPlan} onChange={e => setSelectedPlan(e.target.value)}
-                    style={{ width: '100%', padding: '8px 10px 8px 30px', background: '#161b22', border: '1px solid var(--border)', borderRadius: 7, color: 'var(--text-primary)', fontSize: 13, appearance: 'none' }}>
-                    {PLANS.map(p => <option key={p} value={p}>{p}</option>)}
-                  </select>
-                </div>
-                <button onClick={() => act(() => apiFetch(`/users/${user.id}/plan`, { method: 'PATCH', body: JSON.stringify({ planName: selectedPlan }) }), `Plan changed to ${selectedPlan}`)}
-                  style={{ padding: '8px 14px', background: '#818cf8', border: 'none', borderRadius: 7, color: '#000', fontWeight: 700, fontSize: 12, cursor: 'pointer', whiteSpace: 'nowrap' }}>
-                  Change Plan
-                </button>
-              </div>
-
               {/* Ban/Unban */}
               {user.banned ? (
                 <button onClick={() => act(() => apiFetch(`/users/${user.id}/unban`, { method: 'PATCH' }), 'User unbanned')}
@@ -947,7 +927,6 @@ export function UserManagementTab() {
   const [page, setPage] = useState(1);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
-  const [planFilter, setPlanFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [detailUserId, setDetailUserId] = useState<string | null>(null);
@@ -959,7 +938,6 @@ export function UserManagementTab() {
       const params = new URLSearchParams({ page: String(page), limit: '15' });
       if (search) params.set('search', search);
       if (statusFilter) params.set('status', statusFilter);
-      if (planFilter) params.set('plan', planFilter);
       const data = await apiFetch(`/users?${params}`);
       setUsers(data.users ?? []);
       setTotal(data.total ?? 0);
@@ -967,7 +945,7 @@ export function UserManagementTab() {
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to load users');
     } finally { setLoading(false); }
-  }, [search, statusFilter, planFilter, page]);
+  }, [search, statusFilter, page]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -999,16 +977,6 @@ export function UserManagementTab() {
           <ChevronDown size={13} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: '#555', pointerEvents: 'none' }} />
         </div>
 
-        <div style={{ position: 'relative' }}>
-          <CreditCard size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: '#555' }} />
-          <select value={planFilter} onChange={e => { setPlanFilter(e.target.value); setPage(1); }}
-            style={{ padding: '9px 32px 9px 30px', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: 8, color: planFilter ? 'white' : '#888', fontSize: 13, appearance: 'none', cursor: 'pointer' }}>
-            <option value="">All Plans</option>
-            {PLANS.map(p => <option key={p} value={p}>{p}</option>)}
-          </select>
-          <ChevronDown size={13} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: '#555', pointerEvents: 'none' }} />
-        </div>
-
         <button onClick={load} style={{ padding: '9px 14px', background: 'transparent', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-secondary)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
           <RefreshCw size={13} /> Refresh
         </button>
@@ -1028,7 +996,7 @@ export function UserManagementTab() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
             <thead>
               <tr style={{ borderBottom: '1px solid var(--border)', background: 'rgba(255,255,255,0.02)' }}>
-                {['User', 'Plan', 'Status', 'Workspace', 'Role', 'Joined', 'Actions'].map(h => (
+                {['User', 'Status', 'Workspace', 'Role', 'Joined', 'Actions'].map(h => (
                   <th key={h} style={{ padding: '12px 16px', textAlign: 'left', color: 'var(--text-secondary)', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>{h}</th>
                 ))}
               </tr>
@@ -1054,9 +1022,6 @@ export function UserManagementTab() {
                         <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{u.email}</div>
                       </div>
                     </div>
-                  </td>
-                  <td style={{ padding: '13px 16px' }}>
-                    <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700, ...planColor(u.planName) }}>{u.planName}</span>
                   </td>
                   <td style={{ padding: '13px 16px' }}>
                     {u.banned ? (

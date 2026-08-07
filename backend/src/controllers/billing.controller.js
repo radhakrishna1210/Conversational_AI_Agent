@@ -30,7 +30,7 @@ import { generateInvoice, listInvoices } from '../services/billing/invoice.servi
 import * as subs from '../services/billing/subscription.service.js';
 import * as autoRenew from '../services/billing/autoRenew.service.js';
 import { getBillingCurrency, formatMinor } from '../services/billing/money.js';
-import { resolveWorkspacePlan } from '../services/billing/settlement.service.js';
+import { getWalletRate } from '../services/billing/walletRate.js';
 import { writeAudit, AUDIT_ACTIONS, AUDIT_CATEGORIES } from '../services/audit.service.js';
 
 const MIN_TOPUP_CENTS = Number(process.env.MIN_TOPUP_CENTS) || 10_000;   // ₹100
@@ -46,7 +46,9 @@ export const getWallet = async (req, res) => {
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
-    const { plan, subscription } = await resolveWorkspacePlan(workspaceId);
+    // The one rate this deployment charges. Sent with the wallet so Billing can
+    // show "what a minute costs you" without a plan to look it up on.
+    const rateCents = Math.round((await getWalletRate()).perMinuteInr * 100);
     res.json({
       ...wallet,
       transactions: transactions.map((t) => ({
@@ -62,21 +64,9 @@ export const getWallet = async (req, res) => {
       razorpayKeyId: razorpay.getPublicKeyId(),
       minTopUpCents: MIN_TOPUP_CENTS,
       maxTopUpCents: MAX_TOPUP_CENTS,
-      plan: plan ? { id: plan.id, name: plan.name, perMinuteUsd: plan.perMinuteUsd } : null,
-      subscription: subscription
-        ? {
-          status: subscription.status,
-          planName: subscription.planName,
-          currentPeriodEnd: subscription.currentPeriodEnd,
-          minutesIncluded: subscription.minutesIncluded,
-          minutesUsed: subscription.minutesUsed,
-          cancelAtPeriodEnd: subscription.cancelAtPeriodEnd,
-          pendingPlanId: subscription.pendingPlanId,
-          // Whether the card will be charged again automatically, so the UI can
-          // say "renews on X" rather than leaving the customer to guess.
-          autoRenew: subscription.autoRenew,
-        }
-        : null,
+      // No plan and no subscription: this deployment bills one platform rate
+      // per talk-minute against the wallet, and the wallet is the whole story.
+      perMinuteRateCents: rateCents,
     });
   } catch (err) {
     logger.error('getWallet failed', err);

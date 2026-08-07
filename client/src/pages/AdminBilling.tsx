@@ -2,12 +2,14 @@ import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import {
   CreditCard, ChevronLeft, ChevronRight, AlertCircle, RefreshCw,
-  TrendingUp, Wallet, Repeat, X,
+  TrendingUp, Wallet, X,
 } from 'lucide-react';
 import { adminFetch, qs } from '@/lib/adminApi';
 import { AdminPageHeader } from './AdminPanel';
 
-type Section = 'subscriptions' | 'payments' | 'invoices' | 'wallets';
+// Subscriptions are gone with plans — this deployment sells talk-minutes
+// against a prepaid wallet, so there is nothing recurring to list.
+type Section = 'payments' | 'invoices' | 'wallets';
 
 /**
  * The sign goes BEFORE the currency symbol, not after it. Formatting the raw
@@ -29,7 +31,7 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 export default function AdminBilling() {
-  const [section, setSection] = useState<Section>('subscriptions');
+  const [section, setSection] = useState<Section>('wallets');
   const [ledgerFor, setLedgerFor] = useState<{ id: string; name: string } | null>(null);
 
   const { data: overview, isError: ovError, error: ovErr, refetch: refetchOv } = useQuery({
@@ -41,7 +43,7 @@ export default function AdminBilling() {
     <>
       <AdminPageHeader
         title="Billing"
-        subtitle="Subscriptions, payments, invoices and wallet balances across every tenant"
+        subtitle="Wallet balances, top-ups and invoices across every tenant"
         icon={<CreditCard size={21} />}
       />
 
@@ -51,7 +53,6 @@ export default function AdminBilling() {
 
       {overview && (
         <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(175px, 1fr))', marginBottom: 20 }}>
-          <Stat label="MRR" value={fmtMoney(overview.mrrCents)} sub={`${overview.activeSubscriptions} active`} icon={<Repeat size={15} />} color="#0eb39e" />
           <Stat label="Revenue today" value={fmtMoney(overview.revenueTodayCents)} sub={`${overview.paymentsToday} payments`} icon={<TrendingUp size={15} />} color="#818cf8" />
           <Stat label="Revenue this month" value={fmtMoney(overview.revenueMonthCents)} sub={`${overview.paymentsMonth} payments`} icon={<TrendingUp size={15} />} color="#38bdf8" />
           <Stat label="Failed payments" value={overview.failedPaymentsMonth} sub="this month" icon={<AlertCircle size={15} />} color={overview.failedPaymentsMonth > 0 ? '#f87171' : '#94a3b8'} />
@@ -61,7 +62,7 @@ export default function AdminBilling() {
 
       <div style={{ display: 'flex', gap: 4, marginBottom: 18, borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
         {([
-          ['subscriptions', 'Subscriptions'], ['payments', 'Payments'],
+          ['payments', 'Payments'],
           ['invoices', 'Invoices'], ['wallets', 'Wallets'],
         ] as [Section, string][]).map(([id, label]) => (
           <button key={id} onClick={() => setSection(id)} style={{
@@ -73,49 +74,12 @@ export default function AdminBilling() {
         ))}
       </div>
 
-      {section === 'subscriptions' && <Subscriptions />}
       {section === 'payments' && <Payments />}
       {section === 'invoices' && <Invoices />}
       {section === 'wallets' && <Wallets onOpenLedger={setLedgerFor} />}
 
       {ledgerFor && <LedgerDrawer workspaceId={ledgerFor.id} name={ledgerFor.name} onClose={() => setLedgerFor(null)} />}
     </>
-  );
-}
-
-// ─── Subscriptions ───────────────────────────────────────────────────────────
-
-function Subscriptions() {
-  const [page, setPage] = useState(1);
-  const [status, setStatus] = useState('');
-  const q = useQuery({
-    queryKey: ['admin', 'billing', 'subs', { page, status }],
-    queryFn: () => adminFetch(`/billing/subscriptions${qs({ page, limit: 25, status })}`),
-  });
-
-  return (
-    <Panel
-      query={q} emptyText="No subscriptions match these filters."
-      filters={<Select value={status} onChange={(v) => { setStatus(v); setPage(1); }} options={[
-        { v: '', l: 'All statuses' }, { v: 'active', l: 'Active' }, { v: 'past_due', l: 'Past due' },
-        { v: 'cancelled', l: 'Cancelled' }, { v: 'expired', l: 'Expired' },
-      ]} />}
-      headers={['Workspace', 'Plan', 'Status', 'Period ends', 'Minutes used', 'Auto-renew']}
-      rows={(q.data?.subscriptions ?? []).map((s: any) => [
-        <WorkspaceCell ws={s.workspace} fallback={s.workspaceId} />,
-        <>{s.planName}<Sub>{s.billingPeriod}</Sub></>,
-        <Badge value={s.status} />,
-        <>{fmtDate(s.currentPeriodEnd)}{s.cancelAtPeriodEnd && <Sub>cancels at period end</Sub>}</>,
-        <>
-          {s.minutesUsed} / {s.minutesIncluded}
-          {s.minutesUsedPct !== null && (
-            <Sub style={{ color: s.minutesUsedPct > 80 ? '#f59e0b' : undefined }}>{s.minutesUsedPct}% used</Sub>
-          )}
-        </>,
-        <span style={{ color: s.autoRenew ? '#0eb39e' : 'var(--text-secondary)' }}>{s.autoRenew ? 'on' : 'off'}</span>,
-      ])}
-      page={page} setPage={setPage} unit="subscriptions"
-    />
   );
 }
 
@@ -183,7 +147,7 @@ function Invoices() {
       <Panel
         query={q} emptyText="No invoices match these filters."
         filters={<Select value={type} onChange={(v) => { setType(v); setPage(1); }} options={[
-          { v: '', l: 'All types' }, { v: 'topup', l: 'Top-up' }, { v: 'subscription', l: 'Subscription' },
+          { v: '', l: 'All types' }, { v: 'topup', l: 'Top-up' },
         ]} />}
         headers={['Number', 'Date', 'Workspace', 'Description', 'Amount', 'Payment', '']}
         rows={(q.data?.invoices ?? []).map((i: any) => [
@@ -428,9 +392,9 @@ function Badge({ value }: { value: string }) {
   );
 }
 
-function WorkspaceCell({ ws, fallback }: { ws: { name: string; planName?: string } | null; fallback: string }) {
+function WorkspaceCell({ ws, fallback }: { ws: { name: string } | null; fallback: string }) {
   if (!ws) return <span style={{ color: '#f59e0b', fontSize: 12 }}>(deleted) {fallback.slice(0, 10)}…</span>;
-  return <>{<span style={{ color: 'var(--text-primary)' }}>{ws.name}</span>}{ws.planName && <Sub>{ws.planName}</Sub>}</>;
+  return <span style={{ color: 'var(--text-primary)' }}>{ws.name}</span>;
 }
 
 function Sub({ children, style }: { children: React.ReactNode; style?: React.CSSProperties }) {

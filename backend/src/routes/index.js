@@ -59,7 +59,6 @@ router.use('/report-issue', rateLimit({ windowMs: 60_000, max: 10, keyPrefix: 'i
 // They perform data mutations / paid model work and now live exclusively under
 // the authenticated workspace router below (see `ws`).
 router.use('/integrations', integrationsPublicRoutes);
-router.get('/config/plans', platform.listPlansPublic);
 // The only pricing this deployment publishes: one wallet rate per minute.
 router.get('/config/wallet-rate', platform.getWalletRatePublic);
 
@@ -149,27 +148,17 @@ ws.use('/integrations', integrationsRoutes);
 ws.use('/notifications', notificationRoutes);
 ws.use('/files', kbFileRoutes);
 // ── Billing (BUG-002) ──────────────────────────────────────────────────────
-// Wallet reads, gateway-backed top-ups, subscriptions and invoices. All
+// Wallet reads, gateway-backed top-ups and invoices. All
 // workspace-scoped and authenticated; the Razorpay webhook is mounted OUTSIDE
 // this router (see below) because it is authenticated by HMAC, not by session.
 ws.get('/wallet', billing.getWallet);
 ws.post('/wallet/topup', billing.createTopUpOrder);
 ws.post('/wallet/topup/verify', billing.verifyTopUp);
 ws.get('/invoices', billing.getInvoices);
-// Plan purchase by card, independent of wallet balance. Returns either a
-// Razorpay order to pay, or an immediately-applied change when nothing is due
-// (downgrade, free plan, no-op).
-ws.post('/subscription/checkout', billing.createSubscriptionCheckout);
-// Auto-renewal on a saved card (Razorpay Subscriptions). The plan activates on
-// the subscription.charged webhook, not on the browser's authorization callback.
-ws.post('/subscription/autorenew', billing.startAutoRenew);
-ws.post('/subscription/autorenew/verify', billing.verifyAutoRenew);
-ws.post('/subscription/autorenew/stop', billing.stopAutoRenewPlan);
-// Wallet-funded plan change. Kept for admin/scripted use and for the case where
-// a customer would rather spend existing balance than pay again.
-ws.post('/subscription', billing.subscribeToPlan);
-ws.post('/subscription/cancel', billing.cancelPlan);
-ws.post('/subscription/resume', billing.resumePlan);
+// Subscription and plan-purchase routes used to sit here. Removed with plans —
+// the wallet is topped up directly and spent per talk-minute; there is nothing
+// recurring to buy. The Razorpay webhook still accepts subscription.* events so
+// any legacy subscription on the gateway account is handled rather than 500ing.
 ws.get('/agents/:agentId/kb-text', kbCtrl.agentKbText);
 ws.post('/agents/:agentId/post-call/test', platform.testPostCall);
 

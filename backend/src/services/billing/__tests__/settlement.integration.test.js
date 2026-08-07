@@ -170,7 +170,10 @@ test('usage is recorded even when the wallet cannot cover it', { skip: !HAS_DB }
   assert.equal((await auditWallet(s.workspaceId)).balanced, true);
 });
 
-test('plan-included minutes are consumed before the wallet', { skip: !HAS_DB }, async () => {
+test('every billed minute hits the wallet, even with a subscription row present', { skip: !HAS_DB }, async () => {
+  // Plans are gone: there is no included-minutes allowance to draw down. A
+  // leftover subscription row from the old model must NOT buy free minutes, so
+  // this asserts it is ignored rather than honoured.
   const s = await scenario({ includedMinutes: 100 });
   await prisma.subscription.create({
     data: {
@@ -179,31 +182,13 @@ test('plan-included minutes are consumed before the wallet', { skip: !HAS_DB }, 
       currentPeriodStart: new Date(), currentPeriodEnd: new Date(Date.now() + 30 * 864e5),
     },
   });
-  const call = await makeCall(s, { durationSec: 120 }); // 2 min
+  const call = await makeCall(s, { durationSec: 120 }); // 2 billed minutes
   const r = await settleCall(call.id);
 
-  assert.equal(r.coveredByPlan, 2);
-  assert.equal(r.amountCents, 0, 'wallet must not be touched while minutes remain');
-  assert.equal((await getBalance(s.workspaceId)).balanceCents, 100_000);
+  assert.equal(r.amountCents, 2 * RATE_PAISE, 'charged in full despite the allowance');
+  assert.equal((await getBalance(s.workspaceId)).balanceCents, 100_000 - 2 * RATE_PAISE);
   const sub = await prisma.subscription.findUnique({ where: { workspaceId: s.workspaceId } });
-  assert.equal(sub.minutesUsed, 2);
-});
-
-test('usage beyond included minutes spills to the wallet', { skip: !HAS_DB }, async () => {
-  const s = await scenario({ includedMinutes: 2 });
-  await prisma.subscription.create({
-    data: {
-      workspaceId: s.workspaceId, planId: s.plan.id, planName: s.plan.name,
-      status: 'active', minutesIncluded: 2, minutesUsed: 0,
-      currentPeriodStart: new Date(), currentPeriodEnd: new Date(Date.now() + 30 * 864e5),
-    },
-  });
-  const call = await makeCall(s, { durationSec: 300 }); // 5 min: 2 covered, 3 charged
-  const r = await settleCall(call.id);
-
-  assert.equal(r.coveredByPlan, 2);
-  assert.equal(r.amountCents, 3 * RATE_PAISE);
-  assert.equal((await getBalance(s.workspaceId)).balanceCents, 100_000 - 3 * RATE_PAISE);
+  assert.equal(sub.minutesUsed, 0, 'the allowance is not touched either');
 });
 
 // ── Pre-call gate ───────────────────────────────────────────────────────────
@@ -228,15 +213,12 @@ test('a balance below one minute blocks rather than cutting off mid-call', { ski
   assert.equal(g.code, 'INSUFFICIENT_BALANCE');
 });
 
-test('concurrency limit is enforced before the call starts', { skip: !HAS_DB }, async () => {
-  const s = await scenario({ maxConcurrentCalls: 2 });
-  await makeCall(s, { status: 'IN_PROGRESS' });
-  assert.equal((await assertCanStartCall(s.workspaceId)).allowed, true, '1 of 2 in progress');
-  await makeCall(s, { status: 'IN_PROGRESS' });
-  const g = await assertCanStartCall(s.workspaceId);
-  assert.equal(g.allowed, false);
-  assert.equal(g.code, 'CONCURRENCY_LIMIT');
-  assert.match(g.message, /2/);
+test('concurrent calls are NOT limited', { skip: !HAS_DB }, async () => {
+  // Wallet balance is the only gate. A workspace may run as many simultaneous
+  // calls as it can pay for.
+  const s = await scenario();
+  for (let i = 0; i < 5; i++) await makeCall(s, { status: 'IN_PROGRESS' });
+  assert.equal((await assertCanStartCall(s.workspaceId)).allowed, true);
 });
 
 test('chat is never gated on balance', { skip: !HAS_DB }, async () => {
@@ -244,27 +226,28 @@ test('chat is never gated on balance', { skip: !HAS_DB }, async () => {
   assert.equal((await assertCanStartCall(s.workspaceId, { type: 'CHAT' })).allowed, true);
 });
 
-test('agent count limit is enforced', { skip: !HAS_DB }, async () => {
-  const s = await scenario({ maxAgents: 2 });
-  assert.equal((await assertCanCreateAgent(s.workspaceId)).allowed, true, '1 of 2 exists');
-  await prisma.agent.create({
-    data: { workspaceId: s.workspaceId, name: 'B', welcomeMessage: 'hi', aiModel: 'm', voice: 'v' },
-  });
-  const g = await assertCanCreateAgent(s.workspaceId);
-  assert.equal(g.allowed, false);
-  assert.equal(g.code, 'AGENT_LIMIT');
+test('agent creation is NOT limited', { skip: !HAS_DB }, async () => {
+  const s = await scenario();
+  for (let i = 0; i < 4; i++) {
+    await prisma.agent.create({
+      data: { workspaceId: s.workspaceId, name: `A${i}`, welcomeMessage: 'hi', aiModel: 'm', voice: 'v' },
+    });
+    assert.equal((await assertCanCreateAgent(s.workspaceId)).allowed, true);
+  }
 });
 
-test('a cancelled subscription blocks calls', { skip: !HAS_DB }, async () => {
-  const s = await scenario();
+test('a stale cancelled subscription does NOT block calls', { skip: !HAS_DB }, async () => {
+  // The old model refused calls on a cancelled subscription. With plans gone
+  // that row is meaningless history, and honouring it would strand a funded
+  // workspace with no way to resubscribe.
+  const s2 = await scenario();
   await prisma.subscription.create({
     data: {
-      workspaceId: s.workspaceId, planId: s.plan.id, planName: s.plan.name,
+      workspaceId: s2.workspaceId, planId: s2.plan.id, planName: s2.plan.name,
       status: 'cancelled', currentPeriodStart: new Date(),
       currentPeriodEnd: new Date(Date.now() - 864e5),
     },
   });
-  const g = await assertCanStartCall(s.workspaceId);
-  assert.equal(g.allowed, false);
-  assert.equal(g.code, 'SUBSCRIPTION_INACTIVE');
+  assert.equal((await assertCanStartCall(s2.workspaceId)).allowed, true);
 });
+

@@ -70,24 +70,6 @@ function reapAbandonedCalls(workspaceId, staleBefore) {
     .catch((err) => logger.warn({ workspaceId, err: err.message }, 'Could not retire abandoned calls'));
 }
 
-/** Resolve the plan a workspace is actually on (subscription first, then the
- *  Workspace.planName label, then whatever is cheapest-tier configured). */
-export async function resolveWorkspacePlan(workspaceId) {
-  const sub = await prisma.subscription.findUnique({
-    where: { workspaceId },
-    include: { plan: true },
-  });
-  if (sub?.plan) return { plan: sub.plan, subscription: sub };
-
-  const ws = await prisma.workspace.findUnique({
-    where: { id: workspaceId },
-    select: { planName: true },
-  });
-  const plan = ws?.planName
-    ? await prisma.plan.findUnique({ where: { name: ws.planName } })
-    : null;
-  return { plan, subscription: null };
-}
 
 /**
  * Charge a finished call. Idempotent per callLogId.
@@ -131,22 +113,13 @@ export async function settleCall(callLogId, { actualCostMicroUsd = null } = {}) 
       return { billed: false, reason: 'zero-duration' };
     }
 
-    const { plan, subscription } = await resolveWorkspacePlan(call.workspaceId);
+    // Every billed minute hits the wallet. There are no plans, so there is no
+    // included-minutes allowance to draw down first — the workspace's balance is
+    // the only thing that pays for a call.
+    const chargeableMinutes = minutes;
 
-    // Included minutes are drawn down FIRST; only the excess hits the wallet.
-    let chargeableMinutes = minutes;
-    let coveredByPlan = 0;
-    if (subscription && subscription.status === 'active') {
-      const remaining = Math.max(0, subscription.minutesIncluded - subscription.minutesUsed);
-      coveredByPlan = Math.min(remaining, minutes);
-      chargeableMinutes = minutes - coveredByPlan;
-    }
-
-    // The rate comes from the platform wallet rate, not from the workspace's
-    // plan: this deployment bills one ₹/min for everybody, set in Super Admin →
-    // Wallet Rate, and that is the same figure the public landing page quotes.
-    // The plan is still consulted above for included minutes, so an existing
-    // subscription keeps drawing its allowance down before the wallet is hit.
+    // One ₹/min for everybody, set in Super Admin → Wallet Rate. The same figure
+    // the public landing page quotes.
     const walletRate = await getWalletRate();
     const { ratePerMinuteCents, fxRate } = resolveCallRate(walletRate);
     const amountCents = calculateCallCharge(chargeableMinutes * 60, walletRate).amountCents;
@@ -170,19 +143,11 @@ export async function settleCall(callLogId, { actualCostMicroUsd = null } = {}) 
       return { billed: false, reason: 'claimed-concurrently' };
     }
 
-    if (coveredByPlan > 0 && subscription) {
-      await prisma.subscription.update({
-        where: { id: subscription.id },
-        data: { minutesUsed: { increment: coveredByPlan } },
-      });
-    }
-
+    // Can only happen if the rate itself is 0, which setWalletRate refuses.
+    // Kept so a zero-value ledger row is never written if that ever changes.
     if (amountCents <= 0) {
-      logger.info(
-        { callLogId, workspaceId: call.workspaceId, minutes, coveredByPlan },
-        'Call fully covered by plan-included minutes — no wallet charge',
-      );
-      return { billed: true, amountCents: 0, coveredByPlan, minutes };
+      logger.info({ callLogId, workspaceId: call.workspaceId, minutes }, 'Nothing to charge for this call');
+      return { billed: true, amountCents: 0, minutes };
     }
 
     const result = await applyWalletTransaction({
@@ -194,8 +159,7 @@ export async function settleCall(callLogId, { actualCostMicroUsd = null } = {}) 
       note: `${call.type} ${minutes} min @ ${formatMinor(ratePerMinuteCents)}/min`,
       metadata: {
         callLogId, agentId: call.agentId, type: call.type,
-        durationSec, billedMinutes: minutes, coveredByPlan,
-        ratePerMinuteCents, planName: plan?.name ?? null,
+        durationSec, billedMinutes: minutes, ratePerMinuteCents,
       },
       fxRateUsdToInr: fxRate,
       // Never refuse: the minutes were served. See the header note.
@@ -203,13 +167,13 @@ export async function settleCall(callLogId, { actualCostMicroUsd = null } = {}) 
     });
 
     logger.info(
-      { callLogId, workspaceId: call.workspaceId, minutes, coveredByPlan,
+      { callLogId, workspaceId: call.workspaceId, minutes,
         amountCents, balanceAfter: result.balanceCents, duplicate: result.duplicate },
       `Settled call: ${formatMinor(amountCents)}`,
     );
 
     return {
-      billed: true, amountCents, minutes, coveredByPlan,
+      billed: true, amountCents, minutes,
       balanceCents: result.balanceCents, duplicate: result.duplicate,
     };
   } catch (err) {
@@ -237,89 +201,63 @@ export async function settleCall(callLogId, { actualCostMicroUsd = null } = {}) 
 export async function assertCanStartCall(workspaceId, { type = 'WEB_CALL' } = {}) {
   if (!BILLABLE_TYPES.has(type)) return { allowed: true };
 
-  const { plan, subscription } = await resolveWorkspacePlan(workspaceId);
+  /*
+   * Balance is the ONLY gate.
+   *
+   * This used to also enforce a per-plan concurrency ceiling and refuse calls on
+   * a cancelled subscription. Both are gone with plans: the product bills a
+   * single ₹/min against a prepaid wallet, so a workspace's own balance is what
+   * bounds its usage — there is no tier to exceed and nothing to renew.
+   *
+   * Concurrency is deliberately unbounded. The wallet caps the spend, so the
+   * remaining exposure is provider rate limits rather than unpaid usage; if that
+   * ever bites, the ceiling belongs in Super Admin as one platform-wide number,
+   * not back on a per-customer plan.
+   *
+   * Require headroom for at least one billing increment: starting a call with a
+   * few paise left just cuts the caller off mid-sentence, which is worse than a
+   * clear refusal up front.
+   */
+  const wallet = await getOrCreateWallet(workspaceId);
+  // The same rate the call will actually settle at, so the pre-call check and
+  // the post-call charge can never disagree.
+  const { ratePerMinuteCents } = resolveCallRate(await getWalletRate());
 
-  if (subscription && ['cancelled', 'expired'].includes(subscription.status)) {
+  const available = wallet.balanceCents + wallet.overdraftLimitCents;
+  if (available < ratePerMinuteCents) {
     return {
       allowed: false,
-      code: 'SUBSCRIPTION_INACTIVE',
-      message: `Your ${subscription.planName} subscription is ${subscription.status}. Renew it to place calls.`,
+      code: 'INSUFFICIENT_BALANCE',
+      message: available <= 0
+        ? 'Your wallet balance is empty. Add funds to place calls.'
+        : `Your balance (${formatMinor(wallet.balanceCents)}) is below the ${formatMinor(ratePerMinuteCents)} needed for one minute. Add funds to continue.`,
     };
   }
 
-  // Concurrency: count calls currently in progress for this workspace.
-  //
-  // Bounded by age, and that bound is load-bearing. A WEB_CALL is only moved off
-  // IN_PROGRESS by the BROWSER (the `ended: true` PATCH in cleanupWebCall), so a
-  // closed tab, a crash or a dropped network leaves the row in progress forever.
-  // Counting those permanently consumed a concurrency slot: on a 1-call plan a
-  // single abandoned call silently blocked every future call from being logged,
-  // and the client swallows the 402 into console.error, so it looked like calls
-  // simply stopped appearing in Recent Calls. No call can genuinely still be
-  // running after this cutoff, so anything older is abandoned, not active.
-  const maxConcurrent = plan?.maxConcurrentCalls ?? 1;
-  if (maxConcurrent > 0) {
-    const staleBefore = new Date(Date.now() - STALE_CALL_MS);
-    const active = await prisma.agentCallLog.count({
-      where: {
-        workspaceId,
-        status: 'IN_PROGRESS',
-        type: { in: [...BILLABLE_TYPES] },
-        startedAt: { gte: staleBefore },
-      },
-    });
-    // Self-heal: retire the abandoned rows so they stop showing as perpetually
-    // "in progress" in Recent Calls. Deliberately NOT settled — their real
-    // duration is unknown, and charging a guess is worse than not charging.
-    reapAbandonedCalls(workspaceId, staleBefore);
-    if (active >= maxConcurrent) {
-      return {
-        allowed: false,
-        code: 'CONCURRENCY_LIMIT',
-        message: `Your ${plan?.name ?? 'current'} plan allows ${maxConcurrent} simultaneous call${maxConcurrent === 1 ? '' : 's'}. ${active} are already in progress.`,
-      };
-    }
-  }
-
-  // Balance: require headroom for at least one billing increment. Starting a
-  // call with a few paise left just cuts the caller off mid-sentence, which is
-  // a worse experience than a clear refusal up front.
-  const wallet = await getOrCreateWallet(workspaceId);
-  // Same rate the call will actually settle at, so the pre-call balance check
-  // and the post-call charge can never disagree.
-  const { ratePerMinuteCents } = resolveCallRate(await getWalletRate());
-  const planMinutesLeft = subscription && subscription.status === 'active'
-    ? Math.max(0, subscription.minutesIncluded - subscription.minutesUsed)
-    : 0;
-
-  if (planMinutesLeft <= 0) {
-    const available = wallet.balanceCents + wallet.overdraftLimitCents;
-    if (available < ratePerMinuteCents) {
-      return {
-        allowed: false,
-        code: 'INSUFFICIENT_BALANCE',
-        message: available <= 0
-          ? 'Your wallet balance is empty. Add funds to place calls.'
-          : `Your balance (${formatMinor(wallet.balanceCents)}) is below the ${formatMinor(ratePerMinuteCents)} needed for one minute. Add funds to continue.`,
-      };
-    }
-  }
+  /*
+   * Retire calls stuck IN_PROGRESS. A WEB_CALL is only moved off IN_PROGRESS by
+   * the BROWSER (the `ended: true` PATCH in cleanupWebCall), so a closed tab, a
+   * crash or a dropped network leaves the row in progress forever and it shows
+   * as perpetually live in Recent Calls. Nothing can genuinely still be running
+   * past the cutoff. Deliberately NOT settled — the real duration is unknown,
+   * and charging a guess is worse than not charging.
+   *
+   * This used to be a side effect of counting calls for the concurrency limit.
+   * The limit is gone; the reaping still has to happen, so it is explicit now.
+   */
+  reapAbandonedCalls(workspaceId, new Date(Date.now() - STALE_CALL_MS));
 
   return { allowed: true };
 }
 
-/** Agent-count limit, checked at agent creation rather than at call time. */
-export async function assertCanCreateAgent(workspaceId) {
-  const { plan } = await resolveWorkspacePlan(workspaceId);
-  const max = plan?.maxAgents ?? 1;
-  if (max <= 0) return { allowed: true };
-  const count = await prisma.agent.count({ where: { workspaceId } });
-  if (count >= max) {
-    return {
-      allowed: false,
-      code: 'AGENT_LIMIT',
-      message: `Your ${plan?.name ?? 'current'} plan includes ${max} agent${max === 1 ? '' : 's'}. Upgrade to add more.`,
-    };
-  }
+/**
+ * Agent creation is unrestricted.
+ *
+ * Kept as a function rather than deleted because agent.controller.js calls it on
+ * every create; the seam is where a platform-wide cap would go if one is ever
+ * wanted. An agent costs nothing until it takes a call, and the call is gated on
+ * the wallet, so there is nothing to protect here.
+ */
+export async function assertCanCreateAgent() {
   return { allowed: true };
 }

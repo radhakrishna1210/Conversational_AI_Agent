@@ -759,59 +759,14 @@ export const deleteUser = async (req, res) => {
   return res.json({ success: true });
 };
 
-export const changeUserPlan = async (req, res) => {
-  const { planName } = req.body;
-  if (!planName) return res.status(400).json({ error: 'planName is required' });
-
-  const before = await loadUserForAudit(req.params.id);
-  if (!before) return res.status(404).json({ error: 'User not found' });
-
-  let user;
-  try {
-    user = await userMgmt.changeUserPlan(req.params.id, planName);
-  } catch (err) {
-    await writeAudit(req, {
-      action: AUDIT_ACTIONS.USER_PLAN_CHANGE,
-      category: AUDIT_CATEGORIES.USER,
-      targetType: 'User',
-      targetId: req.params.id,
-      targetLabel: before.email,
-      before: userSnapshot(before),
-      metadata: { requestedPlan: planName },
-      status: 'failure',
-      errorMessage: err.message,
-    });
-    return res.status(err.statusCode ?? 500).json({ error: err.message });
-  }
-
-  await writeAudit(req, {
-    action: AUDIT_ACTIONS.USER_PLAN_CHANGE,
-    category: AUDIT_CATEGORIES.USER,
-    targetType: 'User',
-    targetId: req.params.id,
-    targetLabel: before.email,
-    before: userSnapshot(before),
-    after: userSnapshot(user),
-    metadata: { from: before.planName, to: planName },
-  });
-
-  logger.info({ adminId: req.user?.userId, targetId: req.params.id, planName }, 'User plan changed');
-  return res.json({ success: true, user });
-};
-
-/**
- * GET /admin/users/plans
+/*
+ * changeUserPlan and getPlans lived here.
  *
- * Reads the real Plan catalogue rather than a hardcoded list. The previous
- * hardcoded PLANS array (`Free, Starter, Pro, Enterprise`) had drifted from the
- * seeded catalogue (`Free, Starter, Jump Starter, Early Deployers, Growth`),
- * so the plan dropdown offered two plans that do not exist and omitted three
- * that do — and assigning a real plan was rejected by the validator.
+ * Removed with plans: there is nothing to assign a user to. Billing is one
+ * platform rate per talk-minute against the workspace's wallet, so the admin
+ * levers that matter are the rate (Super Admin → Wallet Rate) and crediting a
+ * wallet (Super Admin → Wallets), both of which are audited.
  */
-export const getPlans = async (_req, res) => {
-  const plans = await userMgmt.listAssignablePlans();
-  return res.json({ plans });
-};
 
 /**
  * POST /admin/users/:id/force-logout

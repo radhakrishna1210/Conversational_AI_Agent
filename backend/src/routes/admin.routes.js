@@ -44,12 +44,10 @@ router.get('/workspaces', authenticate, isAdmin, ctrl.listWorkspaces);
 
 // ─── User Management ──────────────────────────────────────────────────────────
 router.get('/users',                    authenticate, isAdmin, ctrl.listUsers);
-router.get('/users/plans',              authenticate, isAdmin, ctrl.getPlans);
 router.get('/users/:id',                authenticate, isAdmin, ctrl.getUserDetail);
 router.patch('/users/:id/ban',          authenticate, isAdmin, ctrl.banUser);
 router.patch('/users/:id/unban',        authenticate, isAdmin, ctrl.unbanUser);
 router.delete('/users/:id',             authenticate, isAdmin, ctrl.deleteUser);
-router.patch('/users/:id/plan',         authenticate, isAdmin, ctrl.changeUserPlan);
 router.post('/users/:id/force-logout',  authenticate, isAdmin, ctrl.forceLogoutUser);
 
 // ─── Security & Audit ─────────────────────────────────────────────────────────
@@ -58,7 +56,6 @@ router.get('/audit-logs/options', authenticate, isAdmin, ctrl.getAuditFilterOpti
 
 // ─── Billing visibility (cross-tenant, read-only) ────────────────────────────
 router.get('/billing/overview',      authenticate, isAdmin, adminBilling.getOverview);
-router.get('/billing/subscriptions', authenticate, isAdmin, adminBilling.listSubscriptions);
 router.get('/billing/payments',      authenticate, isAdmin, adminBilling.listPayments);
 router.get('/billing/invoices',      authenticate, isAdmin, adminBilling.listInvoices);
 router.get('/billing/wallets',       authenticate, isAdmin, adminBilling.listWallets);
@@ -92,9 +89,6 @@ router.get('/appointments', authenticate, isAdmin, listAppointments);
 router.get('/wallet-rate', authenticate, isAdmin, platform.adminGetWalletRate);
 router.put('/wallet-rate', authenticate, isAdmin, platform.adminSetWalletRate);
 
-router.get('/plans', authenticate, isAdmin, platform.adminListPlans);
-router.post('/plans', authenticate, isAdmin, platform.adminUpsertPlan);
-router.delete('/plans/:id', authenticate, isAdmin, platform.adminDeletePlan);
 router.post('/wallets/credit', authenticate, isAdmin, billing.adminCreditWallet);
 // Ledger-vs-balance reconciliation. Surfaces any balance mutated outside
 // applyWalletTransaction, which should be impossible but must be detectable.
