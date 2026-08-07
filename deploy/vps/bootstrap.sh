@@ -11,7 +11,7 @@
 set -euo pipefail
 
 APP_ROOT="/root/apps/convai-voice"
-REPO_URL="${REPO_URL:-https://github.com/radhakrishna1210/Conversational_AI_Agent.git}"
+REPO_URL="${REPO_URL:-https://github.com/HerbsMagic/HM-Voice-agent.git}"
 BRANCH="${DEPLOY_BRANCH:-main}"
 DOMAIN="voice.herbsmagic.in"
 PORT="4300"

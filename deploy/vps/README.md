@@ -43,7 +43,7 @@ propagated. Certbot's HTTP-01 challenge fails without it.
 ```bash
 ssh root@62.72.12.185
 mkdir -p /root/apps/convai-voice
-git clone https://github.com/radhakrishna1210/Conversational_AI_Agent.git /root/apps/convai-voice/repo
+git clone https://github.com/HerbsMagic/HM-Voice-agent.git /root/apps/convai-voice/repo
 bash /root/apps/convai-voice/repo/deploy/vps/bootstrap.sh
 ```
 
