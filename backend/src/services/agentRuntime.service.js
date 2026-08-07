@@ -255,6 +255,23 @@ export async function getAgentKbText(workspaceId, agentId) {
 }
 
 /**
+ * How to SOUND like a person, appended to the Conversation Rules on every spoken
+ * reply regardless of the Filler Words toggle.
+ *
+ * These are separate from NATURAL_SPEECH_RULES below because they are separate
+ * risks. Contractions and varied openers cost nothing and never make an agent
+ * sound less competent, so gating them behind an opt-in toggle only ever
+ * produced the complaint it was meant to prevent: every agent in the product
+ * had the toggle off, so every agent spoke in flat written English and the
+ * naturalness work was invisible. Hesitation ("umm") genuinely can backfire, so
+ * that — and only that — stays behind the toggle.
+ */
+const HUMAN_SPEECH_RULES = `- Talk the way people talk, not the way they write: contractions always ("I'll", "that's", "we've"), short sentences, and it's fine to open with "And", "But" or "So".
+- Vary how you open. Do not begin consecutive replies with the same word, and never open every reply with the caller's name or with "Certainly".
+- React before you answer, the way a person does — a brief "Alright", "Got it", "Sure" or "Right" costs nothing and is most of what makes speech sound human.
+- Never narrate or use stage directions. No "*pauses*", no "(thinking)", no emoji — every character you write is spoken aloud.`;
+
+/**
  * Naturalness rules, appended to the Conversation Rules when the agent's
  * "Filler Words" toggle is on AND the reply is being spoken (never in chat,
  * where a `<break/>` tag would just be visible garbage on screen).
@@ -349,6 +366,7 @@ ${languages.length
 - Ask for at most one piece of information per turn.
 - If the user asks for a human, or the request is outside your configured scope, offer to transfer/escalate.
 - If the caller signals they're finished ("thank you", "thanks, bye", "that's all", "no, that's it"), stop asking questions — warmly acknowledge and wrap up${settings.endCallMessage ? `, closing with: "${settings.endCallMessage}"` : ''}. Never keep interrogating after a clear goodbye.
+${voiceMode ? HUMAN_SPEECH_RULES : ''}
 ${settings.fillerWords && voiceMode ? NATURAL_SPEECH_RULES : ''}
 ${(settings.transferNumber || settings.transferCondition)
     ? `- Escalation/transfer: ${settings.transferCondition ? `When ${String(settings.transferCondition).trim()}, ` : 'If the caller asks for a human or needs something beyond your scope, '}let them know warmly that you'll connect them to a team member and are transferring them now. Never claim the transfer already went through or invent what the other person says.`
@@ -880,9 +898,11 @@ export function warmVoiceTurn(workspaceId, agentId) {
     const settings = safeJson(agent.settings, {});
     getAgentKbText(workspaceId, agentId).catch(() => {});
     const voice = await resolveAgentVoice(agent.voice).catch(() => null);
-    const fillerEnabled = process.env.VOICE_FILLER === 'always'
-      || (settings.fillerWords === true && process.env.VOICE_FILLER !== 'false');
-    if (voice && fillerEnabled) {
+    // Warmed for every agent, not just ones with the Filler Words toggle on:
+    // the ack that uses these clips is no longer gated on that toggle, and a
+    // cold cache means the first turn of the call — the one where the caller is
+    // deciding whether this thing is responsive — silently gets no ack at all.
+    if (voice && process.env.VOICE_FILLER !== 'false') {
       warmFillers(voice, fillerLangFor(settings, agent), Number(settings.speakingRate) || 1.05);
     }
   })().catch(() => {});
@@ -1213,7 +1233,19 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
   // worse. Same signal the reply tone and TTS delivery already adapt to, so the
   // agent stops hesitating exactly when a person would.
   const affectAllowsFiller = affect !== 'rushed' && affect !== 'agitated';
-  if (voice && fillerEnabled && affectAllowsFiller) {
+  // The ack is NOT gated on the Filler Words toggle, and that is the whole
+  // point of it. Measured time-to-first-audio is ~2.4s median / ~5.0s p90, so
+  // with the toggle off — which is every agent in the product — the caller
+  // finishes speaking and hears nothing at all for two to five seconds. That
+  // dead air is most of what "the agent is slow" actually means; the clip
+  // itself is pre-synthesized and cached, so playing it costs nothing and
+  // moves perceived response time to ~400ms without touching real latency.
+  //
+  // It is a plain acknowledgment ("Mm-hmm", "Right"), not a hesitation, so it
+  // carries none of the risk the toggle exists to gate. `fillerEnabled` still
+  // controls the hesitation TIER in the spoken reply — see replyFilterOpts.
+  const ackEnabled = process.env.VOICE_FILLER !== 'false' && affectAllowsFiller;
+  if (voice && ackEnabled && (!fillerBudget || fillerBudget.allowAudioAck())) {
     const fillerDelayMs = Number(process.env.VOICE_FILLER_DELAY_MS) || 400;
     const lang = fillerLangFor(settings, agent);
     fillerTimer = setTimeout(() => {
@@ -1221,6 +1253,10 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
       const f = takeFiller(voice, lang);
       if (!f) { warmFillers(voice, lang, speakingRate); return; } // cold: warm for next turn
       fillerPlayed = true;
+      // The caller has now heard the agent react, so the spoken reply must not
+      // ALSO open with "Alright," — that is the same beat twice. Spending the
+      // turn's opener here is what keeps the two mechanisms from stacking.
+      fillerBudget?.noteAudioAck();
       emit({ type: 'audio-start', contentType: f.contentType });
       emit({ type: 'audio-chunk', data: f.buf.toString('base64') });
       emit({ type: 'audio-end' });
@@ -1288,9 +1324,17 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
       + 'being converted to commas. Use an ElevenLabs voice for controlled pauses.',
     );
   }
+  // `inject` is the FLOOR (see disfluency.js): add an opener when the model
+  // wrote none. Deliberately NOT gated on the Filler Words toggle — the toggle
+  // controls the hesitation tier via allowFiller, and injection falls back to
+  // the safe discourse tier ("Alright,", "Got it,") when that is off. An agent
+  // with the toggle off should still sound like a person; it just should not
+  // say "umm". Needs the call-scoped budget to hold a rate, so it is off for
+  // the one-shot endpoint that has none.
   const replyFilterOpts = {
     allowFiller: fillerEnabled && affectAllowsFiller,
     ssmlBreaks,
+    inject: Boolean(fillerBudget) && affectAllowsFiller,
     ...(fillerBudget ? { budget: fillerBudget } : {}),
   };
 
@@ -1422,13 +1466,44 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
     // splitting every sentence made the voice audibly drift mid-reply. This
     // captures most of the overlap win (first audio ≈ TTFT + one sentence +
     // TTS first-byte instead of full-reply + TTS) with only one seam.
-    const iterator = converseStream(workspaceId, agentId, messages, { voiceMode: true, affect });
+    // HEDGE, NOT RESTART — this is where the 6-second turns came from.
+    //
+    // The old behaviour on a slow first token was to abandon the in-flight
+    // stream and start a fresh buffered call, on the theory that the retry is
+    // "almost always fast". The log says otherwise: those turns are the
+    // `mode:"buffered"` rows, and they land at ~6.0s time-to-first-audio
+    // against ~1.9s for a normal split turn, because the caller pays the full
+    // 2.5s wait AND then a complete second generation. The retry cost more than
+    // the spike it was insuring against.
+    //
+    // So the timeout now starts a SECOND attempt without killing the first, and
+    // whichever produces a token first wins. A genuine spike is still covered
+    // (that was the real motivation), but a first token that was merely a
+    // little late — by far the common case — still arrives on the original
+    // stream instead of being thrown away seconds into its own generation.
+    let iterator = converseStream(workspaceId, agentId, messages, { voiceMode: true, affect });
     let first = null;
+    const primaryNext = iterator.next();
     try {
-      first = await withTimeout(iterator.next(), LLM_FIRST_TOKEN_TIMEOUT_MS);
+      first = await withTimeout(primaryNext, LLM_FIRST_TOKEN_TIMEOUT_MS);
     } catch {
-      iterator.return?.().catch(() => {});
-      logger.warn(`Voice LLM slow first token (>${LLM_FIRST_TOKEN_TIMEOUT_MS}ms) — falling back to buffered call`);
+      logger.warn(`Voice LLM slow first token (>${LLM_FIRST_TOKEN_TIMEOUT_MS}ms) — hedging with a second stream`);
+      const hedge = converseStream(workspaceId, agentId, messages, { voiceMode: true, affect });
+      // Each side swallows its OWN failure into null rather than rejecting, so
+      // one stream erroring fast cannot lose the race for a healthy one that is
+      // simply a moment behind — the exact case the hedge exists to survive.
+      const settle = (p, it, loser) => p.then((value) => ({ value, it, loser }), () => null);
+      const a = settle(primaryNext, iterator, hedge);
+      const b = settle(hedge.next(), hedge, iterator);
+      let won = await Promise.race([a, b]);
+      if (!won) won = (await Promise.all([a, b])).find(Boolean) || null;
+      if (won) {
+        first = won.value;
+        iterator = won.it;
+        // The loser may still be mid-generation; close it so its tokens are
+        // never interleaved into the reply and its connection is released.
+        won.loser.return?.().catch(() => {});
+      }
     }
     if (first && !first.done) {
       llmTtftMs = Math.round(performance.now() - llmStartedAt);
@@ -1504,12 +1579,14 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
     ? Math.round(firstAudioAt - firstTtsTextAt) : null;
   if (fillerTimer) clearTimeout(fillerTimer);
   // `natural` answers "why does this agent still sound robotic?" from the log
-  // alone: 'off' = the agent's Filler Words toggle is not on, so the prompt
-  // never asks for any of it; 'filler-only' = on, but the voice cannot parse
-  // SSML so pauses degraded to commas; 'filler+pauses' = fully active.
-  const naturalMode = !fillerEnabled ? 'off'
-    : !affectAllowsFiller ? `suppressed:${affect}`
-    : ssmlBreaks ? 'filler+pauses' : 'filler-only';
+  // alone. Two independent axes, so it reports both rather than collapsing
+  // them: which TIER is allowed (openers only, or hesitation too — the Filler
+  // Words toggle) and whether pauses survive (the voice must parse SSML; Sarvam
+  // and Google do not, so their breaks degrade to commas).
+  const naturalMode = !affectAllowsFiller ? `suppressed:${affect}`
+    : `${fillerEnabled ? 'hesitation' : 'openers'}`
+      + `${replyFilterOpts.inject ? '+inject' : ''}`
+      + `${ssmlBreaks ? '+pauses' : ''}`;
   const latency = { agentId, sttProvider, llmProvider: provider, model, prepMs, sttMs, voiceWaitMs, llmMs, llmTtftMs, ttsMs, ttsTtfaMs, ttfaMs, totalMs, streamed: true, mode: ttsMode, filler: fillerPlayed, natural: naturalMode };
   logger.info(latency, 'Web call streaming turn latency');
   logTurnLatency(latency);

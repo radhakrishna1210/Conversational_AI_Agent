@@ -185,6 +185,27 @@ describe('filler budget', () => {
     assert.equal(kept, 2);
   });
 
+  it('spends the turn when the transport plays its audio ack', () => {
+    // The caller heard "Mm-hmm" while the LLM worked; the spoken reply must not
+    // then open with "Alright," as well.
+    const budget = createFillerBudget({ everyNOpeners: 2 });
+    budget.nextTurn();
+    assert.ok(budget.allowAudioAck());
+    budget.noteAudioAck();
+    const f = createReplyTextFilter({ ...ssml, inject: true, budget });
+    assert.equal((f.push('We open at nine.') + f.flush()).trim(), 'We open at nine.');
+  });
+
+  it('does not ack on consecutive turns either', () => {
+    const budget = createFillerBudget({ everyNOpeners: 2 });
+    budget.nextTurn();
+    budget.noteAudioAck();
+    budget.nextTurn();
+    assert.equal(budget.allowAudioAck(), false);
+    budget.nextTurn();
+    assert.ok(budget.allowAudioAck());
+  });
+
   it('never repeats the same hesitation sound back-to-back', () => {
     const budget = createFillerBudget({ everyNTurns: 0, maxPerCall: 10 });
     budget.nextTurn();
@@ -193,6 +214,142 @@ describe('filler budget', () => {
     assert.equal(budget.allowHesitation('hmm'), false);
     budget.nextTurn();
     assert.ok(budget.allowHesitation('umm'));
+  });
+});
+
+// ─── Injection (the floor) ────────────────────────────────────────────────────
+
+/** Run N clean replies through one call's budget with injection on. */
+const call = (replies, opts = {}) => {
+  const budget = opts.budget || createFillerBudget();
+  return replies.map((r) => {
+    budget.nextTurn();
+    const f = createReplyTextFilter({ inject: true, budget, ...opts });
+    return (f.push(r) + f.flush()).trim();
+  });
+};
+
+describe('injection', () => {
+  it('adds an opener to replies the model wrote flat — the whole point', () => {
+    // Before the floor existed, every one of these came back byte-identical.
+    const replies = [
+      'We open at nine on weekdays.',
+      'Delivery takes about two days.',
+      'The clinic is on the second floor.',
+      'You can park right outside.',
+      'Our team handles that directly.',
+      'It works with any browser.',
+    ];
+    const out = call(replies, ssml);
+    const changed = out.filter((o, i) => o !== replies[i]).length;
+    assert.ok(changed >= 2, `expected several replies to gain an opener, got ${changed}:\n${out.join('\n')}`);
+  });
+
+  it('never injects in front of a price', () => {
+    const out = call(Array(6).fill('That plan is ₹1,200 a month.'), ssml);
+    assert.deepEqual([...new Set(out)], ['That plan is ₹1,200 a month.']);
+  });
+
+  it('never injects a HESITATION in front of a confirmation', () => {
+    const out = call(Array(8).fill('Your appointment is confirmed for Tuesday.'), {
+      ...ssml, allowFiller: true,
+    });
+    for (const o of out) assert.ok(!/^(Hmm|Umm|Uhh|One sec|Let me see)/.test(o), o);
+  });
+
+  it('leaves a reply that already opens conversationally alone', () => {
+    for (const text of ['Sure, I can do that.', 'Thanks for waiting.', 'Sorry about that.']) {
+      assert.deepEqual([...new Set(call(Array(4).fill(text), ssml))], [text]);
+    }
+  });
+
+  it('reads as one sentence, not two clipped ones', () => {
+    // "Okay. We're open till six" is the naive concatenation and sounds worse
+    // than no opener at all.
+    const out = call(Array(6).fill("We're open till six."), ssml)
+      .filter((o) => o !== "We're open till six.");
+    assert.ok(out.length, 'nothing was injected, so nothing was tested');
+    for (const o of out) assert.match(o, /^\S+.*, <break time="250ms"\/> we're open till six\.$/);
+  });
+
+  it('keeps a capital it cannot vouch for behind a full stop', () => {
+    const out = call(Array(6).fill('Dr Mehta is free at four.'), ssml)
+      .filter((o) => o !== 'Dr Mehta is free at four.');
+    assert.ok(out.length, 'nothing was injected, so nothing was tested');
+    for (const o of out) assert.match(o, /Dr Mehta is free/);   // never "dr Mehta"
+  });
+
+  it('respects the toggle: no hesitation words when allowFiller is off', () => {
+    const out = call(Array(9).fill('We deliver across the city.'), { ...ssml, allowFiller: false });
+    for (const o of out) assert.ok(!/\b(hmm|umm|uhh|one sec|let me see)\b/i.test(o), o);
+    assert.ok(out.some((o) => o !== 'We deliver across the city.'), 'openers should still be added');
+  });
+
+  it('shares one budget with the keep path instead of doubling the rate', () => {
+    const budget = createFillerBudget({ everyNTurns: 3, maxPerCall: 10, everyNOpeners: 2 });
+    // Alternating: the model writes a marker on odd turns, none on even ones.
+    const out = call(
+      ['Right, that works.', 'We open at nine.', 'Right, that works.', 'We open at nine.'],
+      { ...ssml, budget },
+    );
+    // Turn 1 keeps the model's marker, so turn 2 must not have one added on top.
+    assert.match(out[0], /^Right,/);
+    assert.equal(out[1], 'We open at nine.');
+  });
+
+  it('does nothing without a call-scoped budget — rate needs state', () => {
+    const f = createReplyTextFilter({ ...ssml, inject: true });
+    assert.equal((f.push('We open at nine.') + f.flush()).trim(), 'We open at nine.');
+  });
+
+  it('does not inject when the model wrote a marker the budget refused', () => {
+    // The refusal is a decision: replacing it with our own opener would make
+    // the spacing rule buy nothing.
+    const budget = createFillerBudget({ everyNTurns: 3, maxPerCall: 1, everyNOpeners: 0 });
+    budget.nextTurn();
+    assert.ok(budget.allowHesitation('umm'), 'spend the call budget');
+    budget.nextTurn();
+    const f = createReplyTextFilter({ ...ssml, inject: true, budget });
+    const out = (f.push('Hmm, we open at nine.') + f.flush()).trim();
+    assert.equal(out, 'We open at nine.');
+  });
+
+  it('draws from the Hindi list for a Devanagari reply', () => {
+    const out = call(Array(6).fill('डॉक्टर मेहता मंगलवार को उपलब्ध हैं।'), { ssmlBreaks: false })
+      .filter((o) => o !== 'डॉक्टर मेहता मंगलवार को उपलब्ध हैं।');
+    assert.ok(out.length, 'nothing was injected, so nothing was tested');
+    for (const o of out) assert.ok(!/[a-z]/i.test(o), `English opener on a Hindi reply: ${o}`);
+  });
+
+  it('does not repeat the same opener back to back', () => {
+    const out = call(Array(12).fill('We handle that in house.'), ssml)
+      .filter((o) => o !== 'We handle that in house.')
+      .map((o) => o.split(',')[0].split('.')[0]);
+    for (let i = 1; i < out.length; i++) assert.notEqual(out[i], out[i - 1], out.join(' | '));
+  });
+
+  it('converts the injected pause to a comma for a voice without SSML', () => {
+    const out = call(Array(6).fill('We open at nine.'), { ssmlBreaks: false });
+    for (const o of out) assert.ok(!o.includes('<'), o);
+  });
+});
+
+// ─── Hindi false positives ────────────────────────────────────────────────────
+
+describe('Hindi words that merely look like fillers', () => {
+  it('does not eat हम — it is the pronoun "we", not a hesitation', () => {
+    const text = 'हम सुबह नौ बजे से खुले हैं।';
+    assert.equal(filterReplyText(text, ssml), text);
+  });
+
+  it('does not eat हम mid-sentence either', () => {
+    const text = 'जी, हम सुबह नौ बजे से खुले हैं।';
+    assert.match(filterReplyText(text, ssml), /हम सुबह/);
+  });
+
+  it('still strips the real hesitation हम्म', () => {
+    const out = filterReplyText('हम्म, हम सुबह नौ बजे से खुले हैं।', { ...ssml, allowFiller: false });
+    assert.equal(out, 'हम सुबह नौ बजे से खुले हैं।');
   });
 });
 

@@ -16,6 +16,29 @@
  * So the prompt PERMITS fillers and this module GUARANTEES the ceiling. The
  * prompt is the soft signal; the budget below is the hard one.
  *
+ * AND A FLOOR, BECAUSE A CEILING ALONE PRODUCED SILENCE
+ * ----------------------------------------------------
+ * The ceiling only ever had something to trim when the model wrote a filler in
+ * the first place, and in practice it does not. A low-latency model, told to
+ * answer in "1-2 short spoken sentences" and to answer only what was asked,
+ * writes clean prose on essentially every turn — six typical replies through
+ * this module came out byte-identical, budget untouched. Every rule below was
+ * running correctly and the caller heard a robot, because "at most one every
+ * few turns" and "at least one every few turns" are different guarantees and
+ * only the first one was implemented.
+ *
+ * So injection (`inject: true`) is the other half: when a reply arrives with no
+ * marker of its own and the budget says a turn is due, one is added — under
+ * exactly the same rules that govern a model-written one (turn-initial, never
+ * before a number, never the same word twice running, suppressed when the
+ * caller is in a hurry). The two paths share one budget, so a turn the model
+ * opened naturally does not also get an injected opener, and the combined rate
+ * is what the budget says it is rather than the sum of two unaware mechanisms.
+ *
+ * The two tiers are gated differently on purpose — see DISCOURSE vs HESITATION
+ * below. Injecting "Alright," is safe enough to be on by default in voice mode;
+ * injecting "Umm" is not, and stays behind the agent's Filler Words toggle.
+ *
  * THE RULES, AND WHY EACH ONE EXISTS
  * ----------------------------------
  *  1. Turn-initial only. Real hesitation clusters at the start of a turn and
@@ -82,7 +105,12 @@ const HESITATION = [
   // Devanagari hesitations only. Hindi discourse particles (जी, तो, अच्छा) are
   // deliberately absent: they are ordinary polite speech, not hesitation, and
   // stripping them would flatten the register the Hinglish prompt works to get.
-  'अं+', 'हम+', 'उम+', 'एक सेकंड', 'एक मिनट',
+  //
+  // The conjunct forms are load-bearing. "हम+" was matching हम — the ordinary
+  // pronoun "we" — so "हम सुबह नौ बजे खुलते हैं" ("we open at nine") lost its
+  // subject and was spoken to the caller as "सुबह नौ बजे खुलते हैं". The
+  // hesitation is हम्म, with the halant; requiring it cannot match the pronoun.
+  'अं+', 'हम्+म्?', 'उम्+म्?', 'एक सेकंड', 'एक मिनट',
 ];
 
 /**
@@ -94,6 +122,83 @@ const HESITATION = [
 const DISCOURSE = [
   'well', 'so', 'right', 'okay', 'ok', 'actually', 'you know', 'i mean', 'look',
 ];
+
+/**
+ * What INJECTION may add, per tier and script.
+ *
+ * Deliberately not the same lists as HESITATION/DISCOURSE above. Those are
+ * regex fragments describing everything that must be RECOGNISED (including
+ * elongations like "ummmm" and forms nobody would choose deliberately); these
+ * are literal words that must be SPOKEN, so each one is chosen to sound right
+ * coming out of a TTS engine at the head of a sentence.
+ *
+ * The Hindi lists are ordinary spoken particles rather than transliterated
+ * English ones: an agent whose voice is Hindi opening with "Alright" is the
+ * exact robotic tell this is meant to remove.
+ */
+const INJECT_DISCOURSE = {
+  en: ['Alright', 'Okay', 'Right', 'Sure', 'So', 'Well', 'Got it', 'Yeah'],
+  // No "हाँ" — it means "yes", and an unprompted yes in front of a statement
+  // answers a question the caller did not ask.
+  hi: ['जी', 'अच्छा', 'ठीक है', 'तो'],
+};
+const INJECT_HESITATION = {
+  en: ['Hmm', 'Umm', 'Uhh', 'Let me see', 'One sec'],
+  hi: ['अं', 'हम्म', 'एक सेकंड'],
+};
+
+/**
+ * A reply that already opens conversationally gets nothing added — "Alright,
+ * sure, I can do that" is more robotic than the plain version, not less. This
+ * is a wider net than the DISCOURSE list because it also catches openers that
+ * are perfectly natural but are NOT markers ("Thanks", "Sorry", "Perfect"), and
+ * those need no help.
+ */
+const ALREADY_NATURAL_RE = new RegExp(
+  '^(?:sure|absolutely|certainly|of course|yes|yeah|yep|no|nope|not really|got it|'
+  + 'perfect|great|awesome|lovely|nice|alright|all right|okay|ok|right|well|so|'
+  + 'thanks|thank you|sorry|apologies|hi|hello|hey|'
+  + 'जी|अच्छा|ठीक|हाँ|हां|नहीं|ज़रूर|जरूर|माफ़|माफ|नमस्ते|धन्यवाद|शुक्रिया)'
+  + '(?![\\p{L}\\p{N}])',
+  'iu',
+);
+
+/** Script of a reply, used to pick which injection list to draw from. */
+const DEVANAGARI_RE = /[ऀ-ॿ]/;
+
+/**
+ * First words after which the reply can safely be lower-cased so an injected
+ * opener reads as one sentence ("Alright, we're open till six").
+ *
+ * Anything NOT on this list — a proper noun, a product name, a word we simply
+ * do not recognise — gets a full stop instead ("Alright. Dr Mehta is free at
+ * four"), which is still natural speech and can never mangle a name. Guessing
+ * wrong here is visible in the transcript, so the unknown case takes the safe
+ * branch rather than the pretty one.
+ */
+const LOWERCASEABLE_FIRST_WORDS = new Set([
+  'we', 'you', 'your', 'yours', 'it', 'its', "it's", 'that', "that's", 'this',
+  'the', 'a', 'an', 'our', 'ours', 'they', 'their', "they're", 'there', "there's",
+  'here', "here's", 'he', 'she', 'his', 'her', 'let', "let's", 'yes', 'no',
+  'of', 'for', 'to', 'and', 'but', 'so', 'if', 'when', 'while', 'what', "what's",
+  'how', 'why', 'where', 'which', 'who', 'can', 'could', 'would', 'should',
+  'will', 'do', 'does', 'did', 'is', 'are', 'was', 'were', 'have', 'has', 'had',
+  'may', 'might', 'must', 'give', 'just', 'both', 'either', 'any', 'all', 'most',
+  'sorry', 'thanks', 'sure', 'okay',
+]);
+
+/** Words that must keep their capital even mid-sentence. */
+const ALWAYS_CAPITAL_RE = /^I(?:['’]|$)/;
+
+/**
+ * Is this reply delivering a confirmation? Rule 3's other half — "Hmm, the
+ * appointment is confirmed" undoes the confirmation it is announcing, in
+ * exactly the way hesitating in front of a price does. Only the HESITATION tier
+ * is blocked; "Alright, the appointment is confirmed" is fine.
+ */
+const CONFIRMATION_RE = /\b(?:confirm(?:ed)?|booked|reserved|all set|done|scheduled|sorted)\b|बुक|कन्फर्म|पक्का|तय/iu;
+
+const pickRandom = (list) => list[Math.floor(Math.random() * list.length)];
 
 const alt = (list) => list.join('|');
 
@@ -116,7 +221,7 @@ const LEADING_FILLER_RE = new RegExp(
  * mid-sentence; only tokens that can be nothing but hesitation are safe to
  * delete from the middle of a sentence without reading it.
  */
-const MID_HESITATION = ['u+m+', 'u+h+', 'e+r+m*', 'h+m+', 'अं+', 'हम+', 'उम+'];
+const MID_HESITATION = ['u+m+', 'u+h+', 'e+r+m*', 'h+m+', 'अं+', 'हम्+म्?', 'उम्+म्?'];
 const MID_FILLER_RE = new RegExp(
   `([\\p{L}\\p{N},;:])\\s+(?:${alt(MID_HESITATION)})\\s*,?\\s+`,
   'giu',
@@ -178,14 +283,33 @@ function clampBreak(value, unit) {
  * pass none: the per-reply rules still apply, and the LLM's own restraint
  * governs the rate, which is the behaviour that existed before this module.
  *
- * @param {{ everyNTurns?: number, maxPerCall?: number }} [opts]
+ * The budget is shared by BOTH directions — the model wrote a filler and we are
+ * deciding whether to keep it, or the model wrote none and we are deciding
+ * whether to add one. That sharing is the point: two mechanisms each rationing
+ * to "one every few turns" without seeing each other produce twice the rate.
+ *
+ * @param {{ everyNTurns?: number, maxPerCall?: number, everyNOpeners?: number }} [opts]
+ *   everyNOpeners — spacing for the SAFE tier (discourse markers). Tighter than
+ *   everyNTurns because "Alright" carries none of the incompetence signal that
+ *   makes hesitation something to ration; the only failure mode it has is
+ *   sounding like a tic, which the spacing and the no-repeat rule handle.
  */
-export function createFillerBudget({ everyNTurns = 3, maxPerCall = 4 } = {}) {
+export function createFillerBudget({ everyNTurns = 3, maxPerCall = 4, everyNOpeners = 2 } = {}) {
   let turn = 0;
   let used = 0;
   let lastUsedTurn = -Infinity;
   let lastHesitation = '';
   let lastDiscourse = '';
+  let lastOpenerTurn = -Infinity;
+  const recentOpeners = [];   // last few spoken openers, to avoid an audible tic
+
+  /** Record that THIS turn opened with a marker, whoever put it there. */
+  const noteOpener = (key) => {
+    lastOpenerTurn = turn;
+    lastDiscourse = key;
+    recentOpeners.push(key);
+    if (recentOpeners.length > 3) recentOpeners.shift();
+  };
 
   return {
     /** Call once at the start of each agent turn. */
@@ -213,11 +337,68 @@ export function createFillerBudget({ everyNTurns = 3, maxPerCall = 4 } = {}) {
     allowDiscourse(word) {
       const key = String(word || '').toLowerCase();
       if (key && key === lastDiscourse) return false;
-      lastDiscourse = key;
+      // Counts against the INJECTION cadence even though it is unbudgeted
+      // itself: this turn already opens with a marker, so the next turn should
+      // not have one added on top of it.
+      noteOpener(key);
       return true;
     },
 
-    stats() { return { turn, used, maxPerCall, everyNTurns }; },
+    /**
+     * Is this turn due an ADDED opener at all?
+     *
+     * Checked once before either tier is offered the turn, because the spacing
+     * that matters is "did the LAST turn already open with a marker" — and the
+     * hesitation tier tracks only its own history. Without this, a turn the
+     * model opened with "Right," was immediately followed by an injected "Uhh,"
+     * (both cadences were individually satisfied) and the agent opened two
+     * consecutive replies with a marker, which is the tic the spacing exists to
+     * prevent.
+     */
+    openerDue() { return turn - lastOpenerTurn >= everyNOpeners; },
+
+    /**
+     * May the transport play its pre-synthesized "Mm-hmm" while the LLM works?
+     *
+     * Same spacing as a spoken opener, for the same reason — the caller cannot
+     * tell whether the beat they heard was a cached clip or a generated word,
+     * so the two have to ration against one shared history or the agent
+     * acknowledges twice in a row.
+     */
+    allowAudioAck() { return turn - lastOpenerTurn >= everyNOpeners; },
+
+    /** The transport played an ack — this turn has now had its opener. */
+    noteAudioAck() { noteOpener(' ack'); },
+
+    /**
+     * Pick a hesitation to ADD to a reply that has none, or null when this turn
+     * is not due one. Same gates as allowHesitation and the same accounting —
+     * a hesitation is a hesitation whether the model wrote it or we did.
+     */
+    pickHesitation(list = []) {
+      if (!list.length) return null;
+      if (used >= maxPerCall) return null;
+      if (turn - lastUsedTurn < everyNTurns) return null;
+      const fresh = list.filter((w) => w.toLowerCase() !== lastHesitation);
+      const word = pickRandom(fresh.length ? fresh : list);
+      used += 1;
+      lastUsedTurn = turn;
+      lastHesitation = word.toLowerCase();
+      noteOpener(word.toLowerCase());
+      return word;
+    },
+
+    /** Pick a discourse marker to ADD, or null when this turn is not due one. */
+    pickDiscourse(list = []) {
+      if (!list.length) return null;
+      if (turn - lastOpenerTurn < everyNOpeners) return null;
+      const fresh = list.filter((w) => !recentOpeners.includes(w.toLowerCase()));
+      const word = pickRandom(fresh.length ? fresh : list);
+      noteOpener(word.toLowerCase());
+      return word;
+    },
+
+    stats() { return { turn, used, maxPerCall, everyNTurns, everyNOpeners }; },
   };
 }
 
@@ -226,8 +407,79 @@ const PERMISSIVE_BUDGET = {
   nextTurn() {},
   allowHesitation() { return true; },
   allowDiscourse() { return true; },
+  // Injection is refused outright without a call-scoped budget. Rate is the
+  // whole point of adding a filler, and a caller with no per-call state cannot
+  // hold one — so it gets the ceiling-only behaviour that existed before.
+  openerDue() { return false; },
+  allowAudioAck() { return true; },
+  noteAudioAck() {},
+  pickHesitation() { return null; },
+  pickDiscourse() { return null; },
   stats() { return { permissive: true }; },
 };
+
+// ─── Injection ────────────────────────────────────────────────────────────────
+
+/**
+ * Attach an opener to a reply that has none, choosing the join so the result is
+ * a sentence a human would have written.
+ *
+ * The join matters more than it looks. "Alright, We're open till six" is what a
+ * naive concatenation gives you, and it is visibly wrong in the transcript the
+ * caller can read afterwards — so a known function word gets lower-cased and
+ * joined with a comma, while anything unrecognised (a name, a product) keeps
+ * its capital behind a full stop instead. Both are natural speech; only one of
+ * them can mangle a proper noun.
+ */
+function joinOpener(word, rest, { ssmlBreaks }) {
+  const pause = ssmlBreaks ? '<break time="250ms"/> ' : '';
+  const first = (rest.match(/^[\p{L}'’]+/u) || [''])[0];
+
+  // Devanagari is caseless and "I" must stay capital — both join cleanly as-is.
+  if (DEVANAGARI_RE.test(first) || ALWAYS_CAPITAL_RE.test(first)) {
+    return { kept: `${word}, ${pause}`, rest };
+  }
+  // Match on the STEM, not the whole token: "we're", "that's" and "you'll" are
+  // the most common way a spoken reply opens, and looking them up whole missed
+  // every one of them — which is how "Okay. We're open till six" (two clipped
+  // sentences) came out instead of "Okay, we're open till six".
+  const stem = first.toLowerCase().replace(/[’]/g, "'").split("'")[0];
+  if (LOWERCASEABLE_FIRST_WORDS.has(stem)) {
+    return { kept: `${word}, ${pause}`, rest: rest.charAt(0).toLowerCase() + rest.slice(1) };
+  }
+  return { kept: `${word}. ${pause}`, rest };
+}
+
+/**
+ * Decide whether to add an opener to a reply that arrived without one.
+ *
+ * Every refusal here mirrors a rule the model-written path already enforces, so
+ * an injected filler can never land somewhere a kept one would have been
+ * stripped from — in particular never in front of a price, which is the
+ * placement that costs the agent its credibility.
+ *
+ * @returns {{ kept: string, rest: string } | null}
+ */
+function injectOpener(rest, { budget, allowFiller, ssmlBreaks }) {
+  if (!rest || !rest.trim()) return null;
+  if (!budget.openerDue()) return null;
+  // Rule 3, same lookahead as the keep path: nothing in front of a number.
+  if (/[\d₹$€£%]/.test(rest.slice(0, NUMERIC_LOOKAHEAD))) return null;
+  // Already conversational — adding to it stacks markers (rule 2).
+  if (ALREADY_NATURAL_RE.test(rest)) return null;
+
+  const script = DEVANAGARI_RE.test(rest.slice(0, 40)) ? 'hi' : 'en';
+  const hesitationOk = allowFiller && !CONFIRMATION_RE.test(rest.slice(0, NUMERIC_LOOKAHEAD));
+
+  // Hesitation first when it is allowed AND due: it is the rarer of the two, so
+  // offering it the turn first is what keeps it from being permanently crowded
+  // out by the tighter discourse cadence.
+  const word = (hesitationOk ? budget.pickHesitation(INJECT_HESITATION[script]) : null)
+    || budget.pickDiscourse(INJECT_DISCOURSE[script]);
+  if (!word) return null;
+
+  return joinOpener(word, rest, { ssmlBreaks });
+}
 
 // ─── Head rules ───────────────────────────────────────────────────────────────
 
@@ -235,12 +487,14 @@ const PERMISSIVE_BUDGET = {
  * Apply rules 1-4 to the opening of a reply.
  *
  * @param {string} head
- * @param {{ allowFiller: boolean, budget: object, ssmlBreaks: boolean }} ctx
+ * @param {{ allowFiller: boolean, budget: object, ssmlBreaks: boolean, inject: boolean }} ctx
+ *   inject — may an opener be ADDED when the model wrote none? Off by default,
+ *   so a caller that only wants the ceiling keeps the exact behaviour it had.
  * @returns {{ kept: string, rest: string }} `kept` is the opener to emit
  *   verbatim (never re-scanned for mid-sentence fillers, or it would delete
  *   itself); `rest` is the remainder, still subject to the other rules.
  */
-export function applyHeadRules(head, { allowFiller = true, budget = PERMISSIVE_BUDGET, ssmlBreaks = false } = {}) {
+export function applyHeadRules(head, { allowFiller = true, budget = PERMISSIVE_BUDGET, ssmlBreaks = false, inject = false } = {}) {
   let rest = head;
   let kept = '';
   // Once a filler has been TURNED DOWN, no later one in the same reply may take
@@ -298,6 +552,14 @@ export function applyHeadRules(head, { allowFiller = true, budget = PERMISSIVE_B
   }
 
   if (!kept) rest = recapitalize(rest.replace(/^[\s,.…!—–-]+/, ''));
+
+  // Nothing survived the peel (or there was nothing to peel) — this is the turn
+  // the floor exists for. `rejected` is respected: a marker the budget just
+  // turned down must not be replaced by one we chose ourselves.
+  if (!kept && inject && !rejected) {
+    const added = injectOpener(rest, { budget, allowFiller, ssmlBreaks });
+    if (added) return added;
+  }
   return { kept, rest };
 }
 
@@ -311,12 +573,14 @@ export function applyHeadRules(head, { allowFiller = true, budget = PERMISSIVE_B
  * the buffered fallback) instead of each having its own idea of what a filler
  * is. Feed it raw deltas; it returns text that is safe to speak.
  *
- * @param {{ allowFiller?: boolean, ssmlBreaks?: boolean, budget?: object }} opts
+ * @param {{ allowFiller?: boolean, ssmlBreaks?: boolean, budget?: object, inject?: boolean }} opts
  *   ssmlBreaks — does the TTS provider actually parse SSML? When false, pause
  *   tags are converted back to commas rather than passed on to be spoken aloud.
+ *   inject — add an opener when the model wrote none (needs a call-scoped
+ *   budget; see createFillerBudget).
  * @returns {{ push(delta: string): string, flush(): string }}
  */
-export function createReplyTextFilter({ allowFiller = true, ssmlBreaks = false, budget = PERMISSIVE_BUDGET } = {}) {
+export function createReplyTextFilter({ allowFiller = true, ssmlBreaks = false, budget = PERMISSIVE_BUDGET, inject = false } = {}) {
   let head = '';
   let headDone = false;
   let carry = '';        // trailing partial tag held until it completes
@@ -354,7 +618,7 @@ export function createReplyTextFilter({ allowFiller = true, ssmlBreaks = false, 
     // flush() — push() has already split any partial into `carry` — and the
     // alternative is speaking "<break tim" to the caller.
     head = head.replace(PARTIAL_TAG_RE, '');
-    const { kept, rest } = applyHeadRules(head, { allowFiller, budget, ssmlBreaks });
+    const { kept, rest } = applyHeadRules(head, { allowFiller, budget, ssmlBreaks, inject });
     head = '';
     // `kept` bypasses body(): it already carries its own pause, and running the
     // mid-sentence rule over it would strip the filler we just decided to keep.
@@ -411,4 +675,5 @@ export function filterReplyText(text, opts = {}) {
 export const __testing = {
   HEAD_CHARS, MAX_BREAK_MS, MIN_BREAK_MS, MAX_BREAKS_PER_REPLY,
   LEADING_FILLER_RE, MID_FILLER_RE, BREAK_RE, tidy, clampBreak,
+  INJECT_DISCOURSE, INJECT_HESITATION, ALREADY_NATURAL_RE, joinOpener,
 };
