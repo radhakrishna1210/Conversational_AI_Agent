@@ -68,6 +68,8 @@ export function useSmoothScroll(): React.MutableRefObject<SmoothScrollApi> {
     });
     lenisRef.current = lenis;
 
+    // Every Lenis step ends by telling ScrollTrigger where the page now is, in
+    // the same frame, before anything paints.
     lenis.on('scroll', ScrollTrigger.update);
 
     // GSAP's ticker is already running for every other tween on the page;
@@ -78,7 +80,8 @@ export function useSmoothScroll(): React.MutableRefObject<SmoothScrollApi> {
 
     // Lag smoothing exists to skip animation forward after the main thread
     // stalls. On a scroll-scrubbed page that produces a jump to a scroll
-    // position the user never scrolled to, so it is off while Lenis is driving.
+    // position the reader never scrolled to, so it is off while Lenis is
+    // driving the page.
     gsap.ticker.lagSmoothing(0);
 
     return () => {

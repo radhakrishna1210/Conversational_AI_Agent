@@ -1214,11 +1214,150 @@ html.light .lp-tape-bar[data-spoken='false'] { background: rgba(15, 23, 42, 0.11
 .lp-close .lp-lede { max-width: 46ch; }
 .lp-close .lp-cta-row { justify-content: center; }
 
+/* ═══ SCROLL RIG ═════════════════════════════════════════════════════════════
+   The canvas, the section wipes, and the handover of the reveal system from
+   CSS transitions to GSAP. See components/home/useLandingMotion.
+   ══════════════════════════════════════════════════════════════════════════ */
+
+/* While GSAP is driving, it writes inline transforms and opacity every frame.
+   Leaving the CSS transition on would have the browser easing toward each of
+   those per-frame values in turn — two easings stacked, which reads as lag.
+   The class is added by useLandingMotion and only under full motion, so the
+   CSS transitions above remain the behaviour whenever GSAP is not running. */
+.lp-motion .lp-reveal { transition: none; }
+
+/* ── Hero canvas ────────────────────────────────────────────────────────── */
+
+.lp-canvas-stage {
+  position: absolute;
+  inset: 0;
+  z-index: 0;          /* above .lp-aurora (-1), below the copy (1) */
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.lp-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+  /* Held back until the source reports ready, so a half-decoded first frame
+     is never the thing that greets the page. */
+  opacity: 0;
+  transition: opacity 0.6s var(--lp-ease-out);
+}
+.lp-canvas.is-ready { opacity: 1; }
+
+/* Determinate loader. Invisible in practice with the procedural source, which
+   is ready on its first paint — this is for the image-sequence path, where a
+   couple of megabytes of frames are being fetched. */
+.lp-canvas-loader {
+  position: absolute;
+  left: 50%;
+  bottom: 34px;
+  width: min(180px, 40vw);
+  height: 2px;
+  transform: translateX(-50%);
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.lp-canvas-loader i {
+  display: block;
+  height: 100%;
+  background: var(--lp-live);
+  transform: scaleX(var(--fill, 0));
+  transform-origin: left;
+  transition: transform 0.25s linear;
+}
+
+/* The hero copy has to sit above the canvas. .lp-hero already isolates, so
+   this z-index cannot escape the section. */
+.lp-hero > .lp-wrap { position: relative; z-index: 1; }
+
+/* A pinned hero is position:fixed and must not paint over the sticky navbar's
+   translucent backdrop; 90 is the navbar's layer. */
+.lp-hero { z-index: 1; }
+
+/* ── The pinned hero ────────────────────────────────────────────────────────
+   Once pinned, the hero has exactly one viewport to work with and no way to
+   scroll: whatever does not fit under the navbar is unreachable, because the
+   pin consumes the scroll that would have revealed it. So under .lp-motion the
+   hero stops being "content plus generous padding" and becomes a box sized to
+   the space that actually exists, with its content centred in it.
+
+   --lp-header is published by useLandingMotion from the live navbar height and
+   refreshed whenever ScrollTrigger re-measures. svh rather than vh so mobile
+   browser chrome is accounted for; the vh line is the fallback for anything
+   that does not know svh. */
+.lp-motion .lp-hero {
+  min-height: calc(100vh - var(--lp-header, 0px));
+  min-height: calc(100svh - var(--lp-header, 0px));
+  display: flex;
+  align-items: center;
+  padding-top: clamp(20px, 3.5vh, 56px);
+  padding-bottom: clamp(20px, 3.5vh, 56px);
+}
+.lp-motion .lp-hero > .lp-wrap { width: 100%; }
+
+/* ── Section wipes ──────────────────────────────────────────────────────────
+   A curtain in the page colour hung across each section's leading edge and
+   drawn up on scroll, so one section resolves into the next instead of
+   butting against it. scaleY on a gradient — no clip-path, no mask, no
+   repaint: this sits on eight section boundaries and has to be free. */
+
+.lp-sec,
+.lp-close { position: relative; }
+
+.lp-wipe {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  height: clamp(120px, 18vh, 260px);
+  transform-origin: top;
+  transform: scaleY(0);   /* GSAP raises it to 1 and scrubs it back down */
+  background: linear-gradient(to bottom, var(--bg-primary) 38%, transparent);
+  pointer-events: none;
+  z-index: 2;
+  will-change: transform;
+}
+
+/* Only meaningful while GSAP is scrubbing it. Without the rig the curtain
+   would sit at scaleY(0) anyway, but not painting it at all is cheaper and
+   removes any chance of a stray hairline over the section border. */
+.lp:not(.lp-motion) .lp-wipe { display: none; }
+
+/* ── Pinned sections ────────────────────────────────────────────────────────
+   Same constraint as the pinned hero: a section that is held cannot be
+   scrolled, so anything taller than the space under the navbar is unreachable
+   while the pin lasts. useLandingMotion measures each candidate and only pins
+   the ones that fit — this trims the generous section padding so the pricing
+   section is one of them. It missed by three pixels otherwise, and silently
+   fell back to scrolling normally.
+
+   Sections that still do not fit after this (the six-card services grid, which
+   is ~970px) keep their reveal choreography and play it against natural
+   scroll. Nothing is hidden either way. */
+.lp-motion [data-pin-section] {
+  padding-top: clamp(44px, 6vh, 88px);
+  padding-bottom: clamp(44px, 6vh, 88px);
+}
+.lp-motion [data-pin-section] .lp-head { margin-bottom: clamp(24px, 3vh, 40px); }
+
 /* ── Reduced motion ─────────────────────────────────────────────────────────
    Everything above collapses to a static, fully-visible page. Reveals resolve
-   rather than being disabled, so nothing is stranded invisible. */
+   rather than being disabled, so nothing is stranded invisible.
+
+   This is the stylesheet half of the opt-out. The other half is in
+   useLandingMotion, where the entire scroll rig — Lenis, every pin, every
+   scrub — is inside a gsap.matchMedia() keyed on the same query and is
+   therefore never constructed at all. */
 
 @media (prefers-reduced-motion: reduce) {
+  /* The canvas paints one settled frame and then never moves. */
+  .lp-canvas { opacity: 1; transition: none; }
+  .lp-wipe { display: none; }
+
   .lp-reveal { opacity: 1; transform: none; transition: none; }
   .lp-word > span { transform: none; transition: none; }
   .lp-meter { opacity: 1; transform: none; transition: none; }

@@ -48,6 +48,38 @@ export interface LandingMotionOptions {
   layoutKey: unknown;
 }
 
+export interface LandingMotion {
+  /** Index of the beat the reader is currently in — drives the fixed rail. */
+  activeBeat: number;
+  /**
+   * True when the scroll rig is allowed to run. Home renders this as the
+   * `lp-motion` class rather than the hook adding it with classList.
+   *
+   * That is not a style preference. React owns className on that element, and
+   * it rewrites the attribute whenever the prop changes — the hero's load
+   * choreography flips `lp-lit` about 40ms after mount, which silently wiped a
+   * class added imperatively before it. Anything React might overwrite has to
+   * come from React.
+   */
+  enabled: boolean;
+}
+
+/** Live-updating match for the motion preference, so flipping the OS setting
+ *  mid-session takes effect without a reload. */
+function useMotionEnabled(): boolean {
+  const [enabled, setEnabled] = useState(
+    () => typeof window === 'undefined' || window.matchMedia(FULL_MOTION).matches,
+  );
+  useEffect(() => {
+    const query = window.matchMedia(FULL_MOTION);
+    const sync = () => setEnabled(query.matches);
+    query.addEventListener('change', sync);
+    sync();
+    return () => query.removeEventListener('change', sync);
+  }, []);
+  return enabled;
+}
+
 export function useLandingMotion({
   rootRef,
   heroRef,
@@ -55,8 +87,22 @@ export function useLandingMotion({
   sectionRefs,
   ready,
   layoutKey,
-}: LandingMotionOptions): number {
+}: LandingMotionOptions): LandingMotion {
   const [activeBeat, setActiveBeat] = useState(0);
+  const enabled = useMotionEnabled();
+
+  /* The pinned hero sizes itself to the space left under the sticky navbar, so
+     the height has to reach CSS before the hero is laid out — not when the
+     rig starts, which is a canvas-preload later. Published here, on mount, and
+     kept current on resize. */
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const publish = () => root.style.setProperty('--lp-header', `${stickyHeaderHeight()}px`);
+    publish();
+    window.addEventListener('resize', publish, { passive: true });
+    return () => window.removeEventListener('resize', publish);
+  }, [rootRef, enabled]);
 
   useEffect(() => {
     const root = rootRef.current;
@@ -75,14 +121,20 @@ export function useLandingMotion({
            to that pair of braces, and it also covers the case where the
            setting is switched on after the page has already animated. */
         if (!full) {
-          gsap.set(root.querySelectorAll('.lp-reveal'), { opacity: 1, y: 0, x: 0, clearProps: 'transform' });
-          root.querySelectorAll('.lp-reveal').forEach((el) => el.classList.add('is-in'));
+          const revealed = root.querySelectorAll<HTMLElement>('.lp-reveal');
+          gsap.set(revealed, { opacity: 1, clearProps: 'transform' });
+          revealed.forEach((el) => el.classList.add('is-in'));
           root.style.setProperty('--lp-progress', '1');
           canvasRef.current?.draw(1); // The settled frame — a call that ended.
           return;
         }
 
-        root.classList.add('lp-motion');
+        // Re-measured on every refresh too: a font load or a dismissed
+        // announcement bar changes the chrome's height, and the hero is sized
+        // against it.
+        const publishHeaderHeight = () =>
+          root.style.setProperty('--lp-header', `${stickyHeaderHeight()}px`);
+        ScrollTrigger.addEventListener('refreshInit', publishHeaderHeight);
 
         /* ── 1. The rail ────────────────────────────────────────────────────
            One trigger spanning the page writes a custom property; the rail's
@@ -112,12 +164,22 @@ export function useLandingMotion({
            top of Lenis', and the frame would visibly trail the scrollbar. */
         const hero = heroRef.current;
         if (hero) {
+          /* The pinned hero is sized by CSS to the space under the navbar, but
+             on a short viewport its content can still be taller than that — a
+             stacked layout on a laptop in landscape, say. Pinning then would
+             put the spec strip permanently below the fold with no scroll left
+             to reach it, because the pin consumes it. So the fit is measured,
+             and a hero that does not fit scrubs its canvas against natural
+             scroll instead of being held. */
+          const heroFits =
+            hero.getBoundingClientRect().height <= window.innerHeight - stickyHeaderHeight() + 1;
+
           ScrollTrigger.create({
             trigger: hero,
             start: () => `top ${stickyHeaderHeight()}px`,
             end: () => `+=${window.innerHeight * 1.15}`,
-            pin: true,
-            pinSpacing: true,
+            pin: heroFits,
+            pinSpacing: heroFits,
             scrub: true,
             anticipatePin: 1,
             invalidateOnRefresh: true,
@@ -125,43 +187,71 @@ export function useLandingMotion({
             onRefresh: (self) => canvasRef.current?.draw(self.progress),
           });
 
-          // The copy drifts up and dims as the call plays out beneath it, so
-          // the hero hands over to the next section instead of cutting.
-          gsap.to(hero.querySelector('.lp-hero-copy'), {
-            y: -46,
-            opacity: 0.32,
-            ease: 'none',
-            scrollTrigger: {
-              trigger: hero,
-              start: () => `top ${stickyHeaderHeight()}px`,
-              end: () => `+=${window.innerHeight * 1.15}`,
-              scrub: true,
-              invalidateOnRefresh: true,
+          /* The copy drifts up and dims as the call plays out beneath it, so
+             the hero hands over to the next section instead of cutting.
+
+             fromTo with immediateRender:false, not to(). A scrubbed to() tween
+             renders at progress 0 the moment it is created, which captures
+             whatever opacity these elements happen to have *at that instant*
+             and writes it inline. Both of them are mid-entrance at that point
+             — the hero's load choreography fades .lp-meter in from 0 — so a
+             to() tween can capture 0 and pin the meter invisible, since inline
+             styles beat the .lp-lit class that was about to reveal it.
+             immediateRender:false means nothing is written until the reader
+             actually scrolls, by which time the entrance has finished. */
+          gsap.fromTo(
+            hero.querySelector('.lp-hero-copy'),
+            { y: 0, opacity: 1 },
+            {
+              y: -46,
+              opacity: 0.32,
+              ease: 'none',
+              immediateRender: false,
+              scrollTrigger: {
+                trigger: hero,
+                start: () => `top ${stickyHeaderHeight()}px`,
+                end: () => `+=${window.innerHeight * 1.15}`,
+                scrub: true,
+                invalidateOnRefresh: true,
+              },
             },
-          });
+          );
 
           // The meter holds longer — it is the thing the hero is about — then
           // lifts away with a touch of scale so the layers separate in depth.
-          gsap.to(hero.querySelector('.lp-meter'), {
-            y: -18,
-            scale: 0.94,
-            opacity: 0.4,
-            ease: 'none',
-            scrollTrigger: {
-              trigger: hero,
-              start: () => `top+=${window.innerHeight * 0.35} ${stickyHeaderHeight()}px`,
-              end: () => `+=${window.innerHeight * 0.8}`,
-              scrub: true,
-              invalidateOnRefresh: true,
-            },
-          });
-
-          // Parallax on the aurora: each blob at its own rate, so the backdrop
-          // has depth rather than sliding as one sheet.
-          hero.querySelectorAll<HTMLElement>('.lp-aurora span').forEach((blob, i) => {
-            gsap.to(blob, {
-              yPercent: [14, 26, 8][i] ?? 14,
+          gsap.fromTo(
+            hero.querySelector('.lp-meter'),
+            { y: 0, scale: 1, opacity: 1 },
+            {
+              y: -18,
+              scale: 0.94,
+              opacity: 0.4,
               ease: 'none',
+              immediateRender: false,
+              scrollTrigger: {
+                trigger: hero,
+                start: () => `top+=${window.innerHeight * 0.35} ${stickyHeaderHeight()}px`,
+                end: () => `+=${window.innerHeight * 0.8}`,
+                scrub: true,
+                invalidateOnRefresh: true,
+              },
+            },
+          );
+
+          /* Parallax on the aurora, applied to the container rather than to
+             the three blobs inside it. The blobs each run a long CSS keyframe
+             drift, and a running CSS animation overrides inline styles — so a
+             yPercent written onto a blob by GSAP would simply never paint.
+             Moving their shared parent composes with the drift instead of
+             fighting it, and the hero still reads as layered: backdrop, canvas
+             and copy each travel at a different rate. */
+          gsap.fromTo(
+            hero.querySelector('.lp-aurora'),
+            { yPercent: 0 },
+            {
+              yPercent: 18,
+              ease: 'none',
+              immediateRender: false,
               scrollTrigger: {
                 trigger: hero,
                 start: 'top top',
@@ -169,8 +259,8 @@ export function useLandingMotion({
                 scrub: true,
                 invalidateOnRefresh: true,
               },
-            });
-          });
+            },
+          );
         }
 
         /* ── 3. Reveals ─────────────────────────────────────────────────────
@@ -218,47 +308,88 @@ export function useLandingMotion({
           );
         });
 
-        /* ── 5. Content-heavy sections ──────────────────────────────────────
-           The heading column holds while its content travels past. Only where
-           there is vertical room — see PINNABLE. */
-        if (pinnable) {
-          root.querySelectorAll<HTMLElement>('[data-pin-head]').forEach((section) => {
-            const head = section.querySelector<HTMLElement>('.lp-head, .lp-settle > :first-child');
-            const body = section.querySelector<HTMLElement>('[data-pin-body]');
-            if (!head || !body) return;
+        /* ── 5. Pinned sections ─────────────────────────────────────────────
+           Two different patterns, because the two sections have different
+           shapes and one pattern does not fit both.
 
-            ScrollTrigger.create({
-              trigger: section,
-              // The head parks just under the sticky navbar, with a little air.
-              start: () => `top ${stickyHeaderHeight() + 88}px`,
-              // Release as the last of the body clears, never later — a pin
-              // that outlives its content leaves a dead scroll region.
-              endTrigger: body,
-              end: () => `bottom ${stickyHeaderHeight() + 220}px`,
-              pin: head,
-              pinSpacing: false,
-              invalidateOnRefresh: true,
-            });
+           [data-pin-section] — the whole section holds while its cards deal
+           themselves in. Only viable while the section actually fits between
+           the navbar and the bottom of the viewport; a pinned block taller
+           than its viewport has its overflow permanently off-screen and
+           unreachable, since the pin consumes the scroll that would reveal it.
+           So it is measured, not assumed, and falls back to a plain scrubbed
+           reveal when it does not fit. The measurement is inside a function-
+           form guard so `invalidateOnRefresh` re-runs it after a resize.
 
-            // A slow lift on the body against the held head. Small on purpose:
-            // this is depth, not a second animation competing with the reveals.
-            gsap.fromTo(
-              body,
-              { y: 34 },
-              {
-                y: -18,
-                ease: 'none',
-                scrollTrigger: {
+           Sections marked for pinning also get their vertical padding trimmed
+           by the stylesheet under .lp-motion, which is what brings the pricing
+           section inside the viewport; without it, it missed by three pixels
+           and silently fell back to the unpinned path. */
+        root.querySelectorAll<HTMLElement>('[data-pin-section]').forEach((section) => {
+          const cards = section.querySelector<HTMLElement>('[data-pin-body]');
+          if (!cards) return;
+
+          // Does the section fit between the navbar and the bottom of the
+          // viewport? Measured rather than assumed: a pinned block taller than
+          // its viewport has its overflow permanently off-screen, because the
+          // pin consumes exactly the scroll that would have revealed it.
+          const pinned =
+            pinnable &&
+            section.getBoundingClientRect().height <=
+              window.innerHeight - stickyHeaderHeight() - 24;
+
+          // Array.from rather than the live HTMLCollection: the tween should
+          // hold the set of children as it was when the timeline was built,
+          // not a collection that would silently change under it if the list
+          // ever became dynamic.
+          const reveal = gsap.fromTo(
+            Array.from(cards.children),
+            { y: 56, opacity: 0 },
+            {
+              y: 0,
+              opacity: 1,
+              ease: 'power2.out',
+              stagger: pinned ? 0.16 : 0.12,
+              duration: 1,
+              // immediateRender is left on (the fromTo default) so the cards
+              // are already hidden when the trigger is reached. Deferring it
+              // would leave them painted at rest and then snap them back to
+              // y:56 the instant the section crossed the start line.
+            },
+          );
+
+          // The choreography is the same either way; the pin only changes what
+          // the reader is looking at while it plays. Where the section cannot
+          // be held, it plays against natural scroll instead.
+          ScrollTrigger.create(
+            pinned
+              ? {
+                  animation: reveal,
                   trigger: section,
-                  start: 'top bottom',
-                  end: 'bottom top',
-                  scrub: 1.2,
+                  start: () => `top ${stickyHeaderHeight()}px`,
+                  end: () => `+=${window.innerHeight * 0.9}`,
+                  pin: true,
+                  pinSpacing: true,
+                  scrub: 0.6,
+                  anticipatePin: 1,
+                  invalidateOnRefresh: true,
+                }
+              : {
+                  animation: reveal,
+                  trigger: cards,
+                  start: 'top 88%',
+                  end: 'bottom 70%',
+                  scrub: 0.8,
                   invalidateOnRefresh: true,
                 },
-              },
-            );
-          });
-        }
+          );
+        });
+
+        /* An earlier version pinned just the pricing section's left column
+           while the right one travelled past. Measured, the two columns are
+           455px and 437px — near enough identical, so the "pinned" column
+           would have been held for eighteen pixels of travel. Nothing to hold
+           against, so the whole section pins instead, above. */
 
         /* ── 6. Count-ups ───────────────────────────────────────────────────
            Applied to the hero spec strip only. Every rupee figure on this page
@@ -301,7 +432,7 @@ export function useLandingMotion({
           );
         }
 
-        return () => root.classList.remove('lp-motion');
+        return () => ScrollTrigger.removeEventListener('refreshInit', publishHeaderHeight);
       },
     );
 
@@ -319,5 +450,5 @@ export function useLandingMotion({
     return () => window.clearTimeout(id);
   }, [ready, layoutKey]);
 
-  return activeBeat;
+  return { activeBeat, enabled };
 }

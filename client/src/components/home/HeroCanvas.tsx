@@ -151,21 +151,28 @@ const HeroCanvas = forwardRef<HeroCanvasHandle, Props>(function HeroCanvas({ onR
     const source = createHeroFrameSource();
     sourceRef.current = source;
 
+    const open = (painted: boolean) => {
+      if (controller.signal.aborted) return;
+      readyRef.current = painted;
+      setReady(true);
+      if (painted) paint();
+      // Always reported, even when the artwork failed. The parent holds the
+      // whole scroll rig — pins, reveals, the lot — until this fires, and the
+      // page's actual content must never be hostage to a decorative canvas:
+      // a source that cannot load would otherwise leave every .lp-reveal
+      // sitting at opacity 0 with no scroll rig alive to reveal it.
+      onReady?.();
+    };
+
     source
       .load((fraction) => {
         if (!controller.signal.aborted) setLoaded(fraction);
       }, controller.signal)
-      .then(() => {
-        if (controller.signal.aborted) return;
-        readyRef.current = true;
-        setReady(true);
-        paint();
-        onReady?.();
-      })
-      .catch(() => {
-        // Aborted by unmount, or the sequence could not be fetched. Either way
-        // there is nothing to show and nothing to report — the hero is
-        // decorative, and the copy underneath it stands on its own.
+      .then(() => open(true))
+      .catch((error: unknown) => {
+        // Aborted by unmount is not a failure; anything else means we scroll
+        // without artwork.
+        if ((error as { name?: string })?.name !== 'AbortError') open(false);
       });
 
     return () => controller.abort();

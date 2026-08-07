@@ -273,15 +273,19 @@ export class ProceduralCallSource implements FrameSource {
   private maskForCopy(ctx: CanvasRenderingContext2D, w: number, h: number, narrow: boolean) {
     ctx.globalCompositeOperation = 'destination-out';
 
+    // Reaches further and stays stronger for longer than a plain linear ramp:
+    // measured against the hero at 1440px, a 60%-width ramp still left the
+    // waveform at about half strength directly behind the lede.
+    const span = narrow ? h * 0.56 : w * 0.68;
     const fade = narrow
-      ? ctx.createLinearGradient(0, 0, 0, h * 0.52)
-      : ctx.createLinearGradient(0, 0, w * 0.6, 0);
-    fade.addColorStop(0, 'rgba(0,0,0,0.94)');
-    fade.addColorStop(0.55, 'rgba(0,0,0,0.55)');
+      ? ctx.createLinearGradient(0, 0, 0, span)
+      : ctx.createLinearGradient(0, 0, span, 0);
+    fade.addColorStop(0, 'rgba(0,0,0,0.97)');
+    fade.addColorStop(0.6, 'rgba(0,0,0,0.72)');
     fade.addColorStop(1, 'rgba(0,0,0,0)');
 
     ctx.fillStyle = fade;
-    ctx.fillRect(0, 0, narrow ? w : w * 0.6, narrow ? h * 0.52 : h);
+    ctx.fillRect(0, 0, narrow ? w : span, narrow ? span : h);
     ctx.globalCompositeOperation = 'source-over';
   }
 }

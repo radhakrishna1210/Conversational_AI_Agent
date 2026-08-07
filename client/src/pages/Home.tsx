@@ -438,7 +438,7 @@ export default function Home() {
   const onCanvasReady = useCallback(() => setCanvasReady(true), []);
 
   const scroll = useSmoothScroll();
-  const activeBeat = useLandingMotion({
+  const { activeBeat, enabled: motionEnabled } = useLandingMotion({
     rootRef: pageRef,
     heroRef,
     canvasRef,
@@ -482,8 +482,15 @@ export default function Home() {
 
   const setSection = (i: number) => (el: HTMLElement | null) => { sectionRefs.current[i] = el; };
 
+  /* lp-motion is rendered from state rather than added by the scroll rig with
+     classList: React rewrites className whenever this prop changes, and lp-lit
+     flipping ~40ms after mount was silently dropping the imperatively added
+     class — taking the pinned hero's sizing with it. */
   return (
-    <div className={`lp${lit ? ' lp-lit' : ''}`} ref={pageRef}>
+    <div
+      className={`lp${lit ? ' lp-lit' : ''}${motionEnabled ? ' lp-motion' : ''}`}
+      ref={pageRef}
+    >
 
       {/* Fixed rail — a scrubber for the call the page describes. */}
       <nav className="lp-timeline" aria-label="Page sections">
@@ -585,6 +592,9 @@ export default function Home() {
 
       {/* ═══ 00:02 — it has to sound like a person first ═══ */}
       <section className="lp-sec" data-beat ref={setSection(1)}>
+        {/* Scrubbed curtain across the seam. A scaleY on a gradient, so the
+            transition between sections is compositor work, not a repaint. */}
+        <i className="lp-wipe" aria-hidden="true" />
         <div className="lp-sec-inner">
           <div className="lp-head lp-reveal">
             <span className="lp-stamp">
@@ -641,7 +651,10 @@ export default function Home() {
       </section>
 
       {/* ═══ 00:20 — the work ═══ */}
-      <section className="lp-sec" data-beat ref={setSection(2)}>
+      {/* Pinned where the viewport is tall enough to hold it — see the
+          [data-pin-section] note in useLandingMotion. */}
+      <section className="lp-sec" data-beat data-pin-section ref={setSection(2)}>
+        <i className="lp-wipe" aria-hidden="true" />
         <div className="lp-sec-inner">
           <div className="lp-head lp-reveal">
             <span className="lp-stamp">
@@ -655,7 +668,10 @@ export default function Home() {
             </p>
           </div>
 
-          <div className="lp-cards lp-reveal">
+          {/* Deliberately not .lp-reveal: the cards are dealt in individually
+              by the pin's scrubbed stagger, and a container fade on top of
+              that would animate the same pixels twice. */}
+          <div className="lp-cards" data-pin-body>
             {SERVICES.map((s) => (
               <div className="lp-card" key={s.title} onMouseMove={trackPointer}>
                 <span className="lp-card-icon"><s.icon size={18} /></span>
@@ -684,6 +700,7 @@ export default function Home() {
 
       {/* ═══ 01:45 — the handoff ═══ */}
       <section className="lp-sec" data-beat ref={setSection(3)}>
+        <i className="lp-wipe" aria-hidden="true" />
         <div className="lp-sec-inner">
           <div className="lp-head lp-reveal">
             <span className="lp-stamp">
@@ -727,7 +744,10 @@ export default function Home() {
       </section>
 
       {/* ═══ SETTLE — the wallet ═══ */}
-      <section className="lp-sec" id="pricing" data-beat ref={setSection(4)}>
+      {/* Pinned whole: the section holds while the rate, the estimator and the
+          footnote arrive in sequence beside the copy. */}
+      <section className="lp-sec" id="pricing" data-beat data-pin-section ref={setSection(4)}>
+        <i className="lp-wipe" aria-hidden="true" />
         <div className="lp-sec-inner">
           <div className="lp-settle">
             <div className="lp-reveal">
@@ -750,7 +770,10 @@ export default function Home() {
               </ul>
             </div>
 
-            <div className="lp-reveal">
+            {/* Not .lp-reveal: these three are dealt in one after another by
+                the pin's scrubbed stagger, and a container fade over the top
+                would animate the same pixels twice. */}
+            <div data-pin-body>
               {/* The rate, as a single figure. It is the number Super Admin sets
                   and the number settlement deducts — there is nothing else to
                   compare it against, so there is no table. */}
@@ -795,6 +818,7 @@ export default function Home() {
 
       {/* ═══ Questions ═══ */}
       <section className="lp-sec" data-beat ref={setSection(5)}>
+        <i className="lp-wipe" aria-hidden="true" />
         <div className="lp-sec-inner">
           <div className="lp-head lp-reveal">
             <span className="lp-stamp">
@@ -840,6 +864,7 @@ export default function Home() {
 
       {/* ═══ Close ═══ */}
       <section className="lp-close">
+        <i className="lp-wipe" aria-hidden="true" />
         <div className="lp-wrap lp-close-inner">
           <p className="lp-eyebrow lp-reveal">Ready when you are</p>
           <h2 className="lp-h2 lp-reveal" style={{ ['--d' as string]: '80ms' }}>
