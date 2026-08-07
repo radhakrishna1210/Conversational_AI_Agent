@@ -25,7 +25,35 @@ PM2_APP="convai-voice-api"
 BRANCH="${DEPLOY_BRANCH:-main}"
 REMOTE="${DEPLOY_REMOTE:-origin}"
 HEALTH_URL="http://127.0.0.1:4300/health"
-NODE_BIN="/root/.nvm/versions/node/v20.10.0/bin"
+# Newest installed Node this backend can run on. NOT hardcoded: the box default
+# is v20.10.0, but pdf-parse → pdfjs-dist calls process.getBuiltinModule() at
+# import time (added in 20.16) and the server dies at boot on anything older
+# with "ReferenceError: DOMMatrix is not defined". pdf-parse's engines field is
+# ">=20.16.0 <21 || >=22.3.0" — 21.x is excluded on purpose.
+# Must agree with resolveNodeBin() in ecosystem.config.cjs.
+pick_node_bin() {
+  local dir version maj min pat rank best="" best_rank=0
+  for dir in /root/.nvm/versions/node/v*; do
+    [ -x "$dir/bin/node" ] || continue
+    version="${dir##*/v}"
+    maj="${version%%.*}"; min="${version#*.}"; min="${min%%.*}"; pat="${version##*.}"
+    case "$maj$min" in *[!0-9]*) continue ;; esac
+    if { [ "$maj" -eq 20 ] && [ "$min" -ge 16 ]; } \
+    || { [ "$maj" -eq 22 ] && [ "$min" -ge 3 ]; } \
+    || [ "$maj" -gt 22 ]; then
+      rank=$(( maj * 1000000 + min * 1000 + pat ))
+      if [ "$rank" -gt "$best_rank" ]; then best_rank=$rank; best="$dir/bin"; fi
+    fi
+  done
+  printf '%s' "$best"
+}
+NODE_BIN="$(pick_node_bin)"
+if [ -z "$NODE_BIN" ]; then
+  echo "No Node >=20.16 <21 or >=22.3 under /root/.nvm/versions/node." >&2
+  echo "This backend cannot boot without one. Install it with:" >&2
+  echo "    export NVM_DIR=\"\$HOME/.nvm\" && . \"\$NVM_DIR/nvm.sh\" && nvm install 20.19.4" >&2
+  exit 1
+fi
 
 SKIP_CLIENT=0
 SKIP_MIGRATE=0

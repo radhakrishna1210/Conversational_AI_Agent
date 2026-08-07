@@ -8,7 +8,49 @@
 // (blog-backend, mannmate-*, herbs-client, ...) and a bare `pm2 reload` would
 // restart all of them.
 
+const fs = require('fs');
+
 const APP_ROOT = '/root/apps/convai-voice';
+const NVM_VERSIONS = '/root/.nvm/versions/node';
+
+// Resolve the newest installed Node that this backend can actually run on.
+//
+// Hardcoding a path here cost a deploy: the box's default was v20.10.0, and
+// pdf-parse → pdfjs-dist calls process.getBuiltinModule() at import time. That
+// API landed in 20.16, so on 20.10 the polyfill silently failed and the server
+// died at boot with "ReferenceError: DOMMatrix is not defined" — nowhere near
+// the actual cause. backend/package.json only says ">=20.0.0", but pdf-parse's
+// own engines field is the binding constraint: ">=20.16.0 <21 || >=22.3.0".
+// 21.x is excluded deliberately, not by oversight.
+//
+// Resolved dynamically so an nvm upgrade on this shared box does not silently
+// strand this app on a version it cannot boot under.
+const satisfies = ([maj, min]) =>
+  (maj === 20 && min >= 16) || (maj === 22 && min >= 3) || maj > 22;
+
+const resolveNodeBin = () => {
+  let best = null;
+  // Guarded: without this, a missing nvm directory surfaces as a raw ENOENT
+  // stack trace from readdirSync instead of the actionable message below.
+  const installed = fs.existsSync(NVM_VERSIONS) ? fs.readdirSync(NVM_VERSIONS) : [];
+  for (const dir of installed) {
+    const m = /^v(\d+)\.(\d+)\.(\d+)$/.exec(dir);
+    if (!m) continue;
+    const version = [Number(m[1]), Number(m[2]), Number(m[3])];
+    if (!satisfies(version)) continue;
+    const bin = `${NVM_VERSIONS}/${dir}/bin/node`;
+    if (!fs.existsSync(bin)) continue;
+    const rank = version[0] * 1e6 + version[1] * 1e3 + version[2];
+    if (!best || rank > best.rank) best = { rank, bin };
+  }
+  if (!best) {
+    throw new Error(
+      `No suitable Node found under ${NVM_VERSIONS}. This backend needs ` +
+      '>=20.16 <21 or >=22.3 (pdf-parse/pdfjs-dist). Install one with:  nvm install 20.19.4'
+    );
+  }
+  return best.bin;
+};
 
 module.exports = {
   apps: [
@@ -22,10 +64,9 @@ module.exports = {
 
       // Absolute path, deliberately not "node". PM2 is launched by the
       // pm2-root systemd unit, which has no login shell and therefore no nvm
-      // in PATH — it would resolve /usr/bin/node instead. This backend needs
-      // Node >= 20.6 for the --env-file flag below; the system node is a
-      // different version and would fail with "bad option".
-      interpreter: '/root/.nvm/versions/node/v20.10.0/bin/node',
+      // in PATH — it would resolve /usr/bin/node instead, which is older still.
+      // See resolveNodeBin() above for why the version matters.
+      interpreter: resolveNodeBin(),
 
       // Mirrors backend/package.json's `start` script. Node aborts if the file
       // is missing, which is the behaviour we want: better a hard boot failure
