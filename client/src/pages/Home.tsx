@@ -4,6 +4,10 @@ import {
   CalendarCheck, Check, Filter, Globe, HeadphonesIcon, IndianRupee, MessageSquare,
   Mic, Phone, PhoneForwarded, Plus, Radio, Send, Wallet, Webhook,
 } from 'lucide-react';
+import HeroCanvas, { type HeroCanvasHandle } from '@/components/home/HeroCanvas';
+import { useLandingMotion } from '@/components/home/useLandingMotion';
+import { useSmoothScroll } from '@/lib/motion/useSmoothScroll';
+import { stickyHeaderHeight } from '@/lib/motion/gsap';
 import './Home.css';
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -20,9 +24,19 @@ import './Home.css';
    apart. Nothing is hardcoded, and when the endpoint is unreachable the page
    says so rather than falling back to an invented figure.
 
-   MOTION. Two systems, both opt-out under prefers-reduced-motion:
-     1. useReveal     — one IntersectionObserver adds .is-in to .lp-reveal nodes.
-     2. useScrollBeat — one rAF-throttled scroll listener drives the fixed rail.
+   MOTION. GSAP + ScrollTrigger, with Lenis driving the scroll itself. All of
+   it lives in two places rather than being scattered through this file:
+
+     useSmoothScroll   — Lenis, mounted for this page only, wired into
+                         ScrollTrigger through one shared rAF ticker.
+     useLandingMotion  — every pin, scrub, reveal, wipe and parallax on the
+                         page, created inside a single gsap.matchMedia().
+
+   The hero is a scroll-scrubbed <canvas> (see components/home/HeroCanvas and
+   lib/motion/frameSource). Under prefers-reduced-motion none of it is created:
+   Lenis is never constructed, no pin exists, and every reveal resolves to its
+   finished state.
+
    Prices are never animated — see the note above useWalletRate.
    ══════════════════════════════════════════════════════════════════════════ */
 
@@ -53,78 +67,14 @@ const clock = (seconds: number) => {
   return `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
 };
 
-/* ── Motion hooks ───────────────────────────────────────────────────────── */
-
-/** Adds .is-in to every .lp-reveal inside `root` as it scrolls into view.
- *  `deps` re-scans after async content (the rate rows) mounts. */
-function useReveal(root: React.RefObject<HTMLElement>, deps: unknown[] = []) {
-  useEffect(() => {
-    const targets = root.current?.querySelectorAll<HTMLElement>('.lp-reveal:not(.is-in)');
-    if (!targets?.length) return;
-
-    if (prefersReducedMotion()) {
-      targets.forEach((el) => el.classList.add('is-in'));
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => entries.forEach((entry) => {
-        if (!entry.isIntersecting) return;
-        entry.target.classList.add('is-in');
-        observer.unobserve(entry.target);
-      }),
-      { threshold: 0.1, rootMargin: '0px 0px -6% 0px' },
-    );
-    targets.forEach((el) => observer.observe(el));
-    return () => observer.disconnect();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
-}
-
-/** Drives the fixed timeline: overall scroll progress plus which beat is live.
- *  One listener, rAF-throttled, writing a CSS custom property — the rail fill
- *  is a scaleY, so this never triggers layout. */
-function useScrollBeat(root: React.RefObject<HTMLElement>, count: number) {
-  const [active, setActive] = useState(0);
-
-  useEffect(() => {
-    const host = root.current;
-    if (!host) return;
-
-    let frame = 0;
-    const measure = () => {
-      frame = 0;
-      const sections = host.querySelectorAll<HTMLElement>('[data-beat]');
-      if (!sections.length) return;
-
-      const top = host.offsetTop;
-      const span = Math.max(1, host.offsetHeight - window.innerHeight);
-      const progress = Math.min(1, Math.max(0, (window.scrollY - top) / span));
-      host.style.setProperty('--lp-progress', String(progress));
-
-      // The live beat is the last one whose top has passed the upper third of
-      // the viewport — the point at which a section reads as "the one I'm in".
-      const line = window.scrollY + window.innerHeight * 0.34;
-      let current = 0;
-      sections.forEach((section, i) => {
-        if (section.offsetTop <= line) current = i;
-      });
-      setActive(current);
-    };
-
-    const onScroll = () => { if (!frame) frame = requestAnimationFrame(measure); };
-    measure();
-    window.addEventListener('scroll', onScroll, { passive: true });
-    window.addEventListener('resize', onScroll, { passive: true });
-    return () => {
-      if (frame) cancelAnimationFrame(frame);
-      window.removeEventListener('scroll', onScroll);
-      window.removeEventListener('resize', onScroll);
-    };
-  }, [root, count]);
-
-  return active;
-}
+/*
+ * The reveal system and the timeline rail used to be hand-rolled here — an
+ * IntersectionObserver and a rAF-throttled scroll listener. Both are now
+ * ScrollTriggers inside useLandingMotion, because a page with a scrubbed pin
+ * needs exactly one authority on where the scroll is: Lenis animates the
+ * scroll position, and anything measuring it independently reads a stale value
+ * and drifts a frame behind the pin.
+ */
 
 /*
  * There is deliberately no number-ramp helper on this page.
@@ -477,10 +427,27 @@ export default function Home() {
   const [lit, setLit] = useState(false);
 
   const pageRef = useRef<HTMLDivElement | null>(null);
+  const heroRef = useRef<HTMLElement | null>(null);
+  const canvasRef = useRef<HeroCanvasHandle>(null);
   const sectionRefs = useRef<(HTMLElement | null)[]>([]);
 
-  useReveal(pageRef, [rate]);
-  const activeBeat = useScrollBeat(pageRef, BEATS.length);
+  /* The hero canvas gates the scroll rig: pins and scrubs are not created
+     until it can paint any frame without stalling, so the first scroll after
+     load is never the one that hitches. */
+  const [canvasReady, setCanvasReady] = useState(false);
+  const onCanvasReady = useCallback(() => setCanvasReady(true), []);
+
+  const scroll = useSmoothScroll();
+  const activeBeat = useLandingMotion({
+    rootRef: pageRef,
+    heroRef,
+    canvasRef,
+    sectionRefs,
+    ready: canvasReady,
+    // The rate arriving swaps "Loading…" for a price and a note, which changes
+    // the page height and therefore every measured start and end below it.
+    layoutKey: rate,
+  });
 
   /* Hero load choreography — flipping this class starts the word-by-word rise.
      A timer rather than requestAnimationFrame: rAF is suspended while a tab is
@@ -505,11 +472,12 @@ export default function Home() {
     el.style.setProperty('--my', `${((e.clientY - box.top) / box.height) * 100}%`);
   }, []);
 
+  /* Rail clicks go through Lenis so the jump eases the same way the page
+     scrolls, and so ScrollTrigger stays in sync with it. The offset clears the
+     sticky navbar, which would otherwise cover the section's stamp. */
   const jumpToBeat = (i: number) => {
-    sectionRefs.current[i]?.scrollIntoView({
-      behavior: prefersReducedMotion() ? 'auto' : 'smooth',
-      block: 'start',
-    });
+    const section = sectionRefs.current[i];
+    if (section) scroll.current.scrollTo(section, -(stickyHeaderHeight() + 16));
   };
 
   const setSection = (i: number) => (el: HTMLElement | null) => { sectionRefs.current[i] = el; };
@@ -537,8 +505,17 @@ export default function Home() {
       </nav>
 
       {/* ═══ 00:00 — the call connects ═══ */}
-      <section className="lp-hero" data-beat ref={setSection(0)}>
+      <section
+        className="lp-hero"
+        data-beat
+        ref={(el) => { sectionRefs.current[0] = el; heroRef.current = el; }}
+      >
         <div className="lp-aurora" aria-hidden="true"><span /><span /><span /></div>
+
+        {/* The scroll-scrubbed call. Sits above the aurora and below the copy;
+            it masks itself out from underneath the headline so contrast never
+            depends on where the scrub happens to be. */}
+        <HeroCanvas ref={canvasRef} onReady={onCanvasReady} />
 
         <div className="lp-wrap">
           <div className="lp-hero-grid">
@@ -563,17 +540,28 @@ export default function Home() {
                 <Link to="/book-appointment" className="lp-btn lp-btn--ghost">Hear one live</Link>
               </div>
 
+              {/* The only ramped figures on the page. These are durations and
+                  counts, not money — see the count-up note in useLandingMotion
+                  for why no rupee value here is ever animated. The rendered
+                  text is the final value, so a reader who never scrolls, or
+                  who has motion turned off, still reads the right number. */}
               <div className="lp-specs lp-reveal" style={{ ['--d' as string]: '820ms' }}>
                 <div className="lp-spec">
-                  <span className="lp-spec-v">&lt;&nbsp;500&nbsp;ms</span>
+                  <span className="lp-spec-v">
+                    &lt;&nbsp;<span data-countup="500">500</span>&nbsp;ms
+                  </span>
                   <span className="lp-spec-k">Reply latency on a live call</span>
                 </div>
                 <div className="lp-spec">
-                  <span className="lp-spec-v">24&nbsp;×&nbsp;7</span>
+                  <span className="lp-spec-v">
+                    <span data-countup="24">24</span>&nbsp;×&nbsp;7
+                  </span>
                   <span className="lp-spec-k">Inbound, outbound and campaigns</span>
                 </div>
                 <div className="lp-spec">
-                  <span className="lp-spec-v">5&nbsp;min</span>
+                  <span className="lp-spec-v">
+                    <span data-countup="5">5</span>&nbsp;min
+                  </span>
                   <span className="lp-spec-k">From a prompt to a working agent</span>
                 </div>
               </div>
