@@ -20,14 +20,13 @@ import type { HeroCanvasHandle } from './HeroCanvas';
    landing page is mounted and unmounted repeatedly.
 
    ─── A note on pinning ────────────────────────────────────────────────────
-   The hero pins whole: it is viewport-sized by design. The two content-heavy
-   sections pin their *heading column* instead, and let the cards and the
-   pricing panel travel past it. Pinning those sections whole would fix an
-   ~880px block inside a ~660px viewport and clip the bottom third of the
-   content off the screen with no way to reach it. Pinning the column that does
-   fit gives the same "the section holds while its contents play out" reading
-   without ever making content unreachable — and it degrades to plain scrolling
-   on short viewports, where the query below stops matching.
+   The hero pins whole: it is viewport-sized by design. A content-heavy section
+   only pins if it is measured to fit between the navbar and the bottom of the
+   viewport — pinning a taller one would fix an ~880px block inside a ~660px
+   viewport and clip the bottom third off the screen with no way to reach it,
+   because the pin consumes exactly the scroll that would have revealed it. Any
+   section that does not fit degrades to a plain scrubbed reveal, as everything
+   does on short viewports where the query below stops matching.
    ══════════════════════════════════════════════════════════════════════════ */
 
 /** Pins only exist where there is room for them. Below either bound the
@@ -43,9 +42,11 @@ export interface LandingMotionOptions {
   /** The hero canvas has finished preloading. Pins are held until this is true
    *  so the first scroll never lands on a half-decoded sequence. */
   ready: boolean;
-  /** Bumped when async content changes the page height (the wallet rate
-   *  arriving), so ScrollTrigger can re-measure every start and end. */
-  layoutKey: unknown;
+  /** Bumped when async content changes the page height, so ScrollTrigger can
+   *  re-measure every start and end. Home has nothing async left to lay out
+   *  since the fetched wallet rate came off the page, so it passes nothing —
+   *  the hook keeps the input for the next thing that arrives late. */
+  layoutKey?: unknown;
 }
 
 export interface LandingMotion {
@@ -309,9 +310,6 @@ export function useLandingMotion({
         });
 
         /* ── 5. Pinned sections ─────────────────────────────────────────────
-           Two different patterns, because the two sections have different
-           shapes and one pattern does not fit both.
-
            [data-pin-section] — the whole section holds while its cards deal
            themselves in. Only viable while the section actually fits between
            the navbar and the bottom of the viewport; a pinned block taller
@@ -322,9 +320,11 @@ export function useLandingMotion({
            form guard so `invalidateOnRefresh` re-runs it after a resize.
 
            Sections marked for pinning also get their vertical padding trimmed
-           by the stylesheet under .lp-motion, which is what brings the pricing
-           section inside the viewport; without it, it missed by three pixels
-           and silently fell back to the unpinned path. */
+           by the stylesheet under .lp-motion, which is what brings a borderline
+           section inside the viewport; without it the old pricing section
+           missed by three pixels and silently fell back to the unpinned path.
+           Only the "Working" section carries the marker now — the pricing
+           section it shared the pattern with has been removed. */
         root.querySelectorAll<HTMLElement>('[data-pin-section]').forEach((section) => {
           const cards = section.querySelector<HTMLElement>('[data-pin-body]');
           if (!cards) return;
@@ -385,20 +385,14 @@ export function useLandingMotion({
           );
         });
 
-        /* An earlier version pinned just the pricing section's left column
-           while the right one travelled past. Measured, the two columns are
-           455px and 437px — near enough identical, so the "pinned" column
-           would have been held for eighteen pixels of travel. Nothing to hold
-           against, so the whole section pins instead, above. */
-
         /* ── 6. Count-ups ───────────────────────────────────────────────────
-           Applied to the hero spec strip only. Every rupee figure on this page
-           is left exact and instant, deliberately: rAF is suspended in a
-           background tab, so a ramp can stall part-way and leave a WRONG price
-           on screen. A stalled animation is cosmetic; a stalled price is a
-           false statement. The specs below are durations and counts, not
-           money, and each one still writes its exact final value in
-           onComplete so a stalled ramp cannot strand a wrong number. */
+           Applied to the hero spec strip only, and nothing else on the page
+           may ramp: rAF is suspended in a background tab, so a ramp can stall
+           part-way and leave a WRONG number on screen — "< 50 ms" where the
+           page means "< 500 ms". A stalled animation is cosmetic; a stalled
+           claim is a false statement. The specs are durations and counts, and
+           each one still writes its exact final value in onComplete so a
+           stalled ramp cannot strand a wrong number. */
         root.querySelectorAll<HTMLElement>('[data-countup]').forEach((el) => {
           const to = Number(el.dataset.countup);
           if (!Number.isFinite(to)) return;
@@ -440,10 +434,9 @@ export function useLandingMotion({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ready]);
 
-  /* Async content changes the page's height — the wallet rate arriving swaps a
-     "Loading…" string for a price and a note, and the FAQ opens and closes.
-     Every start and end above was measured against the old height, so they all
-     have to be re-measured. */
+  /* Async content changes the page's height — the FAQ opens and closes, and
+     anything a caller passes as layoutKey. Every start and end above was
+     measured against the old height, so they all have to be re-measured. */
   useEffect(() => {
     if (!ready) return;
     const id = window.setTimeout(() => ScrollTrigger.refresh(), 60);

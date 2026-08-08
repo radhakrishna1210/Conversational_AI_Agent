@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Link, useLocation, Outlet, useNavigate } from 'react-router-dom';
 import {
   Shield, BarChart3, Users, Phone, Bug, CreditCard, TrendingUp,
-  Activity, ScrollText, LogOut, Menu, X, ChevronDown, CalendarDays, PhoneCall,
+  Activity, ScrollText, LogOut, Menu, X, ChevronDown, CalendarDays, PhoneCall, Cpu,
 } from 'lucide-react';
 import { clearAuth, decodeJwtPayload, getToken } from '@/lib/authStorage';
 
@@ -50,6 +50,7 @@ const NAV: NavGroup[] = [
     title: 'Operations',
     items: [
       { to: '/admin/calls', label: 'Call Logs', icon: <PhoneCall size={16} /> },
+      { to: '/admin/models', label: 'Models', icon: <Cpu size={16} /> },
     ],
   },
   {
@@ -114,6 +115,7 @@ function AdminShell() {
   const navigate = useNavigate();
   const [mobileOpen, setMobileOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
+  const accountRef = useRef<HTMLDivElement>(null);
 
   const payload = decodeJwtPayload(getToken());
   const email = payload?.email ?? 'admin';
@@ -121,6 +123,25 @@ function AdminShell() {
   // Close the drawer on navigation, or it stays open covering the page the
   // user just asked for.
   useEffect(() => { setMobileOpen(false); setMenuOpen(false); }, [location.pathname]);
+
+  // Dismiss the account menu on an outside click or Escape. Without this the
+  // only way to close it was clicking the avatar again, so it hung over the
+  // page while the operator worked — and it sits above the content.
+  // pointerdown (not click) so it closes on press, before the click lands on
+  // whatever is underneath.
+  useEffect(() => {
+    if (!menuOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!accountRef.current?.contains(e.target as Node)) setMenuOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => { if (e.key === 'Escape') setMenuOpen(false); };
+    document.addEventListener('pointerdown', onPointerDown);
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.removeEventListener('pointerdown', onPointerDown);
+      document.removeEventListener('keydown', onKeyDown);
+    };
+  }, [menuOpen]);
 
   const isActive = (to: string) =>
     to === '/admin' ? location.pathname === '/admin' : location.pathname.startsWith(to);
@@ -139,7 +160,10 @@ function AdminShell() {
         height: '100vh',
         position: 'sticky',
         top: 0,
-        overflowY: 'auto',
+        // The aside itself must NOT scroll. When it did, the brand header
+        // scrolled off the top and the Sign out button was clipped at the
+        // bottom; only the nav list should move.
+        overflow: 'hidden',
       }}
     >
       <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--border)' }}>
@@ -161,13 +185,15 @@ function AdminShell() {
         </div>
       </div>
 
-      <nav style={{ flex: 1, padding: '12px 10px' }}>
+      {/* minHeight:0 is what lets this flex child actually shrink and scroll
+          instead of stretching the aside past the viewport. */}
+      <nav className="admin-nav-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '12px 10px' }}>
         {NAV.map((group) => (
-          <div key={group.title} style={{ marginBottom: 16 }}>
+          <div key={group.title} style={{ marginBottom: 12 }}>
             <div style={{
               fontSize: 10, fontWeight: 800, letterSpacing: '0.7px',
               color: 'var(--text-secondary)', opacity: 0.65,
-              textTransform: 'uppercase', padding: '0 10px', marginBottom: 6,
+              textTransform: 'uppercase', padding: '0 10px', marginBottom: 4,
             }}>
               {group.title}
             </div>
@@ -255,9 +281,11 @@ function AdminShell() {
             <Breadcrumb pathname={location.pathname} />
           </div>
 
-          <div style={{ position: 'relative' }}>
+          <div ref={accountRef} style={{ position: 'relative' }}>
             <button
               onClick={() => setMenuOpen((v) => !v)}
+              aria-haspopup="menu"
+              aria-expanded={menuOpen}
               style={{
                 display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
                 background: 'transparent', border: '1px solid var(--border)',
@@ -306,6 +334,23 @@ function AdminShell() {
       <style>{`
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+        /* The nav scrolls when the console outgrows short viewports, but a
+           chunky OS scrollbar next to a 240px sidebar reads as a seam down the
+           middle of the page. Overlay it: zero-width track, and a slim thumb
+           that only materialises while the pointer is over the nav. */
+        .admin-nav-scroll {
+          scrollbar-width: none;          /* Firefox */
+          -ms-overflow-style: none;       /* legacy Edge */
+          overscroll-behavior: contain;   /* don't chain scroll to the page */
+        }
+        .admin-nav-scroll::-webkit-scrollbar { width: 6px; }
+        .admin-nav-scroll::-webkit-scrollbar-track { background: transparent; }
+        .admin-nav-scroll::-webkit-scrollbar-thumb { background: transparent; border-radius: 999px; }
+        .admin-nav-scroll:hover { scrollbar-width: thin; scrollbar-color: rgba(148,163,184,0.35) transparent; }
+        .admin-nav-scroll:hover::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.28); }
+        .admin-nav-scroll:hover::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.45); }
+
         @media (max-width: 900px) {
           .admin-sidebar-desktop { display: none; }
           .admin-menu-btn { display: block !important; }

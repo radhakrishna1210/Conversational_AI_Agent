@@ -13,6 +13,7 @@ import CallerNumberPicker from '../components/CallerNumberPicker';
 import { xaiCallSocket } from '../services/xaiCallSocket';
 import { AMBIENT_OPTIONS, startAmbientSound } from '../services/ambientSound';
 import { modularCallSocket, type ModularCallEvent } from '../services/modularCallSocket';
+import { fetchModelCatalog, type ModelCatalog } from '../lib/modelCatalog';
 import {
   ArrowLeft, Sparkles, Rocket, Save, Link2, MessageSquare, Globe, Phone,
   PhoneIncoming, PhoneOutgoing, Languages as LanguagesIcon, AudioLines, Cpu,
@@ -63,7 +64,16 @@ const LANGUAGES_LIST = [
 ];
 
 
-const AI_MODELS = ['Groq Llama 3.3', 'GPT-4.1-Mini', 'GPT-4-Turbo', 'Claude-3-Opus', 'Gemini-Pro', 'Llama-2-70B'];
+/*
+ * The AI Model, Transcription and Conversational Agent choices used to be
+ * hardcoded here. They now come from GET /workspaces/:id/model-catalog, which
+ * Super Admin → Models controls: a model that is switched off is not offered
+ * here and is refused by the backend if saved anyway.
+ *
+ * That also ends a real bug — this list offered "Claude-3-Opus", "GPT-4-Turbo"
+ * and "Llama-2-70B", none of which the backend can route (mapAgentModel matched
+ * nothing and the agent silently fell back to Gemini).
+ */
 const POST_CALL_TRIGGER_OPTIONS = ['Completed', 'Voicemail Detected', 'No Answer', 'Busy', 'Failed'];
 
 const createDefaultPostCallConfig = (): PostCallConfig => ({
@@ -141,6 +151,11 @@ export default function EditAgent() {
   // entirely for this agent's Web Call + Phone Call.
   const [voiceEngine, setVoiceEngine] = useState<'modular' | 'xai' | 'elevenlabs'>('modular');
   const [showXaiModal, setShowXaiModal] = useState(false);
+
+  // What this platform currently offers. Super Admin → Models owns this list;
+  // every picker below renders from it instead of a hardcoded array.
+  const [modelCatalog, setModelCatalog] = useState<ModelCatalog | null>(null);
+  useEffect(() => { fetchModelCatalog().then(setModelCatalog).catch(() => setModelCatalog(null)); }, []);
 
   // Modal states
   const [showLanguageModal, setShowLanguageModal] = useState(false);
@@ -2275,10 +2290,15 @@ export default function EditAgent() {
               individually again.
             </p>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              {/* "Off" is always offered — it is the absence of an engine, not a
+                  model an admin can withdraw. The engines themselves come from
+                  the platform catalogue. */}
               {([
                 { value: 'modular' as const, label: 'Off (modular pipeline)' },
-                { value: 'xai' as const, label: 'xAI Grok Voice Agent' },
-                { value: 'elevenlabs' as const, label: 'ElevenLabs Conversational AI' },
+                ...(modelCatalog?.conversational ?? []).map((m) => ({
+                  value: m.value as 'xai' | 'elevenlabs',
+                  label: m.label,
+                })),
               ]).map((opt) => (
                 <button
                   key={opt.value}
@@ -2302,25 +2322,37 @@ export default function EditAgent() {
               <button onClick={() => setShowModelModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '24px' }}>X</button>
             </div>
             <div style={{ display: 'grid', gap: '12px', marginBottom: '20px' }}>
-              {AI_MODELS.map(model => (
-                <button
-                  key={model}
-                  onClick={() => { setAiModel(model); setShowModelModal(false); handleSave({ aiModel: model }); }}
-                  style={{
-                    padding: '12px',
-                    background: aiModel === model ? 'var(--teal)' : '#0f0f0f',
-                    color: aiModel === model ? '#000' : '#fff',
-                    border: aiModel === model ? 'none' : '1px solid #333',
-                    borderRadius: '6px',
-                    cursor: 'pointer',
-                    fontSize: '13px',
-                    textAlign: 'left',
-                    fontWeight: aiModel === model ? '600' : '400'
-                  }}
-                >
-                  {model}
-                </button>
-              ))}
+              {!modelCatalog && <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0 }}>Loading available models…</p>}
+              {modelCatalog?.llm.length === 0 && (
+                <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6 }}>
+                  No AI models are available on this platform right now. Contact your administrator.
+                </p>
+              )}
+              {modelCatalog?.llm.map(model => {
+                const selected = aiModel.toLowerCase() === model.value.toLowerCase();
+                return (
+                  <button
+                    key={model.value}
+                    onClick={() => { setAiModel(model.value); setShowModelModal(false); handleSave({ aiModel: model.value }); }}
+                    style={{
+                      padding: '12px',
+                      background: selected ? 'var(--teal)' : '#0f0f0f',
+                      color: selected ? '#000' : '#fff',
+                      border: selected ? 'none' : '1px solid #333',
+                      borderRadius: '6px',
+                      cursor: 'pointer',
+                      fontSize: '13px',
+                      textAlign: 'left',
+                      fontWeight: selected ? '600' : '400'
+                    }}
+                  >
+                    {model.label}
+                    <span style={{ color: selected ? '#04231f' : 'var(--text-secondary)', fontSize: '11px', marginLeft: '8px' }}>
+                      {model.provider}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -2366,15 +2398,23 @@ export default function EditAgent() {
                   </div>
                   {isSttProviderDropdownOpen && (
                     <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--bg-primary)', border: '1px solid #333', borderRadius: '6px', marginTop: '4px', zIndex: 10 }}>
-                      {['Standard Providers', 'deepgram_stream', 'Azure', 'Sarvam', 'Soniox'].map(provider => (
-                        <div 
-                          key={provider} 
+                      {!modelCatalog && (
+                        <div style={{ padding: '10px 14px', fontSize: '13px', color: 'var(--text-secondary)' }}>Loading providers…</div>
+                      )}
+                      {modelCatalog?.stt.length === 0 && (
+                        <div style={{ padding: '10px 14px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                          No transcription providers are available. Contact your administrator.
+                        </div>
+                      )}
+                      {modelCatalog?.stt.map(({ value: provider, label }) => (
+                        <div
+                          key={provider}
                           onClick={() => { setSttProvider(provider); setIsSttProviderDropdownOpen(false); }}
-                          style={{ 
-                            display: 'flex', 
-                            alignItems: 'center', 
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
                             justifyContent: 'space-between',
-                            padding: '10px 14px', 
+                            padding: '10px 14px',
                             cursor: 'pointer',
                             fontSize: '13px',
                             color: 'var(--text-primary)',
@@ -2385,7 +2425,7 @@ export default function EditAgent() {
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <MicIcon />
-                            <span>{provider}</span>
+                            <span>{label}</span>
                           </div>
                           {sttProvider === provider && <span style={{ color: 'var(--text-primary)', fontSize: '12px' }}>OK</span>}
                         </div>

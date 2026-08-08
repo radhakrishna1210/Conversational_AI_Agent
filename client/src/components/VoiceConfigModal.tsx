@@ -13,6 +13,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
 import { getAuth } from '@/lib/authStorage';
+import { fetchModelCatalog, type ModelCatalog } from '@/lib/modelCatalog';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Voice {
@@ -64,8 +65,10 @@ const API_BASE = '/api/v1';
 const wsBase = () => `${API_BASE}/workspaces/${getAuth().workspaceId}`;
 const LIMIT = 20;
 // NB: each label is sent verbatim as the ?provider= filter and must equal the
-// backend VoiceProvider.name exactly — that match is case-sensitive.
-const PROVIDERS = ['All', 'Google', 'ElevenLabs', 'Sarvam', 'Cartesia', 'FishAudio'];
+// backend VoiceProvider.name exactly — that match is case-sensitive. Which of
+// these are actually offered comes from Super Admin → Models at runtime; this
+// list only fixes the tab ORDER.
+const PROVIDER_ORDER = ['Google', 'ElevenLabs', 'Sarvam', 'Cartesia', 'FishAudio'];
 const GENDER_OPTIONS = ['All', 'MALE', 'FEMALE', 'NEUTRAL'];
 const DEFAULT_PREVIEW_TEXT = 'Hello, thank you for calling. How can I assist you today?';
 
@@ -177,6 +180,24 @@ export default function VoiceConfigModal({
       .catch(() => null);
   }, []);
 
+  // ── Which voice providers this platform offers ─────────────────────
+  // Super Admin can switch a provider off; its tab then disappears and the
+  // backend stops returning its voices, so the list and the tabs agree.
+  const [catalog, setCatalog] = useState<ModelCatalog | null>(null);
+  useEffect(() => { fetchModelCatalog().then(setCatalog).catch(() => setCatalog(null)); }, []);
+
+  const enabledProviders = catalog
+    ? PROVIDER_ORDER.filter(p => catalog.tts.some(m => m.value.toLowerCase() === p.toLowerCase()))
+    : PROVIDER_ORDER;
+  const providerTabs = ['All', ...enabledProviders];
+
+  // If the tab that was open belongs to a provider that has since been switched
+  // off, fall back to All rather than leaving a filter no tab can clear.
+  useEffect(() => {
+    if (activeProvider !== 'All' && !providerTabs.includes(activeProvider)) setActiveProvider('All');
+    // Keyed on the joined list, not the array: it is rebuilt every render.
+  }, [activeProvider, providerTabs.join(',')]);
+
   // ── Load languages for filter dropdown ─────────────────────────────
   useEffect(() => {
     // pull unique languages from the current page results
@@ -278,16 +299,23 @@ export default function VoiceConfigModal({
     if (!selectedVoice) return;
     setSavingId(selectedVoice.id);
     try {
-      await fetch(`${wsBase()}/agents/${agentId}/voice`, {
+      const res = await fetch(`${wsBase()}/agents/${agentId}/voice`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', ...authHeaders() },
         body: JSON.stringify({ voiceId: selectedVoice.id }),
       });
+      // fetch only rejects on a network error, so an unchecked call reported
+      // success for every server-side failure — the tick appeared and the voice
+      // was never saved.
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? 'Failed to save voice');
+      }
       setSaveSuccess(selectedVoice.id);
       setTimeout(() => setSaveSuccess(null), 2000);
       onSaved(selectedVoice);
-    } catch {
-      alert('Failed to save voice. Please try again.');
+    } catch (err) {
+      alert(err instanceof Error ? err.message : 'Failed to save voice. Please try again.');
     } finally {
       setSavingId(null);
     }
@@ -496,7 +524,7 @@ export default function VoiceConfigModal({
           <div className="voice-modal-controls">
             {/* Provider Tabs */}
             <div className="provider-tabs">
-              {PROVIDERS.map(p => {
+              {providerTabs.map(p => {
                 const isActive = activeProvider === p;
                 // Until the status request resolves, providerStatus is null —
                 // show a neutral "checking" dot rather than a misleading red

@@ -61,6 +61,11 @@ export const AUDIT_ACTIONS = Object.freeze({
   // agent
   AGENT_DISABLE: 'agent.disable',
   AGENT_FLAG: 'agent.flag',
+  // voice
+  VOICE_CLONE_DELETE: 'voice_clone.delete',
+  VOICE_SAMPLE_DELETE: 'voice_sample.delete',
+  // platform
+  MODEL_CATALOG_UPDATE: 'model_catalog.update',
 });
 
 export const AUDIT_CATEGORIES = Object.freeze({

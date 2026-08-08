@@ -12,6 +12,7 @@ import * as cloneCtrl from '../controllers/voiceClone.controller.js';
 router.post('/clone', cloneCtrl.uploadVoiceSample, cloneCtrl.cloneVoice);
 router.get('/cloned', cloneCtrl.listClonedVoices);
 router.get('/cloned/:id/sample', cloneCtrl.streamClonedSample);
+router.delete('/cloned/:id/sample', cloneCtrl.deleteClonedSample);
 router.delete('/cloned/:id', cloneCtrl.deleteClonedVoice);
 
 // ─── Voice sync (manual trigger) ──────────────────────────────────────────────

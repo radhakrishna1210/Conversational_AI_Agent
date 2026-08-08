@@ -18,6 +18,7 @@ import logger from '../lib/logger.js';
 import { settleCall } from '../services/billing/settlement.service.js';
 import { getAgentKbText } from '../services/agentRuntime.service.js';
 import { createRealtimeSession } from '../services/voice/realtimeEngine.factory.js';
+import { isModelAllowed } from '../services/platform/modelCatalog.js';
 import { createAmbiencePump } from '../services/voice/ambiencePump.js';
 import { extractAndStoreCallVariables } from '../services/postCallExtraction.service.js';
 import { deliverPostCall } from '../controllers/agentCallLog.controller.js';
@@ -58,8 +59,10 @@ export function handleTwilioMediaUpgrade(ws, { workspaceId, agentId }) {
         },
       });
     } catch (e) {
+      // Fall through to settlement rather than returning. Failing to write the
+      // status must not also abandon the bill: a call left PENDING is never
+      // revisited by anything, so it shows as "pending" forever.
       logger.warn(`Could not finalize realtime phone call log: ${e.message}`);
-      return;
     }
 
     // BUG-002: charge the wallet for telephony minutes. Billing only the web
@@ -111,6 +114,11 @@ export function handleTwilioMediaUpgrade(ws, { workspaceId, agentId }) {
           const settings = safeJson(agent.settings, {});
           if (settings.voiceEngine !== 'xai' && settings.voiceEngine !== 'elevenlabs') {
             throw new Error('Agent is not configured to use a bundled Conversational Agent');
+          }
+          // Withdrawn by Super Admin after this agent was configured — refuse
+          // before the upstream session (and its cost) is created.
+          if (!(await isModelAllowed('conversational', settings.voiceEngine))) {
+            throw new Error('This conversational engine is no longer available on this platform');
           }
 
           const { kbText } = await getAgentKbText(workspaceId, agentId);

@@ -1,5 +1,6 @@
 ﻿import { useState, useEffect, useCallback } from 'react';
-import { safeGet } from '@/lib/authStorage';
+import { adminFetch, API } from '@/lib/adminApi';
+import { authFetch } from '@/lib/authFetch';
 import {
   Users, Bot, Phone, BarChart3, TrendingUp, RefreshCw,
   Search, Filter, Plus, Trash2, UserCheck, UserX,
@@ -71,24 +72,10 @@ interface Workspace {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-const API = (path: string) => `/api/v1/admin${path}`;
-
-async function apiFetch(path: string, opts?: RequestInit) {
-  const token = safeGet('token');
-  const res = await fetch(API(path), {
-    ...opts,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      ...(opts?.headers ?? {}),
-    },
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error ?? 'Request failed');
-  }
-  return res.json();
-}
+// One transport for the whole console, from lib/adminApi — it refreshes an
+// expired access token and replays, so the panel no longer starts 401-ing once
+// the ~15-min access token runs out.
+const apiFetch = adminFetch;
 
 function statusColor(status: string) {
   switch (status.toUpperCase()) {
@@ -1108,6 +1095,65 @@ interface ReportIssue {
   createdAt: string;
 }
 
+/**
+ * The screenshot attached to a bug report.
+ *
+ * Fetched as a blob rather than pointed at with <img src>: the route is
+ * admin-authenticated (screenshots routinely contain customer data) and an
+ * <img> tag cannot send an Authorization header, so a bare src would render a
+ * broken image. The object URL is released when the row collapses.
+ */
+function IssueScreenshot({ url }: { url: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let objectUrl: string | null = null;
+    let cancelled = false;
+
+    (async () => {
+      try {
+        const res = await authFetch(url);
+        if (!res.ok) throw new Error(res.status === 404 ? 'Screenshot is missing from storage' : `Failed to load (${res.status})`);
+        const blob = await res.blob();
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setSrc(objectUrl);
+      } catch (e) {
+        if (!cancelled) setErr(e instanceof Error ? e.message : 'Failed to load screenshot');
+      }
+    })();
+
+    return () => { cancelled = true; if (objectUrl) URL.revokeObjectURL(objectUrl); };
+  }, [url]);
+
+  return (
+    <div style={{ marginTop: 14 }}>
+      <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '0.5px', marginBottom: 6, textTransform: 'uppercase' }}>
+        Screenshot
+      </div>
+      {err && <div style={{ fontSize: 12, color: '#f87171' }}>{err}</div>}
+      {!err && !src && <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>Loading screenshot…</div>}
+      {src && (
+        <>
+          {/* Opens full size in a new tab — a scaled-down thumbnail is rarely
+              enough to read the error message the reporter was looking at. */}
+          <a href={src} target="_blank" rel="noopener noreferrer">
+            <img
+              src={src}
+              alt="Screenshot attached to this report"
+              style={{ maxWidth: '100%', maxHeight: 420, borderRadius: 8, border: '1px solid var(--border)', display: 'block', cursor: 'zoom-in' }}
+            />
+          </a>
+          <a href={src} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: '#0eb39e', display: 'inline-block', marginTop: 6 }}>
+            Open full size →
+          </a>
+        </>
+      )}
+    </div>
+  );
+}
+
 export function ReportIssuesTab() {
   const [issues, setIssues] = useState<ReportIssue[]>([]);
   const [loading, setLoading] = useState(true);
@@ -1119,10 +1165,7 @@ export function ReportIssuesTab() {
     setLoading(true);
     setError('');
     try {
-      const token = safeGet('token');
-      const res = await fetch('/api/v1/report-issue', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await authFetch('/api/v1/report-issue');
       if (!res.ok) throw new Error('Failed to load issues');
       const data = await res.json();
       setIssues(data);
@@ -1225,15 +1268,17 @@ export function ReportIssuesTab() {
                       {issue.description}
                     </div>
                   </div>
+                  {/* Rendered inline rather than behind a link: the screenshot is
+                      usually the fastest way to understand the report. */}
+                  {issue.screenshotUrl && <IssueScreenshot url={issue.screenshotUrl} />}
+
                   <div style={{ display: 'flex', gap: 16, marginTop: 14 }}>
                     <div>
                       <span style={{ fontSize: 11, color: 'var(--text-secondary)', fontWeight: 600 }}>ID: </span>
                       <span style={{ fontSize: 11, color: '#555', fontFamily: 'monospace' }}>{issue.id}</span>
                     </div>
-                    {issue.screenshotUrl && (
-                      <a href={issue.screenshotUrl} target="_blank" rel="noopener noreferrer" style={{ fontSize: 12, color: '#0eb39e' }}>
-                        View Screenshot →
-                      </a>
+                    {!issue.screenshotUrl && (
+                      <span style={{ fontSize: 11, color: 'var(--text-secondary)' }}>No screenshot attached</span>
                     )}
                   </div>
                 </div>
@@ -1299,7 +1344,7 @@ export function AppointmentsTab() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await fetch(API('/appointments'), { headers: { Authorization: `Bearer ${safeGet('token')}` } });
+        const res = await authFetch(API('/appointments'));
         const data = await res.json();
         if (!res.ok) throw new Error(data.error || `Failed (${res.status})`);
         setRows(Array.isArray(data) ? data : data.appointments ?? []);
@@ -1333,9 +1378,10 @@ export function AppointmentsTab() {
  *
  * Replaces the old plan-catalogue editor. There are no plans: every call is
  * charged one rate per talk-minute against the workspace's wallet, and this is
- * where that number is set. The public landing page reads the same value from
- * GET /config/wallet-rate, so the advertised rate and the deducted rate cannot
- * drift apart.
+ * where that number is set. It is also the number settlement deducts and the
+ * number a signed-in customer sees in Billing, so what is quoted and what is
+ * charged cannot drift apart. The marketing site no longer shows it at all:
+ * the landing page and /pricing quote no figure and point at /contact instead.
  */
 export function WalletRateTab() {
   const [rate, setRate] = useState<string>('');
@@ -1344,11 +1390,9 @@ export function WalletRateTab() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  const hdrs = () => ({ Authorization: `Bearer ${safeGet('token')}`, 'Content-Type': 'application/json' });
-
   const load = async () => {
     try {
-      const res = await fetch(API('/wallet-rate'), { headers: hdrs() });
+      const res = await authFetch(API('/wallet-rate'));
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `Failed (${res.status})`);
       setRate(String(data.perMinuteInr));
@@ -1360,8 +1404,8 @@ export function WalletRateTab() {
   const save = async () => {
     setBusy(true); setMsg(null);
     try {
-      const res = await fetch(API('/wallet-rate'), {
-        method: 'PUT', headers: hdrs(), body: JSON.stringify({ perMinuteInr: Number(rate) }),
+      const res = await authFetch(API('/wallet-rate'), {
+        method: 'PUT', body: JSON.stringify({ perMinuteInr: Number(rate) }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Save failed');
@@ -1444,9 +1488,8 @@ export function WalletCreditTab() {
     const cents = Math.round(Number(amount) * 100);
     if (!workspaceId.trim() || !Number.isFinite(cents) || cents === 0) { setMsg('Enter a workspace ID and a non-zero USD amount.'); return; }
     try {
-      const res = await fetch(API('/wallets/credit'), {
+      const res = await authFetch(API('/wallets/credit'), {
         method: 'POST',
-        headers: { Authorization: `Bearer ${safeGet('token')}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({ workspaceId: workspaceId.trim(), amountCents: cents, note: note.trim() || undefined }),
       });
       const data = await res.json();
@@ -1467,13 +1510,157 @@ export function WalletCreditTab() {
   );
 }
 
+// ─── Model Access ─────────────────────────────────────────────────────────────
+
+interface CatalogModel {
+  id: string;
+  value: string;
+  label: string;
+  provider: string;
+  enabled: boolean;
+  configured: boolean;
+}
+interface CatalogGroup {
+  key: string;
+  label: string;
+  description: string;
+  models: CatalogModel[];
+}
+
+/**
+ * Which models clients can use.
+ *
+ * Every model the platform can run, in one list. Off means the model does not
+ * appear in any client-side picker AND cannot be saved onto an agent even by
+ * calling the API directly — the same toggle drives both, so what a client can
+ * see and what a client can use never drift apart.
+ *
+ * Toggles save immediately and one at a time: two admins editing different
+ * groups cannot overwrite each other, and there is no unsaved state to lose.
+ */
+export function ModelAccessTab() {
+  const [groups, setGroups] = useState<CatalogGroup[] | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [saving, setSaving] = useState<string | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const load = async () => {
+    try {
+      const res = await authFetch(API('/model-catalog'));
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Failed (${res.status})`);
+      setGroups(data.groups);
+    } catch (e) { setErr(e instanceof Error ? e.message : 'Failed'); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const toggle = async (model: CatalogModel) => {
+    setSaving(model.id); setMsg(null);
+    const next = !model.enabled;
+    try {
+      const res = await authFetch(API('/model-catalog'), {
+        method: 'PUT',
+        body: JSON.stringify({ updates: { [model.id]: next } }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Save failed');
+      setGroups(data.groups);
+      setMsg(`${model.label} is now ${next ? 'available to clients' : 'hidden from clients'}.`);
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Save failed');
+    } finally { setSaving(null); }
+  };
+
+  if (err) return <p style={{ color: '#f87171' }}>Couldn't load the model catalogue: {err}</p>;
+  if (!groups) return <p style={{ color: 'var(--text-muted)' }}>Loading models…</p>;
+
+  const totalOn = groups.reduce((n, g) => n + g.models.filter(m => m.enabled).length, 0);
+  const total = groups.reduce((n, g) => n + g.models.length, 0);
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 22, maxWidth: 860 }}>
+      <p style={{ color: 'var(--text-muted)', fontSize: 13, lineHeight: 1.6, margin: 0 }}>
+        A model is offered to clients only while its toggle is on. Turning one off removes it from
+        every picker in the product and refuses any attempt to save it onto an agent — including
+        requests made directly against the API. {totalOn} of {total} models are currently available.
+      </p>
+
+      {msg && (
+        <div style={{ fontSize: 12, color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: 8, padding: '8px 12px' }}>
+          {msg}
+        </div>
+      )}
+
+      {groups.map(group => (
+        <div key={group.key} style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden' }}>
+          <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border)' }}>
+            <div style={{ fontSize: 14, fontWeight: 600 }}>{group.label}</div>
+            <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 3, lineHeight: 1.5 }}>{group.description}</div>
+          </div>
+
+          {group.models.map((m, i) => (
+            <div
+              key={m.id}
+              style={{
+                display: 'flex', alignItems: 'center', gap: 14, padding: '12px 18px',
+                borderTop: i === 0 ? 'none' : '1px solid var(--border)',
+                opacity: m.enabled ? 1 : 0.6,
+              }}
+            >
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 500 }}>{m.label}</div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>
+                  {m.provider}
+                  {/* An unconfigured model can be switched on, but it will fail at
+                      call time — say so here rather than letting a client find out. */}
+                  {!m.configured && (
+                    <span style={{ color: '#fbbf24' }}> · no API key configured on this server</span>
+                  )}
+                </div>
+              </div>
+
+              <span style={{ fontSize: 11, color: m.enabled ? '#4ade80' : 'var(--text-muted)', minWidth: 54, textAlign: 'right' }}>
+                {m.enabled ? 'Visible' : 'Hidden'}
+              </span>
+
+              <button
+                role="switch"
+                aria-checked={m.enabled}
+                aria-label={`${m.label}: ${m.enabled ? 'visible to clients' : 'hidden from clients'}`}
+                disabled={saving === m.id}
+                onClick={() => toggle(m)}
+                style={{
+                  position: 'relative', width: 42, height: 24, flexShrink: 0, borderRadius: 12,
+                  border: '1px solid ' + (m.enabled ? 'var(--teal, #14b8a6)' : 'var(--border, #334155)'),
+                  background: m.enabled ? 'var(--teal, #14b8a6)' : 'transparent',
+                  cursor: saving === m.id ? 'wait' : 'pointer', padding: 0,
+                  transition: 'background 0.15s, border-color 0.15s',
+                }}
+              >
+                <span
+                  style={{
+                    position: 'absolute', top: 2, left: m.enabled ? 20 : 2,
+                    width: 18, height: 18, borderRadius: '50%',
+                    background: m.enabled ? '#04231f' : 'var(--text-muted, #94a3b8)',
+                    transition: 'left 0.15s',
+                  }}
+                />
+              </button>
+            </div>
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function SystemHealthTab() {
   const [health, setHealth] = useState<any | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const load = async () => {
     setErr(null);
     try {
-      const res = await fetch(API('/health'), { headers: { Authorization: `Bearer ${safeGet('token')}` } });
+      const res = await authFetch(API('/health'));
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `Failed (${res.status})`);
       setHealth(data);

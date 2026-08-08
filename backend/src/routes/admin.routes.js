@@ -6,6 +6,7 @@ import { addNumberToPoolSchema } from '../validators/admin.validator.js';
 import * as ctrl from '../controllers/admin.controller.js';
 import * as callLogs from '../controllers/adminCallLogs.controller.js';
 import * as adminBilling from '../controllers/adminBilling.controller.js';
+import * as modelCatalog from '../controllers/modelCatalog.controller.js';
 
 const router = Router();
 
@@ -94,5 +95,10 @@ router.post('/wallets/credit', authenticate, isAdmin, billing.adminCreditWallet)
 // applyWalletTransaction, which should be impossible but must be detectable.
 router.get('/wallets/:workspaceId/audit', authenticate, isAdmin, billing.adminAuditWallet);
 router.get('/health', authenticate, isAdmin, platform.adminHealth);
+
+// ─── Model access ─────────────────────────────────────────────────────────────
+// Which models clients may see and use. Off here means invisible AND unsavable.
+router.get('/model-catalog', authenticate, isAdmin, modelCatalog.adminGetCatalog);
+router.put('/model-catalog', authenticate, isAdmin, modelCatalog.adminSetCatalog);
 
 export default router;

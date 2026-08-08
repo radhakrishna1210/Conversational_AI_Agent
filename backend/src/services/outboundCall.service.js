@@ -159,9 +159,13 @@ export async function placeOutboundCall({
     if (!response.ok) {
       logger.warn({ status: response.status, dataJson }, 'Twilio call request failed');
       if (logId) {
+        // billingStatus must be closed out here too. Twilio rejected the
+        // dispatch so nobody ever spoke and there is nothing to charge — but
+        // left at its PENDING default the row reads as an unpaid call forever,
+        // since no settlement path ever revisits a call that never connected.
         await prisma.agentCallLog.update({
           where: { id: logId },
-          data: { status: 'FAILED', endedAt: new Date() },
+          data: { status: 'FAILED', endedAt: new Date(), billingStatus: 'SKIPPED' },
         }).catch(() => {});
       }
       return {
@@ -190,9 +194,11 @@ export async function placeOutboundCall({
   } catch (err) {
     logger.error('placeOutboundCall failed', err);
     if (logId) {
+      // Same as the rejection path above: the call never happened, so close the
+      // billing state rather than leaving it PENDING forever.
       await prisma.agentCallLog.update({
         where: { id: logId },
-        data: { status: 'FAILED', endedAt: new Date() },
+        data: { status: 'FAILED', endedAt: new Date(), billingStatus: 'SKIPPED' },
       }).catch(() => {});
     }
     return { ok: false, mode, callLogId: logId, status: 502, error: `Call failed: ${err.message}` };

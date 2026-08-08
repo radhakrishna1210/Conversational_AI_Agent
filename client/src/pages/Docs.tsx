@@ -1,6 +1,12 @@
 import { Link } from 'react-router-dom';
+import { isCustomerSession } from '@/lib/authStorage';
 
 export default function Docs() {
+  // This page renders in two shells (see AdaptiveLayout in App.tsx). Inside the
+  // dashboard, a "Home" crumb pointing at the marketing site and an "Open
+  // Dashboard" button are both wrong — the reader is already in the app.
+  const inDashboard = isCustomerSession();
+
   const docCards = [
     { icon: '📱', title: 'Getting Started', desc: 'Learn how to install and set up the Conversational AI Agent SDK.' },
     { icon: '🖥️', title: 'Client', desc: 'Initialize and configure the Conversational AI Agent client.' },
@@ -14,7 +20,7 @@ export default function Docs() {
     <>
       <div className="container">
         <div className="breadcrumb">
-          <Link to="/">Home</Link>
+          <Link to={inDashboard ? '/dashboard' : '/'}>{inDashboard ? 'Dashboard' : 'Home'}</Link>
           <span>›</span>
           <span style={{color:'var(--text-primary)'}}>Docs</span>
         </div>
@@ -27,7 +33,9 @@ export default function Docs() {
           <p className="subtitle">Explore the API, setup guides, and support resources to build your AI workflows.</p>
           <div className="doc-actions">
             <a href="#overview" className="btn btn-primary btn-lg">Explore Guides →</a>
-            <Link to="/dashboard" className="btn btn-secondary btn-lg">Open Dashboard</Link>
+            {!inDashboard && (
+              <Link to="/dashboard" className="btn btn-secondary btn-lg">Open Dashboard</Link>
+            )}
           </div>
         </div>
       </div>
