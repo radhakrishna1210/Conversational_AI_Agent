@@ -9,6 +9,7 @@ import { assertCanStartCall } from '../services/billing/settlement.service.js';
 import { placeOutboundCall, resolveCallMode, telephonyStatus } from '../services/outboundCall.service.js';
 import fetch from 'node-fetch';
 import { env } from '../config/env.js';
+import { isModelAllowed, labelFor } from '../services/platform/modelCatalog.js';
 
 // Same storage locations the KB-file and call-log controllers write to —
 // needed so deleting an agent can also remove its files from disk.
@@ -48,6 +49,60 @@ const splitAgentPayload = (data = {}) => {
   return { columns, extras, languages: languages ?? selectedLanguages, flowItems };
 };
 
+/**
+ * Reject a save that selects a model Super Admin has switched off.
+ *
+ * The pickers already hide disabled models, but hiding a control is not access
+ * control: the same save can be issued straight at the API. This is the gate
+ * that actually holds.
+ *
+ * It only rejects a value that is CHANGING. The agent editor re-sends every
+ * field on every save, so gating on the payload alone would mean that disabling
+ * a model an existing agent already uses makes that agent unsaveable — renaming
+ * it would fail with a complaint about its LLM. An already-selected model is
+ * left alone here; the runtime gate in the WS handlers is what stops a
+ * withdrawn conversational engine from actually being used.
+ *
+ * @param {object} columns  agent-column fields from this request
+ * @param {object} extras   settings-JSON fields from this request
+ * @param {object|null} existing  the agent as currently stored, for updates
+ * @returns {Promise<string|null>} an error message, or null when the save is fine
+ */
+const findDisabledModel = async (columns, extras, existing = null) => {
+  const priorSettings = existing ? safeJson(existing.settings, {}) : {};
+  const prior = {
+    conversational: priorSettings.voiceEngine,
+    llm: existing?.aiModel,
+    stt: priorSettings.sttProvider ?? existing?.transcription,
+    tts: typeof existing?.voice === 'string' && existing.voice.includes(' - ')
+      ? existing.voice.split(' - ')[0].trim()
+      : null,
+  };
+
+  // The voice column is stored as "<Provider> - <Voice name>" (see
+  // handleVoiceSelect in EditAgent) — the provider is what the catalogue gates.
+  const voiceProvider = extras.voiceProvider
+    ?? (typeof columns.voice === 'string' && columns.voice.includes(' - ')
+      ? columns.voice.split(' - ')[0].trim()
+      : null);
+
+  const checks = [
+    ['conversational', extras.voiceEngine === 'modular' ? null : extras.voiceEngine],
+    ['llm', columns.aiModel],
+    ['stt', extras.sttProvider ?? columns.transcription],
+    ['tts', voiceProvider],
+  ];
+  for (const [group, value] of checks) {
+    if (!value) continue;
+    // Unchanged from what is already stored — not this request's doing.
+    if (prior[group] && String(prior[group]).toLowerCase() === String(value).toLowerCase()) continue;
+    if (!(await isModelAllowed(group, value))) {
+      return `"${labelFor(group, value)}" is not available on this platform. Contact your administrator.`;
+    }
+  }
+  return null;
+};
+
 const serializeAgent = (agent) => {
   const settings = safeJson(agent.settings, {});
   return {
@@ -68,6 +123,9 @@ export const createAgent = async (req, res) => {
 
   try {
     const { columns, extras, languages, flowItems } = splitAgentPayload(data);
+
+    const disabled = await findDisabledModel(columns, extras);
+    if (disabled) return res.status(403).json({ error: disabled });
 
     const agent = await prisma.agent.create({
       data: {
@@ -129,6 +187,10 @@ export const updateAgent = async (req, res) => {
     if (!existing) return res.status(404).json({ error: 'Agent not found in this workspace' });
 
     const { columns, extras, languages, flowItems } = splitAgentPayload(data);
+
+    const disabled = await findDisabledModel(columns, extras, existing);
+    if (disabled) return res.status(403).json({ error: disabled });
+
     const mergedSettings = { ...safeJson(existing.settings, {}), ...extras };
 
     const agent = await prisma.agent.update({

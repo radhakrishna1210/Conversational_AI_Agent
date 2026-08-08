@@ -52,9 +52,22 @@ const STATUS_COLOR: Record<string, string> = {
 };
 
 const fmtDuration = (s: number) => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+/** A call that never connected has no duration — "0:00" reads like a measurement. */
+const fmtDurationCell = (s: number) => (s > 0 ? fmtDuration(s) : '—');
 const fmtDate = (iso: string) =>
   new Date(iso).toLocaleString('en-IN', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' });
 const fmtMoney = (cents: number) => `₹${(cents / 100).toFixed(2)}`;
+
+/**
+ * The Billed column used to print the raw enum, so a call that will never be
+ * charged read as "pending" — indistinguishable from money genuinely still owed.
+ * These say what each state actually means to the operator.
+ */
+const BILLING_LABEL: Record<string, { text: string; color?: string }> = {
+  SKIPPED: { text: 'not billable' },
+  PENDING: { text: 'awaiting billing', color: '#f59e0b' },
+  FAILED: { text: 'billing failed', color: '#f87171' },
+};
 
 export default function AdminCallLogs() {
   const [page, setPage] = useState(1);
@@ -218,7 +231,7 @@ export default function AdminCallLogs() {
                     </td>
                     <td style={tdStyle}>{c.type.replace('_', ' ').toLowerCase()}</td>
                     <td style={tdStyle}>
-                      {fmtDuration(c.durationSec)}
+                      {fmtDurationCell(c.durationSec)}
                       {c.hasRecording && <Mic size={12} style={{ marginLeft: 6, color: '#0eb39e', verticalAlign: -1 }} />}
                     </td>
                     <td style={tdStyle}>
@@ -227,7 +240,10 @@ export default function AdminCallLogs() {
                       </span>
                     </td>
                     <td style={tdStyle}>
-                      {c.billingStatus === 'BILLED' ? fmtMoney(c.billedCents) : <span style={{ color: 'var(--text-secondary)' }}>{c.billingStatus.toLowerCase()}</span>}
+                      {c.billingStatus === 'BILLED' ? fmtMoney(c.billedCents) : (() => {
+                        const l = BILLING_LABEL[c.billingStatus] ?? { text: c.billingStatus.toLowerCase() };
+                        return <span style={{ color: l.color ?? 'var(--text-secondary)', fontSize: 12 }}>{l.text}</span>;
+                      })()}
                     </td>
                     <td style={{ ...tdStyle, color: 'var(--text-secondary)', fontSize: 11 }}>view</td>
                   </tr>
@@ -319,9 +335,15 @@ function CallDrawer({ id, onClose }: { id: string; onClose: () => void }) {
               <Field label="Agent" value={data.agent?.name ?? '(deleted)'} />
               <Field label="Type" value={data.type} />
               <Field label="Status" value={data.status} color={STATUS_COLOR[data.status]} />
-              <Field label="Duration" value={fmtDuration(data.durationSec)} />
+              <Field label="Duration" value={fmtDurationCell(data.durationSec)} />
               <Field label="Started" value={fmtDate(data.startedAt)} />
-              <Field label="Billing" value={`${data.billingStatus} · ${fmtMoney(data.billedCents)}`} />
+              <Field
+                label="Billing"
+                value={data.billingStatus === 'BILLED'
+                  ? `billed · ${fmtMoney(data.billedCents)}`
+                  : BILLING_LABEL[data.billingStatus]?.text ?? data.billingStatus.toLowerCase()}
+                color={BILLING_LABEL[data.billingStatus]?.color}
+              />
               <Field label="Provider cost" value={data.actualCostMicroUsd === null ? 'not measured' : `$${(data.actualCostMicroUsd / 1e6).toFixed(4)}`} />
             </div>
 

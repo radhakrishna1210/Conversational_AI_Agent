@@ -10,6 +10,7 @@ import * as platform from '../controllers/platform.controller.js';
 import * as billing from '../controllers/billing.controller.js';
 import * as kbCtrl from '../controllers/kbFile.controller.js';
 import * as callerCtrl from '../controllers/callerNumber.controller.js';
+import * as modelCatalog from '../controllers/modelCatalog.controller.js';
 import { readFileSync } from 'fs';
 
 import authRoutes from './auth.routes.js';
@@ -159,6 +160,10 @@ ws.get('/invoices', billing.getInvoices);
 // the wallet is topped up directly and spent per talk-minute; there is nothing
 // recurring to buy. The Razorpay webhook still accepts subscription.* events so
 // any legacy subscription on the gateway account is handled rather than 500ing.
+// The models this client is allowed to pick from — Super Admin → Models decides
+// what is in here. Every model picker in the product reads this.
+ws.get('/model-catalog', modelCatalog.clientGetCatalog);
+
 ws.get('/agents/:agentId/kb-text', kbCtrl.agentKbText);
 ws.post('/agents/:agentId/post-call/test', platform.testPostCall);
 

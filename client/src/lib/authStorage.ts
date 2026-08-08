@@ -112,6 +112,19 @@ export function isLoggedIn(): boolean {
   return !!getToken();
 }
 
+/**
+ * True when the visitor is a signed-in customer — i.e. the dual-audience pages
+ * (Docs, Report Issue) should render inside the dashboard shell and drop their
+ * marketing chrome. A Superadmin is excluded: the customer dashboard is not
+ * their home, so they see the public rendering like a signed-out visitor.
+ *
+ * Lives here rather than in App.tsx so the pages can ask the same question the
+ * layout does without importing from App and forming a cycle.
+ */
+export function isCustomerSession(): boolean {
+  return isLoggedIn() && !isAdminRole();
+}
+
 export function clearAuth(): void {
   ['token', 'refreshToken', 'workspaceId', 'userName', 'userEmail', 'userRole'].forEach(safeRemove);
 }

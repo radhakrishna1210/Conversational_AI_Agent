@@ -11,13 +11,17 @@
    The organising idea is a phone call's timeline. Sections are stamped with the
    second of a call at which the thing they describe happens, a fixed rail on
    the left tracks how far through that call you have scrolled, and the last
-   beat — SETTLE — is the wallet. Colour is a legend, not decoration:
+   beat is the Q&A. Colour is a legend, not decoration:
 
        --lp-live    teal    the agent
        --lp-caller  slate   the person on the other end
-       --lp-meter   amber   money leaving the wallet
+       --lp-meter   amber   the call running down — progress, elapsed, outcome
 
-   Nothing on this page may use amber for anything that is not currency.
+   Amber used to mean money: it lit the per-minute rate, the estimator total and
+   the wallet draining in the hero meter. No price is quoted on this page any
+   more (see the header of Home.tsx), so amber now marks the passage of the call
+   itself. Keep it to that — it is the page's one accent and it stops meaning
+   anything if it spreads.
 
    MOTION BUDGET. Animation here has to sell, so it is generous — but every
    effect is transform/opacity only (no animated blur, width, or box-shadow
@@ -391,6 +395,15 @@ html.light .lp {
   overflow: hidden;
 }
 
+/* The 10% bleed either side is what stops the glow ending in a visible edge on
+   a wide screen. On a phone that same bleed is ~39px of box hanging past the
+   right edge, and a document is as wide as its widest box however decorative:
+   it added 20px of sideways scroll on its own. Tucked in flush below 700px,
+   where a 390px-wide glow has no edge to hide anyway. */
+@media (max-width: 700px) {
+  .lp-aurora { inset: -30% 0 auto 0; }
+}
+
 .lp-aurora span {
   position: absolute;
   display: block;
@@ -464,6 +477,16 @@ html.light .lp-aurora span:nth-child(2) { background: radial-gradient(closest-si
 
 .lp-cta-row { display: flex; flex-wrap: wrap; gap: 12px; }
 
+/* Wrapped, the two buttons sit left-aligned at two different widths, which
+   reads as a layout accident rather than a pair. Stacked full-width they read
+   as a primary and a secondary, and both become comfortable thumb targets. */
+@media (max-width: 560px) {
+  /* align-self as well as align-items: the hero copy column is itself
+     `align-items: flex-start`, so without this the row shrink-wraps its buttons
+     and "stretch" only stretches them to each other. */
+  .lp-cta-row { flex-direction: column; align-items: stretch; align-self: stretch; width: 100%; }
+}
+
 .lp-specs {
   display: flex;
   flex-wrap: wrap;
@@ -501,6 +524,30 @@ html.light .lp-aurora span:nth-child(2) { background: radial-gradient(closest-si
   font-size: 12px;
   color: var(--text-muted);
   line-height: 1.35;
+}
+
+/* On a phone the 150px flex basis fits two specs per row and strands the third
+   as a full-width orphan under them — a lopsided 2 + 1 block. Below 560px each
+   spec becomes its own row and turns side-on: value left, label right, read as
+   a spec table rather than three stacked cards. It is shorter than the wrapped
+   version it replaces. */
+@media (max-width: 560px) {
+  .lp-specs { max-width: none; }
+
+  .lp-spec {
+    flex: 1 1 100%;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 11px 15px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .lp-spec:last-child { border-bottom: 0; }
+
+  .lp-spec-v { font-size: 16px; }
+  .lp-spec-k { margin-top: 0; text-align: right; }
 }
 
 /* ── The meter — this page's signature ──────────────────────────────────── */
@@ -666,10 +713,12 @@ html.light .lp-tape-bar[data-spoken='false'] { background: rgba(15, 23, 42, 0.11
   letter-spacing: -0.01em;
 }
 
-.lp-meter-v--balance { font-size: clamp(23px, 6vw, 32px); font-weight: 600; letter-spacing: -0.03em; }
-.lp-meter-v--spend { color: var(--lp-meter); }
+/* The headline readout of the meter — it held the wallet balance, it now holds
+   what the agent is doing right now. */
+.lp-meter-v--lead { font-size: clamp(23px, 6vw, 32px); font-weight: 600; letter-spacing: -0.03em; }
+.lp-meter-v--accent { color: var(--lp-meter); }
 
-/* Spend bar: the visible fraction of the wallet this call has eaten. */
+/* Progress bar: how far through the call the meter has played. */
 .lp-meter-drain {
   height: 3px;
   border-radius: 2px;
@@ -700,9 +749,19 @@ html.light .lp-tape-bar[data-spoken='false'] { background: rgba(15, 23, 42, 0.11
    Used twice: the proof strip and the integration wall. The track holds the
    content twice and translates exactly -50%, so the loop is seamless. */
 
+/* min-width/max-width are load-bearing, not belt-and-braces. `overflow: hidden`
+   clips what the box shows; it does not stop the box itself being sized by its
+   content. The track inside is ~1080px of wordmarks, so as a flex item this box
+   asks for 1080px — and a flex item's automatic minimum size is its content, so
+   it refuses to shrink below that. On a 390px phone it dragged the document out
+   to 1100px: the whole page scrolled sideways and every section trailed a band
+   of dead space to the right of it. min-width: 0 lets it shrink, max-width
+   caps it in the stacked layout below, where it is no longer a row item. */
 .lp-marquee {
   display: flex;
   overflow: hidden;
+  min-width: 0;
+  max-width: 100%;
   mask-image: linear-gradient(90deg, transparent, #000 9%, #000 91%, transparent);
   -webkit-mask-image: linear-gradient(90deg, transparent, #000 9%, #000 91%, transparent);
 }
@@ -751,8 +810,13 @@ html.light .lp-tape-bar[data-spoken='false'] { background: rgba(15, 23, 42, 0.11
 }
 .lp-trust-name:hover { color: var(--text-primary); }
 
+/* Stacked: the label sits above the strip. align-items must stay `stretch` so
+   the marquee fills the column — `flex-start` would size it to its content
+   again, which is the overflow described above. The label is a span and reads
+   left either way. */
 @media (max-width: 700px) {
-  .lp-trust { flex-direction: column; align-items: flex-start; gap: 14px; padding-right: 0; }
+  .lp-trust { flex-direction: column; align-items: stretch; gap: 14px; padding-right: 0; }
+  .lp-trust-label { align-self: flex-start; }
 }
 
 /* ── Beat list ──────────────────────────────────────────────────────────── */
@@ -868,7 +932,34 @@ html.light .lp-tape-bar[data-spoken='false'] { background: rgba(15, 23, 42, 0.11
 .lp-card p { font-size: 14px; line-height: 1.6; color: var(--text-secondary); margin: 0; }
 
 @media (max-width: 900px) { .lp-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 580px) { .lp-cards { grid-template-columns: minmax(0, 1fr); } }
+
+/* One column, but not six tall tiles. A card sized for a third of a desktop
+   grid keeps that height when it is alone on a phone, and six of them stacked
+   ran to ~1080px of mostly padding for one line of text each. Turned side-on —
+   icon in a fixed first column, title and line beside it — the same six read as
+   a list and take about half the height. */
+@media (max-width: 580px) {
+  .lp-cards { grid-template-columns: minmax(0, 1fr); }
+
+  .lp-card {
+    display: grid;
+    grid-template-columns: 34px minmax(0, 1fr);
+    column-gap: 14px;
+    row-gap: 3px;
+    align-items: center;
+    padding: 16px 18px;
+  }
+
+  .lp-card-icon {
+    width: 34px;
+    height: 34px;
+    grid-row: span 2;
+    align-self: start;
+    margin-bottom: 0;
+  }
+
+  .lp-card p { grid-column: 2; }
+}
 
 .lp-channels { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 14px; }
 
@@ -958,175 +1049,9 @@ html.light .lp-tape-bar[data-spoken='false'] { background: rgba(15, 23, 42, 0.11
 
 .lp-dest-rows { display: flex; flex-direction: column; gap: 12px; margin-top: 26px; }
 
-/* ── Wallet / the price ─────────────────────────────────────────────────── */
-
-.lp-settle {
-  display: grid;
-  grid-template-columns: minmax(0, 0.85fr) minmax(0, 1.15fr);
-  gap: clamp(26px, 4vw, 48px);
-  align-items: start;
-}
-
-@media (max-width: 900px) {
-  .lp-settle { grid-template-columns: minmax(0, 1fr); }
-}
-
-.lp-included { display: flex; flex-direction: column; gap: 12px; margin-top: 22px; list-style: none; padding: 0; }
-
-.lp-included li {
-  display: grid;
-  grid-template-columns: 18px minmax(0, 1fr);
-  gap: 11px;
-  font-size: 14.5px;
-  line-height: 1.5;
-  color: var(--text-secondary);
-}
-.lp-included svg { color: var(--teal-fg); margin-top: 3px; }
-
-/* The price. One figure, sized like a headline, because it is the whole offer.
-   No table: with a single platform rate there is nothing to compare against,
-   and a one-row table reads as a tier list with the other rows missing. */
-.lp-price {
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background: var(--bg-card);
-  padding: 26px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  position: relative;
-  overflow: hidden;
-}
-
-/* A slow amber wash behind the figure — the only place on the page amber is
-   allowed to be ambient, because this IS the money. */
-.lp-price::before {
-  content: '';
-  position: absolute;
-  right: -18%;
-  top: -60%;
-  width: 460px;
-  aspect-ratio: 1;
-  border-radius: 50%;
-  background: radial-gradient(closest-side, rgba(245, 165, 36, 0.13), transparent 70%);
-  pointer-events: none;
-  animation: lp-drift-b 24s ease-in-out infinite;
-}
-.lp-price > * { position: relative; }
-
-.lp-price-k {
-  font-family: var(--lp-mono);
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--text-muted);
-}
-
-.lp-price-v {
-  font-family: var(--lp-mono);
-  font-variant-numeric: tabular-nums;
-  font-size: clamp(44px, 7vw, 68px);
-  font-weight: 600;
-  line-height: 1;
-  letter-spacing: -0.045em;
-  color: var(--lp-meter);
-}
-
-.lp-price-v small {
-  font-size: 0.30em;
-  font-weight: 500;
-  letter-spacing: 0;
-  color: var(--text-secondary);
-  margin-left: 10px;
-}
-
-.lp-price-note { font-size: 13.5px; color: var(--text-muted); margin: 4px 0 0; line-height: 1.5; }
-.lp-price-note a { color: var(--teal-fg); }
-
-/* Estimator */
-.lp-est {
-  margin-top: 18px;
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  background: var(--bg-card);
-  padding: 22px;
-}
-
-.lp-est-fields { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(170px, 100%), 1fr)); gap: 18px; }
-
-.lp-field { display: flex; flex-direction: column; gap: 9px; }
-
-.lp-field-label {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 10px;
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-.lp-field-label b {
-  font-family: var(--lp-mono);
-  font-variant-numeric: tabular-nums;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--teal-fg);
-}
-
-.lp-range {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 100%;
-  height: 4px;
-  border-radius: 3px;
-  background: var(--border);
-  cursor: pointer;
-}
-
-.lp-range::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  background: var(--lp-live);
-  border: 2px solid var(--bg-card);
-  box-shadow: 0 0 0 0 var(--teal-glow);
-  transition: box-shadow 0.25s ease, transform 0.2s var(--lp-ease);
-}
-.lp-range:hover::-webkit-slider-thumb,
-.lp-range:focus::-webkit-slider-thumb { box-shadow: 0 0 0 7px var(--teal-light); transform: scale(1.1); }
-
-.lp-range::-moz-range-thumb {
-  width: 18px;
-  height: 18px;
-  border: 2px solid var(--bg-card);
-  border-radius: 50%;
-  background: var(--lp-live);
-}
-
-.lp-est-out {
-  margin-top: 22px;
-  padding-top: 19px;
-  border-top: 1px dashed var(--border);
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 14px;
-}
-
-.lp-est-total {
-  font-family: var(--lp-mono);
-  font-variant-numeric: tabular-nums;
-  font-size: clamp(29px, 4vw, 40px);
-  font-weight: 600;
-  color: var(--lp-meter);
-  letter-spacing: -0.035em;
-  line-height: 1;
-}
-
-.lp-est-sub { font-size: 13px; color: var(--text-muted); line-height: 1.5; }
+/* The wallet/price block that used to live here — .lp-settle, .lp-included,
+   .lp-price*, .lp-est*, .lp-field, .lp-range — went with the pricing section.
+   Home.tsx quotes no figure now; nothing else on the page used these. */
 
 /* ── FAQ ────────────────────────────────────────────────────────────────── */
 
@@ -1236,6 +1161,16 @@ html.light .lp-tape-bar[data-spoken='false'] { background: rgba(15, 23, 42, 0.11
   pointer-events: none;
 }
 
+/* Not on a phone. The artwork is composed to sit *beside* the copy and behind
+   the meter card; when the layout stacks, the only part of it not covered by
+   the card is a sliver of waveform down the left edge, which reads as a
+   rendering fault rather than as atmosphere. The hero is not pinned below
+   941px either, so there is no scrub for it to answer — the aurora carries the
+   background on its own, and the phone saves the paint. */
+@media (max-width: 700px) {
+  .lp-canvas-stage { display: none; }
+}
+
 .lp-canvas {
   display: block;
   width: 100%;
@@ -1331,9 +1266,9 @@ html.light .lp-tape-bar[data-spoken='false'] { background: rgba(15, 23, 42, 0.11
    Same constraint as the pinned hero: a section that is held cannot be
    scrolled, so anything taller than the space under the navbar is unreachable
    while the pin lasts. useLandingMotion measures each candidate and only pins
-   the ones that fit — this trims the generous section padding so the pricing
-   section is one of them. It missed by three pixels otherwise, and silently
-   fell back to scrolling normally.
+   the ones that fit — this trims the generous section padding so a borderline
+   section can be one of them. The old pricing section missed by three pixels
+   without it, and silently fell back to scrolling normally.
 
    Sections that still do not fit after this (the six-card services grid, which
    is ~970px) keep their reveal choreography and play it against natural

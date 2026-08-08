@@ -1,48 +1,16 @@
 const BASE = '/api/v1';
 
-import { getAuth, clearAuth, getRefreshToken, setTokens } from './authStorage';
+import { getAuth, clearAuth } from './authStorage';
+import { refreshAccessToken } from './authFetch';
 export { getAuth };
 
 /**
- * Single in-flight refresh promise. Access tokens expire after ~15 min; without
- * this, a burst of API calls hitting 401 at once would each fire /auth/refresh
- * in parallel. Because the backend ROTATES refresh tokens (revoking the old on
- * every refresh), only the first call would succeed and the rest would fail with
- * a now-revoked token — force-logging the user out. Serializing means one
- * refresh happens and every waiter reuses its result.
+ * Refresh lives in ./authFetch, shared with the admin console's transport. It
+ * MUST be one module-level in-flight promise across both: the backend rotates
+ * refresh tokens (revoking the old on every /auth/refresh), so two transports
+ * each holding their own copy would race and revoke each other's token,
+ * force-logging the user out.
  */
-let refreshInFlight: Promise<string | null> | null = null;
-
-/** Attempt to mint a new access token from the stored refresh token. Returns the
- *  new access token on success, or null if refresh is impossible/failed. */
-async function refreshAccessToken(): Promise<string | null> {
-  if (refreshInFlight) return refreshInFlight;
-
-  const refreshToken = getRefreshToken();
-  if (!refreshToken) return null;
-
-  refreshInFlight = (async () => {
-    try {
-      const res = await fetch(`${BASE}/auth/refresh`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refreshToken }),
-      });
-      if (!res.ok) return null;
-      const data = await res.json().catch(() => null);
-      if (!data?.accessToken) return null;
-      // Persist the rotated pair (new access + new refresh token).
-      setTokens(data.accessToken, data.refreshToken);
-      return data.accessToken as string;
-    } catch {
-      return null;
-    } finally {
-      refreshInFlight = null;
-    }
-  })();
-
-  return refreshInFlight;
-}
 
 async function request<T>(path: string, options: RequestInit = {}, _retried = false): Promise<T> {
   const { token, workspaceId } = getAuth();

@@ -2524,6 +2524,49 @@ html.light .topbar-icon-btn:hover {
   width: 100%;
 }
 
+/*
+  Docs and Report Issue are public pages that a signed-in customer now opens
+  inside the dashboard shell (see AdaptiveLayout in App.tsx). Their marketing
+  hero and inner .container were sized for a full-bleed public page, so nested
+  in .dashboard-content they read as an oversized centred banner sitting inside
+  a second gutter. Rein both in — scoped, so the public rendering is untouched.
+*/
+.dashboard-content .container {
+  max-width: none;
+  padding: 0;
+}
+
+.dashboard-content .page-hero,
+.dashboard-content .doc-hero {
+  text-align: left;
+  padding: 0 0 18px;
+  margin-bottom: 26px;
+  background: none;
+}
+
+.dashboard-content .page-hero h1,
+.dashboard-content .doc-hero h1 {
+  font-size: 28px;
+  margin-bottom: 6px;
+}
+
+.dashboard-content .page-hero p,
+.dashboard-content .doc-hero .subtitle {
+  font-size: 14px;
+  max-width: none;
+  margin: 0;
+}
+
+/* Centred for the marketing hero; left-aligned to match the dashboard. */
+.dashboard-content .doc-hero .badge {
+  margin: 0 0 14px !important;
+}
+
+.dashboard-content .doc-actions {
+  justify-content: flex-start;
+  margin-top: 20px;
+}
+
 .create-assistant-box {
   background: radial-gradient(circle at top right, rgba(0,212,200,0.1), transparent 40%), var(--bg-card);
   border: 1px solid var(--border);

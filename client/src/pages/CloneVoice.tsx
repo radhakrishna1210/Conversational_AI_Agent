@@ -9,6 +9,8 @@ interface ClonedVoice {
   language: string | null;
   description: string | null;
   status: string;
+  hasSample: boolean;
+  clonedProvider: string | null;
   createdAt: string;
 }
 
@@ -42,6 +44,7 @@ export default function CloneVoice() {
   const [voices, setVoices] = useState<ClonedVoice[]>([]);
   const [loadingList, setLoadingList] = useState(true);
   const [playingId, setPlayingId] = useState<string | null>(null);
+  const [busyId, setBusyId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -205,13 +208,41 @@ export default function CloneVoice() {
   };
 
   const deleteVoice = async (voice: ClonedVoice) => {
-    if (!confirm(`Delete "${voice.name}"? This cannot be undone.`)) return;
+    const extra = voice.clonedProvider
+      ? ` The trained clone will also be removed from ${voice.clonedProvider}.`
+      : '';
+    if (!confirm(`Delete "${voice.name}" and its uploaded sample?${extra} This cannot be undone.`)) return;
+    setBusyId(voice.id);
     try {
-      await whapi.del(`/voices/cloned/${voice.id}`);
-      toast.success('Voice deleted.');
+      const res = await whapi.del<{ message?: string; remoteError?: string | null }>(
+        `/voices/cloned/${voice.id}`
+      );
+      // The row is gone locally either way, but say so plainly when the copy at
+      // the cloning provider survived — otherwise people believe it is gone.
+      if (res?.remoteError) toast.warning(res.message ?? 'Deleted, but the provider copy remains.');
+      else toast.success('Voice deleted.');
       setVoices((prev) => prev.filter((v) => v.id !== voice.id));
+      if (playingId === voice.id) { audioRef.current?.pause(); setPlayingId(null); }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to delete voice.');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  /** Drop the raw recording but keep the trained clone working. */
+  const deleteSample = async (voice: ClonedVoice) => {
+    if (!confirm(`Delete the uploaded sample for "${voice.name}"? The cloned voice keeps working, but you lose the preview.`)) return;
+    setBusyId(voice.id);
+    try {
+      await whapi.del(`/voices/cloned/${voice.id}/sample`);
+      toast.success('Uploaded sample deleted.');
+      setVoices((prev) => prev.map((v) => (v.id === voice.id ? { ...v, hasSample: false } : v)));
+      if (playingId === voice.id) { audioRef.current?.pause(); setPlayingId(null); }
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Failed to delete the sample.');
+    } finally {
+      setBusyId(null);
     }
   };
 
@@ -412,9 +443,12 @@ export default function CloneVoice() {
                 }}>
                   <button
                     onClick={() => playSample(v)}
-                    title={playingId === v.id ? 'Stop' : 'Play sample'}
+                    disabled={!v.hasSample}
+                    title={!v.hasSample ? 'Sample deleted — nothing to preview' : playingId === v.id ? 'Stop' : 'Play sample'}
                     style={{
-                      width: '36px', height: '36px', borderRadius: '50%', cursor: 'pointer',
+                      width: '36px', height: '36px', borderRadius: '50%',
+                      cursor: v.hasSample ? 'pointer' : 'not-allowed',
+                      opacity: v.hasSample ? 1 : 0.4,
                       border: '1px solid var(--border)', background: 'rgba(0,212,200,0.08)',
                       color: playingId === v.id ? '#ef4444' : 'var(--teal)', fontSize: '14px',
                     }}
@@ -436,13 +470,36 @@ export default function CloneVoice() {
                   }}>
                     {v.status === 'cloned' ? 'Cloned' : 'Sample saved'}
                   </span>
-                  <button
-                    onClick={() => deleteVoice(v)}
-                    title="Delete voice"
-                    style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '15px' }}
-                  >
-                    🗑
-                  </button>
+                  <div style={{ display: 'flex', gap: '8px', flexShrink: 0 }}>
+                    {/* Only offered on a real clone: for a sample-only voice the
+                        recording IS the voice, so this would just break it. */}
+                    {v.status === 'cloned' && v.hasSample && (
+                      <button
+                        onClick={() => deleteSample(v)}
+                        disabled={busyId === v.id}
+                        title="Delete only the uploaded recording — the cloned voice keeps working"
+                        style={{
+                          padding: '6px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 600,
+                          border: '1px solid var(--border)', background: 'transparent',
+                          color: 'var(--text-secondary)', cursor: busyId === v.id ? 'wait' : 'pointer',
+                        }}
+                      >
+                        Delete sample
+                      </button>
+                    )}
+                    <button
+                      onClick={() => deleteVoice(v)}
+                      disabled={busyId === v.id}
+                      title="Delete this voice and its uploaded sample"
+                      style={{
+                        padding: '6px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 600,
+                        border: '1px solid rgba(239,68,68,0.35)', background: 'rgba(239,68,68,0.08)',
+                        color: '#f87171', cursor: busyId === v.id ? 'wait' : 'pointer',
+                      }}
+                    >
+                      🗑 Delete
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>

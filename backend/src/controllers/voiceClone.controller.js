@@ -13,7 +13,7 @@ import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
 import { env } from '../config/env.js';
 
-const CLONE_DIR = path.resolve(env.UPLOAD_DIR || 'uploads', 'voice-clones');
+export const CLONE_DIR = path.resolve(env.UPLOAD_DIR || 'uploads', 'voice-clones');
 fs.mkdirSync(CLONE_DIR, { recursive: true });
 
 const AUDIO_MIMES = new Set([
@@ -46,7 +46,7 @@ const getCustomProvider = async () => {
   });
 };
 
-const parseMeta = (v) => { try { return JSON.parse(v || '{}'); } catch { return {}; } };
+export const parseMeta = (v) => { try { return JSON.parse(v || '{}'); } catch { return {}; } };
 
 /** ElevenLabs Instant Voice Clone — POST /v1/voices/add, multipart. */
 const submitToElevenLabs = async ({ filePath, mimeType, name, description }) => {
@@ -132,6 +132,82 @@ const submitToProvider = async ({ filePath, mimeType, name, description, preferr
   if (!chosen) return null;
   const out = await chosen.submit({ filePath, mimeType, name, description });
   return { provider: chosen.id, label: chosen.label, ...out };
+};
+
+// ── Deletion helpers ─────────────────────────────────────────────────────────
+
+/**
+ * Remove the voice from the cloning provider that holds it. Deleting only our
+ * row would leave the clone alive upstream — still billable, still listed in
+ * the provider console, and still usable by anyone holding the id.
+ */
+const REMOTE_DELETERS = {
+  fishaudio: async (id) => {
+    if (!process.env.FISH_API_KEY) return 'FISH_API_KEY is not configured';
+    const res = await fetch(`https://api.fish.audio/model/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: { Authorization: `Bearer ${process.env.FISH_API_KEY}` },
+    });
+    // 404 means it is already gone, which is the state we wanted.
+    if (!res.ok && res.status !== 404) {
+      throw new Error(`Fish Audio delete failed (${res.status}): ${(await res.text()).slice(0, 200)}`);
+    }
+    return null;
+  },
+  elevenlabs: async (id) => {
+    if (!process.env.ELEVENLABS_API_KEY) return 'ELEVENLABS_API_KEY is not configured';
+    const res = await fetch(`https://api.elevenlabs.io/v1/voices/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+      headers: { 'xi-api-key': process.env.ELEVENLABS_API_KEY },
+    });
+    if (!res.ok && res.status !== 404) {
+      throw new Error(`ElevenLabs delete failed (${res.status}): ${(await res.text()).slice(0, 200)}`);
+    }
+    return null;
+  },
+};
+
+/**
+ * Best-effort upstream deletion. Returns a human-readable reason when the
+ * remote copy could NOT be removed, else null. Deliberately non-fatal: a
+ * provider outage must not leave the user unable to remove their own voice
+ * from the platform — but the caller reports the leftover honestly.
+ */
+export const deleteRemoteClone = async (meta) => {
+  const provider = meta?.clonedProvider;
+  const remoteId = meta?.clonedVoiceId;
+  if (!provider || !remoteId) return null; // sample-only voice — nothing upstream
+  const del = REMOTE_DELETERS[provider];
+  if (!del) return `Unknown cloning provider "${provider}"`;
+  try {
+    return await del(remoteId);
+  } catch (err) {
+    logger.warn(`Remote clone deletion failed (${provider}/${remoteId}): ${err.message}`);
+    return err.message;
+  }
+};
+
+/**
+ * Agents that would break if this voice went away.
+ *
+ * Agents do NOT hold a voice foreign key — `Agent.voice` is the display label
+ * ("Custom - My Voice") that resolveAgentVoice() looks up by name at call time.
+ * So the only truthful in-use check is a name match within the owning
+ * workspace, which is what this does.
+ */
+export const agentsUsingVoice = async (voice) =>
+  prisma.agent.findMany({
+    where: {
+      ...(voice.workspaceId ? { workspaceId: voice.workspaceId } : {}),
+      voice: { contains: voice.name, mode: 'insensitive' },
+    },
+    select: { id: true, name: true },
+  });
+
+/** Remove the stored sample file. Safe to call when there is no sample. */
+export const removeSampleFile = (meta) => {
+  if (!meta?.samplePath) return;
+  fs.unlink(path.join(CLONE_DIR, path.basename(meta.samplePath)), () => {});
 };
 
 // ── POST /workspaces/:workspaceId/voices/clone ────────────────────────────────
@@ -240,6 +316,10 @@ export const listClonedVoices = async (req, res) => {
         language: v.language,
         description: meta.description ?? null,
         status: meta.status ?? 'sample_only',
+        // The UI needs these to decide which delete actions to offer: the
+        // sample can only be dropped on its own once a real clone exists.
+        hasSample: Boolean(meta.samplePath),
+        clonedProvider: meta.clonedProvider ?? null,
         createdAt: v.createdAt,
       }));
 
@@ -281,19 +361,78 @@ export const deleteClonedVoice = async (req, res) => {
       return res.status(404).json({ error: 'Cloned voice not found' });
     }
 
-    // Refuse deletion while an agent uses this voice (schema is onDelete: Restrict)
-    const inUse = await prisma.agentVoice.count({ where: { voiceId: id } });
-    if (inUse > 0) {
-      return res.status(409).json({ error: 'This voice is assigned to an agent. Unassign it first.' });
+    // Refuse deletion while an agent still points at this voice — the agent
+    // would silently fall back to a different voice mid-call.
+    const inUse = await agentsUsingVoice(voice);
+    if (inUse.length > 0) {
+      return res.status(409).json({
+        error: `This voice is used by ${inUse.map((a) => `"${a.name}"`).join(', ')}. Switch ${inUse.length > 1 ? 'those agents' : 'that agent'} to another voice first.`,
+        agents: inUse,
+      });
     }
 
+    // Upstream first: if our row is gone we lose the id needed to reach it.
+    const remoteError = await deleteRemoteClone(meta);
+
     await prisma.voice.delete({ where: { id } });
-    if (meta.samplePath) {
-      fs.unlink(path.join(CLONE_DIR, path.basename(meta.samplePath)), () => {});
-    }
-    res.json({ success: true });
+    removeSampleFile(meta);
+
+    res.json({
+      success: true,
+      remoteError,
+      message: remoteError
+        ? `Voice removed here, but the copy at the cloning provider could not be deleted: ${remoteError}`
+        : 'Voice and uploaded sample deleted.',
+    });
   } catch (err) {
     logger.error('deleteClonedVoice failed', err);
     res.status(500).json({ error: 'Failed to delete cloned voice' });
+  }
+};
+
+// ── DELETE /workspaces/:workspaceId/voices/cloned/:id/sample ───────────────────
+/**
+ * Drop only the uploaded recording, keeping the working clone. Once a provider
+ * has trained the voice the sample is used for nothing but the preview button,
+ * so people who do not want their raw recording sitting on the server can
+ * remove it without losing the voice.
+ */
+export const deleteClonedSample = async (req, res) => {
+  const { workspaceId, id } = req.params;
+  try {
+    const voice = await prisma.voice.findUnique({ where: { id } });
+    const meta = parseMeta(voice?.metadata);
+    if (!voice || (voice.workspaceId ?? meta.workspaceId) !== workspaceId) {
+      return res.status(404).json({ error: 'Cloned voice not found' });
+    }
+    if (!meta.samplePath) {
+      return res.status(404).json({ error: 'This voice has no stored sample' });
+    }
+    // Without a provider-side clone the sample IS the voice — removing it would
+    // leave a row that can neither speak nor preview.
+    if (meta.status !== 'cloned') {
+      return res.status(409).json({
+        error: 'This voice was never cloned by a provider, so the sample is all there is. Delete the whole voice instead.',
+      });
+    }
+
+    removeSampleFile(meta);
+    await prisma.voice.update({
+      where: { id },
+      data: {
+        metadata: JSON.stringify({
+          ...meta,
+          samplePath: null,
+          sampleMime: null,
+          sampleSize: null,
+          sampleDeletedAt: new Date().toISOString(),
+        }),
+      },
+    });
+
+    res.json({ success: true, message: 'Uploaded sample deleted. The cloned voice still works.' });
+  } catch (err) {
+    logger.error('deleteClonedSample failed', err);
+    res.status(500).json({ error: 'Failed to delete the uploaded sample' });
   }
 };

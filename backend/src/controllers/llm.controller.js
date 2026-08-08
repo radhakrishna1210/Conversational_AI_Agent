@@ -13,6 +13,13 @@ import {
 } from "../constants/llmModels.js";
 import prisma from "../config/prisma.js";
 import { providerHasCredentials } from "../services/voice.service.js";
+import { getEnabledCatalog } from "../services/platform/modelCatalog.js";
+
+/** The set of LLM model ids Super Admin currently allows clients to see. */
+const allowedLlmValues = async () => {
+  const catalog = await getEnabledCatalog();
+  return new Set((catalog.llm ?? []).map((m) => m.value));
+};
 
 /**
  * Agents store a human-friendly model label (e.g. "GPT-4.1-Mini",
@@ -229,7 +236,7 @@ export const generateResponse = async (req, res) => {
  * Get supported models for a provider
  * GET /api/llm/models/:provider
  */
-export const getModelsForProvider = (req, res) => {
+export const getModelsForProvider = async (req, res) => {
   try {
     const { provider } = req.params;
 
@@ -248,9 +255,13 @@ export const getModelsForProvider = (req, res) => {
       });
     }
 
+    // Super Admin → Models decides what clients may see. This endpoint is
+    // workspace-scoped, so it must never list a model that has been switched off.
+    const allowed = await allowedLlmValues();
+
     res.json({
       provider: provider.toLowerCase(),
-      models,
+      models: models.filter((m) => allowed.has(m)),
     });
   } catch (error) {
     logger.error("Error fetching models for provider", error);
@@ -264,13 +275,17 @@ export const getModelsForProvider = (req, res) => {
  * Get all supported providers
  * GET /api/llm/providers
  */
-export const getSupportedProviders = (req, res) => {
+export const getSupportedProviders = async (req, res) => {
   try {
-    const providers = Object.keys(ALLOWED_MODELS).map((provider) => ({
-      name: provider,
-      models: ALLOWED_MODELS[provider],
-      modelCount: ALLOWED_MODELS[provider].length,
-    }));
+    const allowed = await allowedLlmValues();
+    const providers = Object.keys(ALLOWED_MODELS)
+      .map((provider) => {
+        const models = ALLOWED_MODELS[provider].filter((m) => allowed.has(m));
+        return { name: provider, models, modelCount: models.length };
+      })
+      // A provider with every model switched off is not a choice — drop it
+      // rather than offering an empty dropdown.
+      .filter((p) => p.modelCount > 0);
 
     res.json({
       providers,

@@ -8,6 +8,13 @@ import {
   setAgentVoice,
   getAgentVoice,
 } from '../services/voice.service.js';
+import { getEnabledCatalog } from '../services/platform/modelCatalog.js';
+
+/** TTS provider names Super Admin currently allows clients to use. */
+const enabledTtsProviders = async () => {
+  const catalog = await getEnabledCatalog();
+  return (catalog.tts ?? []).map((m) => m.value);
+};
 
 const DEFAULT_PREVIEW_TEXT =
   'Hello, thank you for calling. How can I assist you today?';
@@ -52,6 +59,7 @@ export const list = async (req, res) => {
       provider: provider || undefined,
       gender: gender || undefined,
       language: language || undefined,
+      allowedProviders: await enabledTtsProviders(),
     });
 
     res.json({
@@ -112,26 +120,27 @@ export const sync = async (req, res) => {
 // ─── PUT /api/agents/:agentId/voice ───────────────────────────────────────────
 export const setVoice = async (req, res) => {
   try {
-    const { agentId } = req.params;
+    const { agentId, workspaceId } = req.params;
     const { voiceId } = req.body;
     if (!voiceId) return res.status(400).json({ error: 'voiceId is required' });
-    const agentVoice = await setAgentVoice(agentId, voiceId);
-    res.json({ success: true, agentVoice: toDTO(agentVoice.voice) });
+    const { voice, label } = await setAgentVoice(agentId, voiceId, workspaceId);
+    res.json({ success: true, voice: toDTO(voice), label });
   } catch (error) {
     console.error('Error setting agent voice:', error);
-    res.status(500).json({ error: error.message });
+    // Not-found / cross-workspace are client errors; only anything else is a 500.
+    res.status(error.status ?? 500).json({ error: error.message });
   }
 };
 
 // ─── GET /api/agents/:agentId/voice ───────────────────────────────────────────
 export const getVoiceForAgent = async (req, res) => {
   try {
-    const { agentId } = req.params;
-    const voice = await getAgentVoice(agentId);
+    const { agentId, workspaceId } = req.params;
+    const voice = await getAgentVoice(agentId, workspaceId);
     if (!voice) return res.status(404).json({ error: 'No voice assigned to this agent' });
     res.json(voice);
   } catch (error) {
     console.error('Error fetching agent voice:', error);
-    res.status(500).json({ error: error.message });
+    res.status(error.status ?? 500).json({ error: error.message });
   }
 };

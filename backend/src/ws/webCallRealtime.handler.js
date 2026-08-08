@@ -22,6 +22,7 @@ import { settleCall, assertCanStartCall } from '../services/billing/settlement.s
 import { verifyAccessToken } from '../lib/jwt.js';
 import { getAgentKbText } from '../services/agentRuntime.service.js';
 import { createRealtimeSession } from '../services/voice/realtimeEngine.factory.js';
+import { isModelAllowed } from '../services/platform/modelCatalog.js';
 
 const AUTH_TIMEOUT_MS = 10_000;
 
@@ -60,13 +61,27 @@ export async function handleWebCallUpgrade(ws, { workspaceId, agentId }) {
 
     // BUG-002: charge the wallet for the minutes used. Idempotent per call, so
     // a socket close racing an explicit stop cannot double-charge.
+    // Runs even if the update above failed: a call left PENDING is a bill that
+    // nothing else in the system will ever come back to resolve.
     await settleCall(callLogId);
   };
 
+  /**
+   * Teardown. Runs at most once — a socket 'error' is followed by 'close', so
+   * both handlers reach here. Without the guard the second pass overwrote the
+   * FAILED status with COMPLETED (hiding the real outcome) and raced the first
+   * pass's settlement.
+   *
+   * Returns the finalize promise so callers can await settlement instead of
+   * leaving it to a dropped microtask at process teardown.
+   */
+  let teardown = null;
   const cleanup = (status = 'COMPLETED') => {
+    if (teardown) return teardown;
     clearTimeout(authTimer);
     session?.close();
-    finalizeCallLog(status);
+    teardown = finalizeCallLog(status);
+    return teardown;
   };
 
   ws.on('message', async (raw, isBinary) => {
@@ -96,6 +111,14 @@ export async function handleWebCallUpgrade(ws, { workspaceId, agentId }) {
       const settings = safeJson(agent.settings, {});
       if (settings.voiceEngine !== 'xai' && settings.voiceEngine !== 'elevenlabs') {
         ws.close(4003, 'Agent is not configured to use a bundled Conversational Agent');
+        return;
+      }
+      // Super Admin can withdraw an engine after an agent was already pointed at
+      // it. Checked here, before the upstream session exists, so a withdrawn
+      // engine stops costing money immediately rather than at the next edit.
+      if (!(await isModelAllowed('conversational', settings.voiceEngine))) {
+        logger.info({ workspaceId, agentId, engine: settings.voiceEngine }, 'Web call blocked: engine disabled by platform');
+        ws.close(4003, 'This conversational engine is no longer available on this platform');
         return;
       }
 
@@ -166,6 +189,8 @@ export async function handleWebCallUpgrade(ws, { workspaceId, agentId }) {
     }
   });
 
+  // 'error' fires before 'close', so the FAILED status is the one that sticks —
+  // cleanup() is single-shot and first status wins.
   ws.on('close', () => cleanup('COMPLETED'));
   ws.on('error', (err) => {
     logger.warn(`Realtime web call socket error: ${err.message}`);

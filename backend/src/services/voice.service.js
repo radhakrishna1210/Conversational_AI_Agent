@@ -22,7 +22,7 @@ const DEFAULT_PREVIEW_TEXT =
  * List voices with optional provider name filter and pagination.
  * @param {{ page?: number, limit?: number, provider?: string }} opts
  */
-export const listVoices = async ({ page = 1, limit = 20, provider, gender, language } = {}) => {
+export const listVoices = async ({ page = 1, limit = 20, provider, gender, language, allowedProviders } = {}) => {
   const skip = (page - 1) * limit;
   const where = {
     // Hide un-cloned samples from the agent voice picker: a sample_only voice
@@ -30,6 +30,12 @@ export const listVoices = async ({ page = 1, limit = 20, provider, gender, langu
     NOT: { AND: [{ category: 'cloned' }, { metadata: { contains: '"status":"sample_only"' } }] },
   };
   if (provider) where.provider = { name: { equals: provider } };
+  // Providers Super Admin has switched off must not appear in the picker. This
+  // is applied on top of any explicit ?provider= filter, so asking for a
+  // disabled provider by name returns nothing rather than bypassing the gate.
+  if (Array.isArray(allowedProviders)) {
+    where.AND = [...(where.AND ?? []), { provider: { name: { in: allowedProviders } } }];
+  }
   // Case-insensitive: provider labels are normalised on sync (voice.dto.js), but
   // rows written by earlier syncs keep their original casing ("FEMALE"/"Female"),
   // and an exact match would silently drop them from the picker.
@@ -346,44 +352,92 @@ const resolveAgentVoiceUncached = async (voiceLabel) => {
   return null;
 };
 
-// ─── AgentVoice persistence ───────────────────────────────────────────────────
+// ─── Agent voice assignment ───────────────────────────────────────────────────
+//
+// There is no AgentVoice join table — an agent's voice is the label string in
+// `Agent.voice` ("Provider - Name"), which resolveAgentVoice() above parses at
+// call time. These two functions used to read and write a `prisma.agentVoice`
+// model that does not exist in the schema, so every save threw a TypeError and
+// the endpoint 500'd. They now read and write the column that is really there,
+// in exactly the format the resolver and the agent editor already use.
+
+/** The label format resolveAgentVoice() parses and EditAgent writes. */
+export const formatVoiceLabel = (voice) => `${voice.provider?.name ?? 'Unknown'} - ${voice.name}`;
 
 /**
- * Assign a voice to an agent (upsert).
+ * Point an agent at a voice.
  * @param {string} agentId
- * @param {string} voiceId – internal DB voice id
+ * @param {string} voiceId      internal DB voice id
+ * @param {string} [workspaceId] when given, the agent must belong to it
+ * @returns {Promise<{ agent: object, voice: object, label: string }>}
  */
-export const setAgentVoice = async (agentId, voiceId) => {
-  // Verify voice exists
+export const setAgentVoice = async (agentId, voiceId, workspaceId) => {
   const voice = await prisma.voice.findUnique({
     where: { id: voiceId },
     include: { provider: { select: { name: true } } },
   });
-  if (!voice) throw new Error('Voice not found');
+  if (!voice) {
+    const err = new Error('Voice not found');
+    err.status = 404;
+    throw err;
+  }
 
-  const agentVoice = await prisma.agentVoice.upsert({
-    where: { agentId },
-    create: { agentId, voiceId },
-    update: { voiceId },
-    include: { voice: { include: { provider: { select: { name: true } } } } },
+  // Ownership check, mirroring updateAgent: never retarget an agent in another
+  // workspace. `updateMany` would silently no-op, so look it up first and say so.
+  const agent = await prisma.agent.findFirst({
+    where: { id: agentId, ...(workspaceId ? { workspaceId } : {}) },
+  });
+  if (!agent) {
+    const err = new Error('Agent not found in this workspace');
+    err.status = 404;
+    throw err;
+  }
+
+  // A workspace-scoped clone must not be assignable from another tenant.
+  if (voice.workspaceId && workspaceId && voice.workspaceId !== workspaceId) {
+    const err = new Error('That voice belongs to another workspace');
+    err.status = 403;
+    throw err;
+  }
+
+  const label = formatVoiceLabel(voice);
+  const updated = await prisma.agent.update({
+    where: { id: agentId },
+    data: { voice: label },
   });
 
-  return agentVoice;
+  // The resolver caches label → voice; a stale entry here would keep the agent
+  // speaking in its previous voice until the TTL expired.
+  voiceResolutionCache.delete(label);
+
+  return { agent: updated, voice, label };
 };
 
 /**
- * Get the voice currently assigned to an agent.
+ * The voice an agent will actually speak with, resolved from its label.
+ *
+ * Note resolveAgentVoice() falls back to a default when the stored label no
+ * longer matches anything (a deleted clone, a provider that lost its key), so
+ * the result can differ from what the label says. `exactMatch: false` flags
+ * that, rather than quietly presenting the fallback as the agent's setting.
  * @param {string} agentId
+ * @param {string} [workspaceId]
  */
-export const getAgentVoice = async (agentId) => {
-  const agentVoice = await prisma.agentVoice.findUnique({
-    where: { agentId },
-    include: { voice: { include: { provider: { select: { name: true } } } } },
+export const getAgentVoice = async (agentId, workspaceId) => {
+  const agent = await prisma.agent.findFirst({
+    where: { id: agentId, ...(workspaceId ? { workspaceId } : {}) },
+    select: { voice: true },
   });
+  if (!agent) {
+    const err = new Error('Agent not found in this workspace');
+    err.status = 404;
+    throw err;
+  }
+  if (!agent.voice) return null;
 
-  if (!agentVoice) return null;
+  const v = await resolveAgentVoice(agent.voice);
+  if (!v) return null;
 
-  const v = agentVoice.voice;
   return {
     id: v.id,
     provider: v.provider?.name,
@@ -393,6 +447,8 @@ export const getAgentVoice = async (agentId) => {
     accent: v.accent,
     gender: v.gender,
     category: v.category,
-    metadata: v.metadata ? JSON.parse(v.metadata) : null,
+    label: agent.voice,
+    exactMatch: formatVoiceLabel(v) === agent.voice,
+    metadata: v.metadata ? (() => { try { return JSON.parse(v.metadata); } catch { return v.metadata; } })() : null,
   };
 };

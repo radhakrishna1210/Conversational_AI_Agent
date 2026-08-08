@@ -1,8 +1,8 @@
 import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
-  CalendarCheck, Check, Filter, Globe, HeadphonesIcon, IndianRupee, MessageSquare,
-  Mic, Phone, PhoneForwarded, Plus, Radio, Send, Wallet, Webhook,
+  CalendarCheck, Filter, HeadphonesIcon, IndianRupee, MessageSquare,
+  Mic, Phone, PhoneForwarded, Plus, Radio, Send, Webhook,
 } from 'lucide-react';
 import HeroCanvas, { type HeroCanvasHandle } from '@/components/home/HeroCanvas';
 import { useLandingMotion } from '@/components/home/useLandingMotion';
@@ -15,14 +15,17 @@ import './Home.css';
 
    Structured as a call's timeline: each section is stamped with the second at
    which the thing it describes happens, a fixed rail tracks how far into that
-   call you have scrolled, and the page ends where a call ends — at the wallet.
-   There is no monthly plan on this page, only a rate per talk-minute.
+   call you have scrolled, and the page ends on the close CTA.
 
-   There is one price: rupees per talk-minute, from GET /config/wallet-rate.
-   That is the same value settlement deducts and the same value Super Admin →
-   Wallet Rate sets, so the advertised rate and the charged rate cannot drift
-   apart. Nothing is hardcoded, and when the endpoint is unreachable the page
-   says so rather than falling back to an invented figure.
+   NO PRICE APPEARS ON THIS PAGE — deliberately, and this is not an oversight
+   to be "fixed" later. A visitor who meets a rate before they have understood
+   the product prices the number against nothing, so pricing here is a
+   conversation: every place a figure would have gone now points at /contact.
+   The page used to render a "Settle — the wallet" section fed by
+   GET /config/wallet-rate, plus a monthly estimator and a live rupee meter in
+   the hero; all three are gone. Do not reintroduce a rate, a wallet balance, a
+   top-up figure or a cost estimator on the landing page. The live rate still
+   lives where it belongs: the signed-in wallet and Super Admin → Wallet Rate.
 
    MOTION. GSAP + ScrollTrigger, with Lenis driving the scroll itself. All of
    it lives in two places rather than being scattered through this file:
@@ -37,30 +40,10 @@ import './Home.css';
    Lenis is never constructed, no pin exists, and every reveal resolves to its
    finished state.
 
-   Prices are never animated — see the note above useWalletRate.
    ══════════════════════════════════════════════════════════════════════════ */
-
-/**
- * The one number this page is about: rupees per talk-minute, deducted from the
- * wallet. Served by GET /config/wallet-rate and set in Super Admin -> Wallet
- * Rate. There are no plans and no tiers — the same rate applies to everyone,
- * and it is the same value settlement charges, so the page cannot advertise a
- * price the wallet does not take.
- *
- * null means "not loaded yet"; the page says so rather than inventing a figure.
- */
-type WalletRate = number | null;
 
 const prefersReducedMotion = () =>
   typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-const rupees = (amount: number, digits = 2) =>
-  new Intl.NumberFormat('en-IN', {
-    style: 'currency',
-    currency: 'INR',
-    minimumFractionDigits: digits,
-    maximumFractionDigits: digits,
-  }).format(amount);
 
 const clock = (seconds: number) => {
   const s = Math.max(0, Math.floor(seconds));
@@ -77,43 +60,20 @@ const clock = (seconds: number) => {
  */
 
 /*
- * There is deliberately no number-ramp helper on this page.
- *
- * Every figure here is a price: the spec strip, the per-minute rate, and the
- * estimator total. requestAnimationFrame is suspended while a tab is in the
- * background, so any ramp can stall part-way and leave a WRONG number on
- * screen — a "< 50 ms" latency claim, or an estimator reading ₹0 for a product
- * that costs money. A stalled animation is a cosmetic problem; a stalled price
- * is a false statement. Prices render exact and instant; the motion budget is
- * spent on the meter, the reveals and the rail instead.
+ * Ramped numbers are kept to durations and counts (the spec strip), never to
+ * anything a reader could act on as a commitment. requestAnimationFrame is
+ * suspended while a tab is in the background, so any ramp can stall part-way
+ * and leave a WRONG number on screen — a "< 50 ms" latency claim where the
+ * page means "< 500 ms". A stalled animation is a cosmetic problem; a stalled
+ * claim is a false statement. The motion budget goes on the meter, the reveals
+ * and the rail instead.
  */
 
-/* ── The rate ───────────────────────────────────────────────────────────── */
-
-/** undefined while in flight, null if the endpoint could not be reached. */
-function useWalletRate(): WalletRate | undefined {
-  const [rate, setRate] = useState<WalletRate | undefined>(undefined);
-
-  useEffect(() => {
-    let live = true;
-    fetch('/api/v1/config/wallet-rate')
-      .then((r) => r.json())
-      .then((d) => {
-        if (!live) return;
-        const value = Number(d?.perMinuteInr);
-        setRate(Number.isFinite(value) && value > 0 ? value : null);
-      })
-      .catch(() => live && setRate(null));
-    return () => { live = false; };
-  }, []);
-
-  return rate;
-}
-
 /* ── The meter ──────────────────────────────────────────────────────────────
-   This page's signature. It runs a call at 6× real time and drains a wallet at
-   the entry rate, because that is the whole pricing model and it is faster to
-   watch than to read. */
+   This page's signature. It runs one call at 6× real time so a visitor can
+   watch what the agent does with it — who is speaking, how fast it comes back,
+   and what lands when the call ends. It used to drain a wallet in rupees; it
+   carries no money now, by design (see the header note). */
 
 /** Deterministic tape: who is speaking and how loudly over one 150s call. Fixed
  *  rather than random so the shape is designed, and so it does not re-roll on
@@ -134,7 +94,6 @@ const TAPE = [
 ] as const;
 
 const CALL_SECONDS = 150;
-const OPENING_BALANCE = 1000;
 
 /** The waveform. Memoised on the integer bar index so it re-renders ~46 times
  *  over a call instead of on every tick — otherwise the meter repaints 46 nodes
@@ -162,7 +121,7 @@ const CallTape = memo(function CallTape({ spokenBars }: { spokenBars: number }) 
   );
 });
 
-function CallMeter({ rate }: { rate: number | null }) {
+function CallMeter() {
   const [elapsed, setElapsed] = useState(0);
   const hostRef = useRef<HTMLDivElement | null>(null);
 
@@ -202,9 +161,11 @@ function CallMeter({ rate }: { rate: number | null }) {
   }, []);
 
   const onCall = Math.min(elapsed, CALL_SECONDS);
-  const spent = rate == null ? 0 : (onCall / 60) * rate;
   const ended = elapsed >= CALL_SECONDS;
   const spokenBars = Math.round((onCall / CALL_SECONDS) * TAPE.length);
+  // Whoever the playhead is sitting on. Before the first bar nobody has spoken
+  // yet, so the call reads as connecting rather than as the agent talking.
+  const speaking = spokenBars > 0 ? TAPE[Math.min(spokenBars, TAPE.length) - 1][0] : null;
 
   return (
     <div className="lp-meter" ref={hostRef}>
@@ -220,77 +181,32 @@ function CallMeter({ rate }: { rate: number | null }) {
           below carry the information. */}
       <CallTape spokenBars={spokenBars} />
 
+      {/* These rows used to be the wallet: a balance, a rate and a running
+          debit. No figure a visitor could mistake for a quote goes here now —
+          the readouts describe what the agent is doing with the call. */}
       <div className="lp-meter-rows">
         <div className="lp-meter-row">
-          <span className="lp-meter-k">Wallet</span>
-          <span className="lp-meter-v lp-meter-v--balance">{rupees(OPENING_BALANCE - spent)}</span>
+          <span className="lp-meter-k">Right now</span>
+          <span className="lp-meter-v lp-meter-v--lead">
+            {ended ? 'Wrapped up' : speaking === 'agent' ? 'Answering' : speaking === 'caller' ? 'Listening' : 'Connecting'}
+          </span>
         </div>
+        {/* Same bar, now filling with the call rather than draining a balance. */}
         <div className="lp-meter-drain" aria-hidden="true">
-          <i style={{ ['--fill' as string]: spent / OPENING_BALANCE }} />
+          <i style={{ ['--fill' as string]: onCall / CALL_SECONDS }} />
         </div>
+        {/* No latency row here: the spec strip beside this card already makes
+            the < 500 ms claim, and making it twice on one screen reads as
+            padding rather than emphasis. */}
         <div className="lp-meter-row">
-          <span className="lp-meter-k">Rate</span>
-          <span className="lp-meter-v">{rate == null ? '—' : `${rupees(rate)} / min`}</span>
-        </div>
-        <div className="lp-meter-row">
-          <span className="lp-meter-k">This call</span>
-          <span className="lp-meter-v lp-meter-v--spend">{rate == null ? '—' : `− ${rupees(spent)}`}</span>
+          <span className="lp-meter-k">On hang-up</span>
+          <span className="lp-meter-v lp-meter-v--accent">
+            {ended ? 'Summary delivered' : 'Recording'}
+          </span>
         </div>
       </div>
 
-      <p className="lp-meter-foot">
-        Running at the rate a new workspace starts on. Top up any amount, spend it on
-        talk-minutes, and stop whenever you like.
-      </p>
-    </div>
-  );
-}
-
-/* ── Estimator ─────────────────────────────────────────────────────────────
-   Answers the only question a wallet model leaves open: how long does a top-up
-   last me? */
-
-function Estimator({ rate }: { rate: number | null }) {
-  const [callsPerDay, setCallsPerDay] = useState(120);
-  const [minutesPerCall, setMinutesPerCall] = useState(3);
-
-  const minutesPerMonth = callsPerDay * minutesPerCall * 30;
-  const monthly = rate == null ? null : minutesPerMonth * rate;
-
-  return (
-    <div className="lp-est">
-      <div className="lp-est-fields">
-        <div className="lp-field">
-          <label className="lp-field-label" htmlFor="lp-calls">
-            Calls a day <b className="lp-num">{callsPerDay}</b>
-          </label>
-          <input
-            id="lp-calls" className="lp-range" type="range" min={10} max={2000} step={10}
-            value={callsPerDay} onChange={(e) => setCallsPerDay(Number(e.target.value))}
-          />
-        </div>
-        <div className="lp-field">
-          <label className="lp-field-label" htmlFor="lp-mins">
-            Minutes a call <b className="lp-num">{minutesPerCall}</b>
-          </label>
-          <input
-            id="lp-mins" className="lp-range" type="range" min={1} max={15} step={1}
-            value={minutesPerCall} onChange={(e) => setMinutesPerCall(Number(e.target.value))}
-          />
-        </div>
-      </div>
-
-      <div className="lp-est-out">
-        <div>
-          <div className="lp-est-total">{monthly == null ? '—' : rupees(monthly, 0)}</div>
-          <p className="lp-est-sub">A month at this volume, at the rate above.</p>
-        </div>
-        <p className="lp-est-sub lp-num" style={{ textAlign: 'right' }}>
-          {minutesPerMonth.toLocaleString('en-IN')} talk-minutes
-          <br />
-          {monthly == null ? '' : `${rupees(monthly / 30, 0)} a day`}
-        </p>
-      </div>
+      <p className="lp-meter-foot">One call, played at six times speed.</p>
     </div>
   );
 }
@@ -342,22 +258,28 @@ function Marquee({ items, speed = 34, reverse = false }: {
 
 /* ── Page content ───────────────────────────────────────────────────────── */
 
+/* The rail is a call, and only a call — four beats, in the order they happen.
+   The Q&A used to hang off the end of it as a fifth "beat", which is where the
+   device started lying: nothing happens at that point in a call. The FAQ is
+   therefore not a beat and not in sectionRefs, so the rail holds on Handoff
+   while the reader is in it rather than un-lighting itself. */
 const BEATS = [
   { tc: '00:00', beat: 'Incoming' },
   { tc: '00:02', beat: 'Greeting' },
   { tc: '00:20', beat: 'Working' },
   { tc: '01:45', beat: 'Handoff' },
-  { tc: 'Settle', beat: 'The wallet' },
-  { tc: 'Q&A', beat: 'Before you start' },
 ];
 
+/* One line each, deliberately. The old bodies ran to three clauses and the grid
+   read as documentation; a caller-facing capability needs to be recognised, not
+   explained, and the detail belongs on the solution pages. */
 const SERVICES = [
-  { icon: CalendarCheck, title: 'Books appointments', body: 'Offers real open slots from Google Calendar or Cal.com, confirms, and writes the booking back before the caller hangs up.' },
-  { icon: Filter, title: 'Qualifies leads', body: 'Asks your qualifying questions, scores the answer, and drops a clean record into Sheets, Salesforce or HubSpot.' },
-  { icon: IndianRupee, title: 'Chases payments', body: 'Runs reminder and collection calls, negotiates within the limits you set, and flags anyone who asks for a human.' },
-  { icon: HeadphonesIcon, title: 'Answers support calls', body: 'Handles the repeat questions from your own documents around the clock, and escalates the ones it should not guess at.' },
-  { icon: Send, title: 'Runs outbound campaigns', body: 'Upload a list, pick an agent, and dial the whole file with live progress, per-call outcomes and retry handling.' },
-  { icon: PhoneForwarded, title: 'Transfers to a person', body: 'Warm-transfers to your team when a call needs judgment, and passes across what it has already learned.' },
+  { icon: CalendarCheck, title: 'Books appointments', body: 'Real open slots from your calendar, confirmed on the call.' },
+  { icon: Filter, title: 'Qualifies leads', body: 'Your questions, scored, straight into the CRM.' },
+  { icon: IndianRupee, title: 'Chases payments', body: 'Reminder and collection calls, within the limits you set.' },
+  { icon: HeadphonesIcon, title: 'Answers support', body: 'The repeat questions, from your own documents.' },
+  { icon: Send, title: 'Runs campaigns', body: 'Upload a list and dial the file, with live outcomes.' },
+  { icon: PhoneForwarded, title: 'Hands to a person', body: 'Warm transfer, with everything it has already learned.' },
 ];
 
 const CHANNELS = [
@@ -370,59 +292,53 @@ const CHANNELS = [
 ];
 
 const HANDOFF = [
-  { k: 'Recorded', body: 'Audio and a timestamped transcript, searchable in call logs.' },
-  { k: 'Summarised', body: 'What was asked, what was agreed, and how the call ended.' },
-  { k: 'Extracted', body: 'The fields you named — name, budget, slot, outcome — as data.' },
-  { k: 'Delivered', body: 'Pushed to the tools below, filtered by outcome if you want.' },
+  { k: 'Recorded', body: 'Audio and a timestamped transcript.' },
+  { k: 'Summarised', body: 'What was asked, agreed, and how it ended.' },
+  { k: 'Extracted', body: 'The fields you named, as data.' },
+  { k: 'Delivered', body: 'Pushed where your team already works.' },
 ];
 
-const DESTINATIONS_TOP = ['Google Sheets', 'Google Calendar', 'Google Meet', 'Cal.com', 'Calendly', 'Salesforce', 'HubSpot', 'Slack'];
-const DESTINATIONS_BOTTOM = ['WhatsApp', 'Twilio', 'Genesys', 'Make', 'n8n', 'Zapier', 'Webhook', 'Email'];
+/* One row, not two. The second row was the same idea again at half the reading
+   speed — a marquee is texture, and two of them start to read as a list. */
+const DESTINATIONS = [
+  'Google Sheets', 'Google Calendar', 'Cal.com', 'Salesforce', 'HubSpot', 'Slack',
+  'WhatsApp', 'Twilio', 'Zapier', 'n8n', 'Webhook', 'Email',
+];
 
 /* Wordmarks rather than images: the /logos/* files the old page pointed at do
    not exist in client/public, so every one rendered as a broken-image icon.
    Drop real assets there and swap these back to <img>. */
 const PARTNERS = ['Capgemini', 'Exotel', 'NVIDIA Inception', 'MG Motor', 'Cipla'];
 
+/* Five, not eight, and two sentences each. An FAQ is where a landing page goes
+   to hide its documentation; anything that needs a third sentence belongs in
+   the docs or in a conversation. */
 const FAQ = [
   {
-    q: 'What exactly am I charged for?',
-    a: 'Talk-minutes. The meter starts when the call connects and stops when it ends, and the rate covers the whole pipeline — speech recognition, the language model, the voice, and the phone line. There is no seat fee, no monthly minimum, and nothing to cancel.',
+    q: 'What am I charged for?',
+    a: 'Talk-minutes only, covering recognition, the model, the voice and the phone line. No seats, no monthly minimum, nothing to cancel.',
   },
   {
-    q: 'Is there a monthly plan?',
-    a: 'No. You load a wallet and spend it, at one rate that is the same for every account whatever your volume. You are never on a subscription, and unused balance is not swept at the end of a month.',
+    q: 'How do I see the rate?',
+    a: 'It is in Billing the moment you have an account, before you load anything. Or tell us your volume and we will walk you through it.',
   },
   {
-    q: 'How do I top up?',
-    a: 'From Billing in your dashboard, by card or UPI. Pick any amount — there are no fixed recharge packs. Your balance and every debit are itemised in the wallet ledger, one line per call.',
-  },
-  {
-    q: 'What happens when my balance runs out?',
-    a: 'New calls stop being placed or answered, and you get a low-balance warning before that point. Calls already in progress finish normally. Top up and the agents resume immediately.',
-  },
-  {
-    q: 'How long does it take to build an agent?',
-    a: 'Under five minutes for a working one. Describe the job in plain language, pick a voice, and test it in the browser. Refining the script, adding your documents and wiring integrations is where the real time goes.',
+    q: 'How long does it take to build one?',
+    a: 'Under five minutes to something that answers. Describe the job, pick a voice, test it in the browser.',
   },
   {
     q: 'Which languages does it speak?',
-    a: 'Hindi, Tamil, Telugu, Marathi, Bengali and other Indian languages alongside English, Spanish, Japanese and more. You can also clone a voice from a short sample and use it as the agent.',
+    a: 'Hindi, Tamil, Telugu, Marathi and Bengali alongside English, Spanish and Japanese. Clone a voice from a short sample and it speaks in that.',
   },
   {
-    q: 'Can I bring my own phone number or carrier?',
-    a: 'Yes. Buy an Indian or US number inside the platform, port an existing business number, or connect your own telephony over SIP and keep your current carrier and routing.',
-  },
-  {
-    q: 'What do I get after a call?',
-    a: 'A recording, a full transcript, a summary, and the fields you asked the agent to collect — delivered to a spreadsheet, a CRM, a webhook or your inbox, and visible in call logs and analytics.',
+    q: 'Can I keep my number and carrier?',
+    a: 'Yes. Buy a number here, port the one you have, or connect your own telephony over SIP.',
   },
 ];
 
 /* ── Page ───────────────────────────────────────────────────────────────── */
 
 export default function Home() {
-  const rate = useWalletRate();
   const [openFaq, setOpenFaq] = useState<number | null>(0);
   const [lit, setLit] = useState(false);
 
@@ -444,9 +360,6 @@ export default function Home() {
     canvasRef,
     sectionRefs,
     ready: canvasReady,
-    // The rate arriving swaps "Loading…" for a price and a note, which changes
-    // the page height and therefore every measured start and end below it.
-    layoutKey: rate,
   });
 
   /* Hero load choreography — flipping this class starts the word-by-word rise.
@@ -529,7 +442,7 @@ export default function Home() {
             <div className="lp-hero-copy">
               <span className="lp-hero-tag lp-reveal" style={{ ['--d' as string]: '80ms' }}>
                 <span className="lp-dot" aria-hidden="true" />
-                Wallet billing · no monthly plan
+                Pay per talk-minute · no monthly plan
               </span>
 
               <h1 className="lp-h1">
@@ -538,8 +451,8 @@ export default function Home() {
               </h1>
 
               <p className="lp-lede lp-reveal" style={{ ['--d' as string]: '620ms' }}>
-                Describe the job, pick a voice, point a number at it. Your wallet is
-                charged per talk-minute — no seats, no monthly plan, nothing to cancel.
+                Describe the job, pick a voice, point a number at it. Charged for
+                talk-minutes only.
               </p>
 
               <div className="lp-cta-row lp-reveal" style={{ ['--d' as string]: '720ms' }}>
@@ -547,11 +460,11 @@ export default function Home() {
                 <Link to="/book-appointment" className="lp-btn lp-btn--ghost">Hear one live</Link>
               </div>
 
-              {/* The only ramped figures on the page. These are durations and
-                  counts, not money — see the count-up note in useLandingMotion
-                  for why no rupee value here is ever animated. The rendered
-                  text is the final value, so a reader who never scrolls, or
-                  who has motion turned off, still reads the right number. */}
+              {/* The only ramped figures on the page — durations and counts;
+                  see the count-up note in useLandingMotion for why a ramp is
+                  never allowed on anything a reader could hold us to. The
+                  rendered text is the final value, so a reader who never
+                  scrolls, or who has motion off, still reads the right number. */}
               <div className="lp-specs lp-reveal" style={{ ['--d' as string]: '820ms' }}>
                 <div className="lp-spec">
                   <span className="lp-spec-v">
@@ -574,7 +487,7 @@ export default function Home() {
               </div>
             </div>
 
-            <CallMeter rate={rate ?? null} />
+            <CallMeter />
           </div>
         </div>
       </section>
@@ -603,32 +516,29 @@ export default function Home() {
             </span>
             <h2 className="lp-h2">First it has to sound like a person.</h2>
             <p className="lp-lede">
-              Callers hang up on anything that stalls, talks over them, or reads a menu.
-              Four things decide whether they stay on the line.
+              Callers hang up on anything that stalls or talks over them.
             </p>
           </div>
 
+          {/* Three rows, one sentence each. This section used to argue its case
+              four times over; the metric column is the argument, and the line
+              beside it only has to land the idea. */}
           <div className="lp-beats">
             {[
               {
                 metric: '<500', unit: 'ms reply',
                 title: 'It starts speaking before it has finished thinking',
-                body: 'Speech, model and voice all stream. The first words go out while the rest of the sentence is still being generated, so there is no dead air where a caller wonders whether the line dropped.',
+                body: 'Speech, model and voice stream together, so there is no dead air where a caller wonders whether the line dropped.',
               },
               {
                 metric: '2-way', unit: 'turn taking',
                 title: 'Interrupt it and it stops mid-sentence',
-                body: 'Talk over the agent and it yields, the way a person does. It also holds its turn through "umm", a cough or a half-second pause instead of treating every gap as its cue to start.',
-              },
-              {
-                metric: 'Indic', unit: '+ global',
-                title: 'It answers in the language the caller opened with',
-                body: 'Hindi, Tamil, Telugu, Marathi and Bengali alongside English, Spanish and Japanese. Clone a voice from a short sample and the agent speaks in it.',
+                body: 'It yields the way a person does, and holds its turn through a cough or a half-second pause.',
               },
               {
                 metric: 'Yours', unit: 'knowledge',
                 title: 'It answers from your documents, not from guesswork',
-                body: 'Upload price lists, policies and FAQs. The agent answers out of them, and says it does not know rather than inventing something you will have to apologise for later.',
+                body: 'Upload your price lists and policies, and it says it does not know rather than inventing something.',
               },
             ].map((row, i) => (
               <div
@@ -663,8 +573,8 @@ export default function Home() {
             </span>
             <h2 className="lp-h2">Then it does the job you hired it for.</h2>
             <p className="lp-lede">
-              Not a menu tree with a nicer voice. The agent takes actions in your systems
-              while the caller is still on the line.
+              Not a menu tree with a nicer voice — it acts in your systems while the
+              caller is still on the line.
             </p>
           </div>
 
@@ -709,8 +619,7 @@ export default function Home() {
             </span>
             <h2 className="lp-h2">And hands the call off clean.</h2>
             <p className="lp-lede">
-              A call your team never hears about is worth nothing. Every one of them
-              lands somewhere you already work, within seconds of hanging up.
+              Every call lands where your team already works, seconds after it ends.
             </p>
           </div>
 
@@ -728,96 +637,21 @@ export default function Home() {
           </div>
 
           <div className="lp-dest-rows lp-reveal">
-            <Marquee speed={46} items={DESTINATIONS_TOP.map((d) => (
-              <span className="lp-dest-item" key={d}>{d}</span>
-            ))} />
-            <Marquee speed={52} reverse items={DESTINATIONS_BOTTOM.map((d) => (
+            <Marquee speed={48} items={DESTINATIONS.map((d) => (
               <span className="lp-dest-item" key={d}>{d}</span>
             ))} />
           </div>
-
-          <p className="lp-p lp-reveal" style={{ marginTop: 22 }}>
-            Plus dashboards for call volume, outcomes, sentiment and spend — and an API and
-            webhooks for anything not on this list.
-          </p>
         </div>
       </section>
 
-      {/* ═══ SETTLE — the wallet ═══ */}
-      {/* Pinned whole: the section holds while the rate, the estimator and the
-          footnote arrive in sequence beside the copy. */}
-      <section className="lp-sec" id="pricing" data-beat data-pin-section ref={setSection(4)}>
-        <i className="lp-wipe" aria-hidden="true" />
-        <div className="lp-sec-inner">
-          <div className="lp-settle">
-            <div className="lp-reveal">
-              <span className="lp-stamp">
-                <span className="lp-stamp-tc lp-num">Settle</span>
-                <span className="lp-stamp-beat">The wallet</span>
-              </span>
-              <h2 className="lp-h2">No plans. Just a balance.</h2>
-              <p className="lp-lede" style={{ marginTop: 14 }}>
-                Top up your wallet with any amount. Every call debits the minutes it
-                actually used, at one all-in rate. Nothing renews, nothing is per seat,
-                and there is no tier to outgrow.
-              </p>
-
-              <ul className="lp-included">
-                <li><Check size={15} /><span>Speech recognition, the language model, the voice and the phone line — all inside the per-minute rate.</span></li>
-                <li><Wallet size={15} /><span>Top up by card or UPI, any amount, whenever you want.</span></li>
-                <li><Globe size={15} /><span>Every debit itemised in the ledger, one line per call.</span></li>
-                <li><Plus size={15} /><span>The same rate whether you run ten calls a month or ten thousand.</span></li>
-              </ul>
-            </div>
-
-            {/* Not .lp-reveal: these three are dealt in one after another by
-                the pin's scrubbed stagger, and a container fade over the top
-                would animate the same pixels twice. */}
-            <div data-pin-body>
-              {/* The rate, as a single figure. It is the number Super Admin sets
-                  and the number settlement deducts — there is nothing else to
-                  compare it against, so there is no table. */}
-              <div className="lp-price">
-                <span className="lp-price-k">Deducted per talk-minute</span>
-
-                {rate === undefined && <span className="lp-price-v">Loading…</span>}
-
-                {rate === null && (
-                  <>
-                    <span className="lp-price-v">—</span>
-                    <p className="lp-price-note">
-                      The rate could not be loaded just now. Refresh in a moment, or{' '}
-                      <Link to="/contact">ask us directly</Link>.
-                    </p>
-                  </>
-                )}
-
-                {typeof rate === 'number' && (
-                  <>
-                    <span className="lp-price-v lp-num">
-                      {rupees(rate)}<small>/ min</small>
-                    </span>
-                    <p className="lp-price-note lp-num">
-                      A ₹1,000 top-up buys about {Math.floor(1000 / rate).toLocaleString('en-IN')} minutes.
-                    </p>
-                  </>
-                )}
-              </div>
-
-              <Estimator rate={rate ?? null} />
-
-              <p className="lp-p" style={{ marginTop: 16, fontSize: 13 }}>
-                Rented phone numbers are billed separately at the carrier's monthly rate.
-                Running high volume, or need an invoice instead of a wallet?{' '}
-                <Link to="/contact" style={{ color: 'var(--teal-fg)' }}>Talk to us</Link>.
-              </p>
-            </div>
-          </div>
-        </div>
-      </section>
+      {/* A "Settle — the wallet" section used to sit here: the live per-minute
+          rate, a monthly estimator and a top-up footnote. It is gone on purpose
+          (see the header note) — the anchor, the beat and the pin went with it.
+          Pricing is a conversation now, and /contact is where it happens. */}
 
       {/* ═══ Questions ═══ */}
-      <section className="lp-sec" data-beat ref={setSection(5)}>
+      {/* No data-beat and no ref: see the note on BEATS. */}
+      <section className="lp-sec">
         <i className="lp-wipe" aria-hidden="true" />
         <div className="lp-sec-inner">
           <div className="lp-head lp-reveal">
@@ -871,13 +705,19 @@ export default function Home() {
             Put an agent on your busiest number.
           </h2>
           <p className="lp-lede lp-reveal" style={{ ['--d' as string]: '160ms' }}>
-            Build it free, test it in the browser, and only load the wallet once you
-            want it answering real calls.
+            Build it free and test it in the browser. Put money behind it when it is
+            ready for real calls.
           </p>
           <div className="lp-cta-row lp-reveal" style={{ ['--d' as string]: '240ms' }}>
             <Link to="/signup" className="lp-btn lp-btn--fill">Build an agent free</Link>
             <Link to="/book-appointment" className="lp-btn lp-btn--ghost">Book a walkthrough</Link>
           </div>
+          {/* Where the price went. Someone who scrolled this far and still wants
+              a number gets a person, not a figure they have to interpret alone. */}
+          <p className="lp-p lp-reveal" style={{ ['--d' as string]: '320ms', marginTop: 18 }}>
+            Want the numbers? Tell us the volume you expect and we will price it with you —{' '}
+            <Link to="/contact" style={{ color: 'var(--teal-fg)' }}>talk to us</Link>.
+          </p>
         </div>
       </section>
     </div>

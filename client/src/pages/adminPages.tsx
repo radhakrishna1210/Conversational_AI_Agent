@@ -7,7 +7,7 @@
  * themselves are unchanged and still live in AdminPanel.tsx — only navigation
  * moved, which keeps this change reviewable.
  */
-import { Users, Phone, Bug, CreditCard, TrendingUp, Activity, CalendarDays } from 'lucide-react';
+import { Users, Phone, Bug, CreditCard, TrendingUp, Activity, CalendarDays, Cpu } from 'lucide-react';
 import {
   AdminPageHeader,
   UserManagementTab,
@@ -16,6 +16,7 @@ import {
   AppointmentsTab,
   WalletRateTab,
   WalletCreditTab,
+  ModelAccessTab,
   SystemHealthTab,
 } from './AdminPanel';
 
@@ -93,6 +94,19 @@ export function AdminWalletsPage() {
         icon={<CreditCard size={21} />}
       />
       <WalletCreditTab />
+    </>
+  );
+}
+
+export function AdminModelsPage() {
+  return (
+    <>
+      <AdminPageHeader
+        title="Models"
+        subtitle="Which models clients can see and use — conversational engines, LLMs, transcription and voices"
+        icon={<Cpu size={21} />}
+      />
+      <ModelAccessTab />
     </>
   );
 }

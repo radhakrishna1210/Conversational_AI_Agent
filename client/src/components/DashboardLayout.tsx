@@ -281,12 +281,17 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           <div className="sidebar-section">
             <div className="sidebar-category">RESOURCES</div>
 
-            <a href="/docs" target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', color: 'inherit' }}>
-              <div className="sidebar-item">
+            {/*
+              Same-tab Links, not target="_blank". Opening these in a new tab
+              left that tab with no history, so the browser Back button was
+              inert and there was no way back to the dashboard.
+            */}
+            <Link to="/docs">
+              <div className={`sidebar-item ${path === '/docs' ? 'active' : ''}`}>
                 <span className="sidebar-icon"><BookOpen size={16} /></span>
                 <span className="sidebar-text">Docs</span>
               </div>
-            </a>
+            </Link>
 
             <Link to="/contact">
               <div className={`sidebar-item ${path === '/contact' ? 'active' : ''}`}>
@@ -295,12 +300,12 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               </div>
             </Link>
 
-            <a href="/report-issue" target="_blank" rel="noopener noreferrer" style={{ textDecoration: 'none', color: 'inherit' }}>
-              <div className="sidebar-item">
+            <Link to="/report-issue">
+              <div className={`sidebar-item ${path === '/report-issue' ? 'active' : ''}`}>
                 <span className="sidebar-icon"><Bug size={16} /></span>
                 <span className="sidebar-text">Report Issue</span>
               </div>
-            </a>
+            </Link>
           </div>
 
           <div className="sidebar-section">

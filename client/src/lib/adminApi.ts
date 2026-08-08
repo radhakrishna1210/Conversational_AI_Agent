@@ -1,4 +1,4 @@
-import { safeGet } from '@/lib/authStorage';
+import { authFetch } from '@/lib/authFetch';
 
 /**
  * Transport for every /admin call.
@@ -8,16 +8,17 @@ import { safeGet } from '@/lib/authStorage';
  * transport the panel already used — react-query sits on top of this for
  * caching, it does not replace it, so there is only ever one way an admin
  * request is made.
+ *
+ * Goes through authFetch so an expired access token (~15 min) is refreshed and
+ * the request replayed, instead of the console dying and demanding a re-login.
  */
-const API = (path: string) => `/api/v1/admin${path}`;
+export const API = (path: string) => `/api/v1/admin${path}`;
 
 export async function adminFetch<T = any>(path: string, opts?: RequestInit): Promise<T> {
-  const token = safeGet('token');
-  const res = await fetch(API(path), {
+  const res = await authFetch(API(path), {
     ...opts,
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
       ...(opts?.headers ?? {}),
     },
   });

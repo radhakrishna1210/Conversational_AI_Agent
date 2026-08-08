@@ -1,5 +1,5 @@
 import { BrowserRouter as Router, Routes, Route, Navigate, useLocation, Outlet } from 'react-router-dom';
-import { isLoggedIn, isAdminRole } from '@/lib/authStorage';
+import { isLoggedIn, isAdminRole, isCustomerSession } from '@/lib/authStorage';
 import ForgotPassword from './pages/ForgotPassword';
 import { useEffect } from 'react';
 
@@ -49,7 +49,7 @@ import AdminCallLogs from './pages/AdminCallLogs';
 import AdminBilling from './pages/AdminBilling';
 import {
   AdminUsersPage, AdminNumbersPage, AdminIssuesPage, AdminAppointmentsPage,
-  AdminPlansPage, AdminWalletsPage, AdminHealthPage,
+  AdminPlansPage, AdminWalletsPage, AdminModelsPage, AdminHealthPage,
 } from './pages/adminPages';
 import NotificationArchive from './pages/NotificationArchive';
 import AirtelVerifiedCalling from './pages/AirtelVerifiedCalling';
@@ -94,6 +94,25 @@ function DefaultLayout({ children }: { children: React.ReactNode }) {
       <Footer />
     </>
   );
+}
+
+/**
+ * Layout for the public pages that are also reachable from inside the customer
+ * app (Docs, Report Issue).
+ *
+ * A signed-in customer reaches these from the dashboard sidebar, so they keep
+ * the dashboard shell rather than watching their sidebar be replaced by the
+ * marketing Navbar/Footer mid-session. Signed-out visitors still get the public
+ * layout — these URLs stay linkable from the marketing site.
+ *
+ * A Superadmin also gets the public layout: the customer sidebar is not their
+ * navigation, for the same reason CustomerRoute keeps them out of /dashboard.
+ */
+function AdaptiveLayout({ children }: { children: React.ReactNode }) {
+  if (isCustomerSession()) {
+    return <DashboardLayout>{children}</DashboardLayout>;
+  }
+  return <DefaultLayout>{children}</DefaultLayout>;
 }
 
 function ProtectedRoute() {
@@ -155,8 +174,8 @@ function App() {
         <Route path="/documentation" element={<DefaultLayout><Documentation /></DefaultLayout>} />
         <Route path="/book-appointment" element={<DefaultLayout><BookAppointment /></DefaultLayout>} />
         <Route path="/contact" element={<DefaultLayout><Contact /></DefaultLayout>} />
-        <Route path="/docs" element={<DefaultLayout><Docs /></DefaultLayout>} />
-        <Route path="/report-issue" element={<DefaultLayout><ReportIssue /></DefaultLayout>} />
+        <Route path="/docs" element={<AdaptiveLayout><Docs /></AdaptiveLayout>} />
+        <Route path="/report-issue" element={<AdaptiveLayout><ReportIssue /></AdaptiveLayout>} />
         {/* Public: Airtel verified-calling guide, linked from the caller-number picker */}
         <Route path="/airtel-verified-calling" element={<AirtelVerifiedCalling />} />
         <Route path="/solutions/verticals/finance" element={<Finance />} />
@@ -249,6 +268,7 @@ function App() {
               <Route path="calls" element={<AdminCallLogs />} />
               <Route path="numbers" element={<AdminNumbersPage />} />
               <Route path="issues" element={<AdminIssuesPage />} />
+              <Route path="models" element={<AdminModelsPage />} />
               <Route path="audit" element={<AdminAuditLog />} />
               <Route path="health" element={<AdminHealthPage />} />
               {/* Unknown admin path lands on the overview rather than a blank frame. */}

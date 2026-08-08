@@ -57,12 +57,20 @@ const STALE_CALL_MS = Number(process.env.STALE_CALL_MS) || 2 * 60 * 60 * 1000;
  * Retire calls left IN_PROGRESS past the staleness cutoff. Fire-and-forget: this
  * runs on the pre-call gate path, and a failure to tidy up must never be able to
  * block someone from placing a call.
+ *
+ * Reaped calls are NOT charged — the real duration is unknown and charging a
+ * guess is worse than not charging. But they must still leave PENDING. Marking
+ * only `status` left billingStatus at its PENDING default with nothing in the
+ * system that would ever revisit the row, so an abandoned call sat forever
+ * claiming to be awaiting billing: "pending" in the console, and unresolved
+ * liability in any report that trusts the field. SKIPPED says the true thing —
+ * this call was closed out and deliberately not billed.
  */
 function reapAbandonedCalls(workspaceId, staleBefore) {
   prisma.agentCallLog
     .updateMany({
       where: { workspaceId, status: 'IN_PROGRESS', startedAt: { lt: staleBefore } },
-      data: { status: 'FAILED', endedAt: new Date() },
+      data: { status: 'FAILED', endedAt: new Date(), billingStatus: 'SKIPPED' },
     })
     .then(({ count }) => {
       if (count > 0) logger.warn({ workspaceId, count }, 'Retired abandoned IN_PROGRESS calls (never finalized by the client)');
@@ -239,8 +247,9 @@ export async function assertCanStartCall(workspaceId, { type = 'WEB_CALL' } = {}
    * the BROWSER (the `ended: true` PATCH in cleanupWebCall), so a closed tab, a
    * crash or a dropped network leaves the row in progress forever and it shows
    * as perpetually live in Recent Calls. Nothing can genuinely still be running
-   * past the cutoff. Deliberately NOT settled — the real duration is unknown,
-   * and charging a guess is worse than not charging.
+   * past the cutoff. Deliberately NOT charged — the real duration is unknown,
+   * and charging a guess is worse than not charging — but closed out as SKIPPED
+   * so it does not linger as a PENDING bill that nothing will ever resolve.
    *
    * This used to be a side effect of counting calls for the concurrency limit.
    * The limit is gone; the reaping still has to happen, so it is explicit now.
