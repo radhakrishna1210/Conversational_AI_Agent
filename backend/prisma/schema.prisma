@@ -57,17 +57,27 @@ model User {
   memberships           WorkspaceMember[]
 }
 
+// The five Meta/WhatsApp columns that used to sit between logoUrl and planName
+// — metaWabaId, metaAccessToken, metaBusinessId, wabaId, numberAssigned — were
+// dropped from the database by the 20260809140000_remove_whatsapp migration but
+// left behind here.
+//
+// That is not cosmetic. Prisma's default selection asks for every scalar it
+// believes exists, so a bare `workspace.findFirst()` — or any `include:
+// { workspace: true }` — asked Postgres for columns that were gone and failed
+// with P2022. Since those includes sit in loginUser, loginOrRegisterWithGoogle
+// and the workspaceContext middleware, this took down password login, Google
+// login and every workspace-scoped API request at once.
+//
+// The database is the source of truth; the schema was stale. If a Meta column
+// is ever needed again it comes back through a migration that actually creates
+// it, not by being re-declared here.
 model Workspace {
   id                  String               @id @default(cuid())
   name                String
   slug                String               @unique
   logoUrl             String?
-  metaWabaId          String?
-  metaAccessToken     String?
-  metaBusinessId      String?
   planName            String               @default("Starter")
-  wabaId              String?
-  numberAssigned      Boolean              @default(false)
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   agents              Agent[]
