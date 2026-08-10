@@ -57,7 +57,7 @@ const featureCards = [
 
 const faqs = [
   {
-    question: 'What can Conversational AI Agent automate for educational institutions?',
+    question: 'What can Spandan automate for educational institutions?',
     answer:
       'You can create voice assistants that handle admissions, enrollment, tour scheduling, financial aid questions, and student support while keeping communication consistent.',
   },
@@ -82,9 +82,9 @@ export default function EducationPage() {
   const [openFaq, setOpenFaq] = useState<number | null>(0);
 
   return (
-    <main className="min-h-screen bg-white text-black dark:bg-[#050505] dark:text-white transition-colors duration-300" style={{ fontFamily: 'var(--font-main)' }}>
+    <main className="min-h-screen bg-white text-black dark:bg-[var(--bg)] dark:text-white transition-colors duration-300" style={{ fontFamily: 'var(--font-main)' }}>
       <div className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-transparent dark:bg-[radial-gradient(circle_at_top_left,rgba(14,179,158,0.18),transparent_28%),radial-gradient(circle_at_top_right,rgba(14,179,158,0.12),transparent_26%),linear-gradient(180deg,#090909_0%,#050505_100%)]" />
+        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-transparent to-transparent dark:bg-[radial-gradient(circle_at_top_left,rgba(14,179,158,0.18),transparent_28%),radial-gradient(circle_at_top_right,rgba(14,179,158,0.12),transparent_26%),linear-gradient(180deg,var(--bg-2)_0%,var(--bg)_100%)]" />
         <div className="absolute inset-x-0 top-[88px] h-[460px] bg-gradient-to-b from-transparent to-transparent dark:bg-[radial-gradient(circle_at_50%_0%,rgba(14,179,158,0.12),transparent_60%)]" />
 
         <Navbar />
@@ -97,13 +97,13 @@ export default function EducationPage() {
               transition={{ duration: 0.7, ease: 'easeOut' }}
               className="pt-14 lg:pt-20"
             >
-              <div className="mb-8 inline-flex items-center gap-2 rounded-full border border-[#0eb39e]/30 bg-[#0eb39e]/8 px-5 py-2 text-[14px] text-[#20d8df] shadow-[0_0_0_1px_rgba(14,179,158,0.05)]">
+              <div className="mb-8 inline-flex items-center gap-2 rounded-full border border-[var(--cyan)]/30 bg-[var(--cyan)]/8 px-5 py-2 text-[14px] text-[#20d8df] shadow-[0_0_0_1px_rgba(14,179,158,0.05)]">
                 <GraduationCap className="h-4 w-4" />
                 Education Voice AI Solutions
               </div>
 
               <h1 className="max-w-[720px] text-[46px] font-extrabold leading-[1.06] tracking-[-0.05em] text-black dark:text-white lg:text-[58px]">
-                Transform Your <span className="text-[#0eb39e] dark:text-[#21c7d0]">Student Services</span> with Voice AI
+                Transform Your <span className="text-[var(--cyan)] dark:text-[var(--cyan-fg)]">Student Services</span> with Voice AI
               </h1>
 
               <p className="mt-7 max-w-[700px] text-[18px] leading-[1.75] text-gray-700 dark:text-white/70">
@@ -115,8 +115,8 @@ export default function EducationPage() {
                 {heroPoints.map((point) => (
                   <div key={point.title} className="flex gap-4 text-[17px] leading-[1.6] text-gray-700 dark:text-white/70">
                     <div className="mt-2.5 flex h-5 w-[2px] shrink-0 flex-col justify-between">
-                      <span className="h-[18px] w-[2px] rounded-full bg-[#19cfd4]" />
-                      <span className="h-[18px] w-[2px] rounded-full bg-[#19cfd4] opacity-70" />
+                      <span className="h-[18px] w-[2px] rounded-full bg-[var(--cyan-fg)]" />
+                      <span className="h-[18px] w-[2px] rounded-full bg-[var(--cyan-fg)] opacity-70" />
                     </div>
                     <p>
                       <strong className="font-semibold text-black dark:text-white">{point.title}</strong> - {point.description}
@@ -132,17 +132,17 @@ export default function EducationPage() {
               transition={{ duration: 0.7, ease: 'easeOut', delay: 0.05 }}
               className="pt-2 lg:pt-4"
             >
-              <div className="rounded-[28px] border border-[#0eb39e]/18 bg-white dark:bg-[#081112] p-6 shadow-lg dark:shadow-[0_30px_80px_rgba(0,0,0,0.45)] lg:p-8 transition-colors">
+              <div className="rounded-[28px] border border-[var(--cyan)]/18 bg-white dark:bg-[var(--s1)] p-6 shadow-lg dark:shadow-[0_30px_80px_rgba(0,0,0,0.45)] lg:p-8 transition-colors">
                 <div className="mb-6 flex items-center gap-3">
-                  <Sparkles className="h-5 w-5 text-[#19cfd4]" />
+                  <Sparkles className="h-5 w-5 text-[var(--cyan-fg)]" />
                   <h2 className="text-[30px] font-extrabold tracking-[-0.03em] text-black dark:text-white lg:text-[34px]">
-                    Create your <span className="text-[#0eb39e] dark:text-[#21c7d0]">Free</span> Voice AI Assistant
+                    Create your <span className="text-[var(--cyan)] dark:text-[var(--cyan-fg)]">Free</span> Voice AI Assistant
                   </h2>
                 </div>
 
                 <textarea
                   rows={6}
-                  className="min-h-[174px] w-full rounded-[8px] border border-gray-300 dark:border-[#17393b] bg-white dark:bg-[#050808] px-4 py-4 text-[14px] leading-[1.55] text-gray-700 dark:text-white/70 outline-none transition-colors placeholder:text-gray-500 dark:placeholder:text-white/36 focus:border-[#0eb39e] dark:focus:border-[#19cfd4]/80 focus:ring-1 focus:ring-[#0eb39e] dark:focus:ring-[#19cfd4]"
+                  className="min-h-[174px] w-full rounded-[8px] border border-gray-300 dark:border-[var(--line)] bg-white dark:bg-[var(--bg)] px-4 py-4 text-[14px] leading-[1.55] text-gray-700 dark:text-white/70 outline-none transition-colors placeholder:text-gray-500 dark:placeholder:text-white/36 focus:border-[var(--cyan)] dark:focus:border-[var(--cyan-fg)]/80 focus:ring-1 focus:ring-[var(--cyan)] dark:focus:ring-[var(--cyan-fg)]"
                   placeholder="Example: Create an enrollment assistant that guides students through applications, answers financial aid questions, and schedules campus tours..."
                 />
 
@@ -156,7 +156,7 @@ export default function EducationPage() {
                 <motion.button
                   whileHover={{ scale: 1.015 }}
                   whileTap={{ scale: 0.985 }}
-                  className="mt-6 flex h-[46px] w-full items-center justify-center gap-2 rounded-[6px] bg-[#0eb39e] dark:bg-[#0f8d90] text-[18px] font-medium text-white transition-colors hover:bg-[#0cd4bc] dark:hover:bg-[#18a6aa]"
+                  className="mt-6 flex h-[46px] w-full items-center justify-center gap-2 rounded-[6px] bg-[var(--cyan)] dark:bg-[var(--cyan)] text-[18px] font-medium text-white transition-colors hover:bg-[var(--teal-hover)] dark:hover:bg-[var(--cyan-fg)]"
                 >
                   Create Free Agent
                   <ChevronRight className="h-5 w-5" />
@@ -169,7 +169,7 @@ export default function EducationPage() {
         <section className="relative mx-auto max-w-[1480px] px-6 pb-24 lg:px-10 lg:pb-28">
           <div className="text-center">
             <h2 className="text-[54px] font-extrabold tracking-[-0.05em] text-black dark:text-white lg:text-[60px]">
-              Education Voice <span className="text-[#0eb39e] dark:text-[#19cfd4]">Solution</span>
+              Education Voice <span className="text-[var(--cyan)] dark:text-[var(--cyan-fg)]">Solution</span>
             </h2>
             <p className="mt-4 text-[20px] text-gray-600 dark:text-white/65">
               Support students and families at every stage of their educational journey
@@ -186,7 +186,7 @@ export default function EducationPage() {
         <section className="relative mx-auto max-w-[1480px] px-6 pb-24 lg:px-10 lg:pb-28">
           <div className="text-center">
             <h2 className="text-[48px] font-extrabold tracking-[-0.05em] text-black dark:text-white lg:text-[58px]">
-              Frequently Asked <span className="text-[#0eb39e] dark:text-[#19cfd4]">Questions</span>
+              Frequently Asked <span className="text-[var(--cyan)] dark:text-[var(--cyan-fg)]">Questions</span>
             </h2>
             <p className="mt-4 text-[18px] text-gray-600 dark:text-white/62">Common questions about the education voice solution</p>
           </div>
@@ -200,12 +200,12 @@ export default function EducationPage() {
               return (
                 <div
                   key={faq.question}
-                  className="overflow-hidden rounded-[16px] border border-gray-300 dark:border-[#0d3133] bg-white dark:bg-[#060707] transition-colors hover:border-[#0eb39e]/60 dark:hover:border-[#0eb39e]/60"
+                  className="overflow-hidden rounded-[16px] border border-gray-300 dark:border-[var(--line)] bg-white dark:bg-[var(--bg)] transition-colors hover:border-[var(--cyan)]/60 dark:hover:border-[var(--cyan)]/60"
                 >
                   <button
                     id={questionId}
                     type="button"
-                    className="flex w-full items-center justify-between px-7 py-6 text-left transition-colors hover:bg-gray-50 dark:hover:bg-[#0a1a1a]"
+                    className="flex w-full items-center justify-between px-7 py-6 text-left transition-colors hover:bg-gray-50 dark:hover:bg-[var(--s2)]"
                     onClick={() => setOpenFaq(isOpen ? null : index)}
                     aria-expanded={isOpen}
                     aria-controls={answerId}
@@ -214,7 +214,7 @@ export default function EducationPage() {
                       {faq.question}
                     </span>
                     <ChevronDown
-                      className={`h-5 w-5 shrink-0 text-[#0eb39e] dark:text-[#19cfd4] transition-transform duration-300 ${
+                      className={`h-5 w-5 shrink-0 text-[var(--cyan)] dark:text-[var(--cyan-fg)] transition-transform duration-300 ${
                         isOpen ? 'rotate-180' : ''
                       }`}
                     />
@@ -242,7 +242,7 @@ export default function EducationPage() {
             <p className="text-[18px] text-gray-600 dark:text-white/52">Still have questions? We're here to help.</p>
             <Link
               to="/contact"
-              className="mt-4 inline-flex items-center gap-2 text-[18px] font-semibold text-[#0eb39e] dark:text-[#19cfd4] transition-colors hover:text-[#0cd4bc] dark:hover:text-[#26f0f6]"
+              className="mt-4 inline-flex items-center gap-2 text-[18px] font-semibold text-[var(--cyan)] dark:text-[var(--cyan-fg)] transition-colors hover:text-[var(--teal-hover)] dark:hover:text-[var(--cyan-fg)]"
             >
               Contact our team
               <ChevronRight className="h-5 w-5" />
@@ -256,9 +256,9 @@ export default function EducationPage() {
           initial={{ opacity: 0, scale: 0.8 }}
           animate={{ opacity: 1, scale: 1 }}
           whileHover={{ scale: 1.06 }}
-          className="fixed bottom-6 right-6 z-50 flex items-center gap-3 rounded-full bg-[#0eb39e] dark:bg-[#15254a] px-5 py-3 text-[16px] font-semibold text-white dark:text-[#c7f9ff] shadow-lg dark:shadow-[0_18px_40px_rgba(0,0,0,0.45)] transition-transform"
+          className="fixed bottom-6 right-6 z-50 flex items-center gap-3 rounded-full bg-[var(--cyan)] dark:bg-[#15254a] px-5 py-3 text-[16px] font-semibold text-white dark:text-[#c7f9ff] shadow-lg dark:shadow-[0_18px_40px_rgba(0,0,0,0.45)] transition-transform"
         >
-          <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/50 dark:border-[#19cfd4]/50 text-[18px] text-white dark:text-[#19cfd4]">O</span>
+          <span className="flex h-7 w-7 items-center justify-center rounded-full border border-white/50 dark:border-[var(--cyan-fg)]/50 text-[18px] text-white dark:text-[var(--cyan-fg)]">O</span>
           Ask Kevin
         </motion.button>
       </div>
@@ -270,7 +270,7 @@ function TemplateChip({ label, icon: Icon }: { label: string; icon: LucideIcon }
   return (
     <button
       type="button"
-      className="flex h-[42px] items-center gap-3 rounded-[9px] border border-gray-300 dark:border-[#0d4e4f] bg-white dark:bg-[#061213] px-4 text-left text-[15px] text-gray-700 dark:text-[#2bd8e0] transition-colors hover:border-[#0eb39e] dark:hover:border-[#19cfd4]/70 hover:bg-gray-50 dark:hover:bg-[#07191a]"
+      className="flex h-[42px] items-center gap-3 rounded-[9px] border border-gray-300 dark:border-[var(--line-2)] bg-white dark:bg-[#061213] px-4 text-left text-[15px] text-gray-700 dark:text-[#2bd8e0] transition-colors hover:border-[var(--cyan)] dark:hover:border-[var(--cyan-fg)]/70 hover:bg-gray-50 dark:hover:bg-[var(--s1)]"
     >
       <Icon className="h-4 w-4 shrink-0" />
       <span className="font-medium leading-none">{label}</span>
@@ -290,9 +290,9 @@ function FeatureCard({
   tags: string[];
 }) {
   return (
-    <div className="rounded-[22px] border border-gray-300 dark:border-[#0d3133] bg-white dark:bg-[#060707] p-8 shadow-lg dark:shadow-[0_10px_30px_rgba(0,0,0,0.25)] transition-colors">
+    <div className="rounded-[22px] border border-gray-300 dark:border-[var(--line)] bg-white dark:bg-[var(--bg)] p-8 shadow-lg dark:shadow-[0_10px_30px_rgba(0,0,0,0.25)] transition-colors">
       <div className="flex items-start gap-5">
-        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[14px] bg-gray-100 dark:bg-[#0c2526] text-[#0eb39e] dark:text-[#19cfd4] shadow-[inset_0_0_0_1px_rgba(25,207,212,0.06)]">
+        <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-[14px] bg-gray-100 dark:bg-[#0c2526] text-[var(--cyan)] dark:text-[var(--cyan-fg)] shadow-[inset_0_0_0_1px_rgba(25,207,212,0.06)]">
           <Icon className="h-7 w-7" />
         </div>
 
@@ -304,7 +304,7 @@ function FeatureCard({
             {tags.map((tag) => (
               <span
                 key={tag}
-                className="rounded-full border border-gray-300 dark:border-[#0d4e4f] bg-gray-50 dark:bg-[#071313] px-4 py-2 text-[13px] text-[#0eb39e] dark:text-[#1dcdd5] transition-colors"
+                className="rounded-full border border-gray-300 dark:border-[var(--line-2)] bg-gray-50 dark:bg-[#071313] px-4 py-2 text-[13px] text-[var(--cyan)] dark:text-[#1dcdd5] transition-colors"
               >
                 {tag}
               </span>
@@ -318,14 +318,14 @@ function FeatureCard({
 
 function FooterBlock() {
   return (
-    <footer className="relative border-t border-gray-300 dark:border-white/6 bg-white dark:bg-[#050505] pb-10 pt-24 transition-colors">
+    <footer className="relative border-t border-gray-300 dark:border-white/6 bg-white dark:bg-[var(--bg)] pb-10 pt-24 transition-colors">
       <div className="mx-auto max-w-[1480px] px-6 lg:px-10">
         <div className="grid gap-14 lg:grid-cols-[0.9fr_1fr_1fr_1fr_1fr]">
           <div>
-            <div className="flex h-20 w-20 items-center justify-center rounded-[22px] border border-gray-300 dark:border-white/8 bg-gray-50 dark:bg-[#0b1118] text-[52px] font-black tracking-[-0.05em] text-[#0eb39e] dark:text-[#19cfd4] shadow-[0_0_0_1px_rgba(0,0,0,0.05)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
+            <div className="flex h-20 w-20 items-center justify-center rounded-[22px] border border-gray-300 dark:border-white/8 bg-gray-50 dark:bg-[#0b1118] text-[52px] font-black tracking-[-0.05em] text-[var(--cyan)] dark:text-[var(--cyan-fg)] shadow-[0_0_0_1px_rgba(0,0,0,0.05)] dark:shadow-[0_0_0_1px_rgba(255,255,255,0.02)]">
               O
             </div>
-            <p className="mt-6 text-[18px] font-semibold text-gray-900 dark:text-white/92">Ask AI about Conversational AI Agent</p>
+            <p className="mt-6 text-[18px] font-semibold text-gray-900 dark:text-white/92">Ask AI about Spandan</p>
             <div className="mt-5 flex gap-3">
               <FooterIconLabel label="◎" />
               <FooterIconLabel label="AI" />
@@ -348,7 +348,7 @@ function FooterBlock() {
         </div>
 
         <div className="mt-24 flex flex-col gap-6 border-t border-gray-300 dark:border-white/6 pt-8 lg:flex-row lg:items-end lg:justify-between">
-          <div className="text-[14px] text-gray-500 dark:text-white/42">© 2026 Conversational AI Agent</div>
+          <div className="text-[14px] text-gray-500 dark:text-white/42">© 2026 Spandan</div>
           <div className="flex items-center gap-4 text-gray-500 dark:text-white/42">
             <span>in</span>
             <span>X</span>

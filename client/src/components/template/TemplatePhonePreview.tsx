@@ -49,7 +49,7 @@ const TemplatePhonePreview = ({
 
       {/* Phone */}
       <div className={cn(
-        "mx-auto w-[280px] border-[3px] border-[hsl(var(--border))] bg-[hsl(222,47%,4%)] overflow-hidden",
+        "mx-auto w-[280px] border-[3px] border-[hsl(var(--line))] bg-[hsl(222,47%,4%)] overflow-hidden",
         osPreview === "ios" ? "rounded-[2.5rem]" : "rounded-[2rem]"
       )}>
         {/* Status bar */}

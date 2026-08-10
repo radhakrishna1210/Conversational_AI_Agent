@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import AuthShell, { AuthField, AuthOAuth } from '@/components/AuthShell';
 
 export default function SignUp() {
   const navigate = useNavigate();
@@ -14,44 +15,32 @@ export default function SignUp() {
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
-   
-  const validateName = (name: string) =>
-  /^[A-Za-z ]{2,50}$/.test(name.trim());
 
-const validateEmail = (email: string) =>
-  /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  const validateName = (name: string) => /^[A-Za-z ]{2,50}$/.test(name.trim());
+  const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  const validatePassword = (password: string) =>
+    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/.test(password);
 
-const validatePassword = (password: string) =>
-  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/.test(password);
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
 
-   if (!validateName(form.name)) {
-  setErrorMsg(
-    'Full Name should contain only letters and spaces.'
-  );
-  return;
-}
-
-if (!validateEmail(form.email)) {
-  setErrorMsg(
-    'Please enter a valid email address.'
-  );
-  return;
-}
-
-if (!validatePassword(form.password)) {
-  setErrorMsg(
-    'Password must be at least 8 characters and include uppercase, lowercase, number, and special character.'
-  );
-  return;
-}
-
-if (form.password !== form.confirm) {
-  setErrorMsg('Passwords do not match.');
-  return;
-}
+    if (!validateName(form.name)) {
+      setErrorMsg('Full name should contain only letters and spaces.');
+      return;
+    }
+    if (!validateEmail(form.email)) {
+      setErrorMsg('Please enter a valid email address.');
+      return;
+    }
+    if (!validatePassword(form.password)) {
+      setErrorMsg('Password must be at least 8 characters and include uppercase, lowercase, a number and a special character.');
+      return;
+    }
+    if (form.password !== form.confirm) {
+      setErrorMsg('Passwords do not match.');
+      return;
+    }
 
     setStatus('submitting');
     // REAL signup: request an email OTP. (This page previously faked success
@@ -105,268 +94,170 @@ if (form.password !== form.confirm) {
     })();
   };
 
-  return (
-    <div style={{ minHeight: '100vh', display: 'flex', background: 'var(--bg-primary)' }}>
+  /*
+    Password strength, as four segments rather than a word. Length is the only
+    signal the meter uses, which is why it is deliberately unlabelled — calling
+    a 12-character password "strong" would overstate what is being measured.
+  */
+  const strength = form.password.length >= 12 ? 4 : form.password.length >= 10 ? 3 : form.password.length >= 8 ? 2 : 1;
+  const strengthColor = strength >= 3 ? 'var(--lime)' : strength === 2 ? 'var(--warn)' : 'var(--err)';
 
-      {/* Left Panel — Branding */}
-      <div style={{
-        width: '45%',
-        background: 'linear-gradient(135deg, var(--bg-secondary) 0%, var(--bg-primary) 100%)',
-        borderRight: '1px solid var(--border)',
-        display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'space-between',
-        padding: '48px',
-        position: 'relative',
-        overflow: 'hidden'
-      }}>
-        {/* Background glow effects */}
-        <div style={{ position: 'absolute', top: '-80px', left: '-80px', width: '400px', height: '400px', background: 'radial-gradient(circle, rgba(0,212,200,0.05) 0%, transparent 70%)', pointerEvents: 'none' }} />
-        <div style={{ position: 'absolute', bottom: '-100px', right: '-60px', width: '350px', height: '350px', background: 'radial-gradient(circle, rgba(99,102,241,0.03) 0%, transparent 70%)', pointerEvents: 'none' }} />
-
-        {/* Logo */}
-        <Link to="/" style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '12px' }}>
-          <div style={{ width: '40px', height: '40px', background: 'var(--teal)', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 900, fontSize: '18px', color: 'var(--bg-primary)' }}>C</div>
-          <span style={{ fontWeight: 800, fontSize: '18px', color: 'var(--text-primary)', letterSpacing: '-0.5px' }}>Conversational <span style={{ color: 'var(--teal-fg)', fontStyle: 'italic' }}>AI</span> Agent</span>
-        </Link>
-
-        {/* Feature List */}
-        <div>
-          <h2 style={{ fontSize: '28px', fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1.3, marginBottom: '32px' }}>
-            Build voice AI agents<br />
-            <span style={{ color: 'var(--teal-fg)' }}>in minutes, not months.</span>
-          </h2>
-
-          {[
-            { icon: '⚡', title: 'Sub-500ms Latency', desc: 'Ultra-low latency for natural conversations' },
-            { icon: '🌐', title: '90+ Languages', desc: 'Deploy globally with real-time translation' },
-            { icon: '🔌', title: '1-Click Integrations', desc: 'Connect Salesforce, Cal.com, HubSpot & more' },
-            { icon: '🛡️', title: 'Enterprise Ready', desc: 'SOC-2 compliant with dedicated support' },
-          ].map((f) => (
-            <div key={f.title} style={{ display: 'flex', alignItems: 'flex-start', gap: '14px', marginBottom: '20px' }}>
-              <div style={{ width: '36px', height: '36px', borderRadius: '8px', background: 'rgba(14,179,158,0.1)', border: '1px solid rgba(14,179,158,0.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '16px', flexShrink: 0 }}>{f.icon}</div>
-              <div>
-                <div style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: '14px', marginBottom: '2px' }}>{f.title}</div>
-                <div style={{ color: 'var(--text-secondary)', fontSize: '13px' }}>{f.desc}</div>
-              </div>
-            </div>
-          ))}
+  const banner = (
+    <>
+      {errorMsg && (
+        <div
+          style={{
+            background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.3)',
+            borderRadius: 10, padding: '11px 13px', color: 'var(--err)', fontSize: 13, marginBottom: 14,
+          }}
+        >
+          {errorMsg}
         </div>
-
-        {/* Social proof */}
-        <div style={{ borderTop: '1px solid var(--border)', paddingTop: '24px' }}>
-          <p style={{ color: 'var(--text-secondary)', opacity: 0.7, fontSize: '13px', marginBottom: '12px' }}>Trusted by teams at</p>
-          <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-            {['OpenAI', 'Salesforce', 'Twilio', 'HubSpot'].map(b => (
-              <span key={b} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', padding: '4px 12px', borderRadius: '20px', fontSize: '12px', color: 'var(--text-secondary)', fontWeight: 600 }}>{b}</span>
-            ))}
-          </div>
+      )}
+      {status === 'success' && (
+        <div
+          className="rz-enter"
+          style={{
+            background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.25)',
+            borderRadius: 10, padding: '11px 13px', color: 'var(--lime)', fontSize: 13, marginBottom: 14,
+          }}
+        >
+          Account created — taking you to sign in…
         </div>
-      </div>
+      )}
+    </>
+  );
 
-      {/* Right Panel — Form */}
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '48px 40px' }}>
-        <div style={{ width: '100%', maxWidth: '420px' }}>
-
-          <div style={{ marginBottom: '32px' }}>
-            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', background: 'rgba(14,179,158,0.08)', border: '1px solid rgba(14,179,158,0.2)', borderRadius: '20px', padding: '4px 12px', fontSize: '12px', color: 'var(--teal-fg)', fontWeight: 600, marginBottom: '16px' }}>✨ Free plan — no credit card needed</div>
-            <h1 style={{ fontSize: '26px', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-0.5px', marginBottom: '6px' }}>Create your account</h1>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-              Already have an account? <Link to="/dashboard" style={{ color: 'var(--teal-fg)', fontWeight: 600, textDecoration: 'none' }}>Sign in →</Link>
-            </p>
-          </div>
-
-          {/* Google Sign Up */}
+  if (step === 'otp') {
+    return (
+      <AuthShell
+        kicker="Verify"
+        title="Check your email"
+        subtitle={`We sent a 6-digit code to ${form.email}. Enter it to finish creating your account.`}
+      >
+        {banner}
+        <form onSubmit={handleVerifyOtp} className="rz-stack" style={{ gap: 14 }}>
+          <input
+            autoFocus
+            inputMode="numeric"
+            maxLength={6}
+            placeholder="123456"
+            aria-label="Verification code"
+            value={otp}
+            onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
+            className="rz-input"
+            style={{ fontFamily: 'var(--ff-m)', fontSize: 22, letterSpacing: 8, textAlign: 'center', padding: 14 }}
+          />
+          <button type="submit" className="rz-btn rz-btn-primary rz-btn-block" style={{ padding: 13, fontSize: 15 }} disabled={status === 'submitting'}>
+            {status === 'submitting' ? 'Verifying…' : 'Verify & create account'}
+          </button>
           <button
             type="button"
-            style={{
-              width: '100%',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              gap: '10px',
-              padding: '11px 16px',
-              background: 'var(--bg-card)',
-              border: '1px solid var(--border)',
-              borderRadius: '8px',
-              color: 'var(--text-primary)',
-              fontSize: '14px',
-              fontWeight: 600,
-              cursor: 'pointer',
-              marginBottom: '24px',
-              transition: 'background 0.2s',
-            }}
-            onMouseOver={e => (e.currentTarget.style.background = 'var(--bg-secondary)')}
-            onMouseOut={e => (e.currentTarget.style.background = 'var(--bg-card)')}
-            onClick={() => navigate('/dashboard')}
+            className="rz-btn rz-btn-ghost rz-btn-block"
+            onClick={() => { setStep('details'); setErrorMsg(''); setStatus('idle'); }}
           >
-            <svg width="18" height="18" viewBox="0 0 24 24">
-              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
-              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
-              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
-              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
-            </svg>
-            Continue with Google
+            ← Back / change email
           </button>
+        </form>
+      </AuthShell>
+    );
+  }
 
-          {/* Divider */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '24px' }}>
-            <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
-            <span style={{ color: 'var(--text-secondary)', opacity: 0.8, fontSize: '12px', fontWeight: 500 }}>or sign up with email</span>
-            <div style={{ flex: 1, height: '1px', background: 'var(--border)' }} />
-          </div>
+  return (
+    <AuthShell
+      kicker="Get started"
+      title="Create your account"
+      subtitle="Build your first voice agent in minutes — no card required."
+      footer={
+        <div style={{ marginTop: 22, textAlign: 'center', fontSize: 13.5, color: 'var(--tx-2)' }}>
+          Already have an account?{' '}
+          <Link to="/login" style={{ color: 'var(--cyan-fg)', fontWeight: 600 }}>Sign in</Link>
+        </div>
+      }
+    >
+      <AuthOAuth label="Continue with Google" onClick={() => { window.location.href = '/api/v1/auth/google'; }} />
 
-          {/* Form */}
-          {step === 'otp' ? (
-          <form onSubmit={handleVerifyOtp} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div style={{ color: 'var(--text-secondary)', fontSize: 14, lineHeight: 1.6 }}>
-              We emailed a 6-digit code to <strong style={{ color: 'var(--text-primary, #fff)' }}>{form.email}</strong>. Enter it below to verify your email and create your account.
-            </div>
+      {banner}
+
+      <form onSubmit={handleSubmit} className="rz-stack" style={{ gap: 14 }}>
+        <AuthField label="Full name">
+          <input
+            type="text" name="name" className="rz-input" placeholder="Dan Alvarez"
+            value={form.name} onChange={handleChange} required autoComplete="name"
+          />
+        </AuthField>
+
+        <AuthField label="Work email">
+          <input
+            type="email" name="email" className="rz-input" placeholder="you@company.com"
+            value={form.email} onChange={handleChange} required autoComplete="email"
+          />
+        </AuthField>
+
+        <AuthField label="Password">
+          <div style={{ position: 'relative' }}>
             <input
-              autoFocus inputMode="numeric" maxLength={6} placeholder="123456"
-              value={otp} onChange={e => setOtp(e.target.value.replace(/\D/g, ''))}
-              style={{ padding: '14px', fontSize: 22, letterSpacing: 8, textAlign: 'center', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary, #fff)' }}
+              type={showPass ? 'text' : 'password'} name="password" className="rz-input"
+              placeholder="At least 8 characters" value={form.password} onChange={handleChange}
+              required autoComplete="new-password" style={{ paddingRight: 46 }}
             />
-            {errorMsg && <div style={{ color: '#f87171', fontSize: 13 }}>{errorMsg}</div>}
-            {status === 'success' && <div style={{ color: '#22c55e', fontSize: 13 }}>Verified! Account created — taking you to login…</div>}
-            <button type="submit" disabled={status === 'submitting'} className="btn btn-primary" style={{ padding: 12 }}>
-              {status === 'submitting' ? 'Verifying…' : 'Verify & Create Account'}
-            </button>
-            <button type="button" onClick={() => { setStep('details'); setErrorMsg(''); setStatus('idle'); }} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13 }}>
-              ← Back / change email
-            </button>
-          </form>
-          ) : (
-          <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-
-            {/* Error */}
-            {errorMsg && (
-              <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', padding: '12px 16px', color: '#ef4444', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                ⚠️ {errorMsg}
-              </div>
-            )}
-
-            {/* Success */}
-            {status === 'success' && (
-              <div style={{ background: 'rgba(34,197,94,0.1)', border: '1px solid rgba(34,197,94,0.3)', borderRadius: '8px', padding: '12px 16px', color: '#22c55e', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '8px' }}>
-                ✓ Account created! Redirecting to dashboard...
-              </div>
-            )}
-
-            <div>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>Full Name</label>
-              <input
-                type="text"
-                name="name"
-                className="form-input"
-                placeholder="John Smith"
-                value={form.name}
-                onChange={handleChange}
-                required
-                style={{ width: '100%', background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
-              />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>Work Email</label>
-              <input
-                type="email"
-                name="email"
-                className="form-input"
-                placeholder="john@company.com"
-                value={form.email}
-                onChange={handleChange}
-                required
-                style={{ width: '100%', background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
-              />
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>Password</label>
-              <div style={{ position: 'relative' }}>
-                <input
-                  type={showPass ? 'text' : 'password'}
-                  name="password"
-                  className="form-input"
-                  placeholder="Min. 8 characters"
-                  value={form.password}
-                  onChange={handleChange}
-                  required
-                  style={{ width: '100%', background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)', paddingRight: '44px' }}
-                />
-                <button
-                  type="button"
-                  style={{ position: 'absolute', right: '12px', top: '50%', transform: 'translateY(-50%)', background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '16px', padding: 0 }}
-                  onClick={() => setShowPass(!showPass)}
-                >
-                  {showPass ? '🙈' : '👁️'}
-                </button>
-              </div>
-              {/* Password strength */}
-              {form.password.length > 0 && (
-                <div style={{ marginTop: '8px', display: 'flex', gap: '4px' }}>
-                  {[1, 2, 3, 4].map(i => {
-                    const strength = form.password.length >= 12 ? 4 : form.password.length >= 10 ? 3 : form.password.length >= 8 ? 2 : 1;
-                    const color = strength >= 3 ? 'var(--teal)' : strength === 2 ? '#f59e0b' : '#ef4444';
-                    return <div key={i} style={{ flex: 1, height: '3px', borderRadius: '2px', background: i <= strength ? color : 'var(--border)', transition: 'background 0.3s' }} />;
-                  })}
-                </div>
-              )}
-            </div>
-
-            <div>
-              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>Confirm Password</label>
-              <input
-                type={showPass ? 'text' : 'password'}
-                name="confirm"
-                className="form-input"
-                placeholder="Re-enter your password"
-                value={form.confirm}
-                onChange={handleChange}
-                required
-                style={{ width: '100%', background: 'var(--bg-card)', color: 'var(--text-primary)', border: '1px solid var(--border)' }}
-              />
-            </div>
-
-            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', opacity: 0.8, lineHeight: 1.5, margin: 0 }}>
-              By signing up, you agree to our{' '}
-              <a href="#" style={{ color: 'var(--teal-fg)', textDecoration: 'none' }}>Terms of Service</a> and{' '}
-              <a href="#" style={{ color: 'var(--teal-fg)', textDecoration: 'none' }}>Privacy Policy</a>.
-            </p>
-
             <button
-              type="submit"
-              className="btn btn-primary"
-              disabled={status === 'submitting' || status === 'success'}
+              type="button"
+              onClick={() => setShowPass(!showPass)}
+              aria-label={showPass ? 'Hide password' : 'Show password'}
               style={{
-                width: '100%',
-                padding: '13px',
-                fontSize: '15px',
-                fontWeight: 700,
-                marginTop: '4px',
-                background: status === 'success' ? '#22c55e' : undefined,
-                transition: 'background 0.2s, transform 0.1s',
-                color: 'var(--bg-primary)'
+                position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)',
+                background: 'none', border: 'none', color: 'var(--tx-3)', cursor: 'pointer', padding: 0,
+                display: 'grid', placeItems: 'center',
               }}
             >
-              {status === 'idle' && 'Create Free Account →'}
-              {status === 'submitting' && (
-                <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}>
-                  <span style={{ display: 'inline-block', width: '14px', height: '14px', border: '2px solid rgba(0,0,0,0.3)', borderTopColor: '#0a0a0a', borderRadius: '50%', animation: 'spin 0.7s linear infinite' }} />
-                  Creating account...
-                </span>
+              {showPass ? (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                  <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24" />
+                  <line x1="1" y1="1" x2="23" y2="23" />
+                </svg>
+              ) : (
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" /><circle cx="12" cy="12" r="3" />
+                </svg>
               )}
-              {status === 'success' && '✓ Done!'}
             </button>
-          </form>
+          </div>
+          {form.password.length > 0 && (
+            <div style={{ marginTop: 8, display: 'flex', gap: 4 }} aria-hidden>
+              {[1, 2, 3, 4].map(i => (
+                <div
+                  key={i}
+                  style={{
+                    flex: 1, height: 3, borderRadius: 2,
+                    background: i <= strength ? strengthColor : 'var(--s3)',
+                    transition: 'background 0.3s',
+                  }}
+                />
+              ))}
+            </div>
           )}
+        </AuthField>
 
-        </div>
-      </div>
+        <AuthField label="Confirm password">
+          <input
+            type={showPass ? 'text' : 'password'} name="confirm" className="rz-input"
+            placeholder="Re-enter your password" value={form.confirm} onChange={handleChange}
+            required autoComplete="new-password"
+          />
+        </AuthField>
 
-      <style>{`
-        @keyframes spin { to { transform: rotate(360deg); } }
-      `}</style>
-    </div>
+        <button
+          type="submit"
+          className="rz-btn rz-btn-primary rz-btn-block"
+          style={{ marginTop: 6, padding: 13, fontSize: 15 }}
+          disabled={status === 'submitting' || status === 'success'}
+        >
+          {status === 'submitting' ? (
+            <><span className="rz-spinner" style={{ borderTopColor: 'var(--on-cyan)' }} /> Creating account…</>
+          ) : status === 'success' ? 'Done' : 'Create account'}
+        </button>
+      </form>
+    </AuthShell>
   );
 }

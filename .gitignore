@@ -61,3 +61,7 @@ client/.env
 .env.production
 backend/.env.production
 client/.env.production
+
+# Flagship design source — the .dc.html mockups the UI was ported from.
+# Kept local: ~1MB of reference material the build never touches.
+Spandan_flagship_selection/

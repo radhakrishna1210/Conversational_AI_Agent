@@ -107,7 +107,7 @@ const THANKS_FOR_CALLING_RE = /\bthank(?:s|\s*you)?\b[^.!?]*\bfor\s+calling\b/i;
 
 
 const MicIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#4caf50" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--lime)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
     <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
     <line x1="12" y1="19" x2="12" y2="23"></line>
@@ -116,7 +116,7 @@ const MicIcon = () => (
 );
 
 const InfoIcon = () => (
-  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#999" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: '6px', cursor: 'pointer' }}>
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--tx-2)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: '6px', cursor: 'pointer' }}>
     <circle cx="12" cy="12" r="10"></circle>
     <line x1="12" y1="16" x2="12" y2="12"></line>
     <line x1="12" y1="8" x2="12.01" y2="8"></line>
@@ -2219,10 +2219,10 @@ export default function EditAgent() {
 
   if (isLoading) {
     return (
-      <div style={{ width: '100%', minHeight: '100vh', background: 'var(--bg-primary)', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
+      <div style={{ width: '100%', minHeight: '100vh', background: 'var(--bg-primary)', color: 'var(--tx)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontFamily: 'var(--ff-b)' }}>
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
-          <div style={{ width: '40px', height: '40px', border: '3px solid #1a1a1a', borderTopColor: 'var(--teal)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
-          <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>Loading agent configuration...</span>
+          <div style={{ width: '40px', height: '40px', border: '3px solid var(--s1)', borderTopColor: 'var(--cyan)', borderRadius: '50%', animation: 'spin 1s linear infinite' }} />
+          <span style={{ fontSize: '14px', color: 'var(--tx-2)' }}>Loading agent configuration...</span>
           <style>{`
             @keyframes spin {
               to { transform: rotate(360deg); }
@@ -2234,32 +2234,69 @@ export default function EditAgent() {
   }
 
   return (
-    <div style={{ width: '100%', minHeight: '100vh', background: 'var(--bg-primary)', color: 'var(--text-primary)', fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif' }}>
+    <div className="agent-builder" style={{ width: '100%', minHeight: '100vh', background: 'var(--bg-primary)', color: 'var(--tx)', fontFamily: 'var(--ff-b)' }}>
+      {/*
+        Typography for the whole builder lives here rather than on the hundreds
+        of inline style objects below. The page sets almost no fontFamily of its
+        own, so these scoped rules win by default and the Spandan type roles —
+        Space Grotesk to lead, Inter to carry, JetBrains Mono to instrument —
+        land without touching every element.
+
+        Before this the root container declared the OS system stack, so the
+        builder rendered in Segoe UI while the rest of the app used Inter.
+      */}
+      <style>{`
+        .agent-builder h1,
+        .agent-builder h2,
+        .agent-builder h3,
+        .agent-builder h4 {
+          font-family: var(--ff-d);
+          letter-spacing: -0.01em;
+        }
+        /* Instrument readings: latency, token counts, ids, keys, timings. */
+        .agent-builder .ab-mono,
+        .agent-builder code,
+        .agent-builder pre {
+          font-family: var(--ff-m);
+        }
+        .agent-builder input,
+        .agent-builder textarea,
+        .agent-builder select {
+          font-family: var(--ff-b);
+        }
+        /* Focus ring matches the rest of the app instead of the UA default. */
+        .agent-builder :focus-visible {
+          outline: 2px solid var(--focus);
+          outline-offset: 2px;
+          border-radius: 4px;
+        }
+      `}</style>
+
       {/* Language Configuration Modal */}
       {showLanguageModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: 'var(--bg-card)', borderRadius: '8px', padding: '30px', maxWidth: '600px', width: '90%', maxHeight: '80vh', overflowY: 'auto' }}>
+          <div style={{ background: 'var(--s1)', borderRadius: '8px', padding: '30px', maxWidth: '600px', width: '90%', maxHeight: '80vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h2 style={{ fontSize: '18px', fontWeight: '600', margin: 0 }}>Language Configuration</h2>
-              <button onClick={() => setShowLanguageModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '24px' }}>X</button>
+              <button onClick={() => setShowLanguageModal(false)} style={{ background: 'none', border: 'none', color: 'var(--tx-2)', cursor: 'pointer', fontSize: '24px' }}>X</button>
             </div>
-            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '20px' }}>Choose multiple languages for your agent to support</p>
+            <p style={{ fontSize: '13px', color: 'var(--tx-2)', marginBottom: '20px' }}>Choose multiple languages for your agent to support</p>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '20px' }}>
               {LANGUAGES_LIST.map(lang => (
-                <label key={lang} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', background: 'var(--bg-primary)', border: selectedLanguages.includes(lang) ? '1px solid var(--teal)' : '1px solid #333', borderRadius: '8px', cursor: 'pointer' }}>
+                <label key={lang} style={{ display: 'flex', alignItems: 'center', gap: '12px', padding: '12px', background: 'var(--bg-primary)', border: selectedLanguages.includes(lang) ? '1px solid var(--cyan)' : '1px solid var(--line-2)', borderRadius: '8px', cursor: 'pointer' }}>
                   <input
                     type="checkbox"
                     checked={selectedLanguages.includes(lang)}
                     onChange={() => toggleLanguage(lang)}
-                    style={{ accentColor: 'var(--teal)', width: '18px', height: '18px', cursor: 'pointer' }}
+                    style={{ accentColor: 'var(--cyan)', width: '18px', height: '18px', cursor: 'pointer' }}
                   />
                   <span style={{ fontSize: '13px' }}>{lang}</span>
                 </label>
               ))}
             </div>
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowLanguageModal(false)} style={{ padding: '10px 20px', background: 'transparent', border: '1px solid #333', color: 'var(--text-primary)', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>Cancel</button>
-              <button onClick={() => { setShowLanguageModal(false); handleSave(); }} style={{ padding: '10px 20px', background: 'var(--teal)', color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>Done</button>
+              <button onClick={() => setShowLanguageModal(false)} style={{ padding: '10px 20px', background: 'transparent', border: '1px solid var(--line-2)', color: 'var(--tx)', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>Cancel</button>
+              <button onClick={() => { setShowLanguageModal(false); handleSave(); }} style={{ padding: '10px 20px', background: 'var(--cyan)', color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}>Done</button>
             </div>
           </div>
         </div>
@@ -2278,12 +2315,12 @@ export default function EditAgent() {
       {/* Conversational Agent Modal — 3-way choice: Off / xAI / ElevenLabs */}
       {showXaiModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: 'var(--bg-card)', borderRadius: '8px', padding: '30px', maxWidth: '560px', width: '90%' }}>
+          <div style={{ background: 'var(--s1)', borderRadius: '8px', padding: '30px', maxWidth: '560px', width: '90%' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
               <h2 style={{ fontSize: '18px', fontWeight: '600', margin: 0 }}>Conversational Agent</h2>
-              <button onClick={() => setShowXaiModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '24px' }}>X</button>
+              <button onClick={() => setShowXaiModal(false)} style={{ background: 'none', border: 'none', color: 'var(--tx-2)', cursor: 'pointer', fontSize: '24px' }}>X</button>
             </div>
-            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.6, marginBottom: '20px' }}>
+            <p style={{ fontSize: '13px', color: 'var(--tx-2)', lineHeight: 1.6, marginBottom: '20px' }}>
               Routes this agent's Web Call and Phone Call through a single bundled speech-to-speech
               engine that replaces Languages, Voice (TTS), AI Model (LLM) and Transcription (STT).
               Those four settings are disabled while one is active; choose Off to configure them
@@ -2303,7 +2340,7 @@ export default function EditAgent() {
                 <button
                   key={opt.value}
                   onClick={() => { setVoiceEngine(opt.value); setShowXaiModal(false); handleSave({ voiceEngine: opt.value }); }}
-                  style={{ padding: '12px', background: voiceEngine === opt.value ? 'var(--teal)' : '#0f0f0f', color: voiceEngine === opt.value ? '#000' : '#fff', border: voiceEngine === opt.value ? 'none' : '1px solid #333', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: voiceEngine === opt.value ? 600 : 400, textAlign: 'left' }}
+                  style={{ padding: '12px', background: voiceEngine === opt.value ? 'var(--cyan)' : 'var(--bg-primary)', color: voiceEngine === opt.value ? '#000' : 'var(--tx)', border: voiceEngine === opt.value ? 'none' : '1px solid var(--line-2)', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: voiceEngine === opt.value ? 600 : 400, textAlign: 'left' }}
                 >
                   {opt.label}
                 </button>
@@ -2316,15 +2353,15 @@ export default function EditAgent() {
       {/* AI Model Configuration Modal */}
       {showModelModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: 'var(--bg-card)', borderRadius: '8px', padding: '30px', maxWidth: '500px', width: '90%' }}>
+          <div style={{ background: 'var(--s1)', borderRadius: '8px', padding: '30px', maxWidth: '500px', width: '90%' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h2 style={{ fontSize: '18px', fontWeight: '600', margin: 0 }}>AI Model Configuration</h2>
-              <button onClick={() => setShowModelModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '24px' }}>X</button>
+              <button onClick={() => setShowModelModal(false)} style={{ background: 'none', border: 'none', color: 'var(--tx-2)', cursor: 'pointer', fontSize: '24px' }}>X</button>
             </div>
             <div style={{ display: 'grid', gap: '12px', marginBottom: '20px' }}>
-              {!modelCatalog && <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0 }}>Loading available models…</p>}
+              {!modelCatalog && <p style={{ fontSize: '13px', color: 'var(--tx-2)', margin: 0 }}>Loading available models…</p>}
               {modelCatalog?.llm.length === 0 && (
-                <p style={{ fontSize: '13px', color: 'var(--text-secondary)', margin: 0, lineHeight: 1.6 }}>
+                <p style={{ fontSize: '13px', color: 'var(--tx-2)', margin: 0, lineHeight: 1.6 }}>
                   No AI models are available on this platform right now. Contact your administrator.
                 </p>
               )}
@@ -2336,9 +2373,9 @@ export default function EditAgent() {
                     onClick={() => { setAiModel(model.value); setShowModelModal(false); handleSave({ aiModel: model.value }); }}
                     style={{
                       padding: '12px',
-                      background: selected ? 'var(--teal)' : '#0f0f0f',
-                      color: selected ? '#000' : '#fff',
-                      border: selected ? 'none' : '1px solid #333',
+                      background: selected ? 'var(--cyan)' : 'var(--bg-primary)',
+                      color: selected ? '#000' : 'var(--tx)',
+                      border: selected ? 'none' : '1px solid var(--line-2)',
                       borderRadius: '6px',
                       cursor: 'pointer',
                       fontSize: '13px',
@@ -2347,7 +2384,7 @@ export default function EditAgent() {
                     }}
                   >
                     {model.label}
-                    <span style={{ color: selected ? '#04231f' : 'var(--text-secondary)', fontSize: '11px', marginLeft: '8px' }}>
+                    <span style={{ color: selected ? '#04231f' : 'var(--tx-2)', fontSize: '11px', marginLeft: '8px' }}>
                       {model.provider}
                     </span>
                   </button>
@@ -2361,10 +2398,10 @@ export default function EditAgent() {
       {/* Transcription Configuration Modal (Speech-to-Text) */}
       {showTranscriptionModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: 'var(--bg-secondary)', border: '1px solid #1a1a1a', borderRadius: '8px', padding: '30px', maxWidth: '900px', width: '90%' }}>
+          <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--s1)', borderRadius: '8px', padding: '30px', maxWidth: '900px', width: '90%' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
               <h2 style={{ fontSize: '18px', fontWeight: '600', margin: 0 }}>Speech-to-Text Configuration</h2>
-              <button onClick={() => setShowTranscriptionModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '24px' }}>X</button>
+              <button onClick={() => setShowTranscriptionModal(false)} style={{ background: 'none', border: 'none', color: 'var(--tx-2)', cursor: 'pointer', fontSize: '24px' }}>X</button>
             </div>
             
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px', marginBottom: '30px' }}>
@@ -2383,26 +2420,26 @@ export default function EditAgent() {
                       justifyContent: 'space-between', 
                       padding: '10px 14px', 
                       background: 'var(--bg-primary)', 
-                      border: '1px solid #333', 
+                      border: '1px solid var(--line-2)', 
                       borderRadius: '6px', 
                       cursor: 'pointer',
                       fontSize: '13px',
-                      color: 'var(--text-primary)'
+                      color: 'var(--tx)'
                     }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <MicIcon />
                       <span>{sttProvider}</span>
                     </div>
-                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)', transform: isSttProviderDropdownOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>v</span>
+                    <span style={{ fontSize: '10px', color: 'var(--tx-2)', transform: isSttProviderDropdownOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>v</span>
                   </div>
                   {isSttProviderDropdownOpen && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--bg-primary)', border: '1px solid #333', borderRadius: '6px', marginTop: '4px', zIndex: 10 }}>
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--bg-primary)', border: '1px solid var(--line-2)', borderRadius: '6px', marginTop: '4px', zIndex: 10 }}>
                       {!modelCatalog && (
-                        <div style={{ padding: '10px 14px', fontSize: '13px', color: 'var(--text-secondary)' }}>Loading providers…</div>
+                        <div style={{ padding: '10px 14px', fontSize: '13px', color: 'var(--tx-2)' }}>Loading providers…</div>
                       )}
                       {modelCatalog?.stt.length === 0 && (
-                        <div style={{ padding: '10px 14px', fontSize: '13px', color: 'var(--text-secondary)' }}>
+                        <div style={{ padding: '10px 14px', fontSize: '13px', color: 'var(--tx-2)' }}>
                           No transcription providers are available. Contact your administrator.
                         </div>
                       )}
@@ -2417,17 +2454,17 @@ export default function EditAgent() {
                             padding: '10px 14px',
                             cursor: 'pointer',
                             fontSize: '13px',
-                            color: 'var(--text-primary)',
-                            background: sttProvider === provider ? '#1a1a1a' : 'transparent'
+                            color: 'var(--tx)',
+                            background: sttProvider === provider ? 'var(--s1)' : 'transparent'
                           }}
-                          onMouseEnter={(e) => e.currentTarget.style.background = '#1a1a1a'}
-                          onMouseLeave={(e) => e.currentTarget.style.background = sttProvider === provider ? '#1a1a1a' : 'transparent'}
+                          onMouseEnter={(e) => e.currentTarget.style.background = 'var(--s1)'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = sttProvider === provider ? 'var(--s1)' : 'transparent'}
                         >
                           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                             <MicIcon />
                             <span>{label}</span>
                           </div>
-                          {sttProvider === provider && <span style={{ color: 'var(--text-primary)', fontSize: '12px' }}>OK</span>}
+                          {sttProvider === provider && <span style={{ color: 'var(--tx)', fontSize: '12px' }}>OK</span>}
                         </div>
                       ))}
                     </div>
@@ -2448,18 +2485,18 @@ export default function EditAgent() {
                       onChange={(e) => setSttSilenceTimeoutMs(Number(e.target.value))}
                       style={{ 
                         flex: 1, 
-                        accentColor: 'var(--teal)', 
+                        accentColor: 'var(--cyan)', 
                         height: '4px', 
-                        background: '#333',
+                        background: 'var(--s2)',
                         borderRadius: '2px',
                         appearance: 'none',
                         cursor: 'pointer'
                       }} 
                     />
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px', fontSize: '11px', color: 'var(--text-secondary)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px', fontSize: '11px', color: 'var(--tx-2)' }}>
                     <span>0ms</span>
-                    <span style={{ color: 'var(--text-primary)' }}>{sttSilenceTimeoutMs}ms</span>
+                    <span style={{ color: 'var(--tx)' }}>{sttSilenceTimeoutMs}ms</span>
                     <span>1500ms</span>
                   </div>
                 </div>
@@ -2474,7 +2511,7 @@ export default function EditAgent() {
                       width: '40px', 
                       height: '20px', 
                       background: 'var(--bg-primary)', 
-                      border: sttNoiseReducer ? '2px solid var(--teal)' : '2px solid #333', 
+                      border: sttNoiseReducer ? '2px solid var(--cyan)' : '2px solid var(--line-2)', 
                       borderRadius: '10px', 
                       position: 'relative', 
                       cursor: 'pointer' 
@@ -2485,7 +2522,7 @@ export default function EditAgent() {
                       style={{ 
                         width: '12px', 
                         height: '12px', 
-                        background: sttNoiseReducer ? 'var(--teal)' : '#666', 
+                        background: sttNoiseReducer ? 'var(--cyan)' : 'var(--tx-3)', 
                         borderRadius: '50%', 
                         position: 'absolute', 
                         top: '2px', 
@@ -2504,18 +2541,18 @@ export default function EditAgent() {
                     justifyContent: 'space-between', 
                     padding: '14px', 
                     background: 'var(--bg-primary)', 
-                    border: '1px solid var(--border)', 
+                    border: '1px solid var(--line)', 
                     borderRadius: '6px', 
                     cursor: 'pointer' 
                   }}
                 >
                   <span style={{ fontSize: '13px', fontWeight: '500' }}>Advanced Settings</span>
-                  <span style={{ fontSize: '10px', color: 'var(--text-secondary)', transform: sttAdvancedSettingsOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>v</span>
+                  <span style={{ fontSize: '10px', color: 'var(--tx-2)', transform: sttAdvancedSettingsOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>v</span>
                 </div>
               </div>
 
               {/* Right Column */}
-              <div style={{ paddingLeft: '30px', borderLeft: '1px solid #222' }}>
+              <div style={{ paddingLeft: '30px', borderLeft: '1px solid var(--s1)' }}>
                 <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '20px' }}>
                   {sttProvider === 'Sarvam' ? 'Sarvam AI Configuration' : `${sttProvider} Configuration`}
                 </div>
@@ -2524,20 +2561,20 @@ export default function EditAgent() {
                   <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '8px' }}>Model</label>
                   <div 
                     onClick={() => setIsSttModelDropdownOpen(!isSttModelDropdownOpen)}
-                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-primary)', border: '1px solid #333', borderRadius: '6px', fontSize: '13px', cursor: 'pointer' }}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-primary)', border: '1px solid var(--line-2)', borderRadius: '6px', fontSize: '13px', cursor: 'pointer' }}
                   >
                     <span>{sttModel}</span>
-                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>v</span>
+                    <span style={{ fontSize: '10px', color: 'var(--tx-2)' }}>v</span>
                   </div>
                   {isSttModelDropdownOpen && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--bg-primary)', border: '1px solid #333', borderRadius: '6px', marginTop: '4px', zIndex: 10 }}>
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--bg-primary)', border: '1px solid var(--line-2)', borderRadius: '6px', marginTop: '4px', zIndex: 10 }}>
                       {['Saaras V3', 'Standard V2'].map(model => (
                         <div 
                           key={model} 
                           onClick={() => { setSttModel(model); setIsSttModelDropdownOpen(false); }}
-                          style={{ padding: '10px 14px', cursor: 'pointer', fontSize: '13px', color: 'var(--text-primary)', background: sttModel === model ? '#1a1a1a' : 'transparent' }}
-                          onMouseEnter={(e) => e.currentTarget.style.background = '#1a1a1a'}
-                          onMouseLeave={(e) => e.currentTarget.style.background = sttModel === model ? '#1a1a1a' : 'transparent'}
+                          style={{ padding: '10px 14px', cursor: 'pointer', fontSize: '13px', color: 'var(--tx)', background: sttModel === model ? 'var(--s1)' : 'transparent' }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = 'var(--s1)'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = sttModel === model ? 'var(--s1)' : 'transparent'}
                         >
                           {model}
                         </div>
@@ -2550,20 +2587,20 @@ export default function EditAgent() {
                   <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '8px' }}>Language</label>
                   <div 
                     onClick={() => setIsSttLanguageDropdownOpen(!isSttLanguageDropdownOpen)}
-                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-primary)', border: '1px solid #333', borderRadius: '6px', fontSize: '13px', cursor: 'pointer' }}
+                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-primary)', border: '1px solid var(--line-2)', borderRadius: '6px', fontSize: '13px', cursor: 'pointer' }}
                   >
                     <span>{sttLanguage}</span>
-                    <span style={{ fontSize: '10px', color: 'var(--text-secondary)' }}>v</span>
+                    <span style={{ fontSize: '10px', color: 'var(--tx-2)' }}>v</span>
                   </div>
                   {isSttLanguageDropdownOpen && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--bg-primary)', border: '1px solid #333', borderRadius: '6px', marginTop: '4px', zIndex: 10 }}>
+                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--bg-primary)', border: '1px solid var(--line-2)', borderRadius: '6px', marginTop: '4px', zIndex: 10 }}>
                       {['Multi', 'English', 'Hindi', 'Tamil'].map(lang => (
                         <div 
                           key={lang} 
                           onClick={() => { setSttLanguage(lang); setIsSttLanguageDropdownOpen(false); }}
-                          style={{ padding: '10px 14px', cursor: 'pointer', fontSize: '13px', color: 'var(--text-primary)', background: sttLanguage === lang ? '#1a1a1a' : 'transparent' }}
-                          onMouseEnter={(e) => e.currentTarget.style.background = '#1a1a1a'}
-                          onMouseLeave={(e) => e.currentTarget.style.background = sttLanguage === lang ? '#1a1a1a' : 'transparent'}
+                          style={{ padding: '10px 14px', cursor: 'pointer', fontSize: '13px', color: 'var(--tx)', background: sttLanguage === lang ? 'var(--s1)' : 'transparent' }}
+                          onMouseEnter={(e) => e.currentTarget.style.background = 'var(--s1)'}
+                          onMouseLeave={(e) => e.currentTarget.style.background = sttLanguage === lang ? 'var(--s1)' : 'transparent'}
                         >
                           {lang}
                         </div>
@@ -2581,7 +2618,7 @@ export default function EditAgent() {
                   setShowTranscriptionModal(false);
                   handleSave({ transcription: sttProvider });
                 }}
-                style={{ padding: '10px 24px', background: 'var(--teal)', color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}
+                style={{ padding: '10px 24px', background: 'var(--cyan)', color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}
               >
                 Done
               </button>
@@ -2595,38 +2632,38 @@ export default function EditAgent() {
       {/* Web Call Modal */}
       {showWebCallModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: 'var(--bg-card)', borderRadius: '12px', padding: '32px', maxWidth: '480px', width: '90%', textAlign: 'center', border: '1px solid #333' }}>
+          <div style={{ background: 'var(--s1)', borderRadius: '12px', padding: '32px', maxWidth: '480px', width: '90%', textAlign: 'center', border: '1px solid var(--line-2)' }}>
             <div style={{ display: 'flex', justifyContent: 'flex-end', marginBottom: '10px' }}>
-              <button onClick={() => { cleanupWebCall(); setShowWebCallModal(false); setWebCallActive(false); setWebCallStatus('idle'); }} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '20px' }}>✕</button>
+              <button onClick={() => { cleanupWebCall(); setShowWebCallModal(false); setWebCallActive(false); setWebCallStatus('idle'); }} style={{ background: 'none', border: 'none', color: 'var(--tx-2)', cursor: 'pointer', fontSize: '20px' }}>✕</button>
             </div>
-            <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: webCallStatus === 'connected' ? 'rgba(76,175,80,0.2)' : webCallStatus === 'connecting' ? 'rgba(255,152,0,0.2)' : 'rgba(0,188,212,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', border: webCallStatus === 'connected' ? '2px solid #4caf50' : '2px solid var(--teal)', transition: 'all 0.3s', animation: webCallStatus === 'connected' && webCallActivity === 'listening' ? 'pulse 1.6s ease-in-out infinite' : undefined }}>
+            <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: webCallStatus === 'connected' ? 'rgba(76,175,80,0.2)' : webCallStatus === 'connecting' ? 'rgba(255,152,0,0.2)' : 'rgba(0,188,212,0.15)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px', border: webCallStatus === 'connected' ? '2px solid var(--lime)' : '2px solid var(--cyan)', transition: 'all 0.3s', animation: webCallStatus === 'connected' && webCallActivity === 'listening' ? 'pulse 1.6s ease-in-out infinite' : undefined }}>
               {/* Call state as icons rather than emoji — emoji render at
                   different sizes and weights per platform, so the 80px dial
                   jumped around between states. */}
-              <span style={{ display: 'flex', color: webCallStatus === 'connected' ? 'var(--success)' : webCallStatus === 'connecting' ? 'var(--orange)' : 'var(--teal-fg)' }}>
+              <span style={{ display: 'flex', color: webCallStatus === 'connected' ? 'var(--lime)' : webCallStatus === 'connecting' ? 'var(--orange)' : 'var(--cyan-fg)' }}>
                 {webCallStatus === 'connected'
                   ? (webCallActivity === 'speaking' ? <Volume2 size={34} /> : webCallActivity === 'processing' ? <Loader2 size={34} className="animate-spin" /> : <AudioLines size={34} />)
                   : webCallStatus === 'connecting' ? <Loader2 size={34} className="animate-spin" /> : <Globe size={34} />}
               </span>
             </div>
-            <h3 style={{ fontSize: '18px', fontWeight: '600', margin: '0 0 8px', color: 'var(--text-primary)' }}>
+            <h3 style={{ fontSize: '18px', fontWeight: '600', margin: '0 0 8px', color: 'var(--tx)' }}>
               {webCallStatus === 'idle' ? 'Web Call Test' : webCallStatus === 'connecting' ? 'Connecting...' : webCallStatus === 'connected' ? (webCallActivity === 'speaking' ? `${agentName} is speaking…` : webCallActivity === 'processing' ? 'Responding…' : 'Listening…') : 'Call Ended'}
             </h3>
-            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>
+            <p style={{ fontSize: '13px', color: 'var(--tx-2)', marginBottom: '16px' }}>
               {webCallStatus === 'idle' ? `Test your agent "${agentName}" with a browser-based voice call.` : webCallStatus === 'connecting' ? 'Requesting microphone & starting the agent...' : webCallStatus === 'connected' ? 'Speak naturally — pause briefly when you finish and the agent will respond.' : 'The test call has ended.'}
             </p>
             {webCallError && (
-              <p style={{ fontSize: '13px', color: '#ef4444', marginBottom: '16px' }}>{webCallError}</p>
+              <p style={{ fontSize: '13px', color: 'var(--err)', marginBottom: '16px' }}>{webCallError}</p>
             )}
             {webCallLatency && webCallStatus === 'connected' && (
-              <p style={{ fontSize: '12px', color: '#777', margin: '-8px 0 14px' }}>
+              <p style={{ fontSize: '12px', color: 'var(--tx-3)', margin: '-8px 0 14px' }}>
                 STT {(webCallLatency.sttMs / 1000).toFixed(1)}s | AI {(webCallLatency.llmMs / 1000).toFixed(1)}s
               </p>
             )}
             {webCallTranscript.length > 0 && (
-              <div style={{ maxHeight: '220px', overflowY: 'auto', textAlign: 'left', background: 'var(--bg-card)', border: '1px solid #2a2a2a', borderRadius: '8px', padding: '12px', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ maxHeight: '220px', overflowY: 'auto', textAlign: 'left', background: 'var(--s1)', border: '1px solid var(--s2)', borderRadius: '8px', padding: '12px', marginBottom: '20px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                 {webCallTranscript.map((m, i) => (
-                  <div key={i} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%', padding: '8px 12px', borderRadius: '10px', fontSize: '13px', lineHeight: 1.45, background: m.role === 'user' ? 'var(--teal)' : '#242424', color: m.role === 'user' ? '#000' : 'var(--text-primary)' }}>
+                  <div key={i} style={{ alignSelf: m.role === 'user' ? 'flex-end' : 'flex-start', maxWidth: '85%', padding: '8px 12px', borderRadius: '10px', fontSize: '13px', lineHeight: 1.45, background: m.role === 'user' ? 'var(--cyan)' : '#242424', color: m.role === 'user' ? '#000' : 'var(--tx)' }}>
                     {m.content}
                   </div>
                 ))}
@@ -2635,12 +2672,12 @@ export default function EditAgent() {
             {!webCallActive ? (
               <button
                 onClick={handleStartWebCall}
-                style={{ padding: '14px 32px', background: 'var(--teal)', color: '#000', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '600' }}
+                style={{ padding: '14px 32px', background: 'var(--cyan)', color: '#000', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '600' }}
               >🎤 Start Web Call</button>
             ) : webCallStatus === 'connected' ? (
               <button
                 onClick={handleEndWebCall}
-                style={{ padding: '14px 32px', background: '#ef4444', color: 'var(--text-primary)', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '600' }}
+                style={{ padding: '14px 32px', background: 'var(--err)', color: 'var(--tx)', border: 'none', borderRadius: '8px', cursor: 'pointer', fontSize: '14px', fontWeight: '600' }}
               >📞 End Call</button>
             ) : null}
           </div>
@@ -2650,12 +2687,12 @@ export default function EditAgent() {
       {/* Phone Call Modal */}
       {showPhoneCallModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: 'var(--bg-card)', borderRadius: '12px', padding: '30px', maxWidth: '440px', width: '90%', border: '1px solid #333' }}>
+          <div style={{ background: 'var(--s1)', borderRadius: '12px', padding: '30px', maxWidth: '440px', width: '90%', border: '1px solid var(--line-2)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
               <h2 style={{ fontSize: '18px', fontWeight: '600', margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>📞 Test Phone Call</h2>
-              <button onClick={() => setShowPhoneCallModal(false)} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '24px' }}>✕</button>
+              <button onClick={() => setShowPhoneCallModal(false)} style={{ background: 'none', border: 'none', color: 'var(--tx-2)', cursor: 'pointer', fontSize: '24px' }}>✕</button>
             </div>
-            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '16px' }}>Enter a phone number to receive a test call from your agent "{agentName}". Make sure your Twilio account is configured.</p>
+            <p style={{ fontSize: '13px', color: 'var(--tx-2)', marginBottom: '16px' }}>Enter a phone number to receive a test call from your agent "{agentName}". Make sure your Twilio account is configured.</p>
             <div style={{ marginBottom: '16px' }}>
               <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '8px' }}>Phone Number</label>
               <input
@@ -2663,18 +2700,18 @@ export default function EditAgent() {
                 value={phoneTestNumber}
                 onChange={e => setPhoneTestNumber(e.target.value)}
                 placeholder="+1 (555) 123-4567"
-                style={{ width: '100%', background: 'var(--bg-primary)', border: '1px solid #333', borderRadius: '8px', padding: '12px 14px', color: 'var(--text-primary)', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
+                style={{ width: '100%', background: 'var(--bg-primary)', border: '1px solid var(--line-2)', borderRadius: '8px', padding: '12px 14px', color: 'var(--tx)', fontSize: '14px', outline: 'none', boxSizing: 'border-box' }}
               />
             </div>
             <div style={{ marginBottom: '16px' }}>
               <CallerNumberPicker value={fromNumber} onChange={setFromNumber} />
             </div>
             <div style={{ display: 'flex', gap: '12px', justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowPhoneCallModal(false)} style={{ padding: '10px 20px', background: 'transparent', border: '1px solid #333', color: 'var(--text-primary)', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>Cancel</button>
+              <button onClick={() => setShowPhoneCallModal(false)} style={{ padding: '10px 20px', background: 'transparent', border: '1px solid var(--line-2)', color: 'var(--tx)', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>Cancel</button>
               <button
                 onClick={handlePhoneCall}
                 disabled={!phoneTestNumber.trim()}
-                style={{ padding: '10px 20px', background: 'var(--teal)', color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', opacity: !phoneTestNumber.trim() ? 0.6 : 1 }}
+                style={{ padding: '10px 20px', background: 'var(--cyan)', color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600', opacity: !phoneTestNumber.trim() ? 0.6 : 1 }}
               >📞 Call Now</button>
             </div>
           </div>
@@ -2682,12 +2719,12 @@ export default function EditAgent() {
       )}
 
       {/* Header */}
-      <div style={{ background: 'var(--bg-secondary)', borderBottom: '1px solid #1a1a1a', padding: '12px 24px', display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
+      <div style={{ background: 'var(--bg-secondary)', borderBottom: '1px solid var(--s1)', padding: '12px 24px', display: 'flex', alignItems: 'center', gap: '16px', flexWrap: 'wrap' }}>
         <button
           onClick={() => navigate('/dashboard')}
           aria-label="Back to dashboard"
           title="Back to dashboard"
-          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '32px', height: '32px', background: 'none', border: 'none', borderRadius: '8px', color: 'var(--text-secondary)', cursor: 'pointer', padding: 0 }}
+          style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', width: '32px', height: '32px', background: 'none', border: 'none', borderRadius: '8px', color: 'var(--tx-2)', cursor: 'pointer', padding: 0 }}
         >
           <ArrowLeft size={18} />
         </button>
@@ -2698,10 +2735,10 @@ export default function EditAgent() {
           onChange={(e) => setAgentName(e.target.value)}
           style={{
             padding: '8px 12px',
-            background: 'var(--bg-elevated)',
-            border: '1px solid var(--border)',
+            background: 'var(--s2)',
+            border: '1px solid var(--line)',
             borderRadius: '6px',
-            color: 'var(--text-primary)',
+            color: 'var(--tx)',
             fontSize: '14px',
             fontWeight: '600',
             outline: 'none',
@@ -2713,7 +2750,7 @@ export default function EditAgent() {
         <div
           onClick={() => setCallDirection(callDirection === 'OUTBOUND' ? 'INBOUND' : 'OUTBOUND')}
           title="Call direction — click to switch. Incoming: customers call your agent (thanking them for calling is fine). Outgoing: your agent dials the customer (never say 'thank you for calling')."
-          style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '5px 12px', background: callDirection === 'OUTBOUND' ? 'rgba(249,115,22,0.12)' : 'var(--teal-light)', border: `1px solid ${callDirection === 'OUTBOUND' ? 'rgba(249,115,22,0.35)' : 'rgba(14,179,158,0.35)'}`, borderRadius: 'var(--radius-full)', fontSize: '12px', color: callDirection === 'OUTBOUND' ? 'var(--orange)' : 'var(--teal-fg)', fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}>
+          style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '5px 12px', background: callDirection === 'OUTBOUND' ? 'rgba(249,115,22,0.12)' : 'var(--teal-light)', border: `1px solid ${callDirection === 'OUTBOUND' ? 'rgba(249,115,22,0.35)' : 'rgba(14,179,158,0.35)'}`, borderRadius: 'var(--radius-full)', fontSize: '12px', color: callDirection === 'OUTBOUND' ? 'var(--orange)' : 'var(--cyan-fg)', fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}>
           {callDirection === 'OUTBOUND' ? <PhoneOutgoing size={13} /> : <PhoneIncoming size={13} />}
           {callDirection === 'OUTBOUND' ? 'Outgoing' : 'Incoming'}
         </div>
@@ -2726,9 +2763,9 @@ export default function EditAgent() {
           */}
           <button
             onClick={() => { setShowAskAIModal(true); setAskAIResponse(''); setAskAIInput(''); }}
-            style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '8px 14px', background: 'transparent', color: 'var(--text-secondary)', border: '1px solid var(--border)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}
-            onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; }}
-            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; }}
+            style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '8px 14px', background: 'transparent', color: 'var(--tx-2)', border: '1px solid var(--line)', borderRadius: 'var(--radius-sm)', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}
+            onMouseEnter={e => { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--tx)'; }}
+            onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--tx-2)'; }}
           >
             <Sparkles size={15} /> Ask AI
           </button>
@@ -2738,8 +2775,8 @@ export default function EditAgent() {
             separately outlined buttons in three different colours.
           */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-            <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 600, whiteSpace: 'nowrap' }}>Test with</span>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '2px', background: 'var(--bg-elevated)', padding: '3px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+            <span style={{ fontSize: '12px', color: 'var(--tx-3)', fontWeight: 600, whiteSpace: 'nowrap' }}>Test with</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '2px', background: 'var(--s2)', padding: '3px', borderRadius: 'var(--radius-sm)', border: '1px solid var(--line)' }}>
               {[
                 { Icon: MessageSquare, label: 'Chat', active: activeTab === 'chat', onClick: () => setActiveTab('chat') },
                 { Icon: Globe, label: 'Web call', active: false, onClick: () => setShowWebCallModal(true) },
@@ -2751,14 +2788,14 @@ export default function EditAgent() {
                   aria-pressed={active}
                   style={{
                     display: 'flex', alignItems: 'center', gap: '6px', padding: '6px 12px',
-                    background: active ? 'var(--teal)' : 'transparent',
-                    color: active ? '#060c17' : 'var(--text-secondary)',
+                    background: active ? 'var(--cyan)' : 'transparent',
+                    color: active ? '#060c17' : 'var(--tx-2)',
                     border: 'none', borderRadius: '5px', cursor: 'pointer',
                     fontSize: '12px', fontWeight: 600, whiteSpace: 'nowrap',
                     transition: 'background 0.15s ease, color 0.15s ease',
                   }}
-                  onMouseEnter={e => { if (!active) { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--text-primary)'; } }}
-                  onMouseLeave={e => { if (!active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-secondary)'; } }}
+                  onMouseEnter={e => { if (!active) { e.currentTarget.style.background = 'var(--bg-hover)'; e.currentTarget.style.color = 'var(--tx)'; } }}
+                  onMouseLeave={e => { if (!active) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--tx-2)'; } }}
                 >
                   <Icon size={14} /> {label}
                 </button>
@@ -2773,7 +2810,7 @@ export default function EditAgent() {
               onClick={() => setShowDeployDropdown(prev => !prev)}
               aria-expanded={showDeployDropdown}
               aria-haspopup="menu"
-              style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '8px 16px', background: deployStatus === 'done' ? 'var(--success)' : 'var(--teal)', color: '#060c17', border: 'none', borderRadius: 'var(--radius-sm)', cursor: deployStatus === 'deploying' ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 700, opacity: deployStatus === 'deploying' ? 0.7 : 1, transition: 'background 0.2s ease, opacity 0.2s ease' }}
+              style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '8px 16px', background: deployStatus === 'done' ? 'var(--lime)' : 'var(--cyan)', color: '#060c17', border: 'none', borderRadius: 'var(--radius-sm)', cursor: deployStatus === 'deploying' ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 700, opacity: deployStatus === 'deploying' ? 0.7 : 1, transition: 'background 0.2s ease, opacity 0.2s ease' }}
               disabled={deployStatus === 'deploying'}
             >
               {deployStatus === 'deploying' ? (
@@ -2795,7 +2832,7 @@ export default function EditAgent() {
                     <Save size={15} /> Save draft
                   </button>
                   <div style={{ height: '1px', background: 'var(--dropdown-border)', margin: '6px 0' }} />
-                  <button role="menuitem" onClick={() => { navigator.clipboard.writeText(window.location.href); setShowDeployDropdown(false); toast.success('Agent link copied'); }} style={{ width: '100%', background: 'transparent', border: 'none', padding: '10px 16px', cursor: 'pointer', fontSize: '13px', color: 'var(--text-secondary)', display: 'flex', gap: '10px', alignItems: 'center', textAlign: 'left' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--dropdown-hover)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
+                  <button role="menuitem" onClick={() => { navigator.clipboard.writeText(window.location.href); setShowDeployDropdown(false); toast.success('Agent link copied'); }} style={{ width: '100%', background: 'transparent', border: 'none', padding: '10px 16px', cursor: 'pointer', fontSize: '13px', color: 'var(--tx-2)', display: 'flex', gap: '10px', alignItems: 'center', textAlign: 'left' }} onMouseEnter={e => e.currentTarget.style.background = 'var(--dropdown-hover)'} onMouseLeave={e => e.currentTarget.style.background = 'transparent'}>
                     <Link2 size={15} /> Copy agent link
                   </button>
                 </div>
@@ -2804,14 +2841,14 @@ export default function EditAgent() {
           </div>
 
           {/* UI / Code Toggle */}
-          <div style={{ display: 'flex', alignItems: 'center', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: '20px', padding: '2px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', background: 'var(--s2)', border: '1px solid var(--line)', borderRadius: '20px', padding: '2px' }}>
             <div
               onClick={() => setViewMode('ui')}
-              style={{ padding: '4px 12px', background: viewMode === 'ui' ? '#333' : 'transparent', color: viewMode === 'ui' ? '#fff' : '#666', borderRadius: '18px', fontSize: '11px', fontWeight: '600', cursor: 'pointer', transition: 'all 0.2s' }}
+              style={{ padding: '4px 12px', background: viewMode === 'ui' ? 'var(--s2)' : 'transparent', color: viewMode === 'ui' ? 'var(--tx)' : 'var(--tx-3)', borderRadius: '18px', fontSize: '11px', fontWeight: '600', cursor: 'pointer', transition: 'all 0.2s' }}
             >UI</div>
             <div
               onClick={() => setViewMode('code')}
-              style={{ padding: '4px 12px', background: viewMode === 'code' ? '#333' : 'transparent', color: viewMode === 'code' ? '#fff' : '#666', borderRadius: '18px', fontSize: '11px', fontWeight: '500', cursor: 'pointer', transition: 'all 0.2s' }}
+              style={{ padding: '4px 12px', background: viewMode === 'code' ? 'var(--s2)' : 'transparent', color: viewMode === 'code' ? 'var(--tx)' : 'var(--tx-3)', borderRadius: '18px', fontSize: '11px', fontWeight: '500', cursor: 'pointer', transition: 'all 0.2s' }}
             >Code</div>
           </div>
 
@@ -2825,43 +2862,34 @@ export default function EditAgent() {
         <div style={{ flex: 1, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
           <div style={{ flex: 1, overflowY: 'auto' }}>
             {agentNotFound && (
-              <div style={{ padding: '40px', background: 'var(--bg-card)', border: '1px solid #333', borderRadius: '12px', margin: '20px 30px', color: 'var(--text-primary)' }}>
+              <div style={{ padding: '40px', background: 'var(--s1)', border: '1px solid var(--line-2)', borderRadius: '12px', margin: '20px 30px', color: 'var(--tx)' }}>
                 <h2 style={{ margin: 0, fontSize: '18px' }}>Agent not found</h2>
-                <p style={{ color: 'var(--text-secondary)', marginTop: '10px' }}>The assistant you are trying to edit does not exist or has been removed. Return to the dashboard to select a different assistant.</p>
-                <button onClick={() => navigate('/dashboard')} style={{ marginTop: '16px', padding: '10px 18px', background: 'var(--teal)', color: '#000', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Back to Dashboard</button>
+                <p style={{ color: 'var(--tx-2)', marginTop: '10px' }}>The assistant you are trying to edit does not exist or has been removed. Return to the dashboard to select a different assistant.</p>
+                <button onClick={() => navigate('/dashboard')} style={{ marginTop: '16px', padding: '10px 18px', background: 'var(--cyan)', color: '#000', border: 'none', borderRadius: '8px', cursor: 'pointer' }}>Back to Dashboard</button>
               </div>
             )}
 
       {/* Tabs */}
-      <div style={{ display: 'flex', borderBottom: '1px solid #1a1a1a', background: 'var(--bg-secondary)', padding: '0 24px', gap: '24px', overflowX: 'auto', alignItems: 'center' }}>
-        <div style={{ display: 'flex', gap: '24px', flex: 1 }}>
+      <div style={{ display: 'flex', background: 'var(--bg-2)', padding: '0 24px', overflowX: 'auto', alignItems: 'center' }}>
+        {/* .rz-utabs is the shared underline tab group — same shape, same
+            active accent and same hairline as every other in-panel switcher. */}
+        <div className="rz-utabs" style={{ flex: 1, gap: '4px' }} role="tablist">
           {[
-            { id: 'details', label: 'Assistant Details' },
-            { id: 'config', label: 'Call Configuration' },
-            { id: 'kb', label: 'Knowledge Base' },
+            { id: 'details', label: 'Assistant details' },
+            { id: 'config', label: 'Call configuration' },
+            { id: 'kb', label: 'Knowledge base' },
             { id: 'integrations', label: 'Integrations' },
-            { id: 'postcall', label: 'Post-Call' },
-            { id: 'chat', label: 'Chat Test' },
-            { id: 'calls', label: 'Recent Calls' }
+            { id: 'postcall', label: 'Post-call' },
+            { id: 'chat', label: 'Chat test' },
+            { id: 'calls', label: 'Recent calls' }
           ].map(tab => (
             <button
               key={tab.id}
+              type="button"
+              role="tab"
+              aria-selected={activeTab === tab.id}
+              className={`rz-utab${activeTab === tab.id ? ' is-active' : ''}`}
               onClick={() => setActiveTab(tab.id)}
-              style={{
-                background: 'none',
-                border: 'none',
-                // Active tab carries the brand accent rather than plain white,
-                // so the current section ties to the rest of the console.
-                color: activeTab === tab.id ? 'var(--teal-fg)' : 'var(--text-muted)',
-                padding: '16px 0',
-                cursor: 'pointer',
-                fontSize: '13px',
-                fontWeight: activeTab === tab.id ? 600 : 500,
-                borderBottom: activeTab === tab.id ? '2px solid var(--teal)' : '2px solid transparent',
-                marginBottom: '-1px',
-                whiteSpace: 'nowrap',
-                transition: 'color 0.2s ease, border-color 0.2s ease'
-              }}
             >
               {tab.label}
             </button>
@@ -2876,7 +2904,7 @@ export default function EditAgent() {
       {/* Content */}
       {viewMode === 'code' ? (
         <div style={{ padding: '30px 24px' }}>
-          <div style={{ fontSize: '15px', fontWeight: '700', marginBottom: '18px', color: 'var(--text-primary)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <div style={{ fontSize: '15px', fontWeight: '700', marginBottom: '18px', color: 'var(--tx)', display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ fontSize: '16px' }}>{'{ }'}</span> Agent Configuration (JSON)
           </div>
           <textarea
@@ -2895,16 +2923,16 @@ export default function EditAgent() {
               interruptibleEnabled,
               postCallConfigs
             }, null, 2)}
-            style={{ width: '100%', minHeight: '500px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '8px', padding: '20px', color: 'var(--teal-fg)', fontSize: '13px', fontFamily: 'monospace', resize: 'vertical', outline: 'none', boxSizing: 'border-box' }}
+            style={{ width: '100%', minHeight: '500px', background: 'var(--bg-secondary)', border: '1px solid var(--line)', borderRadius: '8px', padding: '20px', color: 'var(--cyan-fg)', fontSize: '13px', fontFamily: 'monospace', resize: 'vertical', outline: 'none', boxSizing: 'border-box' }}
           />
           <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
             <button
               onClick={() => { navigator.clipboard.writeText(JSON.stringify({ name: agentName, welcomeMessage, aiModel, voice, transcription, languages: selectedLanguages, flowItems, maxDuration, silenceTimeout, dynamicEnabled, interruptibleEnabled, postCallConfigs }, null, 2)); alert('Copied to clipboard!'); }}
-              style={{ padding: '10px 20px', background: 'var(--bg-card)', border: '1px solid #333', color: 'var(--text-primary)', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}
+              style={{ padding: '10px 20px', background: 'var(--s1)', border: '1px solid var(--line-2)', color: 'var(--tx)', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}
             >📋 Copy JSON</button>
             <button
               onClick={() => { const blob = new Blob([JSON.stringify({ name: agentName, welcomeMessage, aiModel, voice, transcription, languages: selectedLanguages, flowItems, maxDuration, silenceTimeout, dynamicEnabled, interruptibleEnabled, postCallConfigs }, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${agentName.replace(/\s+/g, '_')}_config.json`; a.click(); URL.revokeObjectURL(url); }}
-              style={{ padding: '10px 20px', background: 'var(--bg-card)', border: '1px solid #333', color: 'var(--text-primary)', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}
+              style={{ padding: '10px 20px', background: 'var(--s1)', border: '1px solid var(--line-2)', color: 'var(--tx)', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}
             >⬇️ Download JSON</button>
           </div>
         </div>
@@ -2914,15 +2942,15 @@ export default function EditAgent() {
           <>
             {/* Assistant Settings — rendered as the signal chain it actually is */}
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '12px', marginBottom: '14px' }}>
-              <h2 className="font-display" style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
+              <h2 className="font-display" style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--tx)' }}>
                 Assistant settings
               </h2>
-              <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
+              <span style={{ fontSize: '12px', color: 'var(--tx-3)' }}>
                 How a call flows through your agent, left to right
               </span>
             </div>
 
-            <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: '16px', padding: '20px', marginBottom: '20px' }}>
+            <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--line)', borderRadius: '16px', padding: '20px', marginBottom: '20px' }}>
               <div className="pipeline">
                 {/*
                   Ordered by how audio actually moves: the caller speaks a
@@ -2976,10 +3004,10 @@ export default function EditAgent() {
               >
                 <span className="pipeline-stage-icon"><Sparkles size={16} /></span>
                 <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                  <span style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: 'var(--tx)' }}>
                     Conversational agent
                   </span>
-                  <span style={{ display: 'block', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                  <span style={{ display: 'block', fontSize: '12px', color: 'var(--tx-2)' }}>
                     {voiceEngine === 'xai'
                       ? 'xAI Grok is handling transcription and reasoning'
                       : voiceEngine === 'elevenlabs'
@@ -2987,17 +3015,17 @@ export default function EditAgent() {
                         : 'Off — the four stages above run separately'}
                   </span>
                 </span>
-                <span style={{ fontSize: '12px', fontWeight: 600, color: voiceEngine !== 'modular' ? 'var(--teal-fg)' : 'var(--text-muted)', whiteSpace: 'nowrap' }}>
+                <span style={{ fontSize: '12px', fontWeight: 600, color: voiceEngine !== 'modular' ? 'var(--cyan-fg)' : 'var(--tx-3)', whiteSpace: 'nowrap' }}>
                   {voiceEngine !== 'modular' ? 'On' : 'Off'}
                 </span>
               </button>
             </div>
 
             {/* Welcome Message */}
-            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '16px', padding: '0', marginBottom: '20px', overflow: 'hidden' }}>
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 30px', borderBottom: '1px solid #1c1c1c' }}>
-                <h3 className="font-display" style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--text-primary)' }}>
-                  <MessageSquareText size={17} style={{ color: 'var(--teal-fg)' }} />
+            <div style={{ background: 'var(--s1)', border: '1px solid var(--line)', borderRadius: '16px', padding: '0', marginBottom: '20px', overflow: 'hidden' }}>
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '18px 30px', borderBottom: '1px solid var(--s1)' }}>
+                <h3 className="font-display" style={{ display: 'flex', alignItems: 'center', gap: '10px', fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--tx)' }}>
+                  <MessageSquareText size={17} style={{ color: 'var(--cyan-fg)' }} />
                   Welcome message
                 </h3>
                 <div style={{ display: 'flex', gap: '20px', fontSize: '12px' }}>
@@ -3011,11 +3039,11 @@ export default function EditAgent() {
                       role="switch"
                       aria-checked={on}
                       onClick={toggle}
-                      style={{ display: 'flex', alignItems: 'center', gap: '9px', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: '12px', fontWeight: 600, color: on ? 'var(--text-primary)' : 'var(--text-muted)' }}
+                      style={{ display: 'flex', alignItems: 'center', gap: '9px', background: 'none', border: 'none', padding: 0, cursor: 'pointer', fontSize: '12px', fontWeight: 600, color: on ? 'var(--tx)' : 'var(--tx-3)' }}
                     >
                       {label}
-                      <span style={{ width: '38px', height: '22px', background: on ? 'var(--teal)' : 'var(--bg-elevated)', border: `1px solid ${on ? 'var(--teal)' : 'var(--border)'}`, borderRadius: 'var(--radius-full)', position: 'relative', transition: 'background 0.2s ease, border-color 0.2s ease', flexShrink: 0 }}>
-                        <span style={{ width: '16px', height: '16px', background: on ? '#060c17' : 'var(--text-muted)', borderRadius: '50%', position: 'absolute', top: '2px', left: on ? '18px' : '2px', transition: 'left 0.2s ease, background 0.2s ease' }} />
+                      <span style={{ width: '38px', height: '22px', background: on ? 'var(--cyan)' : 'var(--s2)', border: `1px solid ${on ? 'var(--cyan)' : 'var(--line)'}`, borderRadius: 'var(--radius-full)', position: 'relative', transition: 'background 0.2s ease, border-color 0.2s ease', flexShrink: 0 }}>
+                        <span style={{ width: '16px', height: '16px', background: on ? '#060c17' : 'var(--tx-3)', borderRadius: '50%', position: 'absolute', top: '2px', left: on ? '18px' : '2px', transition: 'left 0.2s ease, background 0.2s ease' }} />
                       </span>
                     </button>
                   ))}
@@ -3025,8 +3053,8 @@ export default function EditAgent() {
                 {/* Call direction — an inbound greeting may thank the caller for
                     calling; an outbound one must introduce the agent instead. */}
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: '12px', color: '#b7b7b7', fontWeight: 600 }}>Call direction</span>
-                  <div style={{ display: 'inline-flex', background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '8px', padding: '3px' }}>
+                  <span style={{ fontSize: '12px', color: 'var(--tx-2)', fontWeight: 600 }}>Call direction</span>
+                  <div style={{ display: 'inline-flex', background: 'var(--s1)', border: '1px solid var(--line)', borderRadius: '8px', padding: '3px' }}>
                     {(['INBOUND', 'OUTBOUND'] as const).map((dir) => (
                       <button
                         key={dir}
@@ -3035,8 +3063,8 @@ export default function EditAgent() {
                         style={{
                           padding: '5px 14px', borderRadius: '6px', border: 'none', cursor: 'pointer',
                           fontSize: '12px', fontWeight: 600, whiteSpace: 'nowrap',
-                          background: callDirection === dir ? (dir === 'OUTBOUND' ? 'var(--orange)' : 'var(--teal)') : 'transparent',
-                          color: callDirection === dir ? '#060c17' : 'var(--text-muted)',
+                          background: callDirection === dir ? (dir === 'OUTBOUND' ? 'var(--orange)' : 'var(--cyan)') : 'transparent',
+                          color: callDirection === dir ? '#060c17' : 'var(--tx-3)',
                           transition: 'all 0.15s',
                         }}
                       >
@@ -3056,11 +3084,11 @@ export default function EditAgent() {
                   style={{
                     width: '100%',
                     minHeight: '142px',
-                    background: 'var(--bg-card)',
-                    border: '1px solid var(--border)',
+                    background: 'var(--s1)',
+                    border: '1px solid var(--line)',
                     borderRadius: '10px',
                     padding: '14px 16px',
-                    color: '#f1f1f1',
+                    color: 'var(--tx)',
                     fontFamily: 'inherit',
                     fontSize: '15px',
                     lineHeight: '1.5',
@@ -3069,7 +3097,7 @@ export default function EditAgent() {
                   }}
                   placeholder="Type your welcome message here..."
                 />
-                <div style={{ fontSize: '11px', color: '#8d8d8d', textAlign: 'right', marginTop: '10px' }}>{welcomeMessage.length}/600</div>
+                <div style={{ fontSize: '11px', color: 'var(--tx-3)', textAlign: 'right', marginTop: '10px' }}>{welcomeMessage.length}/600</div>
                 {callDirection === 'OUTBOUND' && THANKS_FOR_CALLING_RE.test(welcomeMessage) && (
                   <div style={{ display: 'flex', gap: '8px', marginTop: '10px', padding: '10px 12px', background: '#2a1a0a', border: '1px solid #5a3a12', borderRadius: '8px', fontSize: '12px', color: '#ffb74d', lineHeight: 1.45 }}>
                     <span aria-hidden>⚠️</span>
@@ -3080,26 +3108,26 @@ export default function EditAgent() {
             </div>
 
             {/* Conversational Flow */}
-            <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '16px', padding: '0' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 30px', borderBottom: '1px solid #1c1c1c' }}>
-                <div style={{ display: 'flex', alignItems: 'center', fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)' }}>
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--teal-fg)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '10px' }}>
+            <div style={{ background: 'var(--s1)', border: '1px solid var(--line)', borderRadius: '16px', padding: '0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '18px 30px', borderBottom: '1px solid var(--s1)' }}>
+                <div style={{ display: 'flex', alignItems: 'center', fontSize: '16px', fontWeight: '700', color: 'var(--tx)' }}>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--cyan-fg)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginRight: '10px' }}>
                     <line x1="8" y1="6" x2="21" y2="6"></line>
                     <line x1="8" y1="12" x2="21" y2="12"></line>
                     <line x1="8" y1="18" x2="21" y2="18"></line>
-                    <circle cx="3" cy="6" r="1" fill="var(--teal-fg)"></circle>
-                    <circle cx="3" cy="12" r="1" fill="var(--teal-fg)"></circle>
-                    <circle cx="3" cy="18" r="1" fill="var(--teal-fg)"></circle>
+                    <circle cx="3" cy="6" r="1" fill="var(--cyan-fg)"></circle>
+                    <circle cx="3" cy="12" r="1" fill="var(--cyan-fg)"></circle>
+                    <circle cx="3" cy="18" r="1" fill="var(--cyan-fg)"></circle>
                   </svg>
                   Conversational Flow <InfoIcon />
                 </div>
-                <button onClick={addFlowItem} style={{ padding: '10px 18px', background: 'transparent', border: '1px solid #2d2d2d', borderRadius: '10px', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '13px', fontWeight: '700' }}>+ Add Section</button>
+                <button onClick={addFlowItem} style={{ padding: '10px 18px', background: 'transparent', border: '1px solid var(--line-2)', borderRadius: '10px', color: 'var(--tx)', cursor: 'pointer', fontSize: '13px', fontWeight: '700' }}>+ Add Section</button>
               </div>
               <div style={{ padding: '16px 30px 20px' }}>
                 {flowItems.map((item, index) => {
                   const isExpanded = !!expandedItems[item.id];
                   return (
-                    <div key={item.id} style={{ background: '#0d0d0d', border: '1px solid #1c1c1c', borderRadius: '12px', padding: '12px 16px', marginBottom: '12px' }}>
+                    <div key={item.id} style={{ background: 'var(--bg-primary)', border: '1px solid var(--s1)', borderRadius: '12px', padding: '12px 16px', marginBottom: '12px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
                         {/* Caret Toggle Button */}
                         <button
@@ -3107,7 +3135,7 @@ export default function EditAgent() {
                           style={{
                             background: 'none',
                             border: 'none',
-                            color: 'var(--text-secondary)',
+                            color: 'var(--tx-2)',
                             cursor: 'pointer',
                             display: 'flex',
                             alignItems: 'center',
@@ -3129,18 +3157,18 @@ export default function EditAgent() {
 
                         {/* Grip Vertical Handle */}
                         <div style={{ display: 'flex', alignItems: 'center', cursor: 'grab', padding: '0 2px' }}>
-                          <svg width="12" height="18" viewBox="0 0 24 24" fill="none" stroke="#555" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                            <circle cx="9" cy="5" r="1.5" fill="#555" />
-                            <circle cx="9" cy="12" r="1.5" fill="#555" />
-                            <circle cx="9" cy="19" r="1.5" fill="#555" />
-                            <circle cx="15" cy="5" r="1.5" fill="#555" />
-                            <circle cx="15" cy="12" r="1.5" fill="#555" />
-                            <circle cx="15" cy="19" r="1.5" fill="#555" />
+                          <svg width="12" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--tx-3)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                            <circle cx="9" cy="5" r="1.5" fill="var(--tx-3)" />
+                            <circle cx="9" cy="12" r="1.5" fill="var(--tx-3)" />
+                            <circle cx="9" cy="19" r="1.5" fill="var(--tx-3)" />
+                            <circle cx="15" cy="5" r="1.5" fill="var(--tx-3)" />
+                            <circle cx="15" cy="12" r="1.5" fill="var(--tx-3)" />
+                            <circle cx="15" cy="19" r="1.5" fill="var(--tx-3)" />
                           </svg>
                         </div>
 
                         {/* Number */}
-                        <span style={{ fontSize: '14px', fontWeight: '700', width: '22px', color: 'var(--text-primary)' }}>{index + 1}.</span>
+                        <span style={{ fontSize: '14px', fontWeight: '700', width: '22px', color: 'var(--tx)' }}>{index + 1}.</span>
 
                         {/* Editable Title Input Styled Cleanly */}
                         <input
@@ -3153,7 +3181,7 @@ export default function EditAgent() {
                             padding: '6px 8px',
                             fontSize: '14px',
                             fontWeight: '600',
-                            color: 'var(--text-primary)',
+                            color: 'var(--tx)',
                             background: 'transparent',
                             outline: 'none',
                             cursor: 'text',
@@ -3161,8 +3189,8 @@ export default function EditAgent() {
                           }}
                           onMouseEnter={(e) => {
                             if (document.activeElement !== e.currentTarget) {
-                              e.currentTarget.style.borderColor = '#222';
-                              e.currentTarget.style.background = '#111';
+                              e.currentTarget.style.borderColor = 'var(--s1)';
+                              e.currentTarget.style.background = 'var(--bg-primary)';
                             }
                           }}
                           onMouseLeave={(e) => {
@@ -3172,8 +3200,8 @@ export default function EditAgent() {
                             }
                           }}
                           onFocus={(e) => {
-                            e.currentTarget.style.borderColor = 'var(--teal)';
-                            e.currentTarget.style.background = '#0f0f0f';
+                            e.currentTarget.style.borderColor = 'var(--cyan)';
+                            e.currentTarget.style.background = 'var(--bg-primary)';
                           }}
                           onBlur={(e) => {
                             e.currentTarget.style.borderColor = 'transparent';
@@ -3184,14 +3212,14 @@ export default function EditAgent() {
                         {/* Right Actions */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: '14px', marginLeft: '12px' }}>
                           {/* Toggle ON/OFF Switch Block */}
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: 'var(--text-secondary)', fontWeight: '700', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: '8px', padding: '0 10px', height: '32px' }}>
-                            <span style={{ color: item.enabled ? '#fff' : '#666', minWidth: '24px' }}>{item.enabled ? 'ON' : 'OFF'}</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '11px', color: 'var(--tx-2)', fontWeight: '700', background: 'var(--s2)', border: '1px solid var(--line)', borderRadius: '8px', padding: '0 10px', height: '32px' }}>
+                            <span style={{ color: item.enabled ? 'var(--tx)' : 'var(--tx-3)', minWidth: '24px' }}>{item.enabled ? 'ON' : 'OFF'}</span>
                             <div
                               onClick={() => toggleFlowItem(item.id)}
                               style={{
                                 width: '32px',
                                 height: '18px',
-                                background: item.enabled ? 'var(--teal)' : '#333',
+                                background: item.enabled ? 'var(--cyan)' : 'var(--s2)',
                                 borderRadius: '999px',
                                 position: 'relative',
                                 cursor: 'pointer',
@@ -3219,7 +3247,7 @@ export default function EditAgent() {
                             style={{
                               background: 'none',
                               border: 'none',
-                              color: 'var(--text-muted)',
+                              color: 'var(--tx-3)',
                               cursor: 'pointer',
                               display: 'flex',
                               alignItems: 'center',
@@ -3229,11 +3257,11 @@ export default function EditAgent() {
                               transition: 'all 0.2s'
                             }}
                             onMouseEnter={(e) => {
-                              e.currentTarget.style.color = '#ff4d4f';
+                              e.currentTarget.style.color = 'var(--err)';
                               e.currentTarget.style.background = 'rgba(255, 77, 79, 0.1)';
                             }}
                             onMouseLeave={(e) => {
-                              e.currentTarget.style.color = '#666';
+                              e.currentTarget.style.color = 'var(--tx-3)';
                               e.currentTarget.style.background = 'none';
                             }}
                           >
@@ -3247,18 +3275,18 @@ export default function EditAgent() {
 
                       {/* Expandable Textarea Body */}
                       {isExpanded && (
-                        <div style={{ marginTop: '12px', borderTop: '1px solid #1c1c1c', paddingTop: '12px' }}>
+                        <div style={{ marginTop: '12px', borderTop: '1px solid var(--s1)', paddingTop: '12px' }}>
                           <textarea
                             value={item.body || ''}
                             onChange={(e) => updateFlowItem(item.id, { body: e.target.value })}
                             style={{
                               width: '100%',
                               minHeight: '120px',
-                              background: 'var(--bg-card)',
-                              border: '1px solid var(--border)',
+                              background: 'var(--s1)',
+                              border: '1px solid var(--line)',
                               borderRadius: '8px',
                               padding: '12px',
-                              color: '#e5e5e5',
+                              color: 'var(--tx-2)',
                               fontFamily: 'inherit',
                               fontSize: '13px',
                               lineHeight: '1.5',
@@ -3266,8 +3294,8 @@ export default function EditAgent() {
                               outline: 'none',
                               transition: 'border-color 0.2s'
                             }}
-                            onFocus={(e) => e.currentTarget.style.borderColor = 'var(--teal)'}
-                            onBlur={(e) => e.currentTarget.style.borderColor = '#222'}
+                            onFocus={(e) => e.currentTarget.style.borderColor = 'var(--cyan)'}
+                            onBlur={(e) => e.currentTarget.style.borderColor = 'var(--s1)'}
                           />
                         </div>
                       )}
@@ -3277,7 +3305,7 @@ export default function EditAgent() {
               </div>
             </div>
 
-            <button onClick={() => handleSave()} disabled={isSaving} style={{ marginTop: '20px', padding: '10px 24px', background: 'var(--teal)', color: '#000', border: 'none', borderRadius: '6px', cursor: isSaving ? 'not-allowed' : 'pointer', fontWeight: '700', fontSize: '13px', opacity: isSaving ? 0.6 : 1 }}>
+            <button onClick={() => handleSave()} disabled={isSaving} style={{ marginTop: '20px', padding: '10px 24px', background: 'var(--cyan)', color: '#000', border: 'none', borderRadius: '6px', cursor: isSaving ? 'not-allowed' : 'pointer', fontWeight: '700', fontSize: '13px', opacity: isSaving ? 0.6 : 1 }}>
               {isSaving ? 'Saving...' : 'Save Changes'}
             </button>
           </>
@@ -3300,37 +3328,37 @@ export default function EditAgent() {
                 { id: 'response', title: 'Response Behavior', subtitle: 'Filler phrases and personality style' },
                 { id: 'ambient', title: 'Ambient Sound', subtitle: 'Add background music or noise to calls' }
               ].map((section, i) => (
-                <div key={section.id} style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '14px', overflow: 'hidden' }}>
+                <div key={section.id} style={{ background: 'var(--s1)', border: '1px solid var(--line)', borderRadius: '14px', overflow: 'hidden' }}>
                   <div 
                     onClick={() => setExpandedConfigSection(expandedConfigSection === section.id ? null : section.id)}
                     style={{ padding: '18px 20px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', cursor: 'pointer' }}
                   >
                     <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                      <div style={{ width: '32px', height: '32px', borderRadius: '10px', background: 'var(--teal-light)', color: 'var(--teal-fg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '700' }}>
+                      <div style={{ width: '32px', height: '32px', borderRadius: '10px', background: 'var(--teal-light)', color: 'var(--cyan-fg)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', fontWeight: '700' }}>
                         {i === 0 ? 'o' : i === 1 ? 'X' : i === 2 ? 'R' : i === 3 ? '=' : 'n'}
                       </div>
                       <div>
-                        <div style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '2px' }}>{section.title}</div>
-                        <div style={{ fontSize: '13px', color: '#b7b7b7' }}>{section.subtitle}</div>
+                        <div style={{ fontSize: '16px', fontWeight: '700', color: 'var(--tx)', marginBottom: '2px' }}>{section.title}</div>
+                        <div style={{ fontSize: '13px', color: 'var(--tx-2)' }}>{section.subtitle}</div>
                       </div>
                     </div>
-                    <div style={{ color: 'var(--text-secondary)', fontSize: '14px', transform: expandedConfigSection === section.id ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▼</div>
+                    <div style={{ color: 'var(--tx-2)', fontSize: '14px', transform: expandedConfigSection === section.id ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>▼</div>
                   </div>
                   
                   {expandedConfigSection === section.id && (
-                    <div style={{ padding: '20px', borderTop: '1px solid #222', background: 'var(--bg-primary)' }}>
+                    <div style={{ padding: '20px', borderTop: '1px solid var(--s1)', background: 'var(--bg-primary)' }}>
                       {section.id === 'silence' && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                           <div>
-                            <label style={{ display: 'block', color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Response Delay (seconds)</label>
-                            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>How long the assistant waits after the user stops speaking before replying.</div>
-                            <input type="range" min="1" max="10" step="1" value={silenceTimeout} onChange={e => setSilenceTimeout(Number(e.target.value))} style={{ width: '100%', accentColor: 'var(--teal)' }} />
-                            <div style={{ textAlign: 'right', color: 'var(--teal-fg)', fontSize: '14px', fontWeight: '700' }}>{silenceTimeout}s</div>
+                            <label style={{ display: 'block', color: 'var(--tx)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Response Delay (seconds)</label>
+                            <div style={{ fontSize: '12px', color: 'var(--tx-2)', marginBottom: '12px' }}>How long the assistant waits after the user stops speaking before replying.</div>
+                            <input type="range" min="1" max="10" step="1" value={silenceTimeout} onChange={e => setSilenceTimeout(Number(e.target.value))} style={{ width: '100%', accentColor: 'var(--cyan)' }} />
+                            <div style={{ textAlign: 'right', color: 'var(--cyan-fg)', fontSize: '14px', fontWeight: '700' }}>{silenceTimeout}s</div>
                           </div>
-                          <div style={{ height: '1px', background: '#222' }} />
+                          <div style={{ height: '1px', background: 'var(--s1)' }} />
                           <div>
-                            <label style={{ display: 'block', color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Max Silence Before Hangup (seconds)</label>
-                            <input type="number" value={maxSilenceBeforeHangup} onChange={e => setMaxSilenceBeforeHangup(Number(e.target.value))} style={{ width: '100%', padding: '10px 14px', background: 'var(--bg-card)', border: '1px solid #333', borderRadius: '8px', color: 'var(--text-primary)', outline: 'none' }} />
+                            <label style={{ display: 'block', color: 'var(--tx)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Max Silence Before Hangup (seconds)</label>
+                            <input type="number" value={maxSilenceBeforeHangup} onChange={e => setMaxSilenceBeforeHangup(Number(e.target.value))} style={{ width: '100%', padding: '10px 14px', background: 'var(--s1)', border: '1px solid var(--line-2)', borderRadius: '8px', color: 'var(--tx)', outline: 'none' }} />
                           </div>
                         </div>
                       )}
@@ -3338,13 +3366,13 @@ export default function EditAgent() {
                       {section.id === 'endCall' && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                           <div>
-                            <label style={{ display: 'block', color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Maximum Call Duration (minutes)</label>
-                            <input type="number" min="1" max="120" value={maxDuration} onChange={e => setMaxDuration(Number(e.target.value))} style={{ width: '100%', padding: '10px 14px', background: 'var(--bg-card)', border: '1px solid #333', borderRadius: '8px', color: 'var(--text-primary)', outline: 'none' }} />
+                            <label style={{ display: 'block', color: 'var(--tx)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Maximum Call Duration (minutes)</label>
+                            <input type="number" min="1" max="120" value={maxDuration} onChange={e => setMaxDuration(Number(e.target.value))} style={{ width: '100%', padding: '10px 14px', background: 'var(--s1)', border: '1px solid var(--line-2)', borderRadius: '8px', color: 'var(--tx)', outline: 'none' }} />
                           </div>
                           <div>
-                            <label style={{ display: 'block', color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>End Call Message</label>
-                            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>The message the agent will speak right before ending the call intentionally.</div>
-                            <input type="text" value={endCallMessage} onChange={e => setEndCallMessage(e.target.value)} style={{ width: '100%', padding: '10px 14px', background: 'var(--bg-card)', border: '1px solid #333', borderRadius: '8px', color: 'var(--text-primary)', outline: 'none' }} />
+                            <label style={{ display: 'block', color: 'var(--tx)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>End Call Message</label>
+                            <div style={{ fontSize: '12px', color: 'var(--tx-2)', marginBottom: '12px' }}>The message the agent will speak right before ending the call intentionally.</div>
+                            <input type="text" value={endCallMessage} onChange={e => setEndCallMessage(e.target.value)} style={{ width: '100%', padding: '10px 14px', background: 'var(--s1)', border: '1px solid var(--line-2)', borderRadius: '8px', color: 'var(--tx)', outline: 'none' }} />
                           </div>
                         </div>
                       )}
@@ -3352,13 +3380,13 @@ export default function EditAgent() {
                       {section.id === 'transfer' && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                           <div>
-                            <label style={{ display: 'block', color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Transfer Phone Number</label>
-                            <input type="text" placeholder="+1234567890" value={transferNumber} onChange={e => setTransferNumber(e.target.value)} style={{ width: '100%', padding: '10px 14px', background: 'var(--bg-card)', border: '1px solid #333', borderRadius: '8px', color: 'var(--text-primary)', outline: 'none' }} />
+                            <label style={{ display: 'block', color: 'var(--tx)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Transfer Phone Number</label>
+                            <input type="text" placeholder="+1234567890" value={transferNumber} onChange={e => setTransferNumber(e.target.value)} style={{ width: '100%', padding: '10px 14px', background: 'var(--s1)', border: '1px solid var(--line-2)', borderRadius: '8px', color: 'var(--tx)', outline: 'none' }} />
                           </div>
                           <div>
-                            <label style={{ display: 'block', color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Transfer Condition Prompt</label>
-                            <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginBottom: '12px' }}>When should the agent initiate a hand-off? e.g., "When the user asks to speak to a human or gets angry"</div>
-                            <textarea value={transferCondition} onChange={e => setTransferCondition(e.target.value)} style={{ width: '100%', minHeight: '80px', padding: '10px 14px', background: 'var(--bg-card)', border: '1px solid #333', borderRadius: '8px', color: 'var(--text-primary)', outline: 'none', resize: 'vertical' }} />
+                            <label style={{ display: 'block', color: 'var(--tx)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Transfer Condition Prompt</label>
+                            <div style={{ fontSize: '12px', color: 'var(--tx-2)', marginBottom: '12px' }}>When should the agent initiate a hand-off? e.g., "When the user asks to speak to a human or gets angry"</div>
+                            <textarea value={transferCondition} onChange={e => setTransferCondition(e.target.value)} style={{ width: '100%', minHeight: '80px', padding: '10px 14px', background: 'var(--s1)', border: '1px solid var(--line-2)', borderRadius: '8px', color: 'var(--tx)', outline: 'none', resize: 'vertical' }} />
                           </div>
                         </div>
                       )}
@@ -3367,25 +3395,25 @@ export default function EditAgent() {
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <div>
-                              <div style={{ color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600' }}>Use Filler Words</div>
-                              <div style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>Add "umm", "ahh" to make the agent sound more human.</div>
+                              <div style={{ color: 'var(--tx)', fontSize: '14px', fontWeight: '600' }}>Use Filler Words</div>
+                              <div style={{ fontSize: '12px', color: 'var(--tx-2)', marginTop: '4px' }}>Add "umm", "ahh" to make the agent sound more human.</div>
                             </div>
-                            <div onClick={() => setFillerWords(!fillerWords)} style={{ width: '42px', height: '24px', background: fillerWords ? 'var(--teal)' : '#333', borderRadius: '999px', position: 'relative', cursor: 'pointer' }}>
-                              <div style={{ width: '20px', height: '20px', background: '#fff', borderRadius: '50%', position: 'absolute', top: '2px', left: fillerWords ? '20px' : '2px', transition: 'left 0.2s' }} />
+                            <div onClick={() => setFillerWords(!fillerWords)} style={{ width: '42px', height: '24px', background: fillerWords ? 'var(--cyan)' : 'var(--s2)', borderRadius: '999px', position: 'relative', cursor: 'pointer' }}>
+                              <div style={{ width: '20px', height: '20px', background: 'var(--s1)', borderRadius: '50%', position: 'absolute', top: '2px', left: fillerWords ? '20px' : '2px', transition: 'left 0.2s' }} />
                             </div>
                           </div>
-                          <div style={{ height: '1px', background: '#222' }} />
+                          <div style={{ height: '1px', background: 'var(--s1)' }} />
                           <div>
-                            <label style={{ display: 'block', color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Speaking Rate (Speed)</label>
-                            <input type="range" min="0.5" max="2.0" step="0.1" value={speakingRate} onChange={e => setSpeakingRate(Number(e.target.value))} style={{ width: '100%', accentColor: 'var(--teal)' }} />
-                            <div style={{ textAlign: 'right', color: 'var(--teal-fg)', fontSize: '14px', fontWeight: '700' }}>{speakingRate}x</div>
+                            <label style={{ display: 'block', color: 'var(--tx)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Speaking Rate (Speed)</label>
+                            <input type="range" min="0.5" max="2.0" step="0.1" value={speakingRate} onChange={e => setSpeakingRate(Number(e.target.value))} style={{ width: '100%', accentColor: 'var(--cyan)' }} />
+                            <div style={{ textAlign: 'right', color: 'var(--cyan-fg)', fontSize: '14px', fontWeight: '700' }}>{speakingRate}x</div>
                           </div>
                         </div>
                       )}
 
                       {section.id === 'ambient' && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                          <label style={{ display: 'block', color: 'var(--text-primary)', fontSize: '14px', fontWeight: '600' }}>Select Background Noise</label>
+                          <label style={{ display: 'block', color: 'var(--tx)', fontSize: '14px', fontWeight: '600' }}>Select Background Noise</label>
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
                             {AMBIENT_OPTIONS.map(sound => (
                               <div 
@@ -3393,10 +3421,10 @@ export default function EditAgent() {
                                 onClick={() => setAmbientSound(sound)}
                                 style={{
                                   padding: '14px', 
-                                  background: ambientSound === sound ? '#0a2e30' : '#1a1a1a', 
-                                  border: `1px solid ${ambientSound === sound ? 'var(--teal)' : '#333'}`, 
+                                  background: ambientSound === sound ? '#0a2e30' : 'var(--s1)', 
+                                  border: `1px solid ${ambientSound === sound ? 'var(--cyan)' : 'var(--line-2)'}`, 
                                   borderRadius: '8px', 
-                                  color: ambientSound === sound ? 'var(--teal)' : '#fff',
+                                  color: ambientSound === sound ? 'var(--cyan)' : 'var(--tx)',
                                   cursor: 'pointer',
                                   fontWeight: '600',
                                   textAlign: 'center',
@@ -3414,7 +3442,7 @@ export default function EditAgent() {
                 </div>
               ))}
             </div>
-            <button onClick={() => handleSave()} disabled={isSaving} style={{ marginTop: '18px', alignSelf: 'flex-start', padding: '10px 24px', background: 'var(--teal)', color: '#000', border: 'none', borderRadius: '8px', cursor: isSaving ? 'not-allowed' : 'pointer', fontWeight: '700', fontSize: '13px', opacity: isSaving ? 0.6 : 1 }}>
+            <button onClick={() => handleSave()} disabled={isSaving} style={{ marginTop: '18px', alignSelf: 'flex-start', padding: '10px 24px', background: 'var(--cyan)', color: '#000', border: 'none', borderRadius: '8px', cursor: isSaving ? 'not-allowed' : 'pointer', fontWeight: '700', fontSize: '13px', opacity: isSaving ? 0.6 : 1 }}>
               {isSaving ? 'Saving...' : 'Save Changes'}
             </button>
           </div>
@@ -3431,40 +3459,40 @@ export default function EditAgent() {
           >
             <div style={{ background: '#072122', border: '1px solid #113638', borderRadius: '16px', padding: '28px 28px 36px', marginBottom: '22px' }}>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '20px' }}>
-                <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '16px', padding: '34px 30px 30px' }}>
-                  <div style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '10px' }}>Upload PDFs{kbUploading ? ' — uploading…' : ''}</div>
-                  <div style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '16px' }}>Add PDF files to your assistant's knowledge base</div>
+                <div style={{ background: 'var(--s1)', border: '1px solid var(--line)', borderRadius: '16px', padding: '34px 30px 30px' }}>
+                  <div style={{ fontSize: '18px', fontWeight: '700', color: 'var(--tx)', marginBottom: '10px' }}>Upload PDFs{kbUploading ? ' — uploading…' : ''}</div>
+                  <div style={{ fontSize: '14px', color: 'var(--tx-2)', marginBottom: '16px' }}>Add PDF files to your assistant's knowledge base</div>
                   <div 
                     onClick={() => fileInputRef.current?.click()}
                     style={{ border: '2px dashed #323232', borderRadius: '14px', minHeight: '168px', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', padding: '18px', cursor: 'pointer' }}
                   >
                     <input type="file" ref={fileInputRef} onChange={handleFileChange} accept=".pdf,.txt,.md,.csv,.json,.docx" multiple style={{ display: 'none' }} />
-                    <div style={{ width: '54px', height: '54px', borderRadius: '18px', background: 'var(--teal-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--teal-fg)', fontSize: '20px', marginBottom: '16px' }}>^</div>
-                    <div style={{ fontSize: '17px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '10px' }}>Drag and drop a file here, or click to select</div>
-                    <div style={{ fontSize: '13px', color: '#b7b7b7' }}>Supported formats: PDF, TXT, MD, CSV, JSON, DOCX (max 10MB)</div>
+                    <div style={{ width: '54px', height: '54px', borderRadius: '18px', background: 'var(--teal-light)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--cyan-fg)', fontSize: '20px', marginBottom: '16px' }}>^</div>
+                    <div style={{ fontSize: '17px', fontWeight: '700', color: 'var(--tx)', marginBottom: '10px' }}>Drag and drop a file here, or click to select</div>
+                    <div style={{ fontSize: '13px', color: 'var(--tx-2)' }}>Supported formats: PDF, TXT, MD, CSV, JSON, DOCX (max 10MB)</div>
                   </div>
                   {kbFiles.length > 0 && (
                     <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       {kbFiles.map((file) => (
-                        <div key={file.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--bg-elevated)', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                          <span style={{ fontSize: '13px', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: 8 }}>
+                        <div key={file.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--s2)', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--line)' }}>
+                          <span style={{ fontSize: '13px', color: 'var(--tx)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', marginRight: 8 }}>
                             {file.fileName}
-                            <span style={{ color: 'var(--text-muted)', marginLeft: 8, fontSize: 11 }}>
+                            <span style={{ color: 'var(--tx-3)', marginLeft: 8, fontSize: 11 }}>
                               {(file.sizeBytes / 1024).toFixed(0)} KB{file.hasText ? '' : ' · no text extracted'}
                             </span>
                           </span>
-                          <button onClick={(e) => { e.stopPropagation(); removeKbFile(file.id); }} style={{ background: 'none', border: 'none', color: '#ff6f6f', cursor: 'pointer', fontSize: '12px' }}>Remove</button>
+                          <button onClick={(e) => { e.stopPropagation(); removeKbFile(file.id); }} style={{ background: 'none', border: 'none', color: 'var(--err)', cursor: 'pointer', fontSize: '12px' }}>Remove</button>
                         </div>
                       ))}
                     </div>
                   )}
                 </div>
 
-                <div style={{ background: 'var(--bg-card)', border: '1px solid var(--border)', borderRadius: '16px', padding: '34px 30px 30px' }}>
-                  <div style={{ fontSize: '18px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '10px' }}>Website Knowledge Base</div>
-                  <div style={{ fontSize: '14px', color: 'var(--text-secondary)', marginBottom: '12px' }}>Add website content to your assistant's knowledge base</div>
+                <div style={{ background: 'var(--s1)', border: '1px solid var(--line)', borderRadius: '16px', padding: '34px 30px 30px' }}>
+                  <div style={{ fontSize: '18px', fontWeight: '700', color: 'var(--tx)', marginBottom: '10px' }}>Website Knowledge Base</div>
+                  <div style={{ fontSize: '14px', color: 'var(--tx-2)', marginBottom: '12px' }}>Add website content to your assistant's knowledge base</div>
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '10px' }}>
-                    <label style={{ display: 'block', fontSize: '14px', fontWeight: '700', color: 'var(--text-primary)' }}>Website URL</label>
+                    <label style={{ display: 'block', fontSize: '14px', fontWeight: '700', color: 'var(--tx)' }}>Website URL</label>
                     <InfoIcon />
                   </div>
                   <input
@@ -3476,24 +3504,24 @@ export default function EditAgent() {
                       width: '100%',
                       height: '44px',
                       padding: '0 14px',
-                      background: 'var(--bg-card)',
+                      background: 'var(--s1)',
                       border: '1px solid #2e2e2e',
                       borderRadius: '8px',
-                      color: 'var(--text-primary)',
+                      color: 'var(--tx)',
                       fontSize: '14px',
                       outline: 'none',
                       marginBottom: '20px'
                     }}
                   />
-                  <button onClick={handleAddKbUrl} style={{ width: '100%', height: '46px', background: '#0f6f73', border: 'none', borderRadius: '10px', color: '#071416', fontSize: '15px', fontWeight: '700', cursor: 'pointer', marginBottom: kbUrls.length > 0 ? '16px' : '0' }}>
+                  <button onClick={handleAddKbUrl} style={{ width: '100%', height: '46px', background: 'var(--cyan)', border: 'none', borderRadius: '10px', color: 'var(--on-cyan)', fontFamily: 'var(--ff-d)', fontSize: '14px', fontWeight: 600, cursor: 'pointer', marginBottom: kbUrls.length > 0 ? '16px' : '0' }}>
                     Add to Knowledge Base
                   </button>
                   {kbUrls.length > 0 && (
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                       {kbUrls.map((url, i) => (
-                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', background: 'var(--bg-elevated)', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--border)' }}>
-                          <span style={{ fontSize: '13px', color: 'var(--text-primary)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{url}</span>
-                          <button onClick={() => removeKbUrl(url)} style={{ background: 'none', border: 'none', color: '#ff6f6f', cursor: 'pointer', fontSize: '12px' }}>Remove</button>
+                        <div key={i} style={{ display: 'flex', justifyContent: 'space-between', background: 'var(--s2)', padding: '8px 12px', borderRadius: '8px', border: '1px solid var(--line)' }}>
+                          <span style={{ fontSize: '13px', color: 'var(--tx)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{url}</span>
+                          <button onClick={() => removeKbUrl(url)} style={{ background: 'none', border: 'none', color: 'var(--err)', cursor: 'pointer', fontSize: '12px' }}>Remove</button>
                         </div>
                       ))}
                     </div>
@@ -3510,9 +3538,9 @@ export default function EditAgent() {
             <div style={{ background: '#281509', border: '1px solid #b65912', borderRadius: '14px', padding: '18px 22px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '20px' }}>
               <div>
                 <div style={{ fontSize: '15px', fontWeight: '700', color: '#ffd95f', marginBottom: '6px' }}>Low Storage Space Warning</div>
-                <div style={{ fontSize: '14px', color: '#ffd066' }}>You only have {remainingMb.toFixed(1)} MB of knowledge base storage remaining. Consider upgrading your account to avoid upload restrictions.</div>
+                <div style={{ fontSize: '14px', color: 'var(--warn)' }}>You only have {remainingMb.toFixed(1)} MB of knowledge base storage remaining. Consider upgrading your account to avoid upload restrictions.</div>
               </div>
-              <button onClick={() => window.location.href='/billing'} style={{ padding: '10px 18px', background: '#ff6f6f', border: 'none', borderRadius: '10px', color: '#1f0d0d', fontSize: '14px', fontWeight: '700', cursor: 'pointer' }}>
+              <button onClick={() => window.location.href='/billing'} style={{ padding: '10px 18px', background: 'var(--err)', border: 'none', borderRadius: '10px', color: '#1f0d0d', fontSize: '14px', fontWeight: '700', cursor: 'pointer' }}>
                 Upgrade
               </button>
             </div>
@@ -3577,8 +3605,8 @@ export default function EditAgent() {
           return (
             <div
               style={{
-                background: 'linear-gradient(180deg, #111 0%, #0f0f0f 100%)',
-                border: '1px solid var(--border)',
+                background: 'linear-gradient(180deg, var(--bg-primary) 0%, var(--bg-primary) 100%)',
+                border: '1px solid var(--line)',
                 borderRadius: '14px',
                 padding: '22px',
                 display: 'flex',
@@ -3586,20 +3614,20 @@ export default function EditAgent() {
                 gap: '18px'
               }}
             >
-              <div style={{ fontSize: '13px', fontWeight: '700', letterSpacing: '0.02em', color: '#f1f1f1' }}>Integrations</div>
+              <div style={{ fontSize: '13px', fontWeight: '700', letterSpacing: '0.02em', color: 'var(--tx)' }}>Integrations</div>
 
               <div
                 style={{
-                  background: 'var(--bg-elevated)',
-                  border: '1px solid var(--border)',
+                  background: 'var(--s2)',
+                  border: '1px solid var(--line)',
                   borderRadius: '12px',
                   padding: '18px 20px'
                 }}
               >
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
                   <div>
-                    <div style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '4px' }}>Web Search</div>
-                    <div style={{ fontSize: '13px', color: '#8d8d8d' }}>Allow your bot to search the web for information</div>
+                    <div style={{ fontSize: '16px', fontWeight: '700', color: 'var(--tx)', marginBottom: '4px' }}>Web Search</div>
+                    <div style={{ fontSize: '13px', color: 'var(--tx-3)' }}>Allow your bot to search the web for information</div>
                   </div>
 
                   <div
@@ -3608,7 +3636,7 @@ export default function EditAgent() {
                       width: '52px',
                       height: '30px',
                       background: webSearchEnabled ? 'linear-gradient(90deg, #00b894, #00caa1)' : '#232323',
-                      border: webSearchEnabled ? '1px solid #00d2a8' : '1px solid #333',
+                      border: webSearchEnabled ? '1px solid #00d2a8' : '1px solid var(--line-2)',
                       borderRadius: '999px',
                       position: 'relative',
                       cursor: 'pointer',
@@ -3621,7 +3649,7 @@ export default function EditAgent() {
                       style={{
                         width: '24px',
                         height: '24px',
-                        background: '#fff',
+                        background: 'var(--s1)',
                         borderRadius: '50%',
                         position: 'absolute',
                         top: '2px',
@@ -3635,23 +3663,23 @@ export default function EditAgent() {
 
               <div
                 style={{
-                  background: 'var(--bg-elevated)',
-                  border: '1px solid var(--border)',
+                  background: 'var(--s2)',
+                  border: '1px solid var(--line)',
                   borderRadius: '12px',
                   padding: '18px 20px'
                 }}
               >
-                <div style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '12px' }}>Integration</div>
+                <div style={{ fontSize: '16px', fontWeight: '700', color: 'var(--tx)', marginBottom: '12px' }}>Integration</div>
                 <div
                   style={{
-                    border: '1px dashed #333',
+                    border: '1px dashed var(--line-2)',
                     borderRadius: '12px',
                     minHeight: '120px',
                     display: 'flex',
                     alignItems: 'center',
                     justifyContent: 'center',
                     background: 'var(--bg-primary)',
-                    color: '#8f8f8f',
+                    color: 'var(--tx-3)',
                     fontSize: '13px',
                     textAlign: 'center',
                     padding: '18px'
@@ -3663,13 +3691,13 @@ export default function EditAgent() {
 
               <div
                 style={{
-                  background: 'var(--bg-elevated)',
-                  border: '1px solid var(--border)',
+                  background: 'var(--s2)',
+                  border: '1px solid var(--line)',
                   borderRadius: '12px',
                   padding: '18px 20px'
                 }}
               >
-                <div style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '14px' }}>Connect New Integrations</div>
+                <div style={{ fontSize: '16px', fontWeight: '700', color: 'var(--tx)', marginBottom: '14px' }}>Connect New Integrations</div>
 
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '14px' }}>
                   {integrations.map((integration) => {
@@ -3682,19 +3710,19 @@ export default function EditAgent() {
                         key={integration.name}
                         onMouseEnter={(e) => {
                           e.currentTarget.style.borderColor = '#3c3c3c';
-                          e.currentTarget.style.boxShadow = '0 0 0 1px rgba(255,255,255,0.05), 0 10px 26px rgba(0,0,0,0.28)';
-                          e.currentTarget.style.background = '#1b1b1b';
+                          e.currentTarget.style.boxShadow = '0 0 0 1px var(--s2), 0 10px 26px rgba(0,0,0,0.28)';
+                          e.currentTarget.style.background = 'var(--s1)';
                           e.currentTarget.style.transform = 'translateY(-2px)';
                         }}
                         onMouseLeave={(e) => {
-                          e.currentTarget.style.borderColor = '#2a2a2a';
+                          e.currentTarget.style.borderColor = 'var(--s2)';
                           e.currentTarget.style.boxShadow = 'none';
                           e.currentTarget.style.background = '#171717';
                           e.currentTarget.style.transform = 'translateY(0)';
                         }}
                         style={{
-                          background: 'var(--bg-card)',
-                          border: '1px solid var(--border)',
+                          background: 'var(--s1)',
+                          border: '1px solid var(--line)',
                           borderRadius: '12px',
                           minHeight: '220px',
                           padding: '16px',
@@ -3706,8 +3734,8 @@ export default function EditAgent() {
                       >
                         <div>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', marginBottom: '10px' }}>
-                            <div style={{ fontSize: '15px', fontWeight: '700', color: '#fafafa' }}>{integration.name}</div>
-                            {integration.external && <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>-&gt;</span>}
+                            <div style={{ fontSize: '15px', fontWeight: '700', color: 'var(--tx)' }}>{integration.name}</div>
+                            {integration.external && <span style={{ fontSize: '12px', color: 'var(--tx-2)' }}>-&gt;</span>}
                           </div>
 
                           <div style={{ marginBottom: '12px' }}>
@@ -3721,7 +3749,7 @@ export default function EditAgent() {
                                 fontWeight: '700',
                                 letterSpacing: '0.02em',
                                 border: isDuringCall ? '1px solid #1f7a49' : '1px solid #215f9c',
-                                color: isDuringCall ? '#78f5ad' : '#7fbfff',
+                                color: isDuringCall ? 'var(--lime)' : 'var(--violet)',
                                 background: isDuringCall ? 'rgba(33, 111, 67, 0.3)' : 'rgba(36, 91, 155, 0.3)'
                               }}
                             >
@@ -3729,12 +3757,12 @@ export default function EditAgent() {
                             </span>
                           </div>
 
-                          <div style={{ color: '#9b9b9b', fontSize: '13px', lineHeight: 1.5 }}>{integration.description}</div>
+                          <div style={{ color: 'var(--tx-3)', fontSize: '13px', lineHeight: 1.5 }}>{integration.description}</div>
                         </div>
 
                         <div style={{ marginTop: '16px', paddingTop: '12px', borderTop: '1px solid #252525', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px' }}>
                           {isConnected ? (
-                            <span style={{ fontSize: '12px', color: '#4caf50', display: 'inline-flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
+                            <span style={{ fontSize: '12px', color: 'var(--lime)', display: 'inline-flex', alignItems: 'center', gap: '6px', minWidth: 0 }}>
                               <span style={{ fontSize: '9px' }}>●</span>
                               <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                                 {status?.accountLabel ? `Connected · ${status.accountLabel}` : 'Connected'}
@@ -3777,21 +3805,21 @@ export default function EditAgent() {
                             }}
                             disabled={disconnecting === integration.provider}
                             onMouseEnter={(e) => {
-                              e.currentTarget.style.background = '#2b2b2b';
+                              e.currentTarget.style.background = 'var(--s2)';
                               e.currentTarget.style.borderColor = isConnected ? '#7a4141' : '#4a4a4a';
-                              e.currentTarget.style.color = isConnected ? '#ffabab' : '#fff';
+                              e.currentTarget.style.color = isConnected ? '#ffabab' : 'var(--tx)';
                             }}
                             onMouseLeave={(e) => {
-                              e.currentTarget.style.background = '#1f1f1f';
-                              e.currentTarget.style.borderColor = isConnected ? '#4a3232' : '#3a3a3a';
-                              e.currentTarget.style.color = isConnected ? '#ff8a8a' : '#f3f3f3';
+                              e.currentTarget.style.background = 'var(--s1)';
+                              e.currentTarget.style.borderColor = isConnected ? '#4a3232' : 'var(--line-2)';
+                              e.currentTarget.style.color = isConnected ? 'var(--err)' : 'var(--tx)';
                             }}
                             style={{
                               padding: '8px 14px',
-                              background: '#1f1f1f',
-                              border: `1px solid ${isConnected ? '#4a3232' : '#3a3a3a'}`,
+                              background: 'var(--s1)',
+                              border: `1px solid ${isConnected ? '#4a3232' : 'var(--line-2)'}`,
                               borderRadius: '10px',
-                              color: isConnected ? '#ff8a8a' : '#f3f3f3',
+                              color: isConnected ? 'var(--err)' : 'var(--tx)',
                               fontSize: '12px',
                               fontWeight: '700',
                               letterSpacing: '0.01em',
@@ -3824,7 +3852,7 @@ export default function EditAgent() {
                   background: 'transparent',
                   border: '1px solid #333333',
                   borderRadius: '10px',
-                  color: 'var(--text-primary)',
+                  color: 'var(--tx)',
                   cursor: 'pointer',
                   fontSize: '13px',
                   fontWeight: '600'
@@ -3838,8 +3866,8 @@ export default function EditAgent() {
               <div
                 key={config.id}
                 style={{
-                  background: 'var(--bg-card)',
-                  border: '1px solid var(--border)',
+                  background: 'var(--s1)',
+                  border: '1px solid var(--line)',
                   borderRadius: '14px',
                   padding: '30px 30px 24px',
                   marginTop: '2px'
@@ -3847,7 +3875,7 @@ export default function EditAgent() {
               >
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '20px', marginBottom: '24px' }}>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontSize: '17px', lineHeight: 1.2, fontWeight: '700', color: 'var(--text-primary)', marginBottom: '14px' }}>Delivery Method</div>
+                    <div style={{ fontSize: '17px', lineHeight: 1.2, fontWeight: '700', color: 'var(--tx)', marginBottom: '14px' }}>Delivery Method</div>
                     <select
                       value={config.deliveryMethod}
                       onChange={(e) => {
@@ -3859,10 +3887,10 @@ export default function EditAgent() {
                         width: '310px',
                         height: '42px',
                         padding: '0 18px',
-                        background: '#181818',
-                        border: '1px solid #2d2d2d',
+                        background: 'var(--bg-secondary)',
+                        border: '1px solid var(--line-2)',
                         borderRadius: '9px',
-                        color: config.deliveryMethod ? '#ffffff' : '#b3b3b3',
+                        color: config.deliveryMethod ? 'var(--tx)' : 'var(--tx-2)',
                         fontSize: '14px',
                         outline: 'none'
                       }}
@@ -3880,7 +3908,7 @@ export default function EditAgent() {
                     {/* Webhook URL input */}
                     {config.deliveryMethod === 'Webhook' && (
                       <div style={{ marginTop: '14px' }}>
-                        <div style={{ fontSize: '13px', color: '#a0a0a0', marginBottom: '8px' }}>Webhook URL <span style={{ color: '#ff6b6b' }}>*</span></div>
+                        <div style={{ fontSize: '13px', color: 'var(--tx-2)', marginBottom: '8px' }}>Webhook URL <span style={{ color: 'var(--err)' }}>*</span></div>
                         <input
                           type="url"
                           value={config.url}
@@ -3890,17 +3918,17 @@ export default function EditAgent() {
                             width: '400px',
                             height: '42px',
                             padding: '0 16px',
-                            background: '#181818',
-                            border: config.url && !/^https?:\/\/.+/.test(config.url) ? '1px solid #ff4d4f' : '1px solid #2d2d2d',
+                            background: 'var(--bg-secondary)',
+                            border: config.url && !/^https?:\/\/.+/.test(config.url) ? '1px solid var(--err)' : '1px solid var(--line-2)',
                             borderRadius: '9px',
-                            color: '#ffffff',
+                            color: 'var(--tx)',
                             fontSize: '14px',
                             outline: 'none',
                             boxSizing: 'border-box'
                           }}
                         />
                         {config.url && !/^https?:\/\/.+/.test(config.url) && (
-                          <div style={{ fontSize: '12px', color: '#ff4d4f', marginTop: '4px' }}>Enter a valid URL starting with http:// or https://</div>
+                          <div style={{ fontSize: '12px', color: 'var(--err)', marginTop: '4px' }}>Enter a valid URL starting with http:// or https://</div>
                         )}
                       </div>
                     )}
@@ -3908,7 +3936,7 @@ export default function EditAgent() {
                     {/* Email address input */}
                     {config.deliveryMethod === 'Email' && (
                       <div style={{ marginTop: '14px' }}>
-                        <div style={{ fontSize: '13px', color: '#a0a0a0', marginBottom: '8px' }}>Recipient Email <span style={{ color: '#ff6b6b' }}>*</span></div>
+                        <div style={{ fontSize: '13px', color: 'var(--tx-2)', marginBottom: '8px' }}>Recipient Email <span style={{ color: 'var(--err)' }}>*</span></div>
                         <input
                           type="email"
                           value={config.email}
@@ -3918,17 +3946,17 @@ export default function EditAgent() {
                             width: '400px',
                             height: '42px',
                             padding: '0 16px',
-                            background: '#181818',
-                            border: config.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(config.email) ? '1px solid #ff4d4f' : '1px solid #2d2d2d',
+                            background: 'var(--bg-secondary)',
+                            border: config.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(config.email) ? '1px solid var(--err)' : '1px solid var(--line-2)',
                             borderRadius: '9px',
-                            color: '#ffffff',
+                            color: 'var(--tx)',
                             fontSize: '14px',
                             outline: 'none',
                             boxSizing: 'border-box'
                           }}
                         />
                         {config.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(config.email) && (
-                          <div style={{ fontSize: '12px', color: '#ff4d4f', marginTop: '4px' }}>Enter a valid email address</div>
+                          <div style={{ fontSize: '12px', color: 'var(--err)', marginTop: '4px' }}>Enter a valid email address</div>
                         )}
                       </div>
                     )}
@@ -3939,7 +3967,7 @@ export default function EditAgent() {
                         ("tomorrow at 3pm") against the call time. */}
                     {config.deliveryMethod === 'Google Calendar' && (
                       <div style={{ marginTop: '14px' }}>
-                        <div style={{ fontSize: '13px', color: '#a0a0a0', marginBottom: '8px' }}>Appointment date/time variable <span style={{ color: '#ff6b6b' }}>*</span></div>
+                        <div style={{ fontSize: '13px', color: 'var(--tx-2)', marginBottom: '8px' }}>Appointment date/time variable <span style={{ color: 'var(--err)' }}>*</span></div>
                         <select
                           value={config.dateVariable || ''}
                           onChange={(e) => updatePostCallConfigAndSave(config.id, { dateVariable: e.target.value })}
@@ -3947,10 +3975,10 @@ export default function EditAgent() {
                             width: '400px',
                             height: '42px',
                             padding: '0 16px',
-                            background: '#181818',
-                            border: '1px solid #2d2d2d',
+                            background: 'var(--bg-secondary)',
+                            border: '1px solid var(--line-2)',
                             borderRadius: '9px',
-                            color: config.dateVariable ? '#ffffff' : '#b3b3b3',
+                            color: config.dateVariable ? 'var(--tx)' : 'var(--tx-2)',
                             fontSize: '14px',
                             outline: 'none',
                             boxSizing: 'border-box'
@@ -3966,7 +3994,7 @@ export default function EditAgent() {
                           Make sure the variable's description tells the agent to capture the appointment date and time.
                         </div>
 
-                        <div style={{ fontSize: '13px', color: '#a0a0a0', margin: '14px 0 8px' }}>Duration (minutes)</div>
+                        <div style={{ fontSize: '13px', color: 'var(--tx-2)', margin: '14px 0 8px' }}>Duration (minutes)</div>
                         <input
                           type="number"
                           min={5}
@@ -3977,10 +4005,10 @@ export default function EditAgent() {
                             width: '140px',
                             height: '42px',
                             padding: '0 16px',
-                            background: '#181818',
-                            border: '1px solid #2d2d2d',
+                            background: 'var(--bg-secondary)',
+                            border: '1px solid var(--line-2)',
                             borderRadius: '9px',
-                            color: '#ffffff',
+                            color: 'var(--tx)',
                             fontSize: '14px',
                             outline: 'none',
                             boxSizing: 'border-box'
@@ -3994,7 +4022,7 @@ export default function EditAgent() {
                         read as work still to be done. */}
                     {config.deliveryMethod === 'Google Sheets' && config.spreadsheetId && !changingSheet[config.id] && (
                       <div style={{ marginTop: '14px' }}>
-                        <div style={{ fontSize: '13px', color: '#a0a0a0', marginBottom: '8px' }}>Target Spreadsheet</div>
+                        <div style={{ fontSize: '13px', color: 'var(--tx-2)', marginBottom: '8px' }}>Target Spreadsheet</div>
                         <div style={{
                           display: 'flex',
                           alignItems: 'center',
@@ -4006,9 +4034,9 @@ export default function EditAgent() {
                           borderRadius: '9px',
                           boxSizing: 'border-box',
                         }}>
-                          <span style={{ color: '#0bbfcb', fontSize: '16px', lineHeight: 1 }}>✓</span>
+                          <span style={{ color: 'var(--cyan-fg)', fontSize: '16px', lineHeight: 1 }}>✓</span>
                           <div style={{ minWidth: 0, flex: 1 }}>
-                            <div style={{ fontSize: '14px', color: '#ffffff', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            <div style={{ fontSize: '14px', color: 'var(--tx)', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                               {config.spreadsheetName || config.spreadsheetId}
                             </div>
                             <div style={{ fontSize: '12px', color: '#8fa3a6', marginTop: '3px' }}>
@@ -4019,7 +4047,7 @@ export default function EditAgent() {
                             href={`https://docs.google.com/spreadsheets/d/${config.spreadsheetId}/edit`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            style={{ fontSize: '13px', color: '#0bbfcb', textDecoration: 'none', whiteSpace: 'nowrap' }}
+                            style={{ fontSize: '13px', color: 'var(--cyan-fg)', textDecoration: 'none', whiteSpace: 'nowrap' }}
                           >
                             Open ↗
                           </a>
@@ -4028,9 +4056,9 @@ export default function EditAgent() {
                             onClick={() => setChangingSheet((prev) => ({ ...prev, [config.id]: true }))}
                             style={{
                               background: 'transparent',
-                              border: '1px solid #2d2d2d',
+                              border: '1px solid var(--line-2)',
                               borderRadius: '7px',
-                              color: 'var(--text-secondary)',
+                              color: 'var(--tx-2)',
                               fontSize: '13px',
                               padding: '6px 12px',
                               cursor: 'pointer',
@@ -4046,8 +4074,8 @@ export default function EditAgent() {
                     {/* Google Sheets target picker */}
                     {config.deliveryMethod === 'Google Sheets' && (!config.spreadsheetId || changingSheet[config.id]) && (
                       <div style={{ marginTop: '14px' }}>
-                        <div style={{ fontSize: '13px', color: '#a0a0a0', marginBottom: '8px' }}>
-                          Target Spreadsheet <span style={{ color: '#ff6b6b' }}>*</span>
+                        <div style={{ fontSize: '13px', color: 'var(--tx-2)', marginBottom: '8px' }}>
+                          Target Spreadsheet <span style={{ color: 'var(--err)' }}>*</span>
                         </div>
                         <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
                           <select
@@ -4066,10 +4094,10 @@ export default function EditAgent() {
                               width: '400px',
                               height: '42px',
                               padding: '0 16px',
-                              background: '#181818',
-                              border: '1px solid #2d2d2d',
+                              background: 'var(--bg-secondary)',
+                              border: '1px solid var(--line-2)',
                               borderRadius: '9px',
-                              color: config.spreadsheetId ? '#ffffff' : '#b3b3b3',
+                              color: config.spreadsheetId ? 'var(--tx)' : 'var(--tx-2)',
                               fontSize: '14px',
                               outline: 'none',
                               boxSizing: 'border-box',
@@ -4096,9 +4124,9 @@ export default function EditAgent() {
                               height: '42px',
                               padding: '0 14px',
                               background: 'transparent',
-                              border: '1px solid #2d2d2d',
+                              border: '1px solid var(--line-2)',
                               borderRadius: '9px',
-                              color: 'var(--text-secondary)',
+                              color: 'var(--tx-2)',
                               fontSize: '13px',
                               cursor: spreadsheetsState === 'loading' ? 'not-allowed' : 'pointer',
                             }}
@@ -4107,12 +4135,12 @@ export default function EditAgent() {
                           </button>
                         </div>
                         {spreadsheetsState === 'error' && (
-                          <div style={{ fontSize: '12px', color: '#ff4d4f', marginTop: '6px', maxWidth: '460px', lineHeight: 1.5 }}>
+                          <div style={{ fontSize: '12px', color: 'var(--err)', marginTop: '6px', maxWidth: '460px', lineHeight: 1.5 }}>
                             {spreadsheetsError}
                           </div>
                         )}
                         {spreadsheetsState === 'idle' && spreadsheets.length === 0 && (
-                          <div style={{ fontSize: '12px', color: '#a0a0a0', marginTop: '6px' }}>
+                          <div style={{ fontSize: '12px', color: 'var(--tx-2)', marginTop: '6px' }}>
                             No spreadsheets found — create one below.
                           </div>
                         )}
@@ -4120,9 +4148,9 @@ export default function EditAgent() {
                         {/* Separator: the row below is an ALTERNATIVE to the
                             dropdown above, not a second required field. */}
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px', width: '480px', margin: '12px 0 10px' }}>
-                          <div style={{ height: '1px', background: '#2d2d2d', flex: 1 }} />
+                          <div style={{ height: '1px', background: 'var(--s2)', flex: 1 }} />
                           <span style={{ fontSize: '11px', color: '#6b6b6b', letterSpacing: '0.06em' }}>OR CREATE A NEW ONE</span>
-                          <div style={{ height: '1px', background: '#2d2d2d', flex: 1 }} />
+                          <div style={{ height: '1px', background: 'var(--s2)', flex: 1 }} />
                         </div>
 
                         {/* Create a new spreadsheet without leaving the app */}
@@ -4137,10 +4165,10 @@ export default function EditAgent() {
                               width: '400px',
                               height: '42px',
                               padding: '0 16px',
-                              background: '#181818',
-                              border: '1px solid #2d2d2d',
+                              background: 'var(--bg-secondary)',
+                              border: '1px solid var(--line-2)',
                               borderRadius: '9px',
-                              color: '#ffffff',
+                              color: 'var(--tx)',
                               fontSize: '14px',
                               outline: 'none',
                               boxSizing: 'border-box',
@@ -4155,9 +4183,9 @@ export default function EditAgent() {
                               height: '42px',
                               padding: '0 16px',
                               background: 'transparent',
-                              border: '1px solid #0bbfcb55',
+                              border: '1px solid rgba(14,179,158,0.33)',
                               borderRadius: '9px',
-                              color: creatingSheet === config.id ? '#555' : '#0bbfcb',
+                              color: creatingSheet === config.id ? 'var(--tx-3)' : 'var(--cyan-fg)',
                               fontSize: '13px',
                               fontWeight: 600,
                               whiteSpace: 'nowrap',
@@ -4181,7 +4209,7 @@ export default function EditAgent() {
                               background: 'transparent',
                               border: 'none',
                               padding: 0,
-                              color: '#8a8a8a',
+                              color: 'var(--tx-3)',
                               fontSize: '13px',
                               textDecoration: 'underline',
                               cursor: 'pointer',
@@ -4202,9 +4230,9 @@ export default function EditAgent() {
                         padding: '0 20px',
                         height: '44px',
                         background: '#0e0e0e',
-                        border: '1px solid var(--border)',
+                        border: '1px solid var(--line)',
                         borderRadius: '9px',
-                        color: postCallConfigs.length === 1 ? '#666666' : '#ff4d4f',
+                        color: postCallConfigs.length === 1 ? '#666666' : 'var(--err)',
                         cursor: postCallConfigs.length === 1 ? 'not-allowed' : 'pointer',
                         fontSize: '14px',
                         fontWeight: '600'
@@ -4221,10 +4249,10 @@ export default function EditAgent() {
                       style={{
                         padding: '0 20px',
                         height: '44px',
-                        background: testingPostCall[config.id] === 'done' ? '#0bbfcb22' : testingPostCall[config.id] === 'error' ? '#ff4d4f22' : '#0bbfcb18',
-                        border: `1px solid ${testingPostCall[config.id] === 'done' ? '#0bbfcb' : testingPostCall[config.id] === 'error' ? '#ff4d4f' : '#0bbfcb55'}`,
+                        background: testingPostCall[config.id] === 'done' ? 'rgba(14,179,158,0.13)' : testingPostCall[config.id] === 'error' ? 'rgba(248,113,113,0.13)' : 'rgba(14,179,158,0.09)',
+                        border: `1px solid ${testingPostCall[config.id] === 'done' ? 'var(--cyan-fg)' : testingPostCall[config.id] === 'error' ? 'var(--err)' : 'rgba(14,179,158,0.33)'}`,
                         borderRadius: '9px',
-                        color: testingPostCall[config.id] === 'done' ? '#0bbfcb' : testingPostCall[config.id] === 'error' ? '#ff4d4f' : postCallConfigIssue(config) ? '#555' : '#0bbfcb',
+                        color: testingPostCall[config.id] === 'done' ? 'var(--cyan-fg)' : testingPostCall[config.id] === 'error' ? 'var(--err)' : postCallConfigIssue(config) ? 'var(--tx-3)' : 'var(--cyan-fg)',
                         cursor: (postCallConfigIssue(config) || testingPostCall[config.id] === 'loading') ? 'not-allowed' : 'pointer',
                         fontSize: '13px',
                         fontWeight: '600',
@@ -4244,11 +4272,11 @@ export default function EditAgent() {
                   <div style={{
                     marginBottom: '20px',
                     padding: '14px 16px',
-                    background: testingPostCall[config.id] === 'done' ? '#0bbfcb10' : '#ff4d4f10',
-                    border: `1px solid ${testingPostCall[config.id] === 'done' ? '#0bbfcb44' : '#ff4d4f44'}`,
+                    background: testingPostCall[config.id] === 'done' ? 'rgba(14,179,158,0.06)' : 'rgba(248,113,113,0.06)',
+                    border: `1px solid ${testingPostCall[config.id] === 'done' ? 'rgba(14,179,158,0.27)' : 'rgba(248,113,113,0.27)'}`,
                     borderRadius: '10px',
                     fontSize: '13px',
-                    color: testingPostCall[config.id] === 'done' ? '#0bbfcb' : '#ff7b7b',
+                    color: testingPostCall[config.id] === 'done' ? 'var(--cyan-fg)' : 'var(--err)',
                     whiteSpace: 'pre-wrap',
                     fontFamily: 'monospace',
                     lineHeight: 1.6
@@ -4259,8 +4287,8 @@ export default function EditAgent() {
 
                 <div style={{ marginBottom: '30px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '16px' }}>
-                    <div style={{ fontSize: '16px', fontWeight: '700', color: 'var(--text-primary)' }}>Trigger based on Call Status</div>
-                    <div style={{ width: '18px', height: '18px', borderRadius: '999px', border: '1px solid #585858', color: '#a6a6a6', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: '600' }}>i</div>
+                    <div style={{ fontSize: '16px', fontWeight: '700', color: 'var(--tx)' }}>Trigger based on Call Status</div>
+                    <div style={{ width: '18px', height: '18px', borderRadius: '999px', border: '1px solid #585858', color: 'var(--tx-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', fontWeight: '600' }}>i</div>
                   </div>
 
                   <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
@@ -4274,9 +4302,9 @@ export default function EditAgent() {
                             height: '32px',
                             padding: '0 14px',
                             borderRadius: '999px',
-                            border: active ? '1px solid #0bbfcb' : '1px solid #434343',
-                            background: active ? '#0bbfcb' : 'transparent',
-                            color: active ? '#071316' : '#b5b5b5',
+                            border: active ? '1px solid var(--cyan-fg)' : '1px solid var(--line-2)',
+                            background: active ? 'var(--cyan)' : 'transparent',
+                            color: active ? '#071316' : 'var(--tx-2)',
                             fontSize: '13px',
                             fontWeight: '500',
                             cursor: 'pointer'
@@ -4290,7 +4318,7 @@ export default function EditAgent() {
                 </div>
 
                 <div style={{ marginBottom: '30px' }}>
-                  <div style={{ fontSize: '17px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '18px' }}>Including</div>
+                  <div style={{ fontSize: '17px', fontWeight: '700', color: 'var(--tx)', marginBottom: '18px' }}>Including</div>
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '14px 14px' }}>
                     {[
                       {
@@ -4324,7 +4352,7 @@ export default function EditAgent() {
                             minHeight: '86px',
                             padding: '18px 20px 18px 52px',
                             background: '#1d1d1d',
-                            border: checked ? '1px solid #087f88' : '1px solid #2d2d2d',
+                            border: checked ? '1px solid #087f88' : '1px solid var(--line-2)',
                             borderRadius: '14px',
                             position: 'relative',
                             cursor: 'pointer',
@@ -4339,8 +4367,8 @@ export default function EditAgent() {
                               width: '22px',
                               height: '22px',
                               borderRadius: '7px',
-                              background: checked ? '#0bbfcb' : '#111111',
-                              border: checked ? '1px solid #0bbfcb' : '1px solid #404040',
+                              background: checked ? 'var(--cyan)' : 'var(--bg-primary)',
+                              border: checked ? '1px solid var(--cyan-fg)' : '1px solid var(--line-2)',
                               color: checked ? '#041012' : 'transparent',
                               display: 'flex',
                               alignItems: 'center',
@@ -4351,8 +4379,8 @@ export default function EditAgent() {
                           >
                             ON
                           </div>
-                          <div style={{ fontSize: '15px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '6px', lineHeight: 1.2 }}>{item.title}</div>
-                          <div style={{ fontSize: '13px', color: '#a9a9a9', lineHeight: 1.45 }}>{item.description}</div>
+                          <div style={{ fontSize: '15px', fontWeight: '700', color: 'var(--tx)', marginBottom: '6px', lineHeight: 1.2 }}>{item.title}</div>
+                          <div style={{ fontSize: '13px', color: 'var(--tx-2)', lineHeight: 1.45 }}>{item.description}</div>
                         </button>
                       );
                     })}
@@ -4360,8 +4388,8 @@ export default function EditAgent() {
                 </div>
 
                 <div>
-                  <div style={{ fontSize: '17px', fontWeight: '700', color: 'var(--text-primary)', marginBottom: '6px' }}>Extracted Variables</div>
-                  <div style={{ fontSize: '13px', color: '#9a9a9a', marginBottom: '20px', lineHeight: 1.45 }}>
+                  <div style={{ fontSize: '17px', fontWeight: '700', color: 'var(--tx)', marginBottom: '6px' }}>Extracted Variables</div>
+                  <div style={{ fontSize: '13px', color: 'var(--tx-3)', marginBottom: '20px', lineHeight: 1.45 }}>
                     Specify what variables you want to extract from the conversation. For each variable, provide a name and a description of how to extract it.
                   </div>
 
@@ -4370,8 +4398,8 @@ export default function EditAgent() {
                       <div
                         key={variable.id}
                         style={{
-                          background: '#1b1b1b',
-                          border: '1px solid #2b2b2b',
+                          background: 'var(--s1)',
+                          border: '1px solid var(--s2)',
                           borderRadius: '13px',
                           padding: '20px',
                           display: 'grid',
@@ -4389,10 +4417,10 @@ export default function EditAgent() {
                             width: '100%',
                             height: '44px',
                             padding: '0 16px',
-                            background: '#202020',
-                            border: '1px solid #2d2d2d',
+                            background: 'var(--s1)',
+                            border: '1px solid var(--line-2)',
                             borderRadius: '8px',
-                            color: 'var(--text-primary)',
+                            color: 'var(--tx)',
                             fontSize: '14px',
                             outline: 'none'
                           }}
@@ -4406,10 +4434,10 @@ export default function EditAgent() {
                             width: '100%',
                             height: '44px',
                             padding: '0 16px',
-                            background: '#202020',
-                            border: '1px solid #2d2d2d',
+                            background: 'var(--s1)',
+                            border: '1px solid var(--line-2)',
                             borderRadius: '8px',
-                            color: 'var(--text-primary)',
+                            color: 'var(--tx)',
                             fontSize: '14px',
                             outline: 'none'
                           }}
@@ -4420,9 +4448,9 @@ export default function EditAgent() {
                             width: '60px',
                             height: '44px',
                             background: 'var(--bg-primary)',
-                            border: '1px solid var(--border)',
+                            border: '1px solid var(--line)',
                             borderRadius: '9px',
-                            color: '#ff4d4f',
+                            color: 'var(--err)',
                             fontSize: '18px',
                             cursor: 'pointer'
                           }}
@@ -4440,9 +4468,9 @@ export default function EditAgent() {
                       padding: '0 16px',
                       height: '40px',
                       background: 'transparent',
-                      border: '1px solid #0bbfcb',
+                      border: '1px solid var(--cyan-fg)',
                       borderRadius: '9px',
-                      color: '#0bbfcb',
+                      color: 'var(--cyan-fg)',
                       fontSize: '13px',
                       fontWeight: '600',
                       cursor: 'pointer'
@@ -4485,7 +4513,7 @@ export default function EditAgent() {
                 flexWrap: 'wrap'
               }}
             >
-              <div style={{ fontSize: '22px', fontWeight: '700', color: 'var(--text-primary)', paddingLeft: '20px' }}>Recent Calls</div>
+              <div style={{ fontSize: '22px', fontWeight: '700', color: 'var(--tx)', paddingLeft: '20px' }}>Recent Calls</div>
 
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
                 <button
@@ -4494,10 +4522,10 @@ export default function EditAgent() {
                   style={{
                     height: '44px',
                     padding: '0 18px',
-                    background: 'var(--bg-card)',
-                    border: '1px solid var(--border)',
+                    background: 'var(--s1)',
+                    border: '1px solid var(--line)',
                     borderRadius: '10px',
-                    color: 'var(--text-primary)',
+                    color: 'var(--tx)',
                     fontSize: '14px',
                     fontWeight: '600',
                     cursor: callsLoading ? 'not-allowed' : 'pointer',
@@ -4510,21 +4538,21 @@ export default function EditAgent() {
             </div>
 
             {callsLoading ? (
-              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-muted)', fontSize: '14px' }}>
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'var(--tx-3)', fontSize: '14px' }}>
                 Loading call history...
               </div>
             ) : recentCalls.length > 0 ? (
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
                 {visibleCalls.map((call) => {
                   const typeMeta =
-                    call.type === 'WEB_CALL' ? { icon: '🌐', label: 'Web Call', bg: '#0a1f3a', fg: '#7fbfff', bd: '#1a5a9a' }
+                    call.type === 'WEB_CALL' ? { icon: '🌐', label: 'Web Call', bg: '#0a1f3a', fg: 'var(--violet)', bd: '#1a5a9a' }
                     : call.type === 'PHONE_CALL' ? { icon: '📞', label: 'Phone Call', bg: '#2a1a0a', fg: '#ffb066', bd: '#5a3a1a' }
-                    : { icon: '💬', label: 'Chat Test', bg: '#0a2e1a', fg: '#78f5ad', bd: '#1a5a3a' };
+                    : { icon: '💬', label: 'Chat Test', bg: '#0a2e1a', fg: 'var(--lime)', bd: '#1a5a3a' };
                   const statusMeta =
-                    call.status === 'COMPLETED' ? { bg: '#0a2e1a', fg: '#78f5ad', bd: '#1a5a3a' }
-                    : call.status === 'IN_PROGRESS' ? { bg: '#0a1f3a', fg: '#7fbfff', bd: '#1a5a9a' }
-                    : call.status === 'FAILED' ? { bg: '#2e0a0a', fg: '#ff8080', bd: '#5a1a1a' }
-                    : { bg: '#1a1a0a', fg: '#ffd066', bd: '#5a5a1a' };
+                    call.status === 'COMPLETED' ? { bg: '#0a2e1a', fg: 'var(--lime)', bd: '#1a5a3a' }
+                    : call.status === 'IN_PROGRESS' ? { bg: '#0a1f3a', fg: 'var(--violet)', bd: '#1a5a9a' }
+                    : call.status === 'FAILED' ? { bg: '#2e0a0a', fg: 'var(--err)', bd: '#5a1a1a' }
+                    : { bg: '#1a1a0a', fg: 'var(--warn)', bd: '#5a5a1a' };
                   const mins = Math.floor((call.durationSec ?? 0) / 60);
                   const secs = (call.durationSec ?? 0) % 60;
                   const isExpanded = expandedCallId === call.id;
@@ -4534,8 +4562,8 @@ export default function EditAgent() {
                     <div
                       key={call.id}
                       style={{
-                        background: 'var(--bg-card)',
-                        border: '1px solid var(--border)',
+                        background: 'var(--s1)',
+                        border: '1px solid var(--line)',
                         borderRadius: '12px',
                         overflow: 'hidden'
                       }}
@@ -4556,10 +4584,10 @@ export default function EditAgent() {
                         }}
                       >
                         <div>
-                          <div style={{ fontSize: '14px', fontWeight: '600', color: 'var(--text-primary)' }}>
+                          <div style={{ fontSize: '14px', fontWeight: '600', color: 'var(--tx)' }}>
                             {typeMeta.icon} {typeMeta.label}
                           </div>
-                          <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                          <div style={{ fontSize: '12px', color: 'var(--tx-3)', marginTop: '2px' }}>
                             {call.type === 'PHONE_CALL' && call.phoneNumber
                               ? call.phoneNumber
                               : `${transcript.length} message${transcript.length === 1 ? '' : 's'}${call.hasRecording ? ' · 🔊 recording' : ''}`}
@@ -4577,28 +4605,28 @@ export default function EditAgent() {
                         }}>
                           {(call.status || 'UNKNOWN').replace('_', ' ').toLowerCase()}
                         </div>
-                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', textAlign: 'center' }}>
+                        <div style={{ fontSize: '12px', color: 'var(--tx-2)', textAlign: 'center' }}>
                           {mins}:{String(secs).padStart(2, '0')}
                         </div>
-                        <div style={{ fontSize: '12px', color: 'var(--text-secondary)', textAlign: 'right' }}>
+                        <div style={{ fontSize: '12px', color: 'var(--tx-2)', textAlign: 'right' }}>
                           {call.startedAt ? new Date(call.startedAt).toLocaleString() : '—'}
                         </div>
-                        <div style={{ fontSize: '12px', color: 'var(--text-muted)', textAlign: 'center' }}>{isExpanded ? '▲' : '▼'}</div>
+                        <div style={{ fontSize: '12px', color: 'var(--tx-3)', textAlign: 'center' }}>{isExpanded ? '▲' : '▼'}</div>
                       </div>
 
                       {isExpanded && (
-                        <div style={{ borderTop: '1px solid var(--border)', padding: '16px 20px', background: '#0d0d0d' }}>
+                        <div style={{ borderTop: '1px solid var(--line)', padding: '16px 20px', background: 'var(--bg-primary)' }}>
                           {call.hasRecording && (
                             <div style={{ marginBottom: transcript.length ? '16px' : 0 }}>
                               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: '8px' }}>
-                                <div style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)' }}>Call recording</div>
+                                <div style={{ fontSize: '12px', fontWeight: '600', color: 'var(--tx-2)' }}>Call recording</div>
                                 {recordingUrls[call.id] && (
                                   <button
                                     type="button"
                                     onClick={() => downloadRecording(call)}
                                     style={{
                                       display: 'inline-flex', alignItems: 'center', gap: '6px',
-                                      fontSize: '12px', fontWeight: '600', color: '#8edce2',
+                                      fontSize: '12px', fontWeight: '600', color: 'var(--cyan-fg)',
                                       background: 'transparent', border: '1px solid #28343a',
                                       borderRadius: '8px', padding: '5px 10px', cursor: 'pointer',
                                     }}
@@ -4616,7 +4644,7 @@ export default function EditAgent() {
                               {recordingUrls[call.id] ? (
                                 <audio controls src={recordingUrls[call.id]} style={{ width: '100%', height: '36px' }} />
                               ) : (
-                                <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>Loading recording…</div>
+                                <div style={{ fontSize: '12px', color: 'var(--tx-3)' }}>Loading recording…</div>
                               )}
                             </div>
                           )}
@@ -4624,7 +4652,7 @@ export default function EditAgent() {
                             <div style={{ marginBottom: '16px', padding: '14px', border: '1px solid #28343a', borderRadius: '10px', background: '#10171a' }}>
                               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', marginBottom: extractedVariables.length || call.extractionError || call.extractedData?.skippedReason ? '10px' : 0 }}>
                                 <div>
-                                  <div style={{ fontSize: '12px', fontWeight: '700', color: '#8edce2' }}>Extracted conversation data</div>
+                                  <div style={{ fontSize: '12px', fontWeight: '700', color: 'var(--cyan-fg)' }}>Extracted conversation data</div>
                                   <div style={{ fontSize: '11px', color: '#708087', marginTop: '3px' }}>
                                     Status: {(call.extractionStatus || 'PENDING').toLowerCase()}
                                   </div>
@@ -4635,9 +4663,9 @@ export default function EditAgent() {
                                   style={{
                                     padding: '6px 11px',
                                     borderRadius: '7px',
-                                    border: '1px solid #0bbfcb66',
-                                    background: '#0bbfcb14',
-                                    color: call.extractionStatus === 'PROCESSING' ? '#60777a' : '#0bbfcb',
+                                    border: '1px solid var(--cyan-fg)66',
+                                    background: 'var(--cyan)14',
+                                    color: call.extractionStatus === 'PROCESSING' ? '#60777a' : 'var(--cyan-fg)',
                                     cursor: call.extractionStatus === 'PROCESSING' ? 'wait' : 'pointer',
                                     fontSize: '11px',
                                     fontWeight: '600'
@@ -4647,7 +4675,7 @@ export default function EditAgent() {
                                 </button>
                               </div>
                               {call.extractionError && (
-                                <div style={{ fontSize: '12px', color: '#ff8080' }}>{call.extractionError}</div>
+                                <div style={{ fontSize: '12px', color: 'var(--err)' }}>{call.extractionError}</div>
                               )}
                               {call.extractedData?.skippedReason && (
                                 <div style={{ fontSize: '12px', color: '#b5a36a' }}>{call.extractedData.skippedReason}</div>
@@ -4657,8 +4685,8 @@ export default function EditAgent() {
                                   {extractedVariables.map((variable) => (
                                     <div key={variable.key} style={{ padding: '9px 11px', borderRadius: '8px', background: '#0b1012', border: '1px solid #202b30' }}>
                                       <div style={{ display: 'grid', gridTemplateColumns: 'minmax(120px, 0.4fr) 1fr', gap: '12px', alignItems: 'start' }}>
-                                        <div style={{ fontFamily: 'monospace', fontSize: '12px', color: '#8edce2', wordBreak: 'break-word' }}>{variable.key}</div>
-                                        <div style={{ fontSize: '12px', color: variable.value == null ? '#667277' : 'var(--text-primary)', wordBreak: 'break-word' }}>
+                                        <div style={{ fontFamily: 'monospace', fontSize: '12px', color: 'var(--cyan-fg)', wordBreak: 'break-word' }}>{variable.key}</div>
+                                        <div style={{ fontSize: '12px', color: variable.value == null ? '#667277' : 'var(--tx)', wordBreak: 'break-word' }}>
                                           {variable.value == null
                                             ? 'Not found'
                                             : typeof variable.value === 'string'
@@ -4677,15 +4705,15 @@ export default function EditAgent() {
                           )}
                           {transcript.length > 0 ? (
                             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', maxHeight: '320px', overflowY: 'auto' }}>
-                              <div style={{ fontSize: '12px', fontWeight: '600', color: 'var(--text-secondary)' }}>Transcript</div>
+                              <div style={{ fontSize: '12px', fontWeight: '600', color: 'var(--tx-2)' }}>Transcript</div>
                               {transcript.map((m, i) => (
                                 <div key={i} style={{ display: 'flex', justifyContent: m.role === 'user' ? 'flex-end' : 'flex-start' }}>
                                   <div style={{
                                     maxWidth: '75%', padding: '8px 12px', borderRadius: '10px', fontSize: '13px',
                                     whiteSpace: 'pre-wrap', wordBreak: 'break-word',
-                                    background: m.role === 'user' ? 'var(--teal)' : '#1a1a1a',
-                                    color: m.role === 'user' ? '#000' : 'var(--text-primary)',
-                                    border: m.role === 'user' ? 'none' : '1px solid #333'
+                                    background: m.role === 'user' ? 'var(--cyan)' : 'var(--s1)',
+                                    color: m.role === 'user' ? '#000' : 'var(--tx)',
+                                    border: m.role === 'user' ? 'none' : '1px solid var(--line-2)'
                                   }}>
                                     {m.content}
                                   </div>
@@ -4693,7 +4721,7 @@ export default function EditAgent() {
                               ))}
                             </div>
                           ) : (
-                            <div style={{ fontSize: '12px', color: 'var(--text-muted)' }}>No transcript was captured for this call.</div>
+                            <div style={{ fontSize: '12px', color: 'var(--tx-3)' }}>No transcript was captured for this call.</div>
                           )}
                         </div>
                       )}
@@ -4713,7 +4741,7 @@ export default function EditAgent() {
                       padding: '4px 4px 0'
                     }}
                   >
-                    <div style={{ fontSize: '13px', color: 'var(--text-muted)' }}>
+                    <div style={{ fontSize: '13px', color: 'var(--tx-3)' }}>
                       Showing {(callsPage - 1) * CALLS_PER_PAGE + 1}–{Math.min(callsPage * CALLS_PER_PAGE, recentCalls.length)} of {recentCalls.length} calls
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -4723,10 +4751,10 @@ export default function EditAgent() {
                         style={{
                           height: '36px',
                           padding: '0 14px',
-                          background: 'var(--bg-card)',
-                          border: '1px solid var(--border)',
+                          background: 'var(--s1)',
+                          border: '1px solid var(--line)',
                           borderRadius: '9px',
-                          color: 'var(--text-primary)',
+                          color: 'var(--tx)',
                           fontSize: '13px',
                           fontWeight: '600',
                           cursor: callsPage <= 1 ? 'not-allowed' : 'pointer',
@@ -4735,7 +4763,7 @@ export default function EditAgent() {
                       >
                         ← Previous
                       </button>
-                      <div style={{ fontSize: '13px', color: 'var(--text-secondary)', minWidth: '84px', textAlign: 'center' }}>
+                      <div style={{ fontSize: '13px', color: 'var(--tx-2)', minWidth: '84px', textAlign: 'center' }}>
                         Page {callsPage} of {callsPageCount}
                       </div>
                       <button
@@ -4744,10 +4772,10 @@ export default function EditAgent() {
                         style={{
                           height: '36px',
                           padding: '0 14px',
-                          background: 'var(--bg-card)',
-                          border: '1px solid var(--border)',
+                          background: 'var(--s1)',
+                          border: '1px solid var(--line)',
                           borderRadius: '9px',
-                          color: 'var(--text-primary)',
+                          color: 'var(--tx)',
                           fontSize: '13px',
                           fontWeight: '600',
                           cursor: callsPage >= callsPageCount ? 'not-allowed' : 'pointer',
@@ -4787,8 +4815,8 @@ export default function EditAgent() {
                   >
                     📞
                   </div>
-                  <div style={{ fontSize: '18px', lineHeight: 1.2, fontWeight: '700', color: 'var(--text-primary)', marginBottom: '10px' }}>No call history</div>
-                  <div style={{ fontSize: '15px', lineHeight: 1.6, color: '#a0a0a0' }}>
+                  <div style={{ fontSize: '18px', lineHeight: 1.2, fontWeight: '700', color: 'var(--tx)', marginBottom: '10px' }}>No call history</div>
+                  <div style={{ fontSize: '15px', lineHeight: 1.6, color: 'var(--tx-2)' }}>
                     You haven't made any calls with this assistant yet.
                     <br />
                     Start a call to see your history here.
@@ -4819,24 +4847,24 @@ export default function EditAgent() {
       {/* Chat Modal */}
       {showChatModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: 'var(--bg-card)', borderRadius: '12px', padding: 0, maxWidth: '500px', width: '90%', height: '600px', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
-            <div style={{ padding: '16px 20px', background: '#222', borderBottom: '1px solid #333', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ background: 'var(--s1)', borderRadius: '12px', padding: 0, maxWidth: '500px', width: '90%', height: '600px', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <div style={{ padding: '16px 20px', background: 'var(--s1)', borderBottom: '1px solid var(--line-2)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'var(--teal)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#000', fontWeight: 'bold' }}>{agentName.charAt(0)}</div>
+                <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: 'var(--cyan)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#000', fontWeight: 'bold' }}>{agentName.charAt(0)}</div>
                 <span style={{ fontWeight: '600', fontSize: '14px' }}>Test Chat: {agentName}</span>
               </div>
-              <button onClick={closeTestChat} style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '20px' }}>X</button>
+              <button onClick={closeTestChat} style={{ background: 'none', border: 'none', color: 'var(--tx-2)', cursor: 'pointer', fontSize: '20px' }}>X</button>
             </div>
             
             <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              <div style={{ alignSelf: 'flex-start', background: '#333', padding: '10px 14px', borderRadius: '12px 12px 12px 0', fontSize: '13px', maxWidth: '85%' }}>
+              <div style={{ alignSelf: 'flex-start', background: 'var(--s2)', padding: '10px 14px', borderRadius: '12px 12px 12px 0', fontSize: '13px', maxWidth: '85%' }}>
                 {welcomeMessage}
               </div>
               {chatMessages.map((msg, i) => (
                 <div key={i} style={{ 
                   alignSelf: msg.role === 'user' ? 'flex-end' : 'flex-start', 
-                  background: msg.role === 'user' ? 'var(--teal)' : '#333', 
-                  color: msg.role === 'user' ? '#000' : '#fff',
+                  background: msg.role === 'user' ? 'var(--cyan)' : 'var(--s2)', 
+                  color: msg.role === 'user' ? '#000' : 'var(--tx)',
                   padding: '10px 14px', 
                   borderRadius: msg.role === 'user' ? '12px 12px 0 12px' : '12px 12px 12px 0', 
                   fontSize: '13px', 
@@ -4846,22 +4874,22 @@ export default function EditAgent() {
                 </div>
               ))}
               {isTyping && (
-                <div style={{ alignSelf: 'flex-start', background: '#333', padding: '10px 14px', borderRadius: '12px 12px 12px 0', fontSize: '13px' }}>
+                <div style={{ alignSelf: 'flex-start', background: 'var(--s2)', padding: '10px 14px', borderRadius: '12px 12px 12px 0', fontSize: '13px' }}>
                   Typing...
                 </div>
               )}
             </div>
 
-            <div style={{ padding: '20px', borderTop: '1px solid #333', background: 'var(--bg-card)' }}>
+            <div style={{ padding: '20px', borderTop: '1px solid var(--line-2)', background: 'var(--s1)' }}>
               <form onSubmit={(e) => { e.preventDefault(); handleTestChat(); }} style={{ display: 'flex', gap: '10px' }}>
                 <input 
                   type="text" 
                   value={userMessage} 
                   onChange={(e) => setUserMessage(e.target.value)} 
                   placeholder="Type your message..." 
-                  style={{ flex: 1, background: 'var(--bg-primary)', border: '1px solid #333', borderRadius: '8px', padding: '10px 14px', color: 'var(--text-primary)', fontSize: '13px' }}
+                  style={{ flex: 1, background: 'var(--bg-primary)', border: '1px solid var(--line-2)', borderRadius: '8px', padding: '10px 14px', color: 'var(--tx)', fontSize: '13px' }}
                 />
-                <button type="submit" disabled={isTyping || !userMessage.trim()} style={{ background: 'var(--teal)', color: '#000', border: 'none', borderRadius: '8px', padding: '0 16px', fontWeight: 'bold', cursor: 'pointer', opacity: (isTyping || !userMessage.trim()) ? 0.6 : 1 }}>Send</button>
+                <button type="submit" disabled={isTyping || !userMessage.trim()} style={{ background: 'var(--cyan)', color: '#000', border: 'none', borderRadius: '8px', padding: '0 16px', fontWeight: 'bold', cursor: 'pointer', opacity: (isTyping || !userMessage.trim()) ? 0.6 : 1 }}>Send</button>
               </form>
             </div>
           </div>

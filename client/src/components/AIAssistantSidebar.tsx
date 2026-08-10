@@ -45,21 +45,21 @@ export default function AIAssistantSidebar({
       // Headers
       if (trimmed.startsWith('###')) {
         return (
-          <h4 key={index} style={{ color: '#00bcd4', fontSize: '14px', fontWeight: '600', marginTop: '16px', marginBottom: '8px' }}>
+          <h4 key={index} style={{ color: 'var(--cyan-fg)', fontSize: '14px', fontWeight: '600', marginTop: '16px', marginBottom: '8px' }}>
             {trimmed.replace(/^###\s*/, '')}
           </h4>
         );
       }
       if (trimmed.startsWith('##')) {
         return (
-          <h3 key={index} style={{ color: '#00bcd4', fontSize: '15px', fontWeight: '700', marginTop: '20px', marginBottom: '10px', borderBottom: '1px solid rgba(255,255,255,0.05)', paddingBottom: '4px' }}>
+          <h3 key={index} style={{ color: 'var(--cyan-fg)', fontSize: '15px', fontWeight: '700', marginTop: '20px', marginBottom: '10px', borderBottom: '1px solid var(--s2)', paddingBottom: '4px' }}>
             {trimmed.replace(/^##\s*/, '')}
           </h3>
         );
       }
       if (trimmed.startsWith('#')) {
         return (
-          <h2 key={index} style={{ color: '#00bcd4', fontSize: '16px', fontWeight: '800', marginTop: '24px', marginBottom: '12px' }}>
+          <h2 key={index} style={{ color: 'var(--cyan-fg)', fontSize: '16px', fontWeight: '800', marginTop: '24px', marginBottom: '12px' }}>
             {trimmed.replace(/^#\s*/, '')}
           </h2>
         );
@@ -88,7 +88,7 @@ export default function AIAssistantSidebar({
       return trimmed === '' ? (
         <div key={index} style={{ height: '10px' }} />
       ) : (
-        <p key={index} style={{ margin: '0 0 10px 0', fontSize: '13px', lineHeight: '1.6', color: '#cccccc' }}>
+        <p key={index} style={{ margin: '0 0 10px 0', fontSize: '13px', lineHeight: '1.6', color: 'var(--tx-2)' }}>
           {line}
         </p>
       );
@@ -111,8 +111,8 @@ export default function AIAssistantSidebar({
       display: 'flex',
       flexDirection: 'column',
       zIndex: 999,
-      fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-      color: '#fff',
+      fontFamily: 'var(--ff-b)',
+      color: 'var(--tx)',
       animation: 'slideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1)'
     }}>
       <style>{`
@@ -144,7 +144,7 @@ export default function AIAssistantSidebar({
           style={{
             background: 'none',
             border: 'none',
-            color: 'var(--text-secondary)',
+            color: 'var(--tx-2)',
             cursor: 'pointer',
             fontSize: '18px',
             padding: '4px',
@@ -155,7 +155,7 @@ export default function AIAssistantSidebar({
             transition: 'background 0.2s, color 0.2s'
           }}
           onMouseEnter={e => {
-            e.currentTarget.style.background = 'rgba(255,255,255,0.05)';
+            e.currentTarget.style.background = 'var(--s2)';
             e.currentTarget.style.color = '#fff';
           }}
           onMouseLeave={e => {
@@ -192,7 +192,7 @@ export default function AIAssistantSidebar({
             </div>
 
             <div>
-              <span style={{ fontSize: '11px', fontWeight: '600', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '1px', display: 'block', marginBottom: '12px' }}>
+              <span style={{ fontSize: '11px', fontWeight: '600', color: 'var(--tx-3)', textTransform: 'uppercase', letterSpacing: '1px', display: 'block', marginBottom: '12px' }}>
                 Quick Suggestions
               </span>
               <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -201,7 +201,7 @@ export default function AIAssistantSidebar({
                     key={idx}
                     onClick={() => handleSuggestionClick(s)}
                     style={{
-                      background: 'rgba(255, 255, 255, 0.03)',
+                      background: 'var(--s1)',
                       border: '1px solid rgba(255, 255, 255, 0.06)',
                       borderRadius: '8px',
                       padding: '12px 14px',
@@ -218,7 +218,7 @@ export default function AIAssistantSidebar({
                       e.currentTarget.style.color = '#fff';
                     }}
                     onMouseLeave={e => {
-                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)';
+                      e.currentTarget.style.background = 'var(--s1)';
                       e.currentTarget.style.border = '1px solid rgba(255, 255, 255, 0.06)';
                       e.currentTarget.style.color = '#ddd';
                     }}
@@ -259,11 +259,11 @@ export default function AIAssistantSidebar({
                   width: '18px',
                   height: '18px',
                   border: '2px solid rgba(0, 188, 212, 0.2)',
-                  borderTopColor: '#00bcd4',
+                  borderTopColor: 'var(--cyan-fg)',
                   borderRadius: '50%',
                   animation: 'spin 0.8s linear infinite'
                 }} />
-                <span style={{ fontSize: '13px', color: '#00bcd4', fontWeight: '500' }}>AI is thinking...</span>
+                <span style={{ fontSize: '13px', color: 'var(--cyan-fg)', fontWeight: '500' }}>AI is thinking...</span>
                 <style>{`
                   @keyframes spin {
                     to { transform: rotate(360deg); }
@@ -295,7 +295,7 @@ export default function AIAssistantSidebar({
               border: '1px solid rgba(255, 255, 255, 0.1)',
               borderRadius: '8px',
               padding: '12px',
-              color: '#fff',
+              color: 'var(--tx)',
               fontSize: '13px',
               lineHeight: '1.5',
               outline: 'none',
@@ -304,7 +304,7 @@ export default function AIAssistantSidebar({
               transition: 'border-color 0.2s',
               fontFamily: 'inherit'
             }}
-            onFocus={e => e.currentTarget.style.borderColor = '#00bcd4'}
+            onFocus={e => e.currentTarget.style.borderColor = 'var(--cyan-fg)'}
             onBlur={e => e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.1)'}
           />
           <button

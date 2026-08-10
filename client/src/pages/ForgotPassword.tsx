@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import AuthShell, { AuthField } from '@/components/AuthShell';
 
 // Two-step password reset backed by /auth/forgot-password + /auth/reset-password.
 // Handles the Google-only-account case (backend signals googleOnly: true).
@@ -25,7 +26,7 @@ export default function ForgotPassword() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
       if (data.googleOnly) {
-        setMsg({ kind: 'info', text: 'This account uses Google Sign-In — use "Continue with Google" on the login page instead.' });
+        setMsg({ kind: 'info', text: 'This account uses Google Sign-In — use “Continue with Google” on the sign-in page instead.' });
       } else {
         setMsg({ kind: 'info', text: data.message || 'If an account exists, a code has been sent.' });
         setStep('reset');
@@ -48,61 +49,95 @@ export default function ForgotPassword() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `Reset failed (${res.status})`);
-      setMsg({ kind: 'success', text: 'Password updated — all old sessions were signed out. Redirecting to login…' });
+      setMsg({ kind: 'success', text: 'Password updated — all old sessions were signed out. Redirecting to sign in…' });
       setTimeout(() => navigate('/login'), 1500);
     } catch (err) {
       setMsg({ kind: 'error', text: err instanceof Error ? err.message : 'Reset failed' });
     } finally { setBusy(false); }
   };
 
-  const input = (props: React.InputHTMLAttributes<HTMLInputElement>) => (
-    <input {...props} style={{ padding: '13px 14px', background: 'var(--bg-secondary)', border: '1px solid var(--border)', borderRadius: 8, color: 'var(--text-primary, #fff)', fontSize: 14, width: '100%', ...props.style }} />
-  );
+  // Each kind maps to one state accent, the same three used everywhere else.
+  const tone = {
+    error:   { bg: 'rgba(248,113,113,0.08)', border: 'rgba(248,113,113,0.3)',  color: 'var(--err)' },
+    success: { bg: 'rgba(52,211,153,0.08)',  border: 'rgba(52,211,153,0.25)',  color: 'var(--lime)' },
+    info:    { bg: 'rgba(14,179,158,0.07)',  border: 'rgba(14,179,158,0.26)',  color: 'var(--cyan-fg)' },
+  } as const;
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-primary)', padding: 20 }}>
-      <div style={{ width: '100%', maxWidth: 420, border: '1px solid var(--border)', borderRadius: 14, padding: 32, background: 'var(--bg-secondary, rgba(255,255,255,0.02))' }}>
-        <h1 style={{ fontSize: 22, fontWeight: 800, marginBottom: 6, color: 'var(--text-primary, #fff)' }}>Reset your password</h1>
-        <p style={{ color: 'var(--text-secondary)', fontSize: 13.5, marginBottom: 22 }}>
-          {step === 'request'
-            ? 'Enter your account email and we’ll send you a 6-digit reset code.'
-            : `Enter the code we sent to ${email} and choose a new password.`}
-        </p>
-
-        {msg && (
-          <div style={{
-            padding: '10px 14px', borderRadius: 8, fontSize: 13, marginBottom: 16,
-            background: msg.kind === 'error' ? 'rgba(239,68,68,0.08)' : msg.kind === 'success' ? 'rgba(34,197,94,0.08)' : 'rgba(0,212,200,0.06)',
-            border: `1px solid ${msg.kind === 'error' ? 'rgba(239,68,68,0.35)' : msg.kind === 'success' ? 'rgba(34,197,94,0.35)' : 'rgba(0,212,200,0.3)'}`,
-            color: msg.kind === 'error' ? '#fca5a5' : msg.kind === 'success' ? '#4ade80' : 'var(--teal, #2dd4bf)',
-          }}>{msg.text}</div>
-        )}
-
-        {step === 'request' ? (
-          <form onSubmit={requestCode} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {input({ type: 'email', placeholder: 'you@company.com', value: email, onChange: (e) => setEmail((e.target as HTMLInputElement).value), autoFocus: true })}
-            <button type="submit" disabled={busy} className="btn btn-primary" style={{ padding: 12 }}>
-              {busy ? 'Sending…' : 'Send reset code'}
-            </button>
-          </form>
-        ) : (
-          <form onSubmit={doReset} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-            {input({ inputMode: 'numeric', maxLength: 6, placeholder: '6-digit code', value: otp, onChange: (e) => setOtp((e.target as HTMLInputElement).value.replace(/\D/g, '')), autoFocus: true, style: { textAlign: 'center', letterSpacing: 6, fontSize: 18 } })}
-            {input({ type: 'password', placeholder: 'New password (min 8 chars)', value: newPassword, onChange: (e) => setNewPassword((e.target as HTMLInputElement).value) })}
-            {input({ type: 'password', placeholder: 'Confirm new password', value: confirm, onChange: (e) => setConfirm((e.target as HTMLInputElement).value) })}
-            <button type="submit" disabled={busy} className="btn btn-primary" style={{ padding: 12 }}>
-              {busy ? 'Updating…' : 'Set new password'}
-            </button>
-            <button type="button" onClick={() => { setStep('request'); setMsg(null); }} style={{ background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: 13 }}>
-              ← Use a different email / resend code
-            </button>
-          </form>
-        )}
-
-        <div style={{ marginTop: 20, textAlign: 'center', fontSize: 13 }}>
-          <Link to="/login" style={{ color: 'var(--teal, #2dd4bf)' }}>Back to login</Link>
+    <AuthShell
+      kicker="Reset"
+      title="Reset your password"
+      subtitle={
+        step === 'request'
+          ? 'Enter your account email and we’ll send a 6-digit reset code.'
+          : `Enter the code we sent to ${email} and choose a new password.`
+      }
+      footer={
+        <div style={{ marginTop: 22, textAlign: 'center', fontSize: 13.5, color: 'var(--tx-2)' }}>
+          Remembered it?{' '}
+          <Link to="/login" style={{ color: 'var(--cyan-fg)', fontWeight: 600 }}>Back to sign in</Link>
         </div>
-      </div>
-    </div>
+      }
+    >
+      {msg && (
+        <div
+          className="rz-enter"
+          style={{
+            padding: '11px 13px', borderRadius: 10, fontSize: 13, marginBottom: 14, lineHeight: 1.5,
+            background: tone[msg.kind].bg,
+            border: `1px solid ${tone[msg.kind].border}`,
+            color: tone[msg.kind].color,
+          }}
+        >
+          {msg.text}
+        </div>
+      )}
+
+      {step === 'request' ? (
+        <form onSubmit={requestCode} className="rz-stack" style={{ gap: 14 }}>
+          <AuthField label="Work email">
+            <input
+              type="email" className="rz-input" placeholder="you@company.com" autoFocus
+              value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email"
+            />
+          </AuthField>
+          <button type="submit" className="rz-btn rz-btn-primary rz-btn-block" style={{ padding: 13, fontSize: 15 }} disabled={busy}>
+            {busy ? <><span className="rz-spinner" style={{ borderTopColor: 'var(--on-cyan)' }} /> Sending…</> : 'Send reset code'}
+          </button>
+        </form>
+      ) : (
+        <form onSubmit={doReset} className="rz-stack" style={{ gap: 14 }}>
+          <AuthField label="Reset code">
+            <input
+              inputMode="numeric" maxLength={6} className="rz-input" placeholder="123456" autoFocus
+              value={otp} onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
+              style={{ fontFamily: 'var(--ff-m)', textAlign: 'center', letterSpacing: 8, fontSize: 20, padding: 13 }}
+            />
+          </AuthField>
+          <AuthField label="New password">
+            <input
+              type="password" className="rz-input" placeholder="At least 8 characters"
+              value={newPassword} onChange={(e) => setNewPassword(e.target.value)} autoComplete="new-password"
+            />
+          </AuthField>
+          <AuthField label="Confirm password">
+            <input
+              type="password" className="rz-input" placeholder="Re-enter the new password"
+              value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password"
+            />
+          </AuthField>
+          <button type="submit" className="rz-btn rz-btn-primary rz-btn-block" style={{ padding: 13, fontSize: 15 }} disabled={busy}>
+            {busy ? <><span className="rz-spinner" style={{ borderTopColor: 'var(--on-cyan)' }} /> Updating…</> : 'Set new password'}
+          </button>
+          <button
+            type="button"
+            className="rz-btn rz-btn-ghost rz-btn-block"
+            onClick={() => { setStep('request'); setMsg(null); }}
+          >
+            ← Use a different email / resend code
+          </button>
+        </form>
+      )}
+    </AuthShell>
   );
 }

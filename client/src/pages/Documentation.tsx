@@ -1,50 +1,66 @@
 import { Link } from 'react-router-dom';
 
-export default function Documentation() {
-  const docCards = [
-    { icon: '📱', color: '#60a5fa', title: 'Getting Started', desc: 'Learn how to install and set up the Conversational AI Agent SDK' },
-    { icon: '🖥️', color: '#a78bfa', title: 'Client', desc: 'Initialize and configure the Conversational AI Agent client' },
-    { icon: '💬', color: '#34d399', title: 'Agent', desc: 'Create, manage, and customize AI agents' },
-    { icon: '📞', color: '#fbbf24', title: 'Call', desc: 'Manage call logs and dispatch calls' },
-    { icon: '⚡', color: '#ef4444', title: 'Integrations', desc: 'Connect with external services and APIs' },
-    { icon: '🗄️', color: '#3b82f6', title: 'Knowledge Base', desc: 'Manage files and knowledge for your agents' }
-  ];
+/**
+ * SDK documentation landing page.
+ *
+ * The card icons used to carry six arbitrary hexes (#60a5fa, #a78bfa, #34d399,
+ * #fbbf24, #ef4444, #3b82f6) that appeared nowhere else in the product and
+ * meant nothing — "Integrations" was red, which reads as an error state. The
+ * whole set now takes the one brand tint the design uses for a section mark,
+ * because these are six equal doors, not six severities.
+ *
+ * The fake video player is also gone: a play button over an empty black box
+ * that did nothing when clicked.
+ */
 
+const DOC_CARDS = [
+  { title: 'Getting started', desc: 'Install the SDK and make your first call.' },
+  { title: 'Client', desc: 'Initialise and configure the Spandan client.' },
+  { title: 'Agent', desc: 'Create, manage and customise AI agents.' },
+  { title: 'Call', desc: 'Place calls and read the call log.' },
+  { title: 'Integrations', desc: 'Connect external services and APIs.' },
+  { title: 'Knowledge base', desc: 'Manage the files your agents ground answers in.' },
+];
+
+export default function Documentation() {
   return (
-    <>
+    <div className="rz-page">
       <div className="container">
         <div className="breadcrumb">
           <Link to="/">Home</Link>
           <span>›</span>
-          <span style={{color:'var(--text-primary)'}}>Documentation</span>
+          <span style={{ color: 'var(--tx)' }}>Documentation</span>
         </div>
       </div>
 
       <div className="doc-hero">
-        <div className="badge" style={{margin:'0 auto 20px'}}>Developer Documentation</div>
-        <h1>Conversational AI Agent SDK</h1>
-        <p className="subtitle">Build powerful AI voice agents with our easy-to-use SDK</p>
+        <div className="rz-eyebrow-pill" style={{ marginBottom: 18 }}>Developer documentation</div>
+        <h1 className="rz-h1" style={{ fontSize: 'clamp(30px, 4vw, 46px)' }}>Spandan SDK</h1>
+        <p className="rz-sub-lg" style={{ margin: '14px auto 0', maxWidth: 560 }}>
+          Build voice agents against the same API the dashboard uses.
+        </p>
         <div className="doc-actions">
-          <a href="#" className="btn btn-primary btn-lg">Get Started →</a>
-          <a href="https://github.com/omnidimension" className="btn btn-secondary btn-lg" target="_blank" rel="noreferrer">
+          <Link to="/docs" className="rz-btn rz-btn-primary rz-btn-lg">Get started →</Link>
+          <a
+            href="https://github.com/omnidimension"
+            className="rz-btn rz-btn-secondary rz-btn-lg"
+            target="_blank"
+            rel="noreferrer"
+          >
             View SDK on GitHub ↗
           </a>
         </div>
       </div>
 
       <div className="container">
-        <div className="video-container animate-me">
-          <div className="video-overlay">
-            <div className="video-title">Conversational <span style={{fontStyle:'italic'}}>AI</span> Agent</div>
-            <button className="video-play-btn">▶</button>
-            <div className="video-badge">VIDEO TUTORIAL</div>
-          </div>
-        </div>
-
-        <div className="doc-grid" style={{marginBottom:'80px'}}>
-          {docCards.map((card, i) => (
-            <div className="doc-card animate-me" key={i}>
-              <div className="doc-card-icon" style={{color: card.color}}>{card.icon}</div>
+        <div className="doc-grid" style={{ marginBottom: 80 }}>
+          {DOC_CARDS.map((card) => (
+            <div className="doc-card" key={card.title}>
+              <div className="doc-card-icon">
+                <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z" />
+                </svg>
+              </div>
               <h3>{card.title}</h3>
               <p>{card.desc}</p>
               <div className="learn-more">Learn more →</div>
@@ -52,13 +68,17 @@ export default function Documentation() {
           ))}
         </div>
 
-        <div className="cta-box animate-me" style={{marginBottom: '80px'}}>
-          <div className="badge" style={{margin:'0 auto 20px'}}>Developer API</div>
-          <h2>Ready to build your AI voice agent?</h2>
-          <p>Get started with Conversational AI Agent SDK today and create powerful AI voice experiences for your users.</p>
-          <Link to="/dashboard" className="btn btn-primary btn-lg">Start Building →</Link>
+        <div className="cta-box" style={{ marginBottom: 80 }}>
+          <div className="rz-eyebrow-pill" style={{ marginBottom: 18 }}>Developer API</div>
+          <h2 className="rz-h2" style={{ fontSize: 'clamp(24px, 3vw, 32px)' }}>
+            Ready to build your voice agent?
+          </h2>
+          <p className="rz-sub-lg" style={{ margin: '14px auto 28px', maxWidth: 560 }}>
+            Start with the SDK today and put a voice in front of your users.
+          </p>
+          <Link to="/dashboard" className="rz-btn rz-btn-primary rz-btn-lg">Start building →</Link>
         </div>
       </div>
-    </>
+    </div>
   );
 }

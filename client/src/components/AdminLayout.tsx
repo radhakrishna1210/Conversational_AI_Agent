@@ -153,8 +153,11 @@ function AdminShell() {
       style={{
         width: SIDEBAR_W,
         flexShrink: 0,
-        background: 'var(--bg-card)',
-        borderRight: '1px solid var(--border)',
+        // --bg-2, not --s1: the rail sits *behind* the content plane in the
+        // Resonance stack, so it reads as the recessed edge of the console
+        // rather than a card floating next to one.
+        background: 'var(--bg-2)',
+        borderRight: '1px solid var(--line)',
         display: 'flex',
         flexDirection: 'column',
         height: '100vh',
@@ -166,19 +169,19 @@ function AdminShell() {
         overflow: 'hidden',
       }}
     >
-      <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--border)' }}>
+      <div style={{ padding: '18px 20px', borderBottom: '1px solid var(--line)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 9 }}>
           <div style={{
             width: 30, height: 30, borderRadius: 8, background: 'rgba(14,179,158,0.14)',
             display: 'grid', placeItems: 'center', flexShrink: 0,
           }}>
-            <Shield size={17} style={{ color: '#0eb39e' }} />
+            <Shield size={17} style={{ color: 'var(--cyan-fg)' }} />
           </div>
           <div style={{ minWidth: 0 }}>
-            <div style={{ fontSize: 14, fontWeight: 800, color: 'var(--text-primary)', lineHeight: 1.2 }}>
+            <div style={{ fontFamily: 'var(--ff-d)', fontSize: 14, fontWeight: 700, color: 'var(--tx)', lineHeight: 1.2 }}>
               Admin Console
             </div>
-            <div style={{ fontSize: 10, fontWeight: 700, color: '#f87171', letterSpacing: '0.5px' }}>
+            <div style={{ fontFamily: 'var(--ff-m)', fontSize: 10, fontWeight: 700, color: 'var(--err)', letterSpacing: '0.5px' }}>
               SUPERADMIN
             </div>
           </div>
@@ -191,9 +194,9 @@ function AdminShell() {
         {NAV.map((group) => (
           <div key={group.title} style={{ marginBottom: 12 }}>
             <div style={{
-              fontSize: 10, fontWeight: 800, letterSpacing: '0.7px',
-              color: 'var(--text-secondary)', opacity: 0.65,
-              textTransform: 'uppercase', padding: '0 10px', marginBottom: 4,
+              fontFamily: 'var(--ff-m)', fontSize: 10, fontWeight: 700, letterSpacing: '0.7px',
+              color: 'var(--tx-3)',
+              textTransform: 'uppercase', padding: '0 10px', marginBottom: 6,
             }}>
               {group.title}
             </div>
@@ -207,7 +210,7 @@ function AdminShell() {
                     display: 'flex', alignItems: 'center', gap: 10,
                     padding: '8px 10px', borderRadius: 8, marginBottom: 2,
                     fontSize: 13.5, fontWeight: active ? 700 : 500,
-                    color: active ? '#0eb39e' : 'var(--text-secondary)',
+                    color: active ? 'var(--cyan-fg)' : 'var(--tx-2)',
                     background: active ? 'rgba(14,179,158,0.10)' : 'transparent',
                     textDecoration: 'none',
                     transition: 'background 0.15s, color 0.15s',
@@ -222,13 +225,13 @@ function AdminShell() {
         ))}
       </nav>
 
-      <div style={{ padding: 12, borderTop: '1px solid var(--border)' }}>
+      <div style={{ padding: 12, borderTop: '1px solid var(--line)' }}>
         <button
           onClick={logout}
           style={{
             width: '100%', display: 'flex', alignItems: 'center', gap: 9,
-            padding: '9px 10px', borderRadius: 8, border: '1px solid var(--border)',
-            background: 'transparent', color: 'var(--text-secondary)',
+            padding: '9px 10px', borderRadius: 8, border: '1px solid var(--line)',
+            background: 'transparent', color: 'var(--tx-2)',
             fontSize: 13, fontWeight: 600, cursor: 'pointer',
           }}
         >
@@ -239,7 +242,16 @@ function AdminShell() {
   );
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh', background: 'var(--bg-primary, #0b0f14)' }}>
+    <div
+      style={{
+        display: 'flex',
+        minHeight: '100vh',
+        // Same ambient wash the customer app uses, so the console reads as the
+        // same product seen from the operator's side.
+        background:
+          'radial-gradient(900px 400px at 82% -10%, rgba(129,140,248,0.05), transparent 60%), var(--bg)',
+      }}
+    >
       {/* Desktop sidebar */}
       <div className="admin-sidebar-desktop">{sidebar}</div>
 
@@ -260,8 +272,8 @@ function AdminShell() {
         <header
           style={{
             height: 56, flexShrink: 0,
-            borderBottom: '1px solid var(--border)',
-            background: 'var(--bg-card)',
+            borderBottom: '1px solid var(--line)',
+            background: 'var(--bg-2)',
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
             padding: '0 18px', position: 'sticky', top: 0, zIndex: 40,
           }}
@@ -271,7 +283,7 @@ function AdminShell() {
               className="admin-menu-btn"
               onClick={() => setMobileOpen((v) => !v)}
               style={{
-                background: 'transparent', border: 'none', color: 'var(--text-secondary)',
+                background: 'transparent', border: 'none', color: 'var(--tx-2)',
                 cursor: 'pointer', padding: 4, display: 'none',
               }}
               aria-label="Toggle navigation"
@@ -288,26 +300,28 @@ function AdminShell() {
               aria-expanded={menuOpen}
               style={{
                 display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer',
-                background: 'transparent', border: '1px solid var(--border)',
-                borderRadius: 20, padding: '5px 10px 5px 6px', color: 'var(--text-primary)',
+                background: 'transparent', border: '1px solid var(--line)',
+                borderRadius: 20, padding: '5px 10px 5px 6px', color: 'var(--tx)',
               }}
             >
               <span style={{
-                width: 24, height: 24, borderRadius: '50%', background: '#0eb39e',
-                display: 'grid', placeItems: 'center', fontSize: 11, fontWeight: 800, color: '#04211d',
+                width: 24, height: 24, borderRadius: '50%',
+                background: 'linear-gradient(135deg, var(--cyan), var(--violet))',
+                display: 'grid', placeItems: 'center',
+                fontFamily: 'var(--ff-d)', fontSize: 11, fontWeight: 700, color: 'var(--on-cyan)',
               }}>
                 {email.slice(0, 1).toUpperCase()}
               </span>
               <span style={{ fontSize: 12.5, maxWidth: 180, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
                 {email}
               </span>
-              <ChevronDown size={14} style={{ color: 'var(--text-secondary)' }} />
+              <ChevronDown size={14} style={{ color: 'var(--tx-2)' }} />
             </button>
 
             {menuOpen && (
               <div style={{
                 position: 'absolute', right: 0, top: '110%', minWidth: 180,
-                background: 'var(--bg-card)', border: '1px solid var(--border)',
+                background: 'var(--s1)', border: '1px solid var(--line-2)',
                 borderRadius: 10, padding: 6, zIndex: 50,
                 boxShadow: '0 10px 30px rgba(0,0,0,0.35)',
               }}>
@@ -316,7 +330,7 @@ function AdminShell() {
                   style={{
                     width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', gap: 8,
                     padding: '8px 10px', borderRadius: 7, border: 'none', background: 'transparent',
-                    color: 'var(--text-primary)', fontSize: 13, cursor: 'pointer',
+                    color: 'var(--tx)', fontSize: 13, cursor: 'pointer',
                   }}
                 >
                   <LogOut size={14} /> Sign out
@@ -326,8 +340,10 @@ function AdminShell() {
           </div>
         </header>
 
-        <main style={{ flex: 1, padding: '26px 28px', minWidth: 0 }}>
-          <Outlet />
+        <main style={{ flex: 1, padding: '26px 28px 60px', minWidth: 0 }}>
+          <div className="rz-wrap-wide" style={{ maxWidth: 1160 }}>
+            <Outlet />
+          </div>
         </main>
       </div>
 
@@ -373,11 +389,11 @@ function Breadcrumb({ pathname }: { pathname: string }) {
 
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 7, fontSize: 13, minWidth: 0 }}>
-      <span style={{ color: 'var(--text-secondary)' }}>{label.group}</span>
+      <span style={{ color: 'var(--tx-2)' }}>{label.group}</span>
       {label.page && (
         <>
-          <span style={{ color: 'var(--text-secondary)', opacity: 0.5 }}>/</span>
-          <span style={{ color: 'var(--text-primary)', fontWeight: 700 }}>{label.page}</span>
+          <span style={{ color: 'var(--tx-2)', opacity: 0.5 }}>/</span>
+          <span style={{ color: 'var(--tx)', fontWeight: 700 }}>{label.page}</span>
         </>
       )}
     </div>

@@ -22,12 +22,12 @@ interface AuditRow {
 }
 
 const CATEGORY_COLOR: Record<string, string> = {
-  billing: '#f59e0b',
-  security: '#f87171',
-  user: '#818cf8',
-  plan: '#0eb39e',
-  number: '#38bdf8',
-  agent: '#c084fc',
+  billing: 'var(--warn)',
+  security: 'var(--err)',
+  user: 'var(--violet)',
+  plan: 'var(--cyan-fg)',
+  number: 'var(--cyan-fg)',
+  agent: 'var(--violet)',
 };
 
 const fmtTime = (iso: string) =>
@@ -69,15 +69,15 @@ export default function AdminAuditLog() {
       {/* Filters */}
       <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 18, alignItems: 'center' }}>
         <form onSubmit={applySearch} style={{ position: 'relative', flex: '1 1 240px', minWidth: 200 }}>
-          <Search size={14} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-secondary)' }} />
+          <Search size={14} style={{ position: 'absolute', left: 11, top: '50%', transform: 'translateY(-50%)', color: 'var(--tx-2)' }} />
           <input
             value={searchInput}
             onChange={(e) => setSearchInput(e.target.value)}
             placeholder="Search actor, target or action…"
             style={{
               width: '100%', padding: '8px 12px 8px 32px', borderRadius: 8,
-              border: '1px solid var(--border)', background: 'var(--bg-card)',
-              color: 'var(--text-primary)', fontSize: 13,
+              border: '1px solid var(--line)', background: 'var(--s1)',
+              color: 'var(--tx)', fontSize: 13,
             }}
           />
         </form>
@@ -95,8 +95,8 @@ export default function AdminAuditLog() {
           onClick={() => refetch()}
           style={{
             display: 'flex', alignItems: 'center', gap: 6, padding: '8px 12px',
-            borderRadius: 8, border: '1px solid var(--border)', background: 'var(--bg-card)',
-            color: 'var(--text-secondary)', fontSize: 13, cursor: 'pointer',
+            borderRadius: 8, border: '1px solid var(--line)', background: 'var(--s1)',
+            color: 'var(--tx-2)', fontSize: 13, cursor: 'pointer',
           }}
         >
           <RefreshCw size={13} style={{ animation: isFetching ? 'spin 1s linear infinite' : undefined }} />
@@ -120,16 +120,16 @@ export default function AdminAuditLog() {
       )}
 
       {logs.length > 0 && (
-        <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden', background: 'var(--bg-card)' }}>
+        <div style={{ border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', background: 'var(--s1)' }}>
           <div style={{ overflowX: 'auto' }}>
             <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13, minWidth: 760 }}>
               <thead>
-                <tr style={{ background: 'rgba(255,255,255,0.03)' }}>
+                <tr style={{ background: 'var(--bg-2)' }}>
                   {['Time', 'Actor', 'Action', 'Target', 'Outcome', ''].map((h) => (
                     <th key={h} style={{
-                      textAlign: 'left', padding: '10px 14px', fontSize: 11, fontWeight: 700,
-                      color: 'var(--text-secondary)', textTransform: 'uppercase', letterSpacing: '0.4px',
-                      borderBottom: '1px solid var(--border)', whiteSpace: 'nowrap',
+                      textAlign: 'left', padding: '11px 14px', fontFamily: 'var(--ff-m)', fontSize: 10.5, fontWeight: 500, letterSpacing: '1px',
+                      color: 'var(--tx-3)', textTransform: 'uppercase',
+                      borderBottom: '1px solid var(--line)', whiteSpace: 'nowrap',
                     }}>{h}</th>
                   ))}
                 </tr>
@@ -137,21 +137,21 @@ export default function AdminAuditLog() {
               <tbody>
                 {logs.map((row) => {
                   const open = expanded === row.id;
-                  const colour = CATEGORY_COLOR[row.category] ?? '#94a3b8';
+                  const colour = CATEGORY_COLOR[row.category] ?? 'var(--tx-2)';
                   return (
                     <>
                       <tr
                         key={row.id}
                         onClick={() => setExpanded(open ? null : row.id)}
-                        style={{ borderBottom: '1px solid var(--border)', cursor: 'pointer' }}
+                        style={{ borderBottom: '1px solid var(--line)', cursor: 'pointer' }}
                       >
-                        <td style={{ padding: '10px 14px', color: 'var(--text-secondary)', whiteSpace: 'nowrap' }}>
+                        <td style={{ padding: '10px 14px', color: 'var(--tx-2)', whiteSpace: 'nowrap' }}>
                           {fmtTime(row.createdAt)}
                         </td>
-                        <td style={{ padding: '10px 14px', color: 'var(--text-primary)' }}>
+                        <td style={{ padding: '10px 14px', color: 'var(--tx)' }}>
                           <div style={{ fontWeight: 600 }}>{row.actorEmail ?? 'system'}</div>
                           {row.actorIp && (
-                            <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{row.actorIp}</div>
+                            <div style={{ fontSize: 11, color: 'var(--tx-2)' }}>{row.actorIp}</div>
                           )}
                         </td>
                         <td style={{ padding: '10px 14px' }}>
@@ -162,27 +162,27 @@ export default function AdminAuditLog() {
                             {row.action}
                           </span>
                         </td>
-                        <td style={{ padding: '10px 14px', color: 'var(--text-primary)' }}>
+                        <td style={{ padding: '10px 14px', color: 'var(--tx)' }}>
                           {row.targetLabel ?? '—'}
                           {row.targetType && (
-                            <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{row.targetType}</div>
+                            <div style={{ fontSize: 11, color: 'var(--tx-2)' }}>{row.targetType}</div>
                           )}
                         </td>
                         <td style={{ padding: '10px 14px' }}>
                           <span style={{
                             fontSize: 11, fontWeight: 700,
-                            color: row.status === 'success' ? '#0eb39e' : '#f87171',
+                            color: row.status === 'success' ? 'var(--cyan-fg)' : 'var(--err)',
                           }}>
                             {row.status}
                           </span>
                         </td>
-                        <td style={{ padding: '10px 14px', color: 'var(--text-secondary)', fontSize: 11 }}>
+                        <td style={{ padding: '10px 14px', color: 'var(--tx-2)', fontSize: 11 }}>
                           {open ? 'hide' : 'details'}
                         </td>
                       </tr>
                       {open && (
                         <tr key={`${row.id}-detail`}>
-                          <td colSpan={6} style={{ padding: 0, borderBottom: '1px solid var(--border)' }}>
+                          <td colSpan={6} style={{ padding: 0, borderBottom: '1px solid var(--line)' }}>
                             <div style={{ padding: '14px 18px', background: 'rgba(255,255,255,0.02)', display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))' }}>
                               <Snippet label="Before" value={row.before} />
                               <Snippet label="After" value={row.after} />
@@ -202,9 +202,9 @@ export default function AdminAuditLog() {
           {/* Pagination */}
           <div style={{
             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '10px 14px', borderTop: '1px solid var(--border)', flexWrap: 'wrap', gap: 8,
+            padding: '10px 14px', borderTop: '1px solid var(--line)', flexWrap: 'wrap', gap: 8,
           }}>
-            <span style={{ fontSize: 12, color: 'var(--text-secondary)' }}>
+            <span style={{ fontSize: 12, color: 'var(--tx-2)' }}>
               {data!.total} entr{data!.total === 1 ? 'y' : 'ies'} · page {data!.page} of {Math.max(data!.pages, 1)}
             </span>
             <div style={{ display: 'flex', gap: 6 }}>
@@ -226,8 +226,8 @@ function Select({ value, onChange, options }: {
       value={value}
       onChange={(e) => onChange(e.target.value)}
       style={{
-        padding: '8px 12px', borderRadius: 8, border: '1px solid var(--border)',
-        background: 'var(--bg-card)', color: 'var(--text-primary)', fontSize: 13, cursor: 'pointer',
+        padding: '8px 12px', borderRadius: 8, border: '1px solid var(--line)',
+        background: 'var(--s1)', color: 'var(--tx)', fontSize: 13, cursor: 'pointer',
       }}
     >
       {options.map((o) => <option key={o.v} value={o.v}>{o.l}</option>)}
@@ -242,8 +242,8 @@ function PageBtn({ children, disabled, onClick }: { children: React.ReactNode; d
       onClick={onClick}
       style={{
         display: 'flex', alignItems: 'center', gap: 4, padding: '6px 10px', borderRadius: 7,
-        border: '1px solid var(--border)', background: 'transparent', fontSize: 12,
-        color: disabled ? 'var(--text-secondary)' : 'var(--text-primary)',
+        border: '1px solid var(--line)', background: 'transparent', fontSize: 12,
+        color: disabled ? 'var(--tx-2)' : 'var(--tx)',
         opacity: disabled ? 0.45 : 1, cursor: disabled ? 'not-allowed' : 'pointer',
       }}
     >
@@ -256,12 +256,12 @@ function Snippet({ label, value }: { label: string; value: unknown }) {
   if (value === null || value === undefined) return null;
   return (
     <div>
-      <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--text-secondary)', marginBottom: 4 }}>
+      <div style={{ fontSize: 10, fontWeight: 800, letterSpacing: '0.5px', textTransform: 'uppercase', color: 'var(--tx-2)', marginBottom: 4 }}>
         {label}
       </div>
       <pre style={{
         margin: 0, padding: '8px 10px', borderRadius: 7, background: 'rgba(0,0,0,0.25)',
-        border: '1px solid var(--border)', fontSize: 11.5, color: 'var(--text-primary)',
+        border: '1px solid var(--line)', fontSize: 11.5, color: 'var(--tx)',
         overflowX: 'auto', maxHeight: 220,
       }}>
         {typeof value === 'string' ? value : JSON.stringify(value, null, 2)}
@@ -274,9 +274,9 @@ function Notice({ children, tone }: { children: React.ReactNode; tone?: 'error' 
   return (
     <div style={{
       display: 'flex', alignItems: 'center', gap: 8, padding: '14px 16px', borderRadius: 10,
-      border: `1px solid ${tone === 'error' ? 'rgba(239,68,68,0.35)' : 'var(--border)'}`,
-      background: tone === 'error' ? 'rgba(239,68,68,0.08)' : 'var(--bg-card)',
-      color: tone === 'error' ? '#f87171' : 'var(--text-secondary)', fontSize: 13.5,
+      border: `1px solid ${tone === 'error' ? 'rgba(239,68,68,0.35)' : 'var(--line)'}`,
+      background: tone === 'error' ? 'rgba(239,68,68,0.08)' : 'var(--s1)',
+      color: tone === 'error' ? 'var(--err)' : 'var(--tx-2)', fontSize: 13.5,
     }}>
       {children}
     </div>

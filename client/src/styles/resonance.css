@@ -1,0 +1,793 @@
+/*
+  ── Resonance primitives ──
+
+  The Spandan_flagship_selection/*.dc.html designs are written entirely in
+  inline styles against one small token set. Every screen reuses the same dozen
+  shapes: a card, a mono micro-label, a display heading, a pill, a meter, a tab
+  group, a two-tone button pair, a rail row.
+
+  Porting those inline styles verbatim into 60 TSX files would have meant the
+  same 14 declarations pasted several hundred times, and no way to correct the
+  system once. This file names each shape instead, using the exact values from
+  the designs, so a page reads as `<div className="rz-card">` and every screen
+  moves together when a value changes.
+
+  The tokens (--s1, --line, --tx-2, --cyan, --ff-d …) are declared in
+  styles.css, which also carries the light-mode overrides — so everything here
+  is theme-aware for free. Only two aliases are new, below.
+*/
+
+:root {
+  /* The designs call the page canvas --bg / --bg-2; styles.css calls the same
+     two surfaces --bg-primary / --bg-secondary. Alias rather than redeclare. */
+  --bg: var(--bg-primary);
+  --bg-2: var(--bg-secondary);
+
+  /*
+    Ink drawn ON the cyan fill. #04211d in the designs — a near-black green that
+    reads warmer against teal than pure black. It is a constant in both themes
+    because --cyan is a fill that always pairs with dark text.
+  */
+  --on-cyan: #04211d;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   1 · SURFACES
+   ══════════════════════════════════════════════════════════════ */
+
+/* The workhorse. Every panel, tile and list container in the designs. */
+.rz-card {
+  background: var(--s1);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 18px;
+}
+
+.rz-card-sm { border-radius: 13px; padding: 15px; }
+.rz-card-lg { border-radius: 18px; padding: 22px; }
+.rz-card-flush { padding: 0; overflow: hidden; }
+
+/* Raised card — the create-hero on Dashboard, panel headers elsewhere. */
+.rz-card-raised {
+  background: linear-gradient(180deg, var(--s1), var(--bg-2));
+  border: 1px solid var(--line-2);
+  border-radius: 18px;
+  padding: 20px;
+}
+
+/* Interactive card (template tiles, agent cards, selectable rows). */
+.rz-card-btn {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: var(--s1);
+  border: 1px solid var(--line);
+  border-radius: 13px;
+  padding: 15px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease, border-color 0.15s ease, transform 0.15s ease;
+}
+.rz-card-btn:hover {
+  background: var(--s2);
+  border-color: var(--line-2);
+}
+.rz-card-btn.is-selected {
+  border-color: var(--cyan);
+  background: rgba(14, 179, 158, 0.07);
+}
+
+/*
+  The ambient wash behind every product screen. One radial, top-right, at 5–6%
+  — enough to stop a full-bleed dark canvas reading as flat, faint enough that
+  it never competes with a chart.
+*/
+.rz-page {
+  min-height: 100%;
+  background:
+    radial-gradient(900px 400px at 82% -10%, rgba(14, 179, 158, 0.05), transparent 60%),
+    var(--bg);
+}
+.rz-page-pad { padding: 22px; }
+
+/* Centred content column, used by the scrolling product pages. */
+.rz-wrap { max-width: 1080px; margin: 0 auto; }
+.rz-wrap-wide { max-width: 1240px; margin: 0 auto; }
+
+/*
+  Full-bleed escape hatch.
+
+  Most pages are a scrolling column inside .dashboard-content's 32px gutter and
+  1320px cap. The split views are not: a list beside a detail pane has to own
+  the viewport, scroll its two panes independently, and never let the page body
+  scroll behind them. A page opts in by making `.rz-fill` its root, and the
+  gutter is removed from the parent rather than negated with negative margins.
+*/
+.dashboard-content:has(> .rz-fill),
+.dashboard-content:has(> .rz-bleed) {
+  padding: 0;
+  max-width: none;
+}
+
+/*
+  Same gutter release, but the page still scrolls with the document. Product
+  pages want this because the ambient wash is a property of the *canvas*, not
+  of a card sitting in it — inset by 32px it reads as a stray glow rather than
+  light falling across the screen. The page then sets its own 22px padding via
+  .rz-page-pad, which is the figure the designs use.
+*/
+.rz-bleed { min-height: calc(100vh - var(--topbar-height, 56px)); }
+.rz-fill {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: calc(100vh - var(--topbar-height, 56px));
+}
+
+/* ══════════════════════════════════════════════════════════════
+   2 · TYPE ROLES
+   ══════════════════════════════════════════════════════════════ */
+
+/*
+  The mono face is the instrument voice: labels, counts, timestamps, IDs,
+  anything the eye scans rather than reads. Three sizes cover every use in the
+  designs.
+*/
+.rz-mono {
+  font-family: var(--ff-m);
+  font-size: 11px;
+  color: var(--tx-3);
+}
+.rz-mono-xs { font-family: var(--ff-m); font-size: 10.5px; color: var(--tx-3); }
+
+/* Uppercase section marker above a group of fields — "AI SUMMARY", "EXTRACTED". */
+.rz-label {
+  font-family: var(--ff-m);
+  font-size: 10.5px;
+  letter-spacing: 1px;
+  color: var(--tx-3);
+  text-transform: uppercase;
+}
+
+/* The cyan eyebrow that opens a page or a hero block. */
+.rz-eyebrow {
+  font-family: var(--ff-m);
+  font-size: 11px;
+  letter-spacing: 2px;
+  color: var(--cyan-fg);
+  text-transform: uppercase;
+}
+
+/* Bordered variant, used on marketing heroes. */
+.rz-eyebrow-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--ff-m);
+  font-size: 11px;
+  letter-spacing: 1.5px;
+  color: var(--cyan-fg);
+  border: 1px solid rgba(14, 179, 158, 0.3);
+  padding: 5px 11px;
+  border-radius: 100px;
+  text-transform: uppercase;
+}
+
+/*
+  Display headings. `h1…h6` already pick up --ff-d globally, but panels use the
+  display face at sizes that are not headings semantically — a card title is a
+  div, not an h3 — so the roles are also available as classes.
+*/
+.rz-h1 {
+  font-family: var(--ff-d);
+  font-weight: 700;
+  font-size: clamp(24px, 3vw, 34px);
+  letter-spacing: -0.02em;
+  line-height: 1.1;
+  color: var(--tx);
+  margin: 0;
+}
+.rz-h2 {
+  font-family: var(--ff-d);
+  font-weight: 700;
+  font-size: 26px;
+  letter-spacing: -0.01em;
+  color: var(--tx);
+  margin: 0;
+}
+.rz-h3 {
+  font-family: var(--ff-d);
+  font-weight: 700;
+  font-size: 19px;
+  color: var(--tx);
+  margin: 0;
+}
+/* Panel title — the most common heading in the product. */
+.rz-title {
+  font-family: var(--ff-d);
+  font-weight: 700;
+  font-size: 15px;
+  color: var(--tx);
+}
+.rz-title-lg { font-family: var(--ff-d); font-weight: 700; font-size: 16px; color: var(--tx); }
+
+/* The instrument number: a KPI, a count, a duration. */
+.rz-metric {
+  font-family: var(--ff-d);
+  font-weight: 700;
+  font-size: 26px;
+  line-height: 1.15;
+  color: var(--tx);
+}
+.rz-metric-sm { font-family: var(--ff-d); font-weight: 700; font-size: 16px; color: var(--tx); }
+
+.rz-sub { color: var(--tx-2); font-size: 13px; line-height: 1.55; }
+.rz-sub-lg { color: var(--tx-2); font-size: 15px; line-height: 1.6; }
+.rz-muted { color: var(--tx-3); }
+
+/* ══════════════════════════════════════════════════════════════
+   3 · PAGE HEADER
+   ══════════════════════════════════════════════════════════════ */
+
+.rz-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+.rz-head h1,
+.rz-head .rz-h1 { margin: 8px 0 0; }
+.rz-head-actions { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+
+/* ══════════════════════════════════════════════════════════════
+   4 · BUTTONS
+   ══════════════════════════════════════════════════════════════ */
+
+.rz-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: var(--ff-d);
+  font-weight: 600;
+  font-size: 13px;
+  padding: 8px 14px;
+  border-radius: 9px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease, opacity 0.15s ease;
+}
+
+/* Filled brand — one per screen region, the thing you actually want pressed. */
+.rz-btn-primary {
+  background: var(--cyan);
+  color: var(--on-cyan);
+  border-color: var(--cyan);
+}
+.rz-btn-primary:hover { background: var(--teal-hover); border-color: var(--teal-hover); box-shadow: var(--shadow-glow); }
+
+/* The default. Raised surface, stronger hairline. */
+.rz-btn-secondary {
+  background: var(--s2);
+  border-color: var(--line-2);
+  color: var(--tx);
+}
+.rz-btn-secondary:hover { background: var(--s3); }
+
+/* Quietest — a link that needs a hit area. */
+.rz-btn-ghost {
+  background: transparent;
+  border-color: var(--line);
+  color: var(--tx-2);
+}
+.rz-btn-ghost:hover { background: var(--s1); color: var(--tx); }
+
+.rz-btn-danger {
+  background: rgba(248, 113, 113, 0.12);
+  border-color: rgba(248, 113, 113, 0.3);
+  color: var(--err);
+}
+.rz-btn-danger:hover { background: rgba(248, 113, 113, 0.2); }
+
+.rz-btn-sm { font-size: 12.5px; padding: 7px 12px; border-radius: 8px; }
+.rz-btn-lg { font-size: 15px; padding: 12px 22px; border-radius: 11px; }
+.rz-btn-block { width: 100%; }
+.rz-btn:disabled { opacity: 0.55; cursor: not-allowed; box-shadow: none; }
+
+/* Square icon button — the topbar controls and row affordances. */
+.rz-icon-btn {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  background: var(--s1);
+  border: 1px solid var(--line);
+  color: var(--tx-2);
+  cursor: pointer;
+  position: relative;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+.rz-icon-btn:hover { background: var(--s2); color: var(--tx); border-color: var(--line-2); }
+
+/* ══════════════════════════════════════════════════════════════
+   5 · TABS, CHIPS & PILLS
+   ══════════════════════════════════════════════════════════════ */
+
+/* Segmented control — inset track, the active segment lifts to --s2. */
+.rz-tabs {
+  display: inline-flex;
+  gap: 4px;
+  background: var(--s1);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 3px;
+}
+.rz-tab {
+  background: transparent;
+  border: none;
+  color: var(--tx-3);
+  font-family: var(--ff-d);
+  font-weight: 600;
+  font-size: 13px;
+  padding: 7px 14px;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.rz-tab:hover { color: var(--tx-2); }
+.rz-tab.is-active { background: var(--s2); color: var(--tx); }
+
+/* Underline tabs, for in-panel switching where a track would be too heavy. */
+.rz-utabs { display: flex; gap: 4px; border-bottom: 1px solid var(--line); }
+.rz-utab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--tx-3);
+  font-family: var(--ff-d);
+  font-weight: 600;
+  font-size: 13.5px;
+  padding: 10px 14px;
+  margin-bottom: -1px;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+.rz-utab:hover { color: var(--tx-2); }
+.rz-utab.is-active { color: var(--cyan-fg); border-bottom-color: var(--cyan); }
+
+/* Filter chip. */
+.rz-chip {
+  background: var(--s1);
+  border: 1px solid var(--line);
+  color: var(--tx-2);
+  font-size: 12.5px;
+  font-weight: 500;
+  padding: 6px 12px;
+  border-radius: 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+}
+.rz-chip:hover { background: var(--s2); border-color: var(--line-2); color: var(--tx); }
+.rz-chip.is-active {
+  background: rgba(14, 179, 158, 0.12);
+  border-color: rgba(14, 179, 158, 0.4);
+  color: var(--cyan-fg);
+}
+
+/*
+  Status pill. Colour is never decorative here — each variant names an outcome,
+  so the same green always means the same thing across Calls, Campaigns and
+  Admin. Base + variant, so a new status is one tint, not a new shape.
+*/
+.rz-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--ff-m);
+  font-size: 10.5px;
+  letter-spacing: 0.3px;
+  padding: 3px 9px;
+  border-radius: 100px;
+  border: 1px solid transparent;
+  white-space: nowrap;
+}
+.rz-pill-ok      { background: rgba(52, 211, 153, 0.1);  border-color: rgba(52, 211, 153, 0.24);  color: var(--lime); }
+.rz-pill-info    { background: rgba(14, 179, 158, 0.1);  border-color: rgba(14, 179, 158, 0.26);  color: var(--cyan-fg); }
+.rz-pill-think   { background: rgba(129, 140, 248, 0.1); border-color: rgba(129, 140, 248, 0.26); color: var(--violet); }
+.rz-pill-warn    { background: rgba(245, 158, 11, 0.1);  border-color: rgba(245, 158, 11, 0.26);  color: var(--warn); }
+.rz-pill-speak   { background: rgba(249, 115, 22, 0.1);  border-color: rgba(249, 115, 22, 0.26);  color: var(--coral); }
+.rz-pill-err     { background: rgba(248, 113, 113, 0.1); border-color: rgba(248, 113, 113, 0.26); color: var(--err); }
+.rz-pill-idle    { background: var(--s2);                border-color: var(--line-2);             color: var(--tx-3); }
+
+/* A key/value tag, e.g. "✓ Slack" on a delivered-to row. */
+.rz-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--ff-m);
+  font-size: 10.5px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: var(--s2);
+  border: 1px solid var(--line-2);
+  color: var(--tx-2);
+}
+.rz-tag-ok { background: rgba(52, 211, 153, 0.08); border-color: rgba(52, 211, 153, 0.22); color: var(--lime); }
+
+/* Live indicator — a dot that breathes. */
+.rz-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--lime);
+  box-shadow: 0 0 8px var(--lime);
+  flex-shrink: 0;
+  display: inline-block;
+}
+.rz-dot-live { animation: rz-blink 2s infinite; }
+.rz-dot-cyan { background: var(--cyan); box-shadow: 0 0 8px var(--cyan); }
+.rz-dot-warn { background: var(--warn); box-shadow: 0 0 8px var(--warn); }
+.rz-dot-err  { background: var(--err);  box-shadow: 0 0 8px var(--err); }
+.rz-dot-idle { background: var(--tx-3); box-shadow: none; }
+
+@keyframes rz-blink { 0%, 100% { opacity: 1; } 50% { opacity: 0.3; } }
+@keyframes rz-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes rz-spin { to { transform: rotate(360deg); } }
+
+.rz-enter { animation: rz-in 0.28s ease both; }
+@media (prefers-reduced-motion: reduce) {
+  .rz-enter, .rz-dot-live { animation: none; }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   6 · METERS & STATS
+   ══════════════════════════════════════════════════════════════ */
+
+/* Track + fill. --s3 exists specifically to be the unfilled part. */
+.rz-meter {
+  height: 7px;
+  border-radius: 5px;
+  background: var(--s3);
+  overflow: hidden;
+  display: flex;
+}
+.rz-meter-lg { height: 8px; }
+.rz-meter-fill {
+  height: 100%;
+  background: var(--cyan);
+  border-radius: inherit;
+  transition: width 0.4s ease;
+}
+.rz-meter-fill-violet { background: var(--violet); opacity: 0.6; }
+.rz-meter-fill-lime { background: var(--lime); }
+.rz-meter-fill-coral { background: var(--coral); }
+.rz-meter-fill-warn { background: var(--warn); }
+.rz-meter-fill-grad { background: linear-gradient(90deg, var(--coral), var(--lime)); }
+
+/* KPI tile: mono label, display number, coloured delta. */
+.rz-stat {
+  background: var(--s1);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px;
+  min-width: 0;
+}
+.rz-stat-label { font-family: var(--ff-m); font-size: 10.5px; color: var(--tx-3); }
+.rz-stat-value { font-family: var(--ff-d); font-weight: 700; font-size: 26px; margin: 8px 0 2px; color: var(--tx); }
+.rz-stat-delta { font-family: var(--ff-m); font-size: 11px; color: var(--tx-3); }
+.rz-stat-delta.is-up { color: var(--lime); }
+.rz-stat-delta.is-down { color: var(--coral); }
+
+/* Responsive KPI row: as many as fit, never fewer than one. */
+.rz-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(160px, 100%), 1fr));
+  gap: 14px;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   7 · FORMS
+   ══════════════════════════════════════════════════════════════ */
+
+.rz-field { display: flex; flex-direction: column; gap: 7px; }
+.rz-field-label { font-size: 12.5px; font-weight: 600; color: var(--tx-2); }
+.rz-field-hint { font-family: var(--ff-m); font-size: 11px; color: var(--tx-3); line-height: 1.5; }
+.rz-field-error { font-size: 12px; color: var(--err); }
+
+.rz-input,
+.rz-select,
+.rz-textarea {
+  width: 100%;
+  background: var(--s2);
+  border: 1px solid var(--line-2);
+  color: var(--tx);
+  font-family: var(--ff-b);
+  font-size: 13.5px;
+  line-height: 1.5;
+  padding: 10px 12px;
+  border-radius: 10px;
+  outline: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.rz-textarea { resize: vertical; min-height: 96px; padding: 13px; }
+.rz-select { appearance: none; padding-right: 32px; cursor: pointer; }
+.rz-input::placeholder,
+.rz-textarea::placeholder { color: var(--tx-3); }
+.rz-input:focus,
+.rz-select:focus,
+.rz-textarea:focus {
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 3px rgba(14, 179, 158, 0.15);
+}
+.rz-input:disabled,
+.rz-select:disabled,
+.rz-textarea:disabled { opacity: 0.6; cursor: not-allowed; }
+
+/* Search box — the topbar and every list header use this exact shape. */
+.rz-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--s1);
+  border: 1px solid var(--line-2);
+  border-radius: 9px;
+  padding: 8px 12px;
+  min-width: 0;
+}
+.rz-search input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--tx);
+  font-family: var(--ff-b);
+  font-size: 13px;
+  outline: none;
+}
+.rz-search input::placeholder { color: var(--tx-3); }
+.rz-kbd {
+  font-family: var(--ff-m);
+  font-size: 10.5px;
+  color: var(--tx-3);
+  border: 1px solid var(--line);
+  padding: 1px 6px;
+  border-radius: 5px;
+  white-space: nowrap;
+}
+
+/* Toggle switch. */
+.rz-switch {
+  position: relative;
+  width: 38px;
+  height: 21px;
+  border-radius: 100px;
+  background: var(--s3);
+  border: 1px solid var(--line-2);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.18s ease, border-color 0.18s ease;
+  padding: 0;
+}
+.rz-switch::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--tx-2);
+  transition: transform 0.18s ease, background 0.18s ease;
+}
+.rz-switch.is-on { background: var(--cyan); border-color: var(--cyan); }
+.rz-switch.is-on::after { transform: translateX(17px); background: var(--on-cyan); }
+
+/* ══════════════════════════════════════════════════════════════
+   8 · TABLES & LISTS
+   ══════════════════════════════════════════════════════════════ */
+
+.rz-table-wrap { overflow-x: auto; }
+.rz-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+.rz-table th {
+  font-family: var(--ff-m);
+  font-size: 10.5px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--tx-3);
+  font-weight: 500;
+  text-align: left;
+  padding: 11px 16px;
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  background: var(--bg-2);
+}
+.rz-table td {
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--line);
+  color: var(--tx-2);
+  vertical-align: middle;
+}
+.rz-table tbody tr:last-child td { border-bottom: none; }
+.rz-table tbody tr:hover td { background: var(--s2); }
+.rz-table td.rz-td-strong { color: var(--tx); font-weight: 600; }
+.rz-table td.rz-td-mono { font-family: var(--ff-m); font-size: 12px; }
+.rz-table td.rz-td-right,
+.rz-table th.rz-td-right { text-align: right; }
+
+/* Selectable list row — the calls list, agent list, campaign list. */
+.rz-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+  text-align: left;
+  padding: 13px 16px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--line);
+  border-left: 2px solid transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.rz-row:hover { background: var(--s1); }
+.rz-row.is-active {
+  background: var(--s1);
+  border-left-color: var(--cyan);
+}
+
+/* Split view: a scrolling list beside a detail pane. Used by Calls, Campaigns
+   and the admin console. */
+.rz-split {
+  display: grid;
+  grid-template-columns: minmax(300px, 360px) minmax(0, 1fr);
+  overflow: hidden;
+}
+.rz-split-list {
+  border-right: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+.rz-split-detail { display: flex; flex-direction: column; overflow: hidden; min-width: 0; }
+@media (max-width: 820px) {
+  .rz-split { grid-template-columns: minmax(0, 1fr); }
+  .rz-split-list { border-right: none; border-bottom: 1px solid var(--line); }
+}
+
+/* ══════════════════════════════════════════════════════════════
+   9 · EMPTY / LOADING STATES
+   ══════════════════════════════════════════════════════════════ */
+
+.rz-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  text-align: center;
+  padding: 56px 24px;
+  color: var(--tx-3);
+}
+.rz-empty-mark {
+  width: 46px;
+  height: 46px;
+  border-radius: 13px;
+  display: grid;
+  place-items: center;
+  background: var(--s2);
+  border: 1px solid var(--line-2);
+  color: var(--cyan-fg);
+  margin-bottom: 4px;
+}
+.rz-empty-title { font-family: var(--ff-d); font-weight: 700; font-size: 16px; color: var(--tx); }
+.rz-empty-text { font-size: 13px; color: var(--tx-3); max-width: 380px; line-height: 1.55; }
+
+.rz-skeleton {
+  background: linear-gradient(90deg, var(--s1), var(--s2), var(--s1));
+  background-size: 200% 100%;
+  animation: rz-shimmer 1.4s linear infinite;
+  border-radius: 8px;
+}
+@keyframes rz-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .rz-skeleton { animation: none; } }
+
+.rz-spinner {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  border: 2px solid var(--line-2);
+  border-top-color: var(--cyan);
+  animation: rz-spin 0.7s linear infinite;
+  flex-shrink: 0;
+}
+
+/* ══════════════════════════════════════════════════════════════
+   10 · LAYOUT HELPERS
+   ══════════════════════════════════════════════════════════════
+
+   Deliberately few. These exist because the designs repeat them on nearly
+   every screen; anything more specific belongs in the page.
+*/
+
+.rz-stack { display: flex; flex-direction: column; gap: 14px; }
+.rz-stack-sm { display: flex; flex-direction: column; gap: 8px; }
+.rz-cluster { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.rz-cluster-sm { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.rz-between { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.rz-spacer { margin-left: auto; }
+
+.rz-grid-2 { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.rz-grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; }
+.rz-grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+.rz-grid-main { display: grid; grid-template-columns: 1.5fr 1fr; gap: 14px; }
+
+@media (max-width: 1000px) {
+  .rz-grid-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .rz-grid-main { grid-template-columns: minmax(0, 1fr); }
+}
+@media (max-width: 760px) {
+  .rz-grid-2,
+  .rz-grid-3,
+  .rz-grid-4 { grid-template-columns: minmax(0, 1fr); }
+  .rz-page-pad { padding: 16px; }
+  .rz-card { padding: 15px; }
+}
+
+.rz-divider { height: 1px; background: var(--line); border: none; margin: 0; }
+
+/* Square icon plate that fronts a card or list row. */
+.rz-mark {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 9px;
+  background: rgba(14, 179, 158, 0.12);
+  color: var(--cyan-fg);
+  flex-shrink: 0;
+}
+.rz-mark-lg { width: 42px; height: 42px; border-radius: 12px; }
+.rz-mark-violet { background: rgba(129, 140, 248, 0.12); color: var(--violet); }
+.rz-mark-lime   { background: rgba(52, 211, 153, 0.12);  color: var(--lime); }
+.rz-mark-coral  { background: rgba(249, 115, 22, 0.12);  color: var(--coral); }
+.rz-mark-warn   { background: rgba(245, 158, 11, 0.12);  color: var(--warn); }
+.rz-mark-neutral{ background: var(--s2); border: 1px solid var(--line-2); color: var(--tx-2); }
+
+/* Gradient avatar — cyan→violet, the identity mark used in every topbar. */
+.rz-avatar {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--cyan), var(--violet));
+  font-family: var(--ff-d);
+  font-weight: 700;
+  font-size: 12px;
+  color: var(--on-cyan);
+  flex-shrink: 0;
+  user-select: none;
+}
+
+/* Truncation, needed constantly in the split layouts. */
+.rz-truncate {
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}

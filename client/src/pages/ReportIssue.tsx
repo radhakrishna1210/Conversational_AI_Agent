@@ -116,71 +116,75 @@ if (description.length < 20) {
   };
 
   return (
-    <>
-      <div className="page-hero">
-        <div className="container">
-          <h1>Report Issue</h1>
-          <p>Tell us what went wrong and attach a screenshot if you have one.</p>
-        </div>
-      </div>
+    <div className="rz-page" style={{ padding: '48px 24px 80px' }}>
+      <div className="rz-wrap" style={{ maxWidth: 680 }}>
+        <div className="rz-eyebrow">Support</div>
+        <h1 className="rz-h1" style={{ fontSize: 'clamp(26px, 3vw, 38px)', margin: '10px 0 6px' }}>
+          Report an issue
+        </h1>
+        <p className="rz-sub-lg" style={{ margin: '0 0 22px' }}>
+          Tell us what broke. Include the steps if you can — it goes straight to on-call.
+        </p>
 
-      <div className="container" style={{ paddingBottom: '80px' }}>
-        <div className="form-card">
-          <form ref={formRef} onSubmit={handleSubmit}>
-            <div className="form-group">
-              <label htmlFor="issueTitle" className="form-label">Issue Title</label>
+        <div className="rz-card rz-card-lg" style={{ borderRadius: 18 }}>
+          <form ref={formRef} onSubmit={handleSubmit} className="rz-stack" style={{ gap: 16 }}>
+            <div className="rz-field">
+              <label htmlFor="issueTitle" className="rz-field-label">Issue title</label>
               <input
                 id="issueTitle"
                 name="issueTitle"
                 type="text"
-                placeholder="Example: Unable to save campaign settings"
-                className="form-input"
+                placeholder="Unable to save campaign settings"
+                className="rz-input"
                 required
               />
             </div>
 
-            <div className="form-group">
-              <label htmlFor="description" className="form-label">Description</label>
+            <div className="rz-field">
+              <label htmlFor="description" className="rz-field-label">What happened?</label>
               <textarea
                 id="description"
                 name="description"
                 rows={6}
-                placeholder="Describe the issue and steps to reproduce it."
-                className="form-textarea"
+                placeholder="Describe the issue and the steps to reproduce it."
+                className="rz-textarea"
                 required
               />
             </div>
 
-            <div className="form-group">
-              <label htmlFor="screenshot" className="form-label">Screenshot (optional)</label>
+            <div className="rz-field">
+              <label htmlFor="screenshot" className="rz-field-label">
+                Screenshot <span className="rz-muted" style={{ fontWeight: 400 }}>(optional)</span>
+              </label>
               <input
                 id="screenshot"
                 name="screenshot"
                 type="file"
                 accept="image/png,image/jpeg,image/gif,image/webp"
-                className="form-input"
+                className="rz-input"
+                style={{ padding: 9 }}
                 onChange={handleFileChange}
               />
-              <p className="form-note" style={{ marginTop: '6px' }}>
-                PNG, JPEG, GIF or WebP, up to {MAX_SCREENSHOT_MB} MB. It is visible only to our
-                support team, so avoid including anything you would not share with us.
-              </p>
+              <div className="rz-field-hint">
+                PNG, JPEG, GIF or WebP, up to {MAX_SCREENSHOT_MB} MB. Visible only to our support
+                team — avoid anything you would not want to share with us.
+              </div>
 
               {previewUrl && screenshot && (
-                <div style={{ marginTop: '12px' }}>
+                <div style={{ marginTop: 12 }}>
                   <img
                     src={previewUrl}
                     alt="Screenshot preview"
-                    style={{ maxWidth: '100%', maxHeight: '240px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.12)', display: 'block' }}
+                    style={{ maxWidth: '100%', maxHeight: 240, borderRadius: 10, border: '1px solid var(--line-2)', display: 'block' }}
                   />
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginTop: '8px' }}>
-                    <span className="form-note" style={{ margin: 0 }}>
+                  <div className="rz-cluster-sm" style={{ marginTop: 8 }}>
+                    <span className="rz-mono-xs">
                       {screenshot.name} · {(screenshot.size / 1024 / 1024).toFixed(2)} MB
                     </span>
                     <button
                       type="button"
                       onClick={clearScreenshot}
-                      style={{ background: 'none', border: 'none', padding: 0, color: 'var(--danger, #e53e3e)', cursor: 'pointer', fontSize: '13px' }}
+                      style={{ background: 'none', border: 'none', padding: 0, color: 'var(--err)', cursor: 'pointer', fontSize: 12.5 }}
                     >
                       Remove
                     </button>
@@ -189,30 +193,36 @@ if (description.length < 20) {
               )}
             </div>
 
-            <div style={{ marginTop: '28px' }}>
-              <button
-                type="submit"
-                className="btn btn-primary"
-                disabled={status === 'submitting'}
-              >
-                {status === 'submitting' ? 'Submitting…' : 'Submit Issue'}
-              </button>
-            </div>
-
             {status === 'success' && (
-              <p className="form-note" style={{ marginTop: '24px', color: 'var(--success)' }}>
-                Thank you — your issue has been submitted successfully.
-              </p>
+              <div
+                className="rz-enter"
+                style={{ background: 'rgba(52,211,153,0.08)', border: '1px solid rgba(52,211,153,0.25)', borderRadius: 10, padding: '11px 13px', color: 'var(--lime)', fontSize: 13 }}
+              >
+                Thank you — your report is with on-call.
+              </div>
             )}
 
             {status === 'error' && (
-              <p className="form-note" style={{ marginTop: '24px', color: 'var(--danger, #e53e3e)' }}>
+              <div
+                style={{ background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: 10, padding: '11px 13px', color: 'var(--err)', fontSize: 13 }}
+              >
                 {errorMsg}
-              </p>
+              </div>
             )}
+
+            <button
+              type="submit"
+              className="rz-btn rz-btn-primary"
+              style={{ alignSelf: 'flex-start', padding: '12px 22px', fontSize: 14.5 }}
+              disabled={status === 'submitting'}
+            >
+              {status === 'submitting'
+                ? <><span className="rz-spinner" style={{ borderTopColor: 'var(--on-cyan)' }} /> Submitting…</>
+                : 'Submit issue'}
+            </button>
           </form>
         </div>
       </div>
-    </>
+    </div>
   );
 }

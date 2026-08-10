@@ -23,7 +23,7 @@ const CampaignPhonePreview = ({ templateBody, templateName }: CampaignPhonePrevi
       </div>
 
       {/* Phone shell */}
-      <div className="mx-auto w-[280px] rounded-[2rem] border-[3px] border-[hsl(var(--border))] bg-[hsl(222,47%,4%)] overflow-hidden shadow-card">
+      <div className="mx-auto w-[280px] rounded-[2rem] border-[3px] border-[hsl(var(--line))] bg-[hsl(222,47%,4%)] overflow-hidden shadow-card">
         {/* Status bar */}
         <div className="h-6 bg-muted/30 flex items-center justify-between px-4">
           <span className="text-[9px] text-muted-foreground">1:42</span>

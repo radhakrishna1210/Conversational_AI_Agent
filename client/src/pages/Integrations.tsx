@@ -347,28 +347,30 @@ function ConnectModal({ provider, oauthAvailable, onClose, onConnected }: {
     } finally { setSaving(false); }
   };
 
+  // Matches .rz-input; kept as an object because the focus/blur handlers below
+  // swap borderColor to the provider's own accent, which a class cannot express.
   const inp: React.CSSProperties = {
-    width: '100%', background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-    borderRadius: '8px', color: '#f2f2f2', padding: '11px 14px', fontSize: '14px',
-    outline: 'none', boxSizing: 'border-box', fontFamily: 'inherit', transition: 'border-color 0.2s',
+    width: '100%', background: 'var(--s2)', border: '1px solid var(--line-2)',
+    borderRadius: '10px', color: 'var(--tx)', padding: '11px 14px', fontSize: '13.5px',
+    outline: 'none', boxSizing: 'border-box', fontFamily: 'var(--ff-b)', transition: 'border-color 0.2s',
   };
 
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
-      <div style={{ width: 'min(580px,100%)', maxHeight: '90vh', overflowY: 'auto', background: 'var(--bg-elevated)', border: '1px solid var(--border)', borderRadius: '16px' }}>
+      <div className="rz-enter" style={{ width: 'min(580px,100%)', maxHeight: '90vh', overflowY: 'auto', background: 'var(--s1)', border: '1px solid var(--line-2)', borderRadius: '16px' }}>
 
         {/* Header */}
-        <div style={{ padding: '22px 24px 18px', borderBottom: '1px solid #1e1e1e', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
+        <div style={{ padding: '22px 24px 18px', borderBottom: '1px solid var(--line)', display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
           <div style={{ display: 'flex', gap: '14px', alignItems: 'flex-start' }}>
             <div style={{ width: '44px', height: '44px', borderRadius: '10px', background: provider.tint, border: `1px solid ${provider.accent}44`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '22px', flexShrink: 0 }}>
               {provider.logo}
             </div>
             <div>
-              <h2 style={{ margin: 0, fontSize: '18px', fontWeight: 700, color: '#f2f2f2' }}>{provider.name} Integration</h2>
-              <p style={{ margin: '6px 0 0', fontSize: '13px', color: 'var(--text-secondary)', lineHeight: 1.5, maxWidth: '400px' }}>{provider.modalDescription}</p>
+              <h2 className="rz-h3" style={{ margin: 0 }}>{provider.name} Integration</h2>
+              <p className="rz-sub" style={{ margin: '6px 0 0', maxWidth: '400px' }}>{provider.modalDescription}</p>
             </div>
           </div>
-          <button onClick={onClose} style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px', flexShrink: 0 }}>
+          <button onClick={onClose} aria-label="Close" style={{ background: 'transparent', border: 'none', color: 'var(--tx-3)', cursor: 'pointer', padding: '4px', flexShrink: 0 }}>
             <X size={20} />
           </button>
         </div>
@@ -376,7 +378,7 @@ function ConnectModal({ provider, oauthAvailable, onClose, onConnected }: {
         {/* Body */}
         <div style={{ padding: '24px', display: 'grid', gap: '20px' }}>
           {error && (
-            <div style={{ background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)', borderRadius: '8px', padding: '12px 14px', color: '#fca5a5', fontSize: '13px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
+            <div style={{ background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: '10px', padding: '12px 14px', color: 'var(--err)', fontSize: '13px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
               <AlertCircle size={16} style={{ flexShrink: 0, marginTop: '1px' }} />
               <span>{error}</span>
             </div>
@@ -387,11 +389,11 @@ function ConnectModal({ provider, oauthAvailable, onClose, onConnected }: {
               <button
                 onClick={handleOAuthConnect}
                 disabled={saving}
-                style={{ padding: '14px', borderRadius: '10px', border: 'none', background: provider.accent, color: 'var(--text-primary)', fontSize: '15px', fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}
+                style={{ padding: '14px', borderRadius: '11px', border: 'none', background: provider.accent, color: '#fff', fontFamily: 'var(--ff-d)', fontSize: '15px', fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}
               >
                 {saving ? <><Loader2 size={16} className="animate-spin" /> Redirecting…</> : <>Sign in with Google</>}
               </button>
-              <button onClick={() => setShowManual(true)} style={{ background: 'transparent', border: 'none', color: 'var(--text-secondary)', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline' }}>
+              <button onClick={() => setShowManual(true)} style={{ background: 'transparent', border: 'none', color: 'var(--tx-2)', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline' }}>
                 Or enter access token manually
               </button>
             </div>
@@ -399,8 +401,8 @@ function ConnectModal({ provider, oauthAvailable, onClose, onConnected }: {
 
           {(showManual || provider.connectType !== 'oauth') && provider.connectFields.map(field => (
             <div key={field.name}>
-              <label style={{ display: 'block', color: '#d4d4d4', fontSize: '14px', fontWeight: 600, marginBottom: '8px' }}>
-                {field.label}{field.optional && <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}> (Optional)</span>}
+              <label className="rz-field-label" style={{ display: 'block', marginBottom: '8px' }}>
+                {field.label}{field.optional && <span className="rz-muted" style={{ fontWeight: 400 }}> (optional)</span>}
               </label>
 
               {field.type === 'select' ? (
@@ -424,11 +426,11 @@ function ConnectModal({ provider, oauthAvailable, onClose, onConnected }: {
                   style={inp}
                   autoComplete="off"
                   onFocus={e => (e.currentTarget.style.borderColor = provider.accent)}
-                  onBlur={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.1)')}
+                  onBlur={e => (e.currentTarget.style.borderColor = 'var(--line-2)')}
                 />
               )}
 
-              {field.help && <p style={{ margin: '6px 0 0', color: 'var(--text-muted)', fontSize: '12px', lineHeight: 1.5 }}>{field.help}</p>}
+              {field.help && <p className="rz-field-hint" style={{ margin: '6px 0 0' }}>{field.help}</p>}
             </div>
           ))}
 
@@ -441,13 +443,13 @@ function ConnectModal({ provider, oauthAvailable, onClose, onConnected }: {
           {/* Buttons */}
           {(showManual || provider.connectType !== 'oauth') && (
           <div style={{ display: 'flex', gap: '12px', paddingTop: '4px' }}>
-            <button onClick={onClose} style={{ flex: 1, padding: '13px', borderRadius: '10px', border: '1px solid var(--border)', background: 'var(--bg-card)', color: '#ccc', fontSize: '14px', fontWeight: 600, cursor: 'pointer' }}>
+            <button onClick={onClose} className="rz-btn rz-btn-secondary" style={{ flex: 1, padding: '13px' }}>
               Cancel
             </button>
             <button
               onClick={handleSubmit}
               disabled={saving}
-              style={{ flex: 2, padding: '13px', borderRadius: '10px', border: 'none', background: provider.key === 'custom_api' ? '#0eb39e' : provider.accent, color: 'var(--text-primary)', fontSize: '14px', fontWeight: 700, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.75 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+              style={{ flex: 2, padding: '13px', borderRadius: '11px', border: 'none', background: provider.key === 'custom_api' ? 'var(--cyan)' : provider.accent, color: provider.key === 'custom_api' ? 'var(--on-cyan)' : '#fff', fontFamily: 'var(--ff-d)', fontSize: '14px', fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.75 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
             >
               {saving ? <><Loader2 size={16} className="animate-spin" /> Connecting…</> : provider.connectLabel}
             </button>
@@ -546,52 +548,52 @@ export default function Integrations() {
     finally { setSyncing(null); }
   };
 
-  const pill = (active: boolean): React.CSSProperties => ({
-    padding: '7px 16px', borderRadius: '999px', cursor: 'pointer', fontSize: '12px', fontWeight: 700,
-    border: `1px solid ${active ? '#0eb39e' : 'rgba(255,255,255,0.1)'}`,
-    background: active ? 'rgba(14,179,158,0.1)' : 'transparent',
-    color: active ? '#0eb39e' : '#888',
-  });
+  const pillClass = (active: boolean) => `rz-chip${active ? ' is-active' : ''}`;
 
   const connected = dashboard?.stats.connected ?? 0;
 
   return (
-    <div style={{ color: 'var(--text-primary)' }}>
+    <div className="rz-page rz-page-pad rz-bleed">
+     <div className="rz-wrap-wide">
 
       {/* ── Header ── */}
       {callbackState && (
-        <div style={{ marginBottom: '18px', padding: '14px 16px', borderRadius: '12px', border: callbackState.type === 'success' ? '1px solid rgba(74,222,128,0.25)' : '1px solid rgba(248,113,113,0.25)', background: callbackState.type === 'success' ? 'rgba(74,222,128,0.08)' : 'rgba(248,113,113,0.08)', color: callbackState.type === 'success' ? '#bbf7d0' : '#fecaca' }}>
-          <div style={{ fontWeight: 700, marginBottom: '4px' }}>{callbackState.type === 'success' ? 'Connected successfully' : 'Connection failed'}</div>
+        <div style={{ marginBottom: '18px', padding: '14px 16px', borderRadius: '12px', border: callbackState.type === 'success' ? '1px solid rgba(52,211,153,0.28)' : '1px solid rgba(248,113,113,0.28)', background: callbackState.type === 'success' ? 'rgba(52,211,153,0.08)' : 'rgba(248,113,113,0.08)', color: callbackState.type === 'success' ? 'var(--lime)' : 'var(--err)' }}>
+          <div style={{ fontFamily: 'var(--ff-d)', fontWeight: 700, marginBottom: '4px' }}>{callbackState.type === 'success' ? 'Connected successfully' : 'Connection failed'}</div>
           <div style={{ fontSize: '13px', opacity: 0.95 }}>{callbackState.message}</div>
         </div>
       )}
 
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', marginBottom: '28px', flexWrap: 'wrap', gap: '16px' }}>
+      <div className="rz-head">
         <div>
-          <h1 style={{ fontSize: '28px', fontWeight: 900, letterSpacing: '-0.03em', color: '#f8fafc', marginBottom: '8px' }}>Integrations</h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '14px', maxWidth: '620px', lineHeight: 1.6, margin: 0 }}>
-            Connect your AI agent with 15+ tools. Click <strong style={{ color: '#f8fafc' }}>Connect</strong> on any card, fill in your credentials, and your integration activates instantly — no code required.
+          <div className="rz-eyebrow">Workspace</div>
+          <h1 className="rz-h1">Integrations</h1>
+          <p className="rz-sub" style={{ maxWidth: '620px', margin: '8px 0 0' }}>
+            Connect your agents to the tools you already run on. Press <strong style={{ color: 'var(--tx)' }}>Connect</strong> on any
+            card, enter your credentials, and the integration is live — no code required.
           </p>
         </div>
-        <button onClick={() => load(true)} style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', padding: '10px 16px', borderRadius: '10px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.05)', color: '#d4d4d4', fontWeight: 700, cursor: 'pointer', fontSize: '13px' }}>
-          {refreshing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Refresh
-        </button>
+        <div className="rz-head-actions">
+          <button onClick={() => load(true)} className="rz-btn rz-btn-secondary">
+            {refreshing ? <Loader2 size={14} className="animate-spin" /> : <RefreshCw size={14} />} Refresh
+          </button>
+        </div>
       </div>
 
       {/* ── Stats ── */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit,minmax(150px,1fr))', gap: '12px', marginBottom: '24px' }}>
+      <div className="rz-stats" style={{ marginBottom: '18px' }}>
         {[
-          { label: 'Connected',    val: connected,                         color: '#4ade80', icon: <ShieldCheck size={14} /> },
-          { label: 'Available',    val: PROVIDERS.length,                  color: '#60a5fa', icon: <PlugZap size={14} />     },
-          { label: 'Errors',       val: dashboard?.stats.failed ?? 0,      color: '#f87171', icon: <AlertTriangle size={14}/> },
-          { label: 'Queued Jobs',  val: dashboard?.stats.queuedJobs ?? 0,  color: '#fbbf24', icon: <Zap size={14} />          },
+          { label: 'CONNECTED',   val: connected,                        color: 'var(--lime)',    icon: <ShieldCheck size={14} /> },
+          { label: 'AVAILABLE',   val: PROVIDERS.length,                 color: 'var(--cyan-fg)', icon: <PlugZap size={14} />     },
+          { label: 'ERRORS',      val: dashboard?.stats.failed ?? 0,     color: 'var(--err)',     icon: <AlertTriangle size={14}/> },
+          { label: 'QUEUED JOBS', val: dashboard?.stats.queuedJobs ?? 0, color: 'var(--warn)',    icon: <Zap size={14} />          },
         ].map(s => (
-          <div key={s.label} style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '12px', padding: '16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-              <span style={{ fontSize: '11px', color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '0.08em' }}>{s.label}</span>
+          <div key={s.label} className="rz-stat">
+            <div className="rz-between" style={{ marginBottom: '4px' }}>
+              <span className="rz-stat-label">{s.label}</span>
               <span style={{ color: s.color }}>{s.icon}</span>
             </div>
-            <div style={{ fontSize: '26px', fontWeight: 900, color: s.color }}>{s.val}</div>
+            <div className="rz-stat-value" style={{ color: s.color }}>{s.val}</div>
           </div>
         ))}
       </div>
@@ -599,25 +601,26 @@ export default function Integrations() {
       {/* ── Filters ── */}
       <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap', alignItems: 'center' }}>
         {(Object.keys(TAB_LABELS) as Array<keyof typeof TAB_LABELS>).map(tab => (
-          <button key={tab} onClick={() => setFilter(tab as typeof filter)} style={pill(filter === tab)}>
+          <button key={tab} onClick={() => setFilter(tab as typeof filter)} className={pillClass(filter === tab)}>
             {TAB_LABELS[tab]}{tab === 'all' ? ` (${PROVIDERS.length})` : tab === 'connected' ? ` (${connected})` : ''}
           </button>
         ))}
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search integrations…"
-          style={{ marginLeft: 'auto', padding: '7px 14px', borderRadius: '9px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)', color: 'var(--text-primary)', fontSize: '13px', outline: 'none', minWidth: '180px' }} />
+          className="rz-input" style={{ marginLeft: 'auto', width: 'auto', minWidth: '200px' }} />
       </div>
 
       {/* ── Cards ── */}
       {loading ? (
-        <div style={{ textAlign: 'center', padding: '60px', color: 'var(--text-muted)' }}>
-          <Loader2 size={28} className="animate-spin" style={{ margin: '0 auto 12px' }} />
-          <p>Loading integrations…</p>
+        <div className="rz-empty">
+          <Loader2 size={24} className="animate-spin" />
+          <span className="rz-mono">Loading integrations…</span>
         </div>
       ) : (
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(300px,1fr))', gap: '16px' }}>
           {visible.length === 0 ? (
-            <div style={{ gridColumn: '1/-1', padding: '60px', textAlign: 'center', color: 'var(--text-muted)', border: '1px dashed rgba(255,255,255,0.1)', borderRadius: '14px' }}>
-              No integrations match your search.
+            <div className="rz-empty" style={{ gridColumn: '1/-1', border: '1.5px dashed var(--line-2)', borderRadius: '14px' }}>
+              <div className="rz-empty-title">Nothing matches that search</div>
+              <div className="rz-empty-text">Try a different name, or clear the filter to see all {PROVIDERS.length} integrations.</div>
             </div>
           ) : visible.map(meta => {
             const row = byProvider.get(meta.key);
@@ -626,9 +629,9 @@ export default function Integrations() {
 
             return (
               <div key={meta.key}
-                style={{ background: 'linear-gradient(180deg,#141414 0%,#0e0e0e 100%)', border: `1px solid ${isConnected ? meta.accent + '50' : 'rgba(255,255,255,0.07)'}`, borderRadius: '14px', display: 'flex', flexDirection: 'column', transition: 'all 0.2s', overflow: 'hidden' }}
-                onMouseEnter={e => { e.currentTarget.style.borderColor = meta.accent + '80'; e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = '0 8px 32px rgba(0,0,0,0.4)'; }}
-                onMouseLeave={e => { e.currentTarget.style.borderColor = isConnected ? meta.accent + '50' : 'rgba(255,255,255,0.07)'; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none'; }}
+                style={{ background: 'var(--s1)', border: `1px solid ${isConnected ? meta.accent + '50' : 'var(--line)'}`, borderRadius: '15px', display: 'flex', flexDirection: 'column', transition: 'border-color .2s, transform .2s, box-shadow .2s', overflow: 'hidden' }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = meta.accent + '80'; e.currentTarget.style.transform = 'translateY(-2px)'; e.currentTarget.style.boxShadow = 'var(--shadow-card)'; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = isConnected ? meta.accent + '50' : 'var(--line)'; e.currentTarget.style.transform = 'translateY(0)'; e.currentTarget.style.boxShadow = 'none'; }}
               >
                 {/* Body */}
                 <div style={{ padding: '18px 18px 14px', flex: 1 }}>
@@ -638,39 +641,37 @@ export default function Integrations() {
                         {meta.logo}
                       </div>
                       <div>
-                        <div style={{ fontSize: '16px', fontWeight: 800, color: '#f8fafc' }}>{meta.name}</div>
-                        <div style={{ fontSize: '12px', color: 'var(--text-muted)', marginTop: '2px' }}>
+                        <div className="rz-title-lg">{meta.name}</div>
+                        <div className="rz-mono-xs" style={{ marginTop: '2px' }}>
                           {isConnected ? (row?.accountLabel ?? 'Connected') : 'Not connected'}
                         </div>
                       </div>
                     </div>
                     {/* Status */}
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '5px', padding: '4px 10px', borderRadius: '999px', background: isConnected ? 'rgba(74,222,128,0.1)' : 'rgba(255,255,255,0.04)', border: `1px solid ${isConnected ? 'rgba(74,222,128,0.25)' : 'rgba(255,255,255,0.08)'}`, flexShrink: 0 }}>
-                      <div style={{ width: '6px', height: '6px', borderRadius: '50%', background: isConnected ? '#4ade80' : '#555' }} />
-                      <span style={{ fontSize: '11px', fontWeight: 700, color: isConnected ? '#4ade80' : '#777', whiteSpace: 'nowrap' }}>
-                        {isConnected ? 'Connected' : 'Disconnected'}
-                      </span>
-                    </div>
+                    <span className={`rz-pill ${isConnected ? 'rz-pill-ok' : 'rz-pill-idle'}`} style={{ flexShrink: 0 }}>
+                      <span className={`rz-dot ${isConnected ? '' : 'rz-dot-idle'}`} style={{ width: 6, height: 6 }} />
+                      {isConnected ? 'Connected' : 'Disconnected'}
+                    </span>
                   </div>
 
                   {/* Category badge */}
                   <div style={{ marginBottom: '12px' }}>
-                    <span style={{ fontSize: '10px', fontWeight: 700, padding: '3px 9px', borderRadius: '999px', color: meta.category === 'During Call' ? '#4ade80' : '#60a5fa', background: meta.category === 'During Call' ? 'rgba(74,222,128,0.1)' : 'rgba(96,165,250,0.1)', border: `1px solid ${meta.category === 'During Call' ? 'rgba(74,222,128,0.2)' : 'rgba(96,165,250,0.2)'}` }}>
+                    <span className={`rz-pill ${meta.category === 'During Call' ? 'rz-pill-ok' : 'rz-pill-think'}`}>
                       {meta.category}
                     </span>
                   </div>
 
-                  <p style={{ color: 'var(--text-secondary)', fontSize: '13px', lineHeight: 1.6, margin: 0 }}>{meta.description}</p>
+                  <p className="rz-sub" style={{ margin: 0 }}>{meta.description}</p>
 
                   {isError && row?.lastError && (
-                    <div style={{ marginTop: '10px', padding: '10px 12px', borderRadius: '8px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', color: '#fca5a5', fontSize: '12px', lineHeight: 1.5 }}>
-                      ⚠️ {row.lastError}
+                    <div style={{ marginTop: '10px', padding: '10px 12px', borderRadius: '9px', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.22)', color: 'var(--err)', fontSize: '12px', lineHeight: 1.5 }}>
+                      {row.lastError}
                     </div>
                   )}
                 </div>
 
                 {/* Footer */}
-                <div style={{ padding: '12px 18px', borderTop: '1px solid rgba(255,255,255,0.05)', display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ padding: '12px 18px', borderTop: '1px solid var(--line)', display: 'flex', gap: '8px', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div style={{ display: 'flex', gap: '8px' }}>
                     {isConnected ? (
                       <>
@@ -681,7 +682,7 @@ export default function Integrations() {
                           </a>
                         )}
                         <button onClick={() => handleDisconnect(meta.key)} disabled={disconnecting === meta.key}
-                          style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '7px 12px', borderRadius: '8px', border: '1px solid rgba(255,255,255,0.1)', background: 'rgba(255,255,255,0.04)', color: '#ccc', fontSize: '12px', fontWeight: 600, cursor: 'pointer' }}>
+                          className="rz-btn rz-btn-secondary rz-btn-sm">
                           {disconnecting === meta.key && <Loader2 size={12} className="animate-spin" />}
                           Disconnect
                         </button>
@@ -699,16 +700,16 @@ export default function Integrations() {
                       </button>
                     )}
                   </div>
-                  <a href={meta.docsUrl} target="_blank" rel="noopener noreferrer" style={{ color: '#475569', display: 'inline-flex', alignItems: 'center' }} title="View docs">
+                  <a href={meta.docsUrl} target="_blank" rel="noopener noreferrer" style={{ color: 'var(--tx-3)', display: 'inline-flex', alignItems: 'center' }} title="View docs">
                     <ExternalLink size={14} />
                   </a>
                 </div>
 
                 {/* Sync strip */}
                 {isConnected && (
-                  <div style={{ padding: '7px 18px', borderTop: '1px solid rgba(255,255,255,0.04)', background: 'rgba(255,255,255,0.01)', display: 'flex', gap: '20px' }}>
-                    <span style={{ fontSize: '11px', color: '#475569' }}>Last synced: {timeAgo(row?.lastSyncAt)}</span>
-                    <span style={{ fontSize: '11px', color: '#475569' }}>{row?.lastSyncedCount ?? 0} items synced</span>
+                  <div style={{ padding: '7px 18px', borderTop: '1px solid var(--line)', background: 'var(--bg-2)', display: 'flex', gap: '20px' }}>
+                    <span className="rz-mono-xs">Last synced: {timeAgo(row?.lastSyncAt)}</span>
+                    <span className="rz-mono-xs">{row?.lastSyncedCount ?? 0} items synced</span>
                   </div>
                 )}
               </div>
@@ -726,6 +727,7 @@ export default function Integrations() {
           onConnected={() => { load(true); setModal(null); }}
         />
       )}
+     </div>
     </div>
   );
 }

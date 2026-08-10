@@ -310,11 +310,11 @@ export default function VoiceAssistant() {
       {/* Decorative background glow */}
       <div style={{ position: 'absolute', top: '-100px', right: '-100px', width: '300px', height: '300px', background: 'radial-gradient(circle, rgba(0, 212, 200, 0.05) 0%, transparent 70%)', zIndex: 0 }}></div>
 
-      <div className="card-header" style={{ position: 'relative', zIndex: 1, marginBottom: '2rem', borderBottom: '1px solid var(--border)', paddingBottom: '1rem' }}>
+      <div className="card-header" style={{ position: 'relative', zIndex: 1, marginBottom: '2rem', borderBottom: '1px solid var(--line)', paddingBottom: '1rem' }}>
         <h2 className="text-gradient font-display" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
           <span style={{ fontSize: '32px' }}>🤖</span> AI Voice Assistant
         </h2>
-        <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginTop: '8px' }}>
+        <p style={{ fontSize: '14px', color: 'var(--tx-2)', marginTop: '8px' }}>
           Real-time neural text-to-speech with dynamic voice cloning.
         </p>
       </div>
@@ -322,7 +322,7 @@ export default function VoiceAssistant() {
       <div style={{ position: 'relative', zIndex: 1, marginBottom: '2rem' }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
           <label className="form-label">Voice Selection</label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: isConnected ? 'var(--success)' : 'var(--text-muted)' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: isConnected ? 'var(--lime)' : 'var(--tx-3)' }}>
             <span className={`status-dot ${isConnected ? 'online' : 'offline'}`}></span>
             {isConnected ? 'System Ready' : 'Connecting...'}
           </div>
@@ -337,14 +337,14 @@ export default function VoiceAssistant() {
               placeholder="Search all voices..." 
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              style={{ width: '100%', padding: '10px 12px 10px 35px', borderRadius: '10px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)', fontSize: '14px' }}
+              style={{ width: '100%', padding: '10px 12px 10px 35px', borderRadius: '10px', background: 'var(--s2)', border: '1px solid var(--line)', fontSize: '14px' }}
             />
           </div>
           
           <select
             value={selectedVoice}
             onChange={e => setSelectedVoice(e.target.value)}
-            style={{ padding: '10px 12px', borderRadius: '10px', fontSize: '14px', minWidth: '180px', background: 'rgba(255,255,255,0.05)', border: '1px solid var(--border)' }}
+            style={{ padding: '10px 12px', borderRadius: '10px', fontSize: '14px', minWidth: '180px', background: 'var(--s2)', border: '1px solid var(--line)' }}
           >
             <option value="auto">✨ AI Auto-Select</option>
             <optgroup label="All Available Voices">
@@ -365,13 +365,13 @@ export default function VoiceAssistant() {
               cursor: 'pointer', 
               padding: '8px 14px', 
               borderRadius: '20px', 
-              background: useTurbo ? 'rgba(245, 158, 11, 0.15)' : 'rgba(255,255,255,0.05)',
-              border: `1px solid ${useTurbo ? '#f59e0b' : 'var(--border)'}`,
+              background: useTurbo ? 'rgba(245, 158, 11, 0.15)' : 'var(--s2)',
+              border: `1px solid ${useTurbo ? 'var(--warn)' : 'var(--line)'}`,
               transition: 'all 0.2s'
             }}
           >
             <span style={{ fontSize: '14px' }}>{useTurbo ? '🚀' : '🐢'}</span>
-            <span style={{ fontSize: '12px', fontWeight: 600, color: useTurbo ? '#f59e0b' : 'var(--text-secondary)' }}>
+            <span style={{ fontSize: '12px', fontWeight: 600, color: useTurbo ? 'var(--warn)' : 'var(--tx-2)' }}>
               {useTurbo ? 'Turbo Mode (Faster)' : 'Turbo Mode'}
             </span>
           </div>
@@ -548,7 +548,7 @@ export default function VoiceAssistant() {
       )}
 
       {status === 'error' && (
-        <div style={{ position: 'relative', zIndex: 1, marginTop: '20px', padding: '16px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--error)', borderRadius: '12px', color: 'var(--error)', fontSize: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ position: 'relative', zIndex: 1, marginTop: '20px', padding: '16px', background: 'rgba(239, 68, 68, 0.1)', border: '1px solid var(--err)', borderRadius: '12px', color: 'var(--err)', fontSize: '14px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <div>⚠️ {errorMessage}</div>
           <button className="btn btn-sm btn-secondary" onClick={() => window.location.reload()}>Retry</button>
         </div>
@@ -561,11 +561,11 @@ export default function VoiceAssistant() {
           border-radius: 50%;
         }
         .status-dot.online {
-          background: var(--success);
-          box-shadow: 0 0 10px var(--success);
+          background: var(--lime);
+          box-shadow: 0 0 10px var(--lime);
         }
         .status-dot.offline {
-          background: var(--text-muted);
+          background: var(--tx-3);
         }
         
         /* ── Voice selector container ───────────────────────────────────── */
@@ -577,10 +577,10 @@ export default function VoiceAssistant() {
           overflow-y: auto;
           padding-right: 6px;
           scrollbar-width: thin;
-          scrollbar-color: var(--border) transparent;
+          scrollbar-color: var(--line) transparent;
         }
         .voice-selector-container::-webkit-scrollbar { width: 4px; }
-        .voice-selector-container::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+        .voice-selector-container::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
 
         /* ── Group header ───────────────────────────────────────────────── */
         .voice-group-header {
@@ -595,12 +595,12 @@ export default function VoiceAssistant() {
           text-transform: uppercase;
           letter-spacing: 1.2px;
           font-weight: 700;
-          color: var(--text-muted);
+          color: var(--tx-3);
         }
         .voice-group-count {
           font-size: 10px;
-          background: rgba(255,255,255,0.07);
-          color: var(--text-muted);
+          background: var(--s2);
+          color: var(--tx-3);
           border-radius: 20px;
           padding: 1px 7px;
           margin-left: 2px;
@@ -615,8 +615,8 @@ export default function VoiceAssistant() {
 
         /* ── Voice card ─────────────────────────────────────────────────── */
         .voice-card {
-          background: rgba(255,255,255,0.03);
-          border: 1px solid var(--border);
+          background: var(--s1);
+          border: 1px solid var(--line);
           border-radius: 12px;
           padding: 12px 14px;
           display: flex;
@@ -628,16 +628,16 @@ export default function VoiceAssistant() {
         }
         .voice-card:hover {
           background: rgba(255,255,255,0.065);
-          border-color: rgba(0,212,200,0.4);
+          border-color: rgba(14,179,158,0.4);
         }
         .voice-card.active {
-          background: rgba(0,212,200,0.08);
-          border-color: var(--teal);
-          box-shadow: 0 0 0 1px rgba(0,212,200,0.25), inset 0 1px 0 rgba(255,255,255,0.05);
+          background: rgba(14,179,158,0.08);
+          border-color: var(--cyan);
+          box-shadow: 0 0 0 1px rgba(14,179,158,0.25), inset 0 1px 0 var(--s2);
         }
         .ai-auto-card.active {
-          background: linear-gradient(135deg, rgba(0,212,200,0.12) 0%, rgba(124,58,237,0.12) 100%);
-          border-color: var(--teal);
+          background: linear-gradient(135deg, rgba(14,179,158,0.12) 0%, rgba(124,58,237,0.12) 100%);
+          border-color: var(--cyan);
         }
 
         /* ── Card internals ─────────────────────────────────────────────── */
@@ -647,7 +647,7 @@ export default function VoiceAssistant() {
         .voice-card-name {
           font-size: 13px;
           font-weight: 600;
-          color: var(--text-primary);
+          color: var(--tx);
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
@@ -678,9 +678,9 @@ export default function VoiceAssistant() {
         /* ── Style tag ──────────────────────────────────────────────────── */
         .voice-tag {
           font-size: 10px;
-          color: var(--text-muted);
-          background: rgba(255,255,255,0.05);
-          border: 1px solid rgba(255,255,255,0.07);
+          color: var(--tx-3);
+          background: var(--s2);
+          border: 1px solid var(--s2);
           border-radius: 4px;
           padding: 1px 6px;
           text-transform: capitalize;
@@ -690,7 +690,7 @@ export default function VoiceAssistant() {
         /* ── Selected checkmark ─────────────────────────────────────────── */
         .voice-check {
           font-size: 13px;
-          color: var(--teal);
+          color: var(--cyan);
           font-weight: 700;
           line-height: 1;
         }
@@ -706,16 +706,16 @@ export default function VoiceAssistant() {
           transition: background 0.18s, box-shadow 0.18s;
           line-height: 1;
         }
-        .voice-preview-btn:hover { background: rgba(255,255,255,0.1); }
+        .voice-preview-btn:hover { background: var(--line-2); }
         .voice-preview-btn.previewing {
-          color: var(--teal);
-          background: rgba(0,212,200,0.12);
-          box-shadow: 0 0 0 2px rgba(0,212,200,0.4);
+          color: var(--cyan);
+          background: rgba(14,179,158,0.12);
+          box-shadow: 0 0 0 2px rgba(14,179,158,0.4);
           animation: previewPulse 1.2s ease-in-out infinite;
         }
         @keyframes previewPulse {
-          0%, 100% { box-shadow: 0 0 0 2px rgba(0,212,200,0.4); }
-          50%       { box-shadow: 0 0 0 5px rgba(0,212,200,0.1); }
+          0%, 100% { box-shadow: 0 0 0 2px rgba(14,179,158,0.4); }
+          50%       { box-shadow: 0 0 0 5px rgba(14,179,158,0.1); }
         }
 
         /* ── Selected voice summary bar ─────────────────────────────────── */
@@ -725,19 +725,19 @@ export default function VoiceAssistant() {
           gap: 8px;
           margin-top: 14px;
           padding: 10px 14px;
-          background: rgba(0,212,200,0.05);
-          border: 1px solid rgba(0,212,200,0.15);
+          background: rgba(14,179,158,0.05);
+          border: 1px solid rgba(14,179,158,0.15);
           border-radius: 10px;
           font-size: 13px;
         }
         .voice-selected-icon { font-size: 16px; }
         .voice-selected-name {
           font-weight: 600;
-          color: var(--text-primary);
+          color: var(--tx);
           text-transform: capitalize;
           margin-right: 2px;
         }
-        .voice-selected-detail { color: var(--text-muted); font-size: 12px; }
+        .voice-selected-detail { color: var(--tx-3); font-size: 12px; }
 
         .waveform-container {
           display: flex;
@@ -751,7 +751,7 @@ export default function VoiceAssistant() {
         .waveform-bar {
           width: 4px;
           height: 20px;
-          background: var(--teal);
+          background: var(--cyan);
           border-radius: 4px;
           animation: wave 1s ease-in-out infinite;
         }
@@ -777,8 +777,8 @@ export default function VoiceAssistant() {
           width: 40px;
           height: 40px;
           border-radius: 50%;
-          border: 1px solid var(--border);
-          background: rgba(255,255,255,0.05);
+          border: 1px solid var(--line);
+          background: var(--s2);
           cursor: pointer;
           display: flex;
           align-items: center;
@@ -788,12 +788,12 @@ export default function VoiceAssistant() {
           z-index: 2;
         }
         .mic-btn:hover {
-          background: rgba(255,255,255,0.1);
-          border-color: var(--teal);
+          background: var(--line-2);
+          border-color: var(--cyan);
         }
         .mic-btn.recording {
           background: rgba(239, 68, 68, 0.2);
-          border-color: var(--error);
+          border-color: var(--err);
           animation: micPulse 1.5s infinite;
         }
         @keyframes micPulse {
@@ -806,7 +806,7 @@ export default function VoiceAssistant() {
           width: 18px;
           height: 18px;
           border: 2px solid rgba(255, 255, 255, 0.3);
-          border-top-color: #fff;
+          border-top-color: var(--tx);
           border-radius: 50%;
           animation: spin 0.8s linear infinite;
         }

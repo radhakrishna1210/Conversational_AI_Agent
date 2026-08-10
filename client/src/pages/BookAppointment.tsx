@@ -160,7 +160,7 @@ if (form.useCase.trim().length < 20) {
           <div className="form-card" style={{ textAlign: 'center', padding: '60px 40px' }}>
             <div style={{ fontSize: '48px', marginBottom: '16px' }}>✅</div>
             <h2 style={{ marginBottom: '12px' }}>Appointment Booked!</h2>
-            <p style={{ color: 'var(--text-muted)', marginBottom: '32px' }}>
+            <p style={{ color: 'var(--tx-3)', marginBottom: '32px' }}>
               Thank you! We've received your request and will reach out shortly to confirm your appointment.
             </p>
             <button
@@ -206,7 +206,7 @@ if (form.useCase.trim().length < 20) {
               <div className="form-group">
                 <label className="form-label">
                   Email <span className="required">*</span>{' '}
-                  <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>(Business/Work Email)</span>
+                  <span style={{ fontSize: '11px', color: 'var(--tx-3)' }}>(Business/Work Email)</span>
                 </label>
                 <input type="email" className="form-input" placeholder="john@company.com" required value={form.email} onChange={set('email')} />
               </div>

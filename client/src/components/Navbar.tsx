@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { isLoggedIn as checkAuth, clearAuth } from '@/lib/authStorage';
 import { Link, useLocation } from 'react-router-dom';
 import { useTheme } from '../hooks/useTheme';
+import SpandanLogo from './SpandanLogo';
 import {
   Home,
   Shield,
@@ -56,9 +57,7 @@ export default function Navbar() {
   return (
     <nav className="navbar">
       <Link to="/" className="navbar-logo">
-        <span style={{fontWeight: 800, fontSize: '18px', letterSpacing: '-1px'}}>
-          Conversational <span style={{color:'var(--teal-fg)'}}>AI</span> Agent
-        </span>
+        <SpandanLogo size={28} />
       </Link>
 
       <ul className={`navbar-nav${navOpen ? ' is-open' : ''}`} id="primary-navigation">
@@ -230,7 +229,7 @@ export default function Navbar() {
               <button
                 type="button"
                 onClick={() => { clearAuth(); setIsLoggedIn(false); window.location.href = '/'; }}
-                className="btn btn-primary"
+                className="rz-btn rz-btn-primary"
               >
                 Sign out
               </button>
@@ -238,7 +237,7 @@ export default function Navbar() {
           ) : (
             <>
               <Link to="/login" className="nav-link">Log in</Link>
-              <Link to="/signup" className="btn btn-primary">Get started free</Link>
+              <Link to="/signup" className="rz-btn rz-btn-primary">Start free</Link>
             </>
           )}
         </li>
@@ -250,10 +249,10 @@ export default function Navbar() {
           style={{
             background: 'none',
             border: 'none',
-            color: 'var(--text-secondary)',
+            color: 'var(--tx-2)',
             cursor: 'pointer',
             padding: '8px',
-            borderRadius: '50%',
+            borderRadius: '9px',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
@@ -269,23 +268,23 @@ export default function Navbar() {
         <div className="navbar-auth">
           {isLoggedIn ? (
             <>
-              <Link to="/dashboard" style={{ color: 'var(--text-secondary)', fontSize: '14px', fontWeight: 500, textDecoration: 'none' }}>Dashboard</Link>
+              <Link to="/dashboard" style={{ color: 'var(--tx-2)', fontSize: '14.5px', fontWeight: 500, textDecoration: 'none' }}>Dashboard</Link>
               <button
                 onClick={() => {
                   clearAuth();
                   setIsLoggedIn(false);
                   window.location.href = '/';
                 }}
-                className="btn btn-primary"
-                style={{ padding: '8px 18px', fontSize: '14px' }}
+                className="rz-btn rz-btn-primary"
+                style={{ padding: '10px 18px', fontSize: '14.5px', borderRadius: '10px' }}
               >
                 Sign out
               </button>
             </>
           ) : (
             <>
-              <Link to="/login" style={{ color: 'var(--text-secondary)', fontSize: '14px', fontWeight: 500, textDecoration: 'none' }}>Log in</Link>
-              <Link to="/signup" className="btn btn-primary" style={{ padding: '8px 18px', fontSize: '14px' }}>Get started free</Link>
+              <Link to="/login" style={{ color: 'var(--tx-2)', fontSize: '14.5px', fontWeight: 500, textDecoration: 'none' }}>Log in</Link>
+              <Link to="/signup" className="rz-btn rz-btn-primary" style={{ padding: '10px 18px', fontSize: '14.5px', borderRadius: '10px' }}>Start free</Link>
             </>
           )}
         </div>

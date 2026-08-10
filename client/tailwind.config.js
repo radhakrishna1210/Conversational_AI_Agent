@@ -13,8 +13,53 @@ export default {
       fontFamily: {
         sans: ['Inter', 'sans-serif'],
         display: ['Space Grotesk', 'sans-serif'],
+        mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
       },
       colors: {
+        /*
+          Spandan "Resonance" scales. These read straight from the CSS custom
+          properties in styles.css rather than repeating the hex here, so light
+          mode keeps working: html.light redefines the variables and every
+          utility built on them re-resolves with no `dark:` variant needed.
+
+          Declared as `var(--x)` not `hsl(var(--x))` because these tokens are
+          hex, unlike the shadcn triples below them.
+        */
+        surface: {
+          1: "var(--s1)",
+          2: "var(--s2)",
+          3: "var(--s3)",
+        },
+        line: {
+          DEFAULT: "var(--line)",
+          2: "var(--line-2)",
+        },
+        ink: {
+          DEFAULT: "var(--tx)",
+          2: "var(--tx-2)",
+          3: "var(--tx-3)",
+        },
+        /*
+          The voice spectrum: one accent per conversation state. Namespaced
+          under `voice-` deliberately — the design system calls these cyan,
+          violet and lime, but three of those names are Tailwind's own default
+          palettes and 29 existing usages of `text-cyan-400` and friends would
+          have silently stopped resolving if we shadowed them with flat values.
+
+          src/lib/voiceStates.ts is the single source of truth for which colour
+          means what; these utilities exist so JSX can reach them directly.
+        */
+        voice: {
+          idle:          "var(--tx-3)",
+          listening:     "var(--cyan)",
+          understanding: "#5cd6c6",
+          thinking:      "var(--violet)",
+          speaking:      "var(--coral)",
+          acting:        "var(--lime)",
+        },
+        coral: "var(--coral)",
+        warn: "var(--warn)",
+        err: "var(--err)",
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",

@@ -3,7 +3,48 @@ import { useNavigate } from 'react-router-dom';
 import { AgentConfig, getDefaultFlowItems, getDefaultWelcomeMessage } from '../lib/agentStore';
 import { toast } from 'sonner';
 import { whapi } from '../lib/whapi';
+import { BRAND } from '../lib/brand';
 
+
+/**
+ * Per-category glyph and tint for the use-case template cards.
+ *
+ * Glyphs rather than an icon library: the Spandan surfaces already speak in
+ * mono marks (◷ ◈ ♪ ▤ in the assistant rows), and a text glyph inherits the
+ * tint token directly. Colours are drawn from the state accents so the grid
+ * stays inside the palette instead of introducing a sixth decorative hue.
+ */
+const CATEGORY_META: Record<string, { icon: string; fg: string; bg: string }> = {
+  'Lead Generation': { icon: '◎', fg: 'var(--cyan-fg)', bg: 'rgba(14,179,158,.12)' },
+  Appointments:      { icon: '▦', fg: 'var(--violet)',  bg: 'rgba(129,140,248,.12)' },
+  Support:           { icon: '✆', fg: 'var(--lime)',    bg: 'rgba(52,211,153,.12)' },
+  Negotiation:       { icon: '⇄', fg: 'var(--coral)',   bg: 'rgba(249,115,22,.12)' },
+  Collections:       { icon: '▣', fg: 'var(--warn)',    bg: 'rgba(245,158,11,.12)' },
+};
+const CATEGORY_FALLBACK = { icon: '◈', fg: 'var(--tx-2)', bg: 'rgba(107,130,158,.12)' };
+
+/**
+ * The one-line summary shown on a template card.
+ *
+ * Every seeded prompt opens with a sentence that already describes the agent
+ * ("Create a voice AI agent for outbound lead generation campaigns…"), so the
+ * card description is derived from it rather than authored a second time —
+ * one source of truth, and new templates get a card for free.
+ */
+function templateDescription(prompt: string): string {
+  const firstLine = prompt.split('\n')[0].trim();
+  /*
+    The optional [a-z]+ absorbs an adjective between "voice AI" and the noun —
+    "Create a voice AI educational agent that teaches children…" is phrased that
+    way and otherwise falls through with the boilerplate still attached.
+  */
+  const stripped = firstLine
+    .replace(/^create\s+(?:a|an)\s+voice\s+ai\s+(?:[a-z]+\s+)?(?:agent|assistant)\s+(?:for|to|that)\s+/i, '')
+    .replace(/^create\s+(?:a|an)\s+voice\s+ai\s+(?:[a-z]+\s+)?(?:agent|assistant)\s*/i, '')
+    .trim();
+  const text = stripped || firstLine;
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
 
 export default function Dashboard() {
   const [prompt, setPrompt] = useState('');
@@ -13,45 +54,20 @@ export default function Dashboard() {
   const [success, setSuccess] = useState(false);
   const [agents, setAgents] = useState<AgentConfig[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    const handleClickOutside = () => {
-      setOpenDropdownId(null);
-    };
-    document.addEventListener('click', handleClickOutside);
-    return () => document.removeEventListener('click', handleClickOutside);
-  }, []);
-
-  const handleMenuClick = (e: React.MouseEvent, id: string) => {
-    e.stopPropagation();
-    setOpenDropdownId(openDropdownId === id ? null : id);
-  };
-
-  const handleCopyAssistant = async (e: React.MouseEvent, assistant: AgentConfig) => {
-    e.stopPropagation();
-    setOpenDropdownId(null);
-    const newName = `${assistant.name} (Copy)`;
-    try {
-      const newAgentDetails = {
-        name: newName,
-        welcomeMessage: assistant.welcomeMessage || '',
-        flowItems: assistant.flowItems || [],
-        aiModel: assistant.aiModel || 'GPT-4.1-Mini',
-        voice: assistant.voice || 'Google - Aoede (female)',
-      };
-      const newAgent = await whapi.post<AgentConfig>('/agents', newAgentDetails);
-      setAgents(prev => [newAgent, ...prev]);
-    } catch (err) {
-      console.error('Failed to copy agent on backend', err);
-      toast.error(err instanceof Error ? err.message : 'Failed to copy agent — it was NOT saved. Check your connection and try again.');
-    }
-  };
+  /*
+    Removed alongside the composer's orphaned "⋮" menu: a dropdown, its
+    click-outside listener, a copy handler and a `hardcodedAssistant` literal
+    (id '131000'). The menu rendered inside the use-case templates area rather
+    than on any agent card, and its Copy action POSTed that literal to /agents —
+    so using it created a real agent named "Outbound Lead Qualification Agent
+    (Copy)" out of demo data. The agent rows carry their own Delete/Edit
+    actions, which is where these controls belong.
+  */
 
   const handleDeleteAssistant = async (e: React.MouseEvent, id: string) => {
     e.stopPropagation();
-    setOpenDropdownId(null);
     if (!window.confirm('Delete this assistant? Its attached knowledge-base files, call history, and recordings will also be permanently deleted.')) return;
     try {
       await whapi.del(`/agents/${id}`);
@@ -61,18 +77,6 @@ export default function Dashboard() {
       console.error('Failed to delete on backend', err);
       toast.error(err instanceof Error ? err.message : 'Failed to delete agent on the server.');
     }
-  };
-
-  const hardcodedAssistant = {
-    name: 'Outbound Lead Qualification Agent',
-    language: 'English (India)',
-    llm: 'gpt-4.1-mini',
-    voice: 'google',
-    kbFiles: 0,
-    search: 'Off',
-    postCall: 'None',
-    integrations: 'None',
-    id: '131000',
   };
 
   const [agentsError, setAgentsError] = useState<string | null>(null);
@@ -1366,6 +1370,18 @@ Goals:
 - Build interest in space science` }
     ]
   };
+
+  /*
+    The template grid always shows something. selectedCategory stays nullable
+    because handleCreate forwards it to /llm/generate-flow as an optional hint —
+    "no category chosen" is meaningful there — but the UI falls back to the
+    first category so the grid is never empty on first load.
+  */
+  const categoryNames = Object.keys(useCases);
+  const activeCategory = selectedCategory ?? categoryNames[0];
+  const activeTemplates =
+    (useCases as Record<string, { name: string; prompt: string }[]>)[activeCategory] ?? [];
+
   return (
     <div className="omni-dashboard">
       {/* ════════════════════════════════════════════
@@ -1374,129 +1390,138 @@ Goals:
 
         {/* Page Header */}
         <div className="omni-page-header">
-          <h1>Voice AI Assistants</h1>
-          <p>Create and manage your voice AI assistants</p>
+          <div className="omni-eyebrow">VOICE AI SETUP</div>
+          <div className="omni-page-header-row">
+            <h1>Describe it. {BRAND.name} builds the agent.</h1>
+            {/*
+              An honest count of the user's own live agents — design principle
+              04. It is deliberately not a "12.1k calls handled" style figure:
+              this system never shows invented crowd stats.
+            */}
+            {agents.length > 0 && (
+              <span className="omni-live-count">
+                <span className="omni-live-dot" />
+                {agents.length} {agents.length === 1 ? 'agent' : 'agents'}
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Create Agent Card */}
         <div className="omni-create-card">
-          <div className="omni-create-card-header">
-            <h3>Create a new voice AI assistant</h3>
-            <p>Describe the type of voice AI assistant you want to create</p>
-          </div>
+          {/*
+            Naming the agent up front is optional — left blank, generation names
+            it from the prompt (see handleCreate). It sits above the prompt
+            rather than in a separate dialog so the whole act of creating an
+            agent stays one surface.
+          */}
+          <input
+            className="omni-create-title"
+            placeholder="Agent name (optional — we'll generate one)"
+            value={agentTitle}
+            onChange={(e) => setAgentTitle(e.target.value)}
+          />
           <textarea
             className="omni-create-textarea"
             placeholder="Describe your voice AI assistant's purpose, personality, and how it should handle"
             value={prompt}
             onChange={(e) => setPrompt(e.target.value)}
           />
-          <div className="omni-create-footer">
-            <div className="omni-templates-section">
-              <p className="omni-templates-label">Choose from Use Case Categories:</p>
-              <div className="omni-use-case-chips">
-                {!selectedCategory &&
-                  Object.keys(useCases).map((category) => (
-                    <button
-                      key={category}
-                      className="omni-chip"
-                      onClick={() => setSelectedCategory(category)}
-                    >
-                      {category}
-                    </button>
-                  ))
-                }
-              </div>
-              {selectedCategory && (
-                <div style={{ marginTop: "16px" }}>
-                  <h4
-                    onClick={() => setSelectedCategory(null)}
-                    className="omni-category-back"
-                  >
-                    ← {selectedCategory}
-                  </h4>
-                  <div className="omni-use-case-chips">
-                    {(useCases as Record<string, { name: string; prompt: string }[]>)[selectedCategory].map((item) => (
-                      <button
-                        key={item.name}
-                        className="omni-chip"
-                        onClick={() => {
-                          setPrompt(item.prompt);
-                          setAgentTitle(item.name);
-                        }}
-                      >
-                        {item.name}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              <div style={{ position: 'relative' }}>
+          {enhanceError && (
+            <p className="omni-enhance-error">⚠️ {enhanceError}</p>
+          )}
+          <div className="omni-create-actions">
+            <button
+              className="omni-btn omni-btn-secondary"
+              onClick={handleEnhance}
+              disabled={enhancing || !prompt.trim()}
+            >
+              {enhancing ? "Enhancing..." : "✨ Enhance Prompt"}
+            </button>
+            {/* A live reading of what will be sent — an instrument, so mono. */}
+            <span className="omni-char-count sp-num">{prompt.length} chars</span>
+            <button
+              className="omni-btn omni-btn-primary"
+              style={{ background: success ? "var(--lime)" : "" }}
+              onClick={handleCreate}
+              disabled={creating || success || !prompt.trim()}
+            >
+              {creating ? "Creating..." : success ? "✓ Created!" : "Create Voice AI Assistant"}
+            </button>
+          </div>
+        </div>
+
+        {/*
+          Use-case templates.
+
+          Moved out of the composer card and given its own section, matching the
+          design: the card is the thing you type into, this is the shortcut past
+          typing. Categories filter in place rather than the old drill-down —
+          picking a category no longer hides the other five behind a back link.
+        */}
+        <div className="omni-templates">
+          <div className="omni-templates-head">
+            <div className="omni-templates-title">Or start from a use case</div>
+            <div className="omni-cat-row">
+              {Object.keys(useCases).map((category) => (
                 <button
-                  className="assistant-menu"
-                  aria-label="Assistant actions"
-                  onClick={(e) => handleMenuClick(e, hardcodedAssistant.id)}
+                  key={category}
+                  className={`omni-cat${activeCategory === category ? ' is-active' : ''}`}
+                  onClick={() => setSelectedCategory(category)}
+                  aria-pressed={activeCategory === category}
                 >
-                  ⋮
+                  {category}
                 </button>
-                {openDropdownId === hardcodedAssistant.id && (
-                  <div className="assistant-menu-dropdown">
-                    <button onClick={(e) => handleCopyAssistant(e, hardcodedAssistant as any)}>
-                      <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                        <rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect>
-                        <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path>
-                      </svg>
-                      Copy Assistant
-                    </button>
-                    <button className="delete-btn" onClick={(e) => handleDeleteAssistant(e, hardcodedAssistant.id)}>
-                      <svg width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                        <polyline points="3 6 5 6 21 6"></polyline>
-                        <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path>
-                        <line x1="10" y1="11" x2="10" y2="17"></line>
-                        <line x1="14" y1="11" x2="14" y2="17"></line>
-                      </svg>
-                      Delete Assistant
-                    </button>
+              ))}
+            </div>
+          </div>
+          <div className="omni-template-grid">
+            {activeTemplates.map((item) => {
+              const meta = CATEGORY_META[activeCategory] ?? CATEGORY_FALLBACK;
+              return (
+                <button
+                  key={item.name}
+                  className="omni-template"
+                  onClick={() => {
+                    setPrompt(item.prompt);
+                    setAgentTitle(item.name);
+                  }}
+                >
+                  <div className="omni-template-head">
+                    <span
+                      className="omni-template-icon"
+                      style={{ background: meta.bg, color: meta.fg }}
+                      aria-hidden="true"
+                    >
+                      {meta.icon}
+                    </span>
+                    <div className="omni-template-name">{item.name}</div>
                   </div>
-                )}
-              </div>
-            </div>
-            <div className="omni-create-actions">
-              {enhanceError && (
-                <p style={{ color: '#f87171', fontSize: '12px', margin: '0 0 8px' }}>⚠️ {enhanceError}</p>
-              )}
-              <button
-                className="omni-btn omni-btn-secondary"
-                onClick={handleEnhance}
-                disabled={enhancing || !prompt.trim()}
-              >
-                {enhancing ? "Enhancing..." : "✨ Enhance Prompt"}
-              </button>
-              <button
-                className="omni-btn omni-btn-primary"
-                style={{ background: success ? "#10b981" : "" }}
-                onClick={handleCreate}
-                disabled={creating || success || !prompt.trim()}
-              >
-                {creating ? "Creating..." : success ? "✓ Created!" : "Create Voice AI Assistant"}
-              </button>
-            </div>
+                  <div className="omni-template-desc">{templateDescription(item.prompt)}</div>
+                  <div className="omni-template-cta">Use template →</div>
+                </button>
+              );
+            })}
           </div>
         </div>
 
         {/* Assistants Section */}
         <div className="omni-assistants-section">
           <div className="omni-assistants-header">
-            <h2>My Voice AI Assistants</h2>
-            {agentsLoading && <p style={{ color: 'var(--text-muted, #94a3b8)', fontSize: 13 }}>Loading your agents…</p>}
+            <h2>
+              Your assistants
+              {agents.length > 0 && <span className="omni-count sp-num"> · {agents.length}</span>}
+            </h2>
+            {agentsLoading && <p style={{ color: 'var(--tx-3)', fontSize: 13 }}>Loading your agents…</p>}
             {agentsError && (
-              <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.35)', color: '#fca5a5', borderRadius: 8, padding: '12px 16px', fontSize: 13, margin: '10px 0', lineHeight: 1.6 }}>
+              <div className="omni-load-error">
                 <strong>Couldn’t load your agents:</strong> {agentsError}
-                <div style={{ marginTop: 6, color: 'rgba(252,165,165,0.85)' }}>
+                <div style={{ marginTop: 6, opacity: 0.85 }}>
                   Common causes: ① the backend isn’t running (start it with <code>npm run dev</code> in <code>backend/</code>) ·
                   ② database schema not migrated (<code>npx prisma migrate deploy</code> — now runs automatically with npm run dev) ·
                   ③ wrong <code>DATABASE_URL</code> in <code>backend/.env</code>. Admins can check Admin Panel → System Health.
                 </div>
-                <button onClick={() => fetchAgentsRef.current?.()} style={{ marginTop: 10, background: 'transparent', border: '1px solid rgba(239,68,68,0.5)', color: '#fca5a5', borderRadius: 6, padding: '4px 14px', cursor: 'pointer', fontSize: 12.5 }}>
+                <button onClick={() => fetchAgentsRef.current?.()} className="omni-retry-btn">
                   ↻ Retry
                 </button>
               </div>
@@ -1506,7 +1531,7 @@ Goals:
                 <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="1.8" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" /></svg>
                 <input
                   type="text"
-                  placeholder="Search assistants..."
+                  placeholder="Filter assistants…"
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
@@ -1525,47 +1550,61 @@ Goals:
           <div className="omni-assistants-grid">
             {/* Dynamic Agents only — no hardcoded demo card */}
             {agentsError ? null : agentsLoading ? null : filteredAgents.length === 0 ? (
-              <div style={{ gridColumn: '1/-1', padding: '48px', textAlign: 'center', color: 'var(--text-muted)', background: 'var(--bg-card)', border: '1px dashed #334155', borderRadius: '14px' }}>
+              <div style={{ padding: '48px', textAlign: 'center', color: 'var(--tx-3)', background: 'var(--s1)', border: '1px dashed var(--line-2)', borderRadius: '14px' }}>
                 <div style={{ fontSize: '40px', marginBottom: '12px' }}>🤖</div>
-                <p style={{ fontSize: '15px', marginBottom: '6px', color: 'var(--text-secondary)' }}>No assistants yet</p>
-                <p style={{ fontSize: '13px' }}>Describe your use case above and click <strong style={{ color: '#14b8a6' }}>Create Voice AI Assistant</strong></p>
+                <p style={{ fontSize: '15px', marginBottom: '6px', color: 'var(--tx-2)' }}>No assistants yet</p>
+                <p style={{ fontSize: '13px' }}>Describe your use case above and click <strong style={{ color: 'var(--cyan-fg)' }}>Create Voice AI Assistant</strong></p>
               </div>
-            ) : filteredAgents.map((assistant) => (
-              <article key={assistant.id} className="omni-card">
-                {/* Head: title only (meta/footer are siblings — previously they
-                    were nested inside this flex row, squeezing everything into
-                    unreadable narrow columns) */}
-                <div className="omni-card-head">
-                  <div style={{ minWidth: 0 }}>
-                    <h3 title={assistant.name}>{assistant.name
-                      .replace(/^Inbound Voice AI Agent:\s*/i, "")
-                      .replace(/^Create a voice AI agent for\s*/i, "")}</h3>
-                    <p>{assistant.language}</p>
+            ) : filteredAgents.map((assistant) => {
+              const displayName = assistant.name
+                .replace(/^Inbound Voice AI Agent:\s*/i, "")
+                .replace(/^Create a voice AI agent for\s*/i, "");
+              /*
+                Initials for the avatar tile. Falls back to the first character
+                so an agent named with a single word or a symbol still renders a
+                tile rather than an empty square.
+              */
+              const initials = displayName
+                .split(/\s+/)
+                .filter(Boolean)
+                .slice(0, 2)
+                .map((w) => w[0])
+                .join('')
+                .toUpperCase() || '·';
+              return (
+              <article key={assistant.id} className="omni-row">
+                <span className="omni-row-avatar">{initials}</span>
+                <div className="omni-row-body">
+                  <div className="omni-row-title-line">
+                    <div className="omni-row-name" title={assistant.name}>{displayName}</div>
+                  </div>
+                  {/*
+                    Config summary in mono — these are instrument readings, not
+                    prose, so they take the mono face and a single dense line
+                    rather than the old six-cell grid.
+                  */}
+                  <div className="omni-row-meta">
+                    <span>◷ {assistant.language || '—'}</span>
+                    <span>◈ {assistant.llm || assistant.aiModel || '—'}</span>
+                    <span>♪ {assistant.voice || '—'}</span>
+                    <span>▤ {assistant.kbFiles ?? 0} KB</span>
+                    <span>⌕ {assistant.search || 'Off'}</span>
+                    <span>⇲ {assistant.integrations || 'None'}</span>
                   </div>
                 </div>
-                <div className="omni-card-meta">
-                  <div><span>LLM:</span> <strong>{assistant.llm || assistant.aiModel || '—'}</strong></div>
-                  <div><span>Voice:</span> <strong>{assistant.voice || '—'}</strong></div>
-                  <div><span>KB Files:</span> <strong>{assistant.kbFiles ?? 0}</strong></div>
-                  <div><span>Search:</span> <strong>{assistant.search || 'Off'}</strong></div>
-                  <div><span>Post-call:</span> <strong>{assistant.postCall || 'None'}</strong></div>
-                  <div><span>Integrations:</span> <strong>{assistant.integrations || 'None'}</strong></div>
+                <div className="omni-row-actions">
+                  <button
+                    className="omni-btn omni-btn-danger"
+                    title="Delete this assistant from your workspace"
+                    onClick={(e) => handleDeleteAssistant(e, String(assistant.id))}
+                  >
+                    Delete
+                  </button>
+                  <button className="omni-btn omni-btn-primary" onClick={() => navigate(`/agent/${assistant.id}`)}>Edit</button>
                 </div>
-                <div className="omni-card-footer">
-                  <span className="omni-card-id" title={String(assistant.id)}>ID: {String(assistant.id).slice(0, 12)}…</span>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <button
-                      className="omni-btn omni-btn-danger"
-                      title="Delete this assistant from your workspace"
-                      onClick={(e) => handleDeleteAssistant(e, String(assistant.id))}
-                    >
-                      Delete
-                    </button>
-                    <button className="omni-btn omni-btn-primary" onClick={() => navigate(`/agent/${assistant.id}`)}>Edit Agent</button>
-                  </div>
-                </div>
-                </article>
-              ))
+              </article>
+              );
+              })
               }
             </div>
           </div>
@@ -1579,55 +1618,93 @@ Goals:
           max-width: 1200px;
           margin: 0 auto;
           padding: 32px 24px;
-          color: var(--text-primary);
+          color: var(--tx);
         }
 
         /* ── Page Header ── */
         .omni-page-header {
-          margin-bottom: 32px;
+          margin-bottom: 20px;
+        }
+        /* The recurring mono micro-label that opens every Spandan section. */
+        .omni-eyebrow {
+          font-family: var(--ff-m);
+          font-size: 11px;
+          letter-spacing: 2px;
+          color: var(--cyan);
+        }
+        .omni-page-header-row {
+          display: flex;
+          align-items: flex-end;
+          justify-content: space-between;
+          gap: 16px;
+          flex-wrap: wrap;
         }
         .omni-page-header h1 {
-          font-size: 28px;
-          font-weight: 800;
-          letter-spacing: -0.5px;
-          margin-bottom: 6px;
-          color: var(--text-primary);
+          font-family: var(--ff-d);
+          font-size: clamp(24px, 3vw, 34px);
+          font-weight: 700;
+          letter-spacing: -0.02em;
+          margin: 8px 0 0;
+          color: var(--tx);
         }
-        .omni-page-header p {
-          color: var(--text-secondary);
-          font-size: 14px;
-          margin: 0;
+        .omni-live-count {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          font-family: var(--ff-m);
+          font-size: 11.5px;
+          color: var(--tx-3);
+          white-space: nowrap;
+        }
+        .omni-live-dot {
+          width: 7px;
+          height: 7px;
+          border-radius: 50%;
+          background: var(--lime);
+          box-shadow: 0 0 8px var(--lime);
+          animation: omni-blink 2s infinite;
+        }
+        @keyframes omni-blink { 0%, 100% { opacity: 1 } 50% { opacity: .3 } }
+        @media (prefers-reduced-motion: reduce) {
+          .omni-live-dot { animation: none }
         }
 
         /* ── Create Card ── */
+        /*
+          The gradient runs from the card surface down into the page canvas, so
+          the composer reads as the one raised, "live" object on the screen —
+          the accent-card treatment from the design system, used once per view.
+        */
         .omni-create-card {
-          background: var(--bg-card);
-          border: 1px solid var(--border);
-          border-radius: 16px;
-          padding: 28px;
+          background: linear-gradient(180deg, var(--s1), var(--bg-2));
+          border: 1px solid var(--line-2);
+          border-radius: 18px;
+          padding: 20px;
           margin-bottom: 32px;
         }
-        .omni-create-card-header h3 {
-          font-size: 16px;
-          font-weight: 600;
-          color: var(--text-primary);
-          margin: 0 0 6px;
+        .omni-create-title {
+          width: 100%;
+          background: transparent;
+          border: none;
+          outline: none;
+          color: var(--tx);
+          font-family: var(--ff-d);
+          font-weight: 700;
+          font-size: 18px;
+          margin-bottom: 10px;
+          box-sizing: border-box;
         }
-        .omni-create-card-header p {
-          font-size: 13px;
-          color: var(--text-secondary);
-          margin: 0 0 18px;
-        }
+        .omni-create-title::placeholder { color: var(--tx-3); }
         .omni-create-textarea {
           width: 100%;
           min-height: 140px;
-          background: var(--bg-secondary);
-          border: 1px solid var(--border);
+          background: var(--s2);
+          border: 1px solid var(--line-2);
           border-radius: 12px;
-          padding: 16px;
-          color: var(--text-primary);
+          padding: 14px;
+          color: var(--tx);
           font-size: 14px;
-          line-height: 1.6;
+          line-height: 1.55;
           resize: vertical;
           outline: none;
           transition: border-color 0.2s, box-shadow 0.2s;
@@ -1635,63 +1712,137 @@ Goals:
           box-sizing: border-box;
         }
         .omni-create-textarea::placeholder {
-          color: var(--text-muted);
+          color: var(--tx-3);
         }
         .omni-create-textarea:focus {
-          border-color: #14b8a6;
-          box-shadow: 0 0 0 3px rgba(20, 184, 166, 0.12);
+          border-color: var(--cyan);
+          box-shadow: 0 0 0 3px rgba(14, 179, 158, 0.14);
         }
 
-        .omni-create-footer {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-end;
-          flex-wrap: wrap;
-          gap: 20px;
-        }
-
-        .omni-templates-section {
-          flex: 1;
-          min-width: 280px;
-        }
-        .omni-templates-label {
+        .omni-enhance-error {
+          color: var(--err);
           font-size: 12px;
-          color: var(--text-muted);
-          margin-bottom: 10px;
+          margin: 0 0 8px;
         }
-        .omni-use-case-chips {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 8px;
-        }
-        .omni-chip {
-          background: var(--bg-secondary);
-          border: 1px solid var(--border);
-          border-radius: 20px;
-          padding: 6px 14px;
-          font-size: 12px;
-          color: var(--text-secondary);
-          cursor: pointer;
-          transition: all 0.2s;
-          white-space: nowrap;
-        }
-        .omni-chip:hover {
-          border-color: #14b8a6;
-          color: #14b8a6;
-          background: rgba(20, 184, 166, 0.08);
-        }
-        .omni-category-back {
-          cursor: pointer;
-          color: #14b8a6;
-          margin-bottom: 12px;
-          font-size: 14px;
-          font-weight: 500;
-        }
-
         .omni-create-actions {
           display: flex;
+          align-items: center;
           gap: 10px;
+          flex-wrap: wrap;
+        }
+        .omni-char-count {
+          font-size: 11.5px;
+          color: var(--tx-3);
+        }
+        /* Pushes the primary action to the trailing edge of the composer. */
+        .omni-create-actions .omni-btn-primary { margin-left: auto; }
+
+        /* ── Use-case templates ── */
+        .omni-templates { margin-bottom: 32px; }
+        .omni-templates-head {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          margin-bottom: 12px;
+          flex-wrap: wrap;
+        }
+        .omni-templates-title {
+          font-family: var(--ff-d);
+          font-weight: 700;
+          font-size: 16px;
+          color: var(--tx);
+        }
+        .omni-cat-row {
+          display: flex;
+          gap: 6px;
+          flex-wrap: wrap;
+        }
+        .omni-cat {
+          background: transparent;
+          border: 1px solid var(--line);
+          border-radius: 100px;
+          padding: 6px 13px;
+          font-size: 12.5px;
+          color: var(--tx-3);
+          cursor: pointer;
+          transition: color .15s, border-color .15s, background .15s;
+          white-space: nowrap;
+        }
+        .omni-cat:hover {
+          color: var(--tx);
+          border-color: var(--line-2);
+        }
+        .omni-cat.is-active {
+          background: rgba(14,179,158,.12);
+          border-color: rgba(14,179,158,.4);
+          color: var(--cyan-fg);
+          font-weight: 600;
+        }
+
+        .omni-template-grid {
+          display: grid;
+          grid-template-columns: repeat(3, 1fr);
+          gap: 12px;
+        }
+        .omni-template {
+          text-align: left;
+          background: var(--s1);
+          border: 1px solid var(--line);
+          border-radius: 13px;
+          padding: 15px;
+          cursor: pointer;
+          transition: border-color .15s, background .15s;
+          display: flex;
+          flex-direction: column;
+        }
+        .omni-template:hover {
+          border-color: var(--line-2);
+          background: var(--s2);
+        }
+        .omni-template-head {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        .omni-template-icon {
+          width: 32px;
+          height: 32px;
+          border-radius: 9px;
+          display: grid;
+          place-items: center;
+          font-size: 14px;
           flex-shrink: 0;
+        }
+        .omni-template-name {
+          font-family: var(--ff-d);
+          font-weight: 600;
+          font-size: 14px;
+          color: var(--tx);
+        }
+        .omni-template-desc {
+          font-size: 12.5px;
+          color: var(--tx-2);
+          line-height: 1.5;
+          margin-top: 10px;
+          /* Descriptions are derived from prompt copy of varying length; clamp
+             so a long one cannot make its card taller than its row-mates. */
+          display: -webkit-box;
+          -webkit-line-clamp: 3;
+          -webkit-box-orient: vertical;
+          overflow: hidden;
+        }
+        .omni-template-cta {
+          font-family: var(--ff-m);
+          font-size: 11px;
+          color: var(--cyan-fg);
+          margin-top: 10px;
+        }
+        @media (max-width: 1000px) {
+          .omni-template-grid { grid-template-columns: repeat(2, 1fr); }
+        }
+        @media (max-width: 640px) {
+          .omni-template-grid { grid-template-columns: 1fr; }
         }
 
         /* ── Buttons ── */
@@ -1714,29 +1865,35 @@ Goals:
           cursor: not-allowed;
         }
         .omni-btn-primary {
-          background: #14b8a6;
-          color: #0f172a;
+          background: var(--cyan);
+          /*
+            Ink ON the brand fill, so it stays a literal. --cyan is the same
+            value in both themes precisely because its foreground is fixed;
+            a token here would go light in light mode and put pale text on a
+            teal button. #04211d is the design system's on-cyan ink.
+          */
+          color: #04211d;
         }
         .omni-btn-primary:hover:not(:disabled) {
-          background: #0d9488;
+          background: var(--teal-hover);
         }
         .omni-btn-secondary {
-          background: var(--bg-card);
-          color: var(--text-primary);
-          border: 1px solid var(--border);
+          background: var(--s2);
+          color: var(--tx);
+          border: 1px solid var(--line-2);
         }
         .omni-btn-secondary:hover:not(:disabled) {
-          border-color: #14b8a6;
-          color: #14b8a6;
+          border-color: var(--cyan-fg);
+          color: var(--cyan-fg);
         }
         .omni-btn-danger {
           background: transparent;
-          color: #f87171;
+          color: var(--err);
           border: 1px solid rgba(248,113,113,0.45);
         }
         .omni-btn-danger:hover:not(:disabled) {
           background: rgba(248,113,113,0.12);
-          border-color: #f87171;
+          border-color: var(--err);
         }
 
         /* ── Assistants Section ── */
@@ -1752,10 +1909,17 @@ Goals:
           gap: 12px;
         }
         .omni-assistants-header h2 {
-          font-size: 18px;
+          font-family: var(--ff-d);
+          font-size: 16px;
           font-weight: 700;
-          color: var(--text-primary);
+          color: var(--tx);
           margin: 0;
+        }
+        /* The count is a reading, not part of the title — mono and receded. */
+        .omni-count {
+          font-size: 13px;
+          color: var(--tx-3);
+          font-weight: 400;
         }
         .omni-assistants-header-actions {
           display: flex;
@@ -1767,139 +1931,155 @@ Goals:
           display: flex;
           align-items: center;
           gap: 8px;
-          background: var(--bg-card);
-          border: 1px solid var(--border);
-          border-radius: 10px;
-          padding: 8px 14px;
+          background: var(--s1);
+          border: 1px solid var(--line-2);
+          border-radius: 9px;
+          padding: 8px 11px;
           min-width: 220px;
+          transition: border-color .2s, box-shadow .2s;
+        }
+        .omni-search-box:focus-within {
+          border-color: var(--cyan);
+          box-shadow: 0 0 0 3px rgba(14, 179, 158, 0.14);
         }
         .omni-search-box svg {
-          color: var(--text-muted);
+          color: var(--tx-3);
           flex-shrink: 0;
         }
         .omni-search-box input {
           background: transparent;
           border: none;
           outline: none;
-          color: var(--text-primary);
+          color: var(--tx);
           font-size: 13px;
           width: 100%;
         }
         .omni-search-box input::placeholder {
-          color: var(--text-muted);
+          color: var(--tx-3);
+        }
+
+        /* ── Agents failed to load ── */
+        .omni-load-error {
+          background: rgba(248,113,113,0.08);
+          border: 1px solid rgba(248,113,113,0.35);
+          color: var(--err);
+          border-radius: 10px;
+          padding: 12px 16px;
+          font-size: 13px;
+          margin: 10px 0;
+          line-height: 1.6;
+        }
+        .omni-load-error code {
+          font-family: var(--ff-m);
+          font-size: 12px;
+        }
+        .omni-retry-btn {
+          margin-top: 10px;
+          background: transparent;
+          border: 1px solid rgba(248,113,113,0.5);
+          color: var(--err);
+          border-radius: 8px;
+          padding: 4px 14px;
+          cursor: pointer;
+          font-size: 12.5px;
+        }
+        .omni-retry-btn:hover {
+          background: rgba(248,113,113,0.10);
         }
         .omni-suggestions {
           display: flex;
           align-items: center;
           gap: 8px;
           font-size: 12px;
-          color: var(--text-muted);
+          color: var(--tx-3);
         }
         .omni-suggestions button {
-          background: var(--bg-card);
-          border: 1px solid var(--border);
+          background: var(--s1);
+          border: 1px solid var(--line);
           border-radius: 6px;
           padding: 4px 10px;
           font-size: 12px;
-          color: var(--text-secondary);
+          color: var(--tx-2);
           cursor: pointer;
           transition: all 0.2s;
         }
         .omni-suggestions button:hover {
-          border-color: #14b8a6;
-          color: #14b8a6;
+          border-color: var(--cyan-fg);
+          color: var(--cyan-fg);
         }
 
         /* ── Cards Grid ── */
+        /*
+          A vertical list, not a card grid. Agents are scanned by name and
+          compared on their config, and a single-column list keeps the name,
+          the mono config line and the actions on one baseline — the 340px grid
+          cells wrapped the config into six cramped cells and pushed the Edit
+          button to a different height in every card.
+        */
         .omni-assistants-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
-          gap: 20px;
-        }
-        .omni-card {
-          background: var(--bg-card);
-          border: 1px solid var(--border);
-          border-radius: 14px;
-          padding: 20px;
           display: flex;
           flex-direction: column;
-          transition: border-color 0.2s, box-shadow 0.2s;
+          gap: 10px;
         }
-        .omni-card:hover {
-          border-color: var(--text-muted);
-          box-shadow: 0 4px 20px rgba(0, 0, 0, 0.25);
-        }
-        .omni-card-head {
+        .omni-row {
+          background: var(--s1);
+          border: 1px solid var(--line);
+          border-radius: 14px;
+          padding: 16px 18px;
           display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          margin-bottom: 16px;
-        }
-        .omni-card-head h3 {
-          font-size: 14px;
-          font-weight: 600;
-          color: var(--text-primary);
-          margin: 0 0 4px;
-          line-height: 1.4;
-          display: -webkit-box;
-          -webkit-line-clamp: 2;
-          -webkit-box-orient: vertical;
-          overflow: hidden;
-        }
-        .omni-card-head p {
-          font-size: 12px;
-          color: var(--text-muted);
-          margin: 0;
-        }
-        .omni-card-menu {
-          background: transparent;
-          border: none;
-          color: var(--text-muted);
-          font-size: 18px;
-          cursor: pointer;
-          padding: 4px;
-          border-radius: 6px;
-          line-height: 1;
-        }
-        .omni-card-menu:hover {
-          background: var(--bg-elevated);
-          color: var(--text-primary);
-        }
-        .omni-card-meta {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 10px 16px;
-          margin-bottom: 18px;
-          flex: 1;
-        }
-        .omni-card-meta div {
-          font-size: 12px;
-          color: var(--text-secondary);
-        }
-        .omni-card-meta span {
-          color: var(--text-muted);
-        }
-        .omni-card-meta strong {
-          color: var(--text-primary);
-          font-weight: 500;
-        }
-        .omni-card-footer {
-          display: flex;
-          justify-content: space-between;
           align-items: center;
-          gap: 12px;
-          padding-top: 14px;
-          margin-top: auto;
-          border-top: 1px solid var(--border);
+          gap: 16px;
+          transition: border-color 0.15s;
         }
-        .omni-card-id {
-          font-size: 11px;
-          color: var(--text-muted);
-          font-family: monospace;
+        .omni-row:hover {
+          border-color: var(--line-2);
+        }
+        .omni-row-avatar {
+          width: 44px;
+          height: 44px;
+          border-radius: 11px;
+          background: linear-gradient(135deg, var(--cyan), var(--violet));
+          display: grid;
+          place-items: center;
+          font-family: var(--ff-d);
+          font-weight: 700;
+          font-size: 15px;
+          color: #04211d;
+          flex-shrink: 0;
+        }
+        .omni-row-body { min-width: 0; flex: 1; }
+        .omni-row-title-line {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+        }
+        .omni-row-name {
+          font-family: var(--ff-d);
+          font-weight: 600;
+          font-size: 15px;
+          color: var(--tx);
+          white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
-          white-space: nowrap;
-          min-width: 0;
+        }
+        .omni-row-meta {
+          display: flex;
+          gap: 14px;
+          margin-top: 6px;
+          font-family: var(--ff-m);
+          font-size: 11.5px;
+          color: var(--tx-3);
+          flex-wrap: wrap;
+        }
+        .omni-row-actions {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-shrink: 0;
+        }
+        @media (max-width: 700px) {
+          .omni-row { flex-wrap: wrap; }
+          .omni-row-actions { width: 100%; justify-content: flex-end; }
         }
 
         /* ════════════════════════════════════════ */
@@ -1917,26 +2097,22 @@ Goals:
           .omni-create-card {
             padding: 18px;
             border-radius: 12px;
-            border: 1px solid #14b8a6;
+            border: 1px solid var(--cyan-fg);
             background: var(--bg-secondary);
           }
           .omni-create-card-header h3 {
-            color: #14b8a6;
+            color: var(--cyan-fg);
             font-size: 15px;
           }
           .omni-create-textarea {
             min-height: 120px;
             font-size: 14px;
-            background: var(--bg-card);
-            border-color: #334155;
-          }
-          .omni-create-footer {
-            flex-direction: column;
-            align-items: stretch;
-            gap: 16px;
+            background: var(--s2);
+            border-color: var(--line-2);
           }
           .omni-create-actions {
             flex-direction: column;
+            align-items: stretch;
             width: 100%;
           }
           .omni-create-actions .omni-btn {
@@ -1950,18 +2126,13 @@ Goals:
             width: 100%;
             padding: 14px 20px;
             font-size: 14px;
+            /* The auto margin only makes sense on the horizontal row. */
+            margin-left: 0;
           }
-          /* Use case chips */
-          .omni-use-case-chips {
-            gap: 8px;
-          }
-          .omni-chip {
-            font-size: 12px;
-            padding: 8px 14px;
-            background: var(--bg-card);
-            border-color: #334155;
-            color: var(--text-primary);
-            border-radius: 8px;
+          /* Char count reads as a caption above the button once stacked. */
+          .omni-char-count {
+            order: -1;
+            text-align: right;
           }
           /* Assistants section */
           .omni-assistants-section {
@@ -1986,31 +2157,12 @@ Goals:
             flex-wrap: wrap;
             gap: 6px;
           }
-          /* Assistants grid - single column on mobile */
+          /* The list is already single-column; just tighten it on small screens. */
           .omni-assistants-grid {
-            grid-template-columns: 1fr;
-            gap: 14px;
+            gap: 8px;
           }
-          .omni-card {
-            padding: 16px;
-            background: var(--bg-card);
-            border: 1px solid var(--border);
-          }
-          .omni-card-head h3 {
-            font-size: 14px;
-          }
-          .omni-card-meta {
-            grid-template-columns: 1fr 1fr;
-            gap: 8px 12px;
-            font-size: 12px;
-          }
-          .omni-card-footer {
-            flex-direction: column;
-            gap: 10px;
-            align-items: stretch;
-          }
-          .omni-card-footer .omni-btn {
-            width: 100%;
+          .omni-row {
+            padding: 14px;
           }
         }
 
@@ -2021,8 +2173,12 @@ Goals:
           .omni-create-card {
             padding: 14px;
           }
-          .omni-card-meta {
-            grid-template-columns: 1fr;
+          /* Drop the avatar so the name and its config line keep full width. */
+          .omni-row-avatar {
+            display: none;
+          }
+          .omni-row-meta {
+            gap: 8px;
           }
           .omni-suggestions span {
             display: none;

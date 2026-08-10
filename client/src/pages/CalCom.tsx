@@ -61,7 +61,7 @@ const responsiveStyles = `
 
 function CalLogo() {
   return (
-    <div className="calcom-logo" style={{ fontSize: 52, fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '-2px', lineHeight: 1 }}>
+    <div className="calcom-logo" style={{ fontSize: 52, fontWeight: 800, color: 'var(--tx)', letterSpacing: '-2px', lineHeight: 1 }}>
       Cal.com
     </div>
   );
@@ -108,7 +108,7 @@ function BulletItem({ text }: { text: string }) {
   return (
     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 10 }}>
       <Check size={15} style={{ color: '#0eb39e', marginTop: 2, flexShrink: 0 }} />
-      <span style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6 }}>{text}</span>
+      <span style={{ fontSize: 14, color: 'var(--tx-2)', lineHeight: 1.6 }}>{text}</span>
     </div>
   );
 }
@@ -118,7 +118,7 @@ function SectionLabel({ text }: { text: string }) {
     <div style={{
       fontSize: 11, fontWeight: 700, letterSpacing: '0.12em',
       textTransform: 'uppercase' as const,
-      color: 'var(--text-secondary)', marginBottom: 14,
+      color: 'var(--tx-2)', marginBottom: 14,
     }}>
       {text}
     </div>
@@ -127,7 +127,7 @@ function SectionLabel({ text }: { text: string }) {
 
 export default function CalCom() {
   return (
-    <div style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)', minHeight: '100vh' }}>
+    <div style={{ background: 'var(--bg-primary)', color: 'var(--tx)', minHeight: '100vh' }}>
       <style>{responsiveStyles}</style>
       <div className="calcom-wrapper" style={{ maxWidth: 760, margin: '0 auto', padding: '48px 24px 100px' }}>
 
@@ -135,15 +135,15 @@ export default function CalCom() {
         <div className="calcom-header" style={{ display: 'flex', alignItems: 'flex-start', gap: 28, marginBottom: 32 }}>
           <CalLogo />
           <div className="calcom-title-block" style={{ paddingTop: 6 }}>
-            <div className="calcom-title" style={{ fontSize: 22, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>Cal.com</div>
-            <div style={{ fontSize: 14, color: 'var(--text-primary)' }}>
+            <div className="calcom-title" style={{ fontSize: 22, fontWeight: 700, color: 'var(--tx)', marginBottom: 4 }}>Cal.com</div>
+            <div style={{ fontSize: 14, color: 'var(--tx)' }}>
               Schedule meetings on your Cal.com calendar from a voice conversation.
             </div>
           </div>
         </div>
 
         {/* Intro */}
-        <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.75, marginBottom: 40 }}>
+        <p style={{ fontSize: 14, color: 'var(--tx-2)', lineHeight: 1.75, marginBottom: 40 }}>
           Cal.com integration lets your agent access your calendar and schedule meetings on your behalf,
           creating a seamless scheduling experience for callers. Configure the integration once and attach it to any agent.
         </p>
@@ -165,11 +165,11 @@ export default function CalCom() {
         </div>
 
         {/* Docs card */}
-        <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: '24px 28px', marginBottom: 40 }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>
+        <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding: '24px 28px', marginBottom: 40 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--tx)', marginBottom: 6 }}>
             Full setup guide on our docs
           </div>
-          <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 14, lineHeight: 1.65 }}>
+          <div style={{ fontSize: 13, color: 'var(--tx-2)', marginBottom: 14, lineHeight: 1.65 }}>
             Step-by-step instructions with screenshots, including dashboard setup and agent-side configuration.
           </div>
           <Link to="/documentation" style={{ fontSize: 13, fontWeight: 600, color: '#0eb39e', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -179,7 +179,7 @@ export default function CalCom() {
 
         {/* CTA */}
         <div className="calcom-cta-block" style={{
-          border: '1px solid var(--border)', borderRadius: 16, padding: '36px', marginBottom: 56,
+          border: '1px solid var(--line)', borderRadius: 16, padding: '36px', marginBottom: 56,
           background: 'linear-gradient(135deg, rgba(14,179,158,0.08) 0%, rgba(14,179,158,0.02) 100%)',
           position: 'relative' as const, overflow: 'hidden',
         }}>
@@ -188,17 +188,17 @@ export default function CalCom() {
             background: 'radial-gradient(circle, rgba(14,179,158,0.18) 0%, transparent 70%)',
             pointerEvents: 'none' as const,
           }} />
-          <h2 className="calcom-cta-title" style={{ fontSize: 26, fontWeight: 800, color: 'var(--text-primary)', marginBottom: 10, letterSpacing: '-0.5px' }}>
+          <h2 className="calcom-cta-title" style={{ fontSize: 26, fontWeight: 800, color: 'var(--tx)', marginBottom: 10, letterSpacing: '-0.5px' }}>
             Build a voice agent that uses Cal.com
           </h2>
-          <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.65, marginBottom: 24, maxWidth: 480 }}>
+          <p style={{ fontSize: 14, color: 'var(--tx-2)', lineHeight: 1.65, marginBottom: 24, maxWidth: 480 }}>
             Start free, configure the Cal.com connection from the dashboard, and launch your first agent in minutes.
           </p>
           <div className="calcom-cta-buttons" style={{ display: 'flex', gap: 12 }}>
             <Link to="/signup" style={{
               display: 'inline-flex', alignItems: 'center', gap: 8,
               padding: '10px 22px', borderRadius: 24,
-              background: '#0eb39e', color: '#fff',
+              background: 'var(--cyan)', color: 'var(--on-cyan)',
               fontSize: 14, fontWeight: 700, textDecoration: 'none',
             }}>
               Start free <ArrowRight size={14} />
@@ -206,8 +206,8 @@ export default function CalCom() {
             <Link to="/book-appointment" style={{
               display: 'inline-flex', alignItems: 'center', gap: 8,
               padding: '10px 22px', borderRadius: 24,
-              border: '1px solid var(--border)',
-              color: 'var(--text-primary)',
+              border: '1px solid var(--line)',
+              color: 'var(--tx)',
               fontSize: 14, fontWeight: 600, textDecoration: 'none',
               background: 'transparent',
             }}>
@@ -222,22 +222,22 @@ export default function CalCom() {
           <div className="calcom-integrations-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 20 }}>
             <div>
               <div style={{ marginBottom: 10 }}><GoogleCalIcon /></div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>Google Calendar</div>
-              <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--tx)', marginBottom: 4 }}>Google Calendar</div>
+              <div style={{ fontSize: 12, color: 'var(--tx-2)', lineHeight: 1.6 }}>
                 Read availability and write bookings to Google Calendar.
               </div>
             </div>
             <div>
               <div style={{ marginBottom: 10 }}><HubSpotIcon /></div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>HubSpot</div>
-              <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--tx)', marginBottom: 4 }}>HubSpot</div>
+              <div style={{ fontSize: 12, color: 'var(--tx-2)', lineHeight: 1.6 }}>
                 Automatically sync post-call data into HubSpot. Contacts,...
               </div>
             </div>
             <div>
               <div style={{ marginBottom: 10 }}><SalesforceIcon /></div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>Salesforce</div>
-              <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--tx)', marginBottom: 4 }}>Salesforce</div>
+              <div style={{ fontSize: 12, color: 'var(--tx-2)', lineHeight: 1.6 }}>
                 Update Salesforce contacts, leads, and opportunities from...
               </div>
             </div>

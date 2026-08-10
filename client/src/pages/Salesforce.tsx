@@ -32,7 +32,7 @@ function SalesforceLogo() {
 function CalComIcon() {
   return (
     <div style={{ width: 40, height: 40, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-      <span style={{ fontSize: 18, fontWeight: 900, color: 'var(--text-primary)', letterSpacing: '-1px', lineHeight: 1 }}>Cal.com</span>
+      <span style={{ fontSize: 18, fontWeight: 900, color: 'var(--tx)', letterSpacing: '-1px', lineHeight: 1 }}>Cal.com</span>
     </div>
   );
 }
@@ -68,14 +68,14 @@ function BulletItem({ text }: { text: string }) {
   return (
     <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10, marginBottom: 10 }}>
       <Check size={15} style={{ color: '#0eb39e', marginTop: 2, flexShrink: 0 }} />
-      <span style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.6 }}>{text}</span>
+      <span style={{ fontSize: 14, color: 'var(--tx-2)', lineHeight: 1.6 }}>{text}</span>
     </div>
   );
 }
 
 function SectionLabel({ text }: { text: string }) {
   return (
-    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase' as const, color: 'var(--text-secondary)', marginBottom: 14 }}>
+    <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '0.12em', textTransform: 'uppercase' as const, color: 'var(--tx-2)', marginBottom: 14 }}>
       {text}
     </div>
   );
@@ -83,9 +83,9 @@ function SectionLabel({ text }: { text: string }) {
 
 function VideoCard({ title, subtitle, thumbnail }: { title: string; subtitle?: string; thumbnail: string }) {
   return (
-    <div style={{ border: '1px solid var(--border)', borderRadius: 10, overflow: 'hidden', cursor: 'pointer', transition: 'border-color 0.2s' }}
+    <div style={{ border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden', cursor: 'pointer', transition: 'border-color 0.2s' }}
       onMouseEnter={e => (e.currentTarget as HTMLElement).style.borderColor = 'rgba(14,179,158,0.4)'}
-      onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--border)'}
+      onMouseLeave={e => (e.currentTarget as HTMLElement).style.borderColor = 'var(--line)'}
     >
       {/* Thumbnail */}
       <div style={{ width: '100%', aspectRatio: '16/9', background: '#1a2740', display: 'flex', alignItems: 'center', justifyContent: 'center', position: 'relative' as const, overflow: 'hidden' }}>
@@ -96,13 +96,13 @@ function VideoCard({ title, subtitle, thumbnail }: { title: string; subtitle?: s
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           border: '1px solid rgba(255,255,255,0.25)',
         }}>
-          <Play size={14} fill="white" style={{ color: 'white', marginLeft: 2 }} />
+          <Play size={14} fill="#ffffff" style={{ color: '#ffffff', marginLeft: 2 }} />
         </div>
       </div>
       {/* Info */}
       <div style={{ padding: '12px 14px' }}>
-        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4, lineHeight: 1.4 }}>{title}</div>
-        {subtitle && <div style={{ fontSize: 11, color: 'var(--text-secondary)' }}>{subtitle}</div>}
+        <div style={{ fontSize: 13, fontWeight: 700, color: 'var(--tx)', marginBottom: 4, lineHeight: 1.4 }}>{title}</div>
+        {subtitle && <div style={{ fontSize: 11, color: 'var(--tx-2)' }}>{subtitle}</div>}
         <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 8, fontSize: 11, color: '#0eb39e', fontWeight: 600 }}>
           <Play size={10} fill="#0eb39e" style={{ color: '#0eb39e' }} /> Play
         </div>
@@ -113,7 +113,7 @@ function VideoCard({ title, subtitle, thumbnail }: { title: string; subtitle?: s
 
 export default function Salesforce() {
   return (
-    <div style={{ background: 'var(--bg-primary)', color: 'var(--text-primary)', minHeight: '100vh' }}>
+    <div style={{ background: 'var(--bg-primary)', color: 'var(--tx)', minHeight: '100vh' }}>
       <div style={{ width:'100%', maxWidth:760, margin:'0 auto', padding:'clamp(24px,5vw,48px) clamp(16px,4vw,24px) 80px', boxSizing:'border-box' }}>
 
       
@@ -122,16 +122,16 @@ export default function Salesforce() {
         <div style={{ display:'flex', flexWrap:'wrap', alignItems:'center', gap:20, marginBottom:32 }}>
           <SalesforceLogo />
           <div style={{ paddingTop: 4 }}>
-            <div style={{ fontSize:'clamp(24px,5vw,28px)', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 4, letterSpacing: '-0.5px' }}>Salesforce</div>
-            <div style={{ fontSize: 14, color: 'var(--text-secondary)' }}>
+            <div style={{ fontSize:'clamp(24px,5vw,28px)', fontWeight: 800, color: 'var(--tx)', marginBottom: 4, letterSpacing: '-0.5px' }}>Salesforce</div>
+            <div style={{ fontSize: 14, color: 'var(--tx-2)' }}>
               Update Salesforce contacts, leads, and opportunities from call outcomes.
             </div>
           </div>
         </div>
 
         {/* Intro */}
-        <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.75, marginBottom: 40 }}>
-          Connect your Salesforce CRM with Conversational AI Agent to automatically update CRM records after a call. Create or update Contacts, Accounts, and Opportunities based on variables extracted from the conversation.
+        <p style={{ fontSize: 14, color: 'var(--tx-2)', lineHeight: 1.75, marginBottom: 40 }}>
+          Connect your Salesforce CRM with Spandan to automatically update CRM records after a call. Create or update Contacts, Accounts, and Opportunities based on variables extracted from the conversation.
         </p>
 
         {/* Key Benefits */}
@@ -166,9 +166,9 @@ export default function Salesforce() {
         </div>
 
         {/* Docs card */}
-        <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding:'clamp(18px,4vw,28px)', marginBottom: 40 }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 6 }}>Full setup guide on our docs</div>
-          <div style={{ fontSize: 13, color: 'var(--text-secondary)', marginBottom: 14, lineHeight: 1.65 }}>
+        <div style={{ border: '1px solid var(--line)', borderRadius: 12, padding:'clamp(18px,4vw,28px)', marginBottom: 40 }}>
+          <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--tx)', marginBottom: 6 }}>Full setup guide on our docs</div>
+          <div style={{ fontSize: 13, color: 'var(--tx-2)', marginBottom: 14, lineHeight: 1.65 }}>
             Step-by-step instructions with screenshots, including dashboard setup and agent-side configuration.
           </div>
           <Link to="/documentation" style={{ fontSize: 13, fontWeight: 600, color: '#0eb39e', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
@@ -177,19 +177,19 @@ export default function Salesforce() {
         </div>
 
         {/* CTA banner */}
-        <div style={{ border: '1px solid var(--border)', borderRadius: 16, padding:'clamp(20px,5vw,36px)', marginBottom: 56, background: 'linear-gradient(135deg, rgba(14,179,158,0.08) 0%, rgba(14,179,158,0.02) 100%)', position: 'relative' as const, overflow: 'hidden' }}>
+        <div style={{ border: '1px solid var(--line)', borderRadius: 16, padding:'clamp(20px,5vw,36px)', marginBottom: 56, background: 'linear-gradient(135deg, rgba(14,179,158,0.08) 0%, rgba(14,179,158,0.02) 100%)', position: 'relative' as const, overflow: 'hidden' }}>
           <div style={{ position: 'absolute' as const, top: -30, right: -30, width: 180, height: 180, background: 'radial-gradient(circle, rgba(14,179,158,0.18) 0%, transparent 70%)', pointerEvents: 'none' as const }} />
-          <h2 style={{ fontSize:'clamp(22px,5vw,26px)', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 10, letterSpacing: '-0.5px' }}>
+          <h2 style={{ fontSize:'clamp(22px,5vw,26px)', fontWeight: 800, color: 'var(--tx)', marginBottom: 10, letterSpacing: '-0.5px' }}>
             Build a voice agent that uses Salesforce
           </h2>
-          <p style={{ fontSize: 14, color: 'var(--text-secondary)', lineHeight: 1.65, marginBottom: 24, maxWidth: 480 }}>
+          <p style={{ fontSize: 14, color: 'var(--tx-2)', lineHeight: 1.65, marginBottom: 24, maxWidth: 480 }}>
             Start free, configure the Salesforce connection from the dashboard, and launch your first agent in minutes.
           </p>
           <div style={{ display:'flex', flexWrap:'wrap', gap:12 }}>
-            <Link to="/signup" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 22px', borderRadius: 24, background: '#0eb39e', color: '#fff', fontSize: 14, fontWeight: 700, textDecoration: 'none' }}>
+            <Link to="/signup" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 22px', borderRadius: 24, background: 'var(--cyan)', color: 'var(--on-cyan)', fontSize: 14, fontWeight: 700, textDecoration: 'none' }}>
               Start free <ArrowRight size={14} />
             </Link>
-            <Link to="/book-appointment" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 22px', borderRadius: 24, border: '1px solid var(--border)', color: 'var(--text-primary)', fontSize: 14, fontWeight: 600, textDecoration: 'none', background: 'transparent' }}>
+            <Link to="/book-appointment" style={{ display: 'inline-flex', alignItems: 'center', gap: 8, padding: '10px 22px', borderRadius: 24, border: '1px solid var(--line)', color: 'var(--tx)', fontSize: 14, fontWeight: 600, textDecoration: 'none', background: 'transparent' }}>
               Book a demo <ArrowRight size={14} />
             </Link>
           </div>
@@ -201,22 +201,22 @@ export default function Salesforce() {
           <div style={{ display: 'grid', gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))', gap: 20 }}>
             <Link to="/integrations/cal-com" style={{ textDecoration: 'none' }}>
               <div style={{ marginBottom: 10 }}><CalComIcon /></div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>Cal.com</div>
-              <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--tx)', marginBottom: 4 }}>Cal.com</div>
+              <div style={{ fontSize: 12, color: 'var(--tx-2)', lineHeight: 1.6 }}>
                 Schedule meetings on your Cal.com calendar from a voice...
               </div>
             </Link>
             <div>
               <div style={{ marginBottom: 10 }}><GoogleCalIcon /></div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>Google Calendar</div>
-              <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--tx)', marginBottom: 4 }}>Google Calendar</div>
+              <div style={{ fontSize: 12, color: 'var(--tx-2)', lineHeight: 1.6 }}>
                 Read availability and write bookings to Google Calendar.
               </div>
             </div>
             <div>
               <div style={{ marginBottom: 10 }}><HubSpotIcon /></div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--text-primary)', marginBottom: 4 }}>HubSpot</div>
-              <div style={{ fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--tx)', marginBottom: 4 }}>HubSpot</div>
+              <div style={{ fontSize: 12, color: 'var(--tx-2)', lineHeight: 1.6 }}>
                 Automatically sync post-call data into HubSpot. Contacts,...
               </div>
             </div>

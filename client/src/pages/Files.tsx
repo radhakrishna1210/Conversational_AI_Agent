@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { whapi, getAuth } from '../lib/whapi';
+import { RzEmpty, RzPill, RzSkeleton } from '@/components/rz';
 
 // Unified file library — the SAME workspace-scoped store that Edit Agent →
 // Knowledge Base uses (/workspaces/:id/files). A file uploaded in either
@@ -16,6 +17,28 @@ interface KbRecord {
 }
 
 const fmtSize = (b: number) => (b >= 1024 * 1024 ? `${(b / 1048576).toFixed(1)} MB` : `${Math.max(1, Math.round(b / 1024))} KB`);
+
+/**
+ * The three-letter plate that fronts each row.
+ *
+ * The design gives every file type its own tinted mark rather than an emoji —
+ * emoji render at a different weight on every platform and carry no meaning to
+ * a screen reader, while the extension is the thing you actually scan for.
+ */
+const extOf = (name: string, mime: string) => {
+  const fromName = name.split('.').pop()?.toUpperCase();
+  if (fromName && fromName.length <= 4 && fromName !== name.toUpperCase()) return fromName;
+  if (mime.includes('pdf')) return 'PDF';
+  if (mime.includes('csv')) return 'CSV';
+  if (mime.includes('json')) return 'JSON';
+  return 'DOC';
+};
+
+const markClass = (ext: string) =>
+  ext === 'PDF' ? 'rz-mark-coral'
+  : ext === 'CSV' ? 'rz-mark-lime'
+  : ext === 'JSON' ? 'rz-mark-violet'
+  : 'rz-mark-neutral';
 
 export default function Files() {
   const [files, setFiles] = useState<KbRecord[]>([]);
@@ -86,72 +109,164 @@ export default function Files() {
     }
   };
 
+  const grounded = files.filter((f) => f.hasText).length;
+
   return (
-    <>
-      <div style={{ marginBottom: 28 }}>
-        <h1 style={{ fontSize: 28, fontWeight: 800, letterSpacing: '-0.5px', marginBottom: 6, color: 'var(--text-primary, #fff)' }}>Files</h1>
-        <p style={{ color: 'var(--text-secondary, #94a3b8)', fontSize: 14 }}>
-          Your workspace knowledge library. Files here (PDF, TXT, MD, CSV, JSON, DOCX) are shared with your agents’ knowledge bases — uploads from Edit Agent → Knowledge Base appear here too.
-        </p>
-      </div>
+    <div className="rz-page rz-page-pad rz-bleed">
+      <div className="rz-wrap">
+        <div className="rz-head">
+          <div>
+            <div className="rz-eyebrow">Workspace</div>
+            <h1 className="rz-h1">Knowledge base</h1>
+            <p className="rz-sub" style={{ margin: '8px 0 0', maxWidth: 620 }}>
+              Files here are shared with every agent in the workspace — uploads from Edit Agent → Knowledge Base
+              appear here too. Agents ground answers strictly in what you upload.
+            </p>
+          </div>
+          <div className="rz-head-actions">
+            <span className="rz-mono">{files.length} files · {grounded} searchable</span>
+          </div>
+        </div>
 
-      {/* Upload dropzone */}
-      <div
-        onClick={() => inputRef.current?.click()}
-        onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
-        onDragLeave={() => setIsDragging(false)}
-        onDrop={(e) => { e.preventDefault(); setIsDragging(false); uploadFiles(e.dataTransfer.files); }}
-        style={{
-          border: `1px dashed ${isDragging ? 'var(--teal, #14b8a6)' : 'var(--border, #334155)'}`,
-          background: isDragging ? 'rgba(20,184,166,0.06)' : 'rgba(255,255,255,0.01)',
-          borderRadius: 12, padding: '44px 24px', textAlign: 'center', cursor: 'pointer', marginBottom: 28,
-        }}
-      >
-        <input
-          ref={inputRef} type="file" multiple style={{ display: 'none' }}
-          accept=".pdf,.txt,.md,.csv,.json,.docx,application/pdf,text/plain,text/markdown,text/csv,application/json,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
-          onChange={(e) => { if (e.target.files) uploadFiles(e.target.files); e.target.value = ''; }}
-        />
-        <div style={{ fontSize: 30, marginBottom: 10 }}>📁</div>
-        <div style={{ color: 'var(--text-primary, #fff)', fontWeight: 600, marginBottom: 6 }}>
-          {uploading ? 'Uploading…' : 'Click to upload or drag and drop'}
+        {/* Dropzone */}
+        <div
+          onClick={() => inputRef.current?.click()}
+          onDragOver={(e) => { e.preventDefault(); setIsDragging(true); }}
+          onDragLeave={() => setIsDragging(false)}
+          onDrop={(e) => { e.preventDefault(); setIsDragging(false); uploadFiles(e.dataTransfer.files); }}
+          style={{
+            border: `1.5px dashed ${isDragging ? 'var(--cyan)' : 'var(--line-2)'}`,
+            background: isDragging ? 'rgba(14,179,158,0.07)' : 'var(--s1)',
+            borderRadius: 16,
+            padding: '30px 24px',
+            textAlign: 'center',
+            cursor: 'pointer',
+            transition: 'border-color .15s ease, background .15s ease',
+          }}
+        >
+          <input
+            ref={inputRef} type="file" multiple style={{ display: 'none' }}
+            accept=".pdf,.txt,.md,.csv,.json,.docx,application/pdf,text/plain,text/markdown,text/csv,application/json,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+            onChange={(e) => { if (e.target.files) uploadFiles(e.target.files); e.target.value = ''; }}
+          />
+          <div
+            style={{
+              width: 52, height: 52, margin: '0 auto', borderRadius: 14,
+              background: 'rgba(14,179,158,0.1)', display: 'grid', placeItems: 'center', color: 'var(--cyan-fg)',
+            }}
+          >
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" /><polyline points="17 8 12 3 7 8" /><line x1="12" y1="3" x2="12" y2="15" />
+            </svg>
+          </div>
+          <div className="rz-title-lg" style={{ marginTop: 14, fontSize: 17 }}>
+            {uploading ? 'Uploading…' : 'Drop knowledge-base files here'}
+          </div>
+          <div className="rz-sub" style={{ marginTop: 6 }}>
+            PDF, TXT, MD, CSV, JSON or DOCX · up to 10 MB each
+          </div>
+          <button type="button" className="rz-btn rz-btn-primary" style={{ marginTop: 16 }} disabled={uploading}>
+            Browse files
+          </button>
         </div>
-        <div style={{ color: 'var(--text-muted, #64748b)', fontSize: 13 }}>PDF, TXT, MD, CSV, JSON, DOCX — up to 10MB each</div>
-      </div>
 
-      {/* List */}
-      {loading ? (
-        <p style={{ color: 'var(--text-muted, #94a3b8)' }}>Loading files…</p>
-      ) : error ? (
-        <div style={{ background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.35)', color: '#fca5a5', borderRadius: 8, padding: '12px 16px', fontSize: 13 }}>
-          Couldn’t load your files: {error}
-          <button onClick={load} style={{ marginLeft: 12, background: 'transparent', border: '1px solid rgba(239,68,68,0.5)', color: '#fca5a5', borderRadius: 6, padding: '2px 10px', cursor: 'pointer' }}>Retry</button>
-        </div>
-      ) : files.length === 0 ? (
-        <div style={{ border: '1px solid var(--border, #334155)', borderRadius: 12, padding: 48, textAlign: 'center' }}>
-          <div style={{ fontSize: 30, marginBottom: 12 }}>🗂️</div>
-          <h3 style={{ color: 'var(--text-primary, #fff)', fontSize: 16, marginBottom: 6 }}>No files yet</h3>
-          <p style={{ color: 'var(--text-secondary, #94a3b8)', fontSize: 14 }}>Upload documents above to build your agents’ knowledge base.</p>
-        </div>
-      ) : (
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-          {files.map((f) => (
-            <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 14, padding: '13px 16px', border: '1px solid var(--border, #334155)', borderRadius: 10, background: 'rgba(255,255,255,0.01)' }}>
-              <span style={{ fontSize: 20 }}>{f.mimeType.includes('pdf') ? '📄' : f.mimeType.includes('csv') ? '📊' : '📝'}</span>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ color: 'var(--text-primary, #fff)', fontSize: 14, fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={f.fileName}>{f.fileName}</div>
-                <div style={{ color: 'var(--text-muted, #64748b)', fontSize: 12 }}>
-                  {fmtSize(f.sizeBytes)} · {new Date(f.createdAt).toLocaleDateString()}
-                  {f.agentId ? ' · linked to an agent' : ' · workspace-wide'}
-                  {!f.hasText && ' · no text extracted'}
-                </div>
-              </div>
-              <button onClick={() => handleDownload(f)} title="Download" style={{ background: 'transparent', border: '1px solid var(--border, #334155)', color: 'var(--text-secondary, #94a3b8)', borderRadius: 8, padding: '6px 12px', cursor: 'pointer', fontSize: 12 }}>Download</button>
-              <button onClick={() => handleDelete(f)} title="Delete" style={{ background: 'transparent', border: 'none', color: '#f87171', cursor: 'pointer', fontSize: 15 }}>🗑</button>
+        {/* List */}
+        <div style={{ marginTop: 22 }}>
+          {loading ? (
+            <RzSkeleton rows={4} height={58} />
+          ) : error ? (
+            <div
+              className="rz-card rz-between"
+              style={{ background: 'rgba(248,113,113,0.08)', borderColor: 'rgba(248,113,113,0.3)', color: 'var(--err)', fontSize: 13 }}
+            >
+              <span>Couldn’t load your files: {error}</span>
+              <button className="rz-btn rz-btn-danger rz-btn-sm" onClick={load}>Retry</button>
             </div>
-          ))}
+          ) : files.length === 0 ? (
+            <RzEmpty
+              title="No files yet"
+              text="Upload documents above to build your agents’ knowledge base. Anything you add is searchable by every agent in this workspace."
+            />
+          ) : (
+            <>
+              <div className="rz-files-head rz-label">
+                <span />
+                <span>Name</span>
+                <span>Type</span>
+                <span>Scope</span>
+                <span>Status</span>
+                <span />
+              </div>
+              <div className="rz-stack-sm">
+                {files.map((f) => {
+                  const ext = extOf(f.fileName, f.mimeType);
+                  return (
+                    <div key={f.id} className="rz-files-row rz-card" style={{ padding: '13px 14px', borderRadius: 12 }}>
+                      <span className={`rz-mark ${markClass(ext)}`} style={{ width: 30, height: 30, borderRadius: 8, fontFamily: 'var(--ff-m)', fontSize: 9.5, fontWeight: 600 }}>
+                        {ext}
+                      </span>
+                      <div style={{ minWidth: 0 }}>
+                        <div className="rz-truncate" style={{ fontWeight: 600, fontSize: 13.5, color: 'var(--tx)' }} title={f.fileName}>
+                          {f.fileName}
+                        </div>
+                        <div className="rz-mono-xs">
+                          {fmtSize(f.sizeBytes)} · {new Date(f.createdAt).toLocaleDateString()}
+                        </div>
+                      </div>
+                      <div className="rz-sub" style={{ fontSize: 12.5 }}>{ext}</div>
+                      <div className="rz-sub" style={{ fontSize: 12.5 }}>
+                        {f.agentId ? 'One agent' : 'Workspace'}
+                      </div>
+                      <div>
+                        {f.hasText
+                          ? <RzPill tone="ok">Indexed</RzPill>
+                          : <RzPill tone="warn">No text</RzPill>}
+                      </div>
+                      <div className="rz-cluster-sm" style={{ flexWrap: 'nowrap', justifyContent: 'flex-end' }}>
+                        <button className="rz-btn rz-btn-ghost rz-btn-sm" onClick={() => handleDownload(f)}>Download</button>
+                        <button
+                          className="rz-icon-btn"
+                          onClick={() => handleDelete(f)}
+                          aria-label={`Delete ${f.fileName}`}
+                          style={{ width: 30, height: 30, color: 'var(--err)' }}
+                        >
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                            <polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            </>
+          )}
         </div>
-      )}
-    </>
+      </div>
+
+      {/*
+        One grid definition, shared by the header and the rows, so the columns
+        cannot drift apart. Below 900px the metadata columns fold away and each
+        row becomes mark + name + actions — the three things you need to find
+        and remove a file on a phone.
+      */}
+      <style>{`
+        .rz-files-head,
+        .rz-files-row {
+          display: grid;
+          grid-template-columns: 36px minmax(0, 1.8fr) 0.7fr 0.8fr 0.8fr auto;
+          gap: 10px;
+          align-items: center;
+        }
+        .rz-files-head { padding: 4px 14px 10px; }
+        @media (max-width: 900px) {
+          .rz-files-head { display: none; }
+          .rz-files-row { grid-template-columns: 36px minmax(0, 1fr) auto; }
+          .rz-files-row > :nth-child(3),
+          .rz-files-row > :nth-child(4),
+          .rz-files-row > :nth-child(5) { display: none; }
+        }
+      `}</style>
+    </div>
   );
 }

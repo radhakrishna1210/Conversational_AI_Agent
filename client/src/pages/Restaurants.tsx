@@ -18,14 +18,14 @@ export default function RealEstate() {
 
 const faqs = [
   {
-    question: "How can Conversational AI Agent help restaurants manage calls and orders?",
+    question: "How can Spandan help restaurants manage calls and orders?",
     answer:
       "You can create a voice assistant that answers calls, takes orders, handles reservations, and routes updates directly to your POS or kitchen system - all without staff intervention.",
   },
   {
     question: "Does it integrate with our POS system?",
     answer:
-      "Yes. Conversational AI Agent connects with major restaurant POS systems like Square, Clover, and Toast. Orders placed through your assistant are instantly sent to your kitchen display or printer.",
+      "Yes. Spandan connects with major restaurant POS systems like Square, Clover, and Toast. Orders placed through your assistant are instantly sent to your kitchen display or printer.",
   },
   {
     question: "Can my assistant handle allergies and special requests?",
@@ -58,13 +58,13 @@ const faqs = [
           animate={{ opacity: 1, x: 0 }}
           transition={{ duration: 0.8 }}
         >
-          <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-[#0eb39e]/10 dark:bg-cyan-500/10 border border-[#0eb39e]/30 dark:border-cyan-500/30 rounded-full text-xs md:text-sm text-[#0eb39e] dark:text-cyan-400 mb-6 transition-colors">
+          <div className="inline-flex items-center gap-2 px-4 py-1.5 bg-[var(--cyan)]/10 dark:bg-cyan-500/10 border border-[var(--cyan)]/30 dark:border-cyan-500/30 rounded-full text-xs md:text-sm text-[var(--cyan)] dark:text-cyan-400 mb-6 transition-colors">
            <UtensilsCrossed className="w-4 h-4" />
               Restaurant Voice AI Solutions
           </div>
 
           <h1 className="text-3xl md:text-4xl font-bold leading-tight mb-6 text-black dark:text-white">
-            Never Miss an  <span className="text-[#0eb39e] dark:text-teal-400">Order Again </span>
+            Never Miss an  <span className="text-[var(--cyan)] dark:text-teal-400">Order Again </span>
             <br />
              with Voice AI
           </h1>
@@ -87,7 +87,7 @@ const faqs = [
                 transition={{ delay: 0.4 + i * 0.1 }}
                 className="flex gap-4 group"
               >
-                <div className="w-1 h-5 bg-[#0eb39e] dark:bg-teal-400 mt-1.5 rounded-full group-hover:h-6 transition-all duration-300" />
+                <div className="w-1 h-5 bg-[var(--cyan)] dark:bg-teal-400 mt-1.5 rounded-full group-hover:h-6 transition-all duration-300" />
                 <div className="text-sm md:text-base text-gray-700 dark:text-white/70 leading-relaxed">{text}</div>
               </motion.div>
             ))}
@@ -101,7 +101,7 @@ const faqs = [
           transition={{ duration: 0.8 }}
           className="relative"
         >
-          <div className="bg-white dark:bg-[#071212] border border-gray-300 dark:border-gray-700 rounded-3xl p-7 shadow-xl dark:shadow-2xl transition-colors">
+          <div className="bg-white dark:bg-[var(--s1)] border border-gray-300 dark:border-gray-700 rounded-3xl p-7 shadow-xl dark:shadow-2xl transition-colors">
             <div className="flex items-center gap-3 mb-6">
               <span className="text-2xl">✨</span>
               <h2 className="text-xl md:text-2xl font-bold text-black dark:text-white">Create your Free Voice AI Assistant</h2>
@@ -109,7 +109,7 @@ const faqs = [
 
             <textarea
               rows={5}
-              className="w-full bg-white text-black dark:bg-black dark:text-white border border-gray-300 dark:border-gray-700 rounded-2xl p-4 text-sm placeholder:text-gray-500 dark:placeholder:text-gray-400 focus:border-[#0eb39e] dark:focus:border-gray-600 focus:ring-1 focus:ring-[#0eb39e] transition-all resize-none"
+              className="w-full bg-white text-black dark:bg-black dark:text-white border border-gray-300 dark:border-gray-700 rounded-2xl p-4 text-sm placeholder:text-gray-500 dark:placeholder:text-gray-400 focus:border-[var(--cyan)] dark:focus:border-gray-600 focus:ring-1 focus:ring-[var(--cyan)] transition-all resize-none"
               placeholder="Example: Create a friendly restaurant assistant that handles phone orders, takes reservations, answers menu questions, and coordinates deliveries while maintaining an enthusiastic, welcoming tone..."
             />
 
@@ -146,7 +146,7 @@ const faqs = [
             <motion.button
               whileHover={{ scale: 1.03 }}
               whileTap={{ scale: 0.97 }}
-              className="w-full mt-8 bg-[#0eb39e] dark:bg-[#0f8d90] hover:bg-[#0cd4bc] dark:hover:bg-[#18a6aa] text-white font-semibold py-3.5 rounded-2xl text-base flex items-center justify-center gap-2 shadow-lg dark:shadow-teal-500/30 transition-all"
+              className="w-full mt-8 bg-[var(--cyan)] dark:bg-[var(--cyan)] hover:bg-[var(--teal-hover)] dark:hover:bg-[var(--cyan-fg)] text-white font-semibold py-3.5 rounded-2xl text-base flex items-center justify-center gap-2 shadow-lg dark:shadow-teal-500/30 transition-all"
             >
               Create My Agent
               <ChevronRight className="w-5 h-5" />
@@ -239,7 +239,7 @@ const faqs = [
           className="text-3xl md:text-4xl font-bold text-center mb-4 text-black dark:text-white"
         >
           Frequently Asked{" "}
-          <span className="text-[#0eb39e] dark:text-cyan-400">Questions</span>
+          <span className="text-[var(--cyan)] dark:text-cyan-400">Questions</span>
         </motion.h2>
 
         <p className="text-center text-gray-600 dark:text-gray-400 mb-12 text-sm">
@@ -255,13 +255,13 @@ const faqs = [
               viewport={{ once: true }}
               transition={{ delay: index * 0.05 }}
             >
-              <div className="border border-gray-300 dark:border-gray-700 rounded-2xl overflow-hidden bg-white dark:bg-[#071212] hover:border-[#0eb39e] dark:hover:border-gray-600 transition-colors duration-300">
+              <div className="border border-gray-300 dark:border-gray-700 rounded-2xl overflow-hidden bg-white dark:bg-[var(--s1)] hover:border-[var(--cyan)] dark:hover:border-gray-600 transition-colors duration-300">
                 <button
                   onClick={() => setOpenFaq(openFaq === index ? null : index)}
                   className="w-full p-5 md:p-6 flex justify-between items-center text-left hover:bg-gray-50 dark:hover:bg-teal-950/30 transition-all"
                 >
                   <span className="text-base md:text-lg font-semibold text-black dark:text-white">{faq.question}</span>
-                  <ChevronDown className={`text-[#0eb39e] dark:text-gray-400 transition-transform duration-300 ${openFaq === index ? "rotate-180" : ""}`} />
+                  <ChevronDown className={`text-[var(--cyan)] dark:text-gray-400 transition-transform duration-300 ${openFaq === index ? "rotate-180" : ""}`} />
                 </button>
 
                 <motion.div
@@ -283,9 +283,9 @@ const faqs = [
         initial={{ opacity: 0, scale: 0.8 }}
         animate={{ opacity: 1, scale: 1 }}
         whileHover={{ scale: 1.08 }}
-        className="fixed bottom-8 right-8 z-50 bg-white dark:bg-[#0a1f1f] border border-[#0eb39e] dark:border-cyan-500/70 hover:border-[#0cd4bc] dark:hover:border-cyan-400 text-[#0eb39e] dark:text-cyan-400 px-6 py-3 rounded-full flex items-center gap-2 text-sm font-medium shadow-lg dark:shadow-2xl dark:shadow-black/80 transition-all"
+        className="fixed bottom-8 right-8 z-50 bg-white dark:bg-[#0a1f1f] border border-[var(--cyan)] dark:border-cyan-500/70 hover:border-[var(--teal-hover)] dark:hover:border-cyan-400 text-[var(--cyan)] dark:text-cyan-400 px-6 py-3 rounded-full flex items-center gap-2 text-sm font-medium shadow-lg dark:shadow-2xl dark:shadow-black/80 transition-all"
       >
-        <div className="w-2 h-2 bg-[#0eb39e] dark:bg-cyan-400 rounded-full animate-pulse" />
+        <div className="w-2 h-2 bg-[var(--cyan)] dark:bg-cyan-400 rounded-full animate-pulse" />
         Ask Kevin
       </motion.button>
     </div>
@@ -296,10 +296,10 @@ const faqs = [
 function TemplateButton({ icon, label }: { icon: React.ReactNode; label: string }) {
   return (
     <motion.button
-      whileHover={{ scale: 1.04, borderColor: "#0eb39e", color: "#0cd4bc" }}
-      className="border border-gray-300 dark:border-teal-700 hover:border-[#0eb39e] dark:hover:border-teal-500 bg-gray-50 dark:bg-black/70 hover:bg-gray-100 dark:hover:bg-black rounded-2xl p-4 text-left transition-all duration-300 flex items-center gap-3 group text-sm text-gray-700 dark:text-white"
+      whileHover={{ scale: 1.04, borderColor: "var(--cyan)", color: "var(--teal-hover)" }}
+      className="border border-gray-300 dark:border-teal-700 hover:border-[var(--cyan)] dark:hover:border-teal-500 bg-gray-50 dark:bg-black/70 hover:bg-gray-100 dark:hover:bg-black rounded-2xl p-4 text-left transition-all duration-300 flex items-center gap-3 group text-sm text-gray-700 dark:text-white"
     >
-      <div className="text-[#0eb39e] dark:text-teal-400 group-hover:text-[#0cd4bc] dark:group-hover:text-cyan-400 transition-colors">{icon}</div>
+      <div className="text-[var(--cyan)] dark:text-teal-400 group-hover:text-[var(--teal-hover)] dark:group-hover:text-cyan-400 transition-colors">{icon}</div>
       <span className="font-medium leading-tight">{label}</span>
     </motion.button>
   );
@@ -321,12 +321,12 @@ function FeatureCard({
     <motion.div
       whileHover={{
         y: -6,
-        borderColor: "#0eb39e",
+        borderColor: "var(--cyan)",
         boxShadow: "0 0 35px rgba(14, 179, 158, 0.25)",
       }}
-      className="border border-gray-300 dark:border-gray-700 rounded-3xl p-7 bg-gray-50 dark:bg-[#071212] transition-all duration-300 group h-full flex flex-col hover:shadow-lg dark:hover:shadow-[0_0_35px_rgba(20,184,166,0.25)]"
+      className="border border-gray-300 dark:border-gray-700 rounded-3xl p-7 bg-gray-50 dark:bg-[var(--s1)] transition-all duration-300 group h-full flex flex-col hover:shadow-lg dark:hover:shadow-[0_0_35px_rgba(20,184,166,0.25)]"
     >
-      <div className="mb-5 text-[#0eb39e] dark:text-cyan-400 transition-transform duration-300">
+      <div className="mb-5 text-[var(--cyan)] dark:text-cyan-400 transition-transform duration-300">
         {icon}
       </div>
 
@@ -337,7 +337,7 @@ function FeatureCard({
         {tags.map((tag) => (
           <span
             key={tag}
-            className="px-3 py-1 text-xs rounded-full border border-gray-300 dark:border-cyan-900 text-gray-700 dark:text-cyan-400 hover:bg-gray-100 dark:hover:bg-cyan-950 hover:border-[#0eb39e] dark:hover:border-cyan-500 transition-all"
+            className="px-3 py-1 text-xs rounded-full border border-gray-300 dark:border-cyan-900 text-gray-700 dark:text-cyan-400 hover:bg-gray-100 dark:hover:bg-cyan-950 hover:border-[var(--cyan)] dark:hover:border-cyan-500 transition-all"
           >
             {tag}
           </span>
