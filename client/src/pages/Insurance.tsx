@@ -17,7 +17,7 @@ export default function InsuranceVoice() {
 
     const faqs = [
         {
-            question: "How can Conversational AI Agent help my insurance business?",
+            question: "How can Spandan help my insurance business?",
             answer: "You can create a voice assistant that answers policyholder questions, processes claims, collects documents, and routes calls to agents - reducing manual workload while improving response time.",
         },
         {
@@ -30,7 +30,7 @@ export default function InsuranceVoice() {
         },
         {
             question: "Does it integrate with our CRM or policy management system?",
-            answer: "Yes. Conversational AI Agent integrates with tools like Salesforce, HubSpot, and Zoho, syncing every interaction automatically.",
+            answer: "Yes. Spandan integrates with tools like Salesforce, HubSpot, and Zoho, syncing every interaction automatically.",
         },
         {
             question: "How quickly can we set it up?",
@@ -96,7 +96,7 @@ export default function InsuranceVoice() {
         transition={{ duration: 0.8 }}
         className="relative"
       >
-        <div className="bg-white dark:bg-[#071212] border border-gray-200 dark:border-teal-700 rounded-3xl p-7 shadow-2xl transition-colors duration-300">
+        <div className="bg-white dark:bg-[var(--s1)] border border-gray-200 dark:border-teal-700 rounded-3xl p-7 shadow-2xl transition-colors duration-300">
           <div className="flex items-center gap-3 mb-6">
             <span className="text-2xl">✨</span>
             <h2 className="text-xl md:text-2xl font-bold">
@@ -198,7 +198,7 @@ export default function InsuranceVoice() {
             viewport={{ once: true }}
             transition={{ delay: index * 0.05 }}
           >
-            <div className="border border-gray-200 dark:border-teal-900/30 rounded-2xl overflow-hidden bg-white dark:bg-[#071212] hover:border-teal-700 transition-colors duration-300">
+            <div className="border border-gray-200 dark:border-teal-900/30 rounded-2xl overflow-hidden bg-white dark:bg-[var(--s1)] hover:border-teal-700 transition-colors duration-300">
               <button
                 onClick={() => setOpenFaq(openFaq === index ? null : index)}
                 className="w-full p-5 md:p-6 flex justify-between items-center text-left hover:bg-gray-100 dark:hover:bg-teal-950/30 transition-all"
@@ -286,7 +286,7 @@ function FeatureCard({
         borderColor: "#14b8a6",
         boxShadow: "0 0 35px rgba(20, 184, 166, 0.25)",
       }}
-      className="border border-gray-200 dark:border-teal-900/30 rounded-3xl p-7 bg-white dark:bg-[#071212] transition-all duration-300 group h-full flex flex-col"
+      className="border border-gray-200 dark:border-teal-900/30 rounded-3xl p-7 bg-white dark:bg-[var(--s1)] transition-all duration-300 group h-full flex flex-col"
     >
       <div className="mb-5 text-cyan-400">{icon}</div>
 

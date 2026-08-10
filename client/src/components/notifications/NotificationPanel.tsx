@@ -210,7 +210,7 @@ export function NotificationPanel({ open, onClose, onUnreadCountChange }: Props)
 
             <div className="notification-panel-body">
             {error && (
-              <div style={{ padding: '10px 14px', margin: '8px 12px', borderRadius: 8, background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.35)', color: '#fca5a5', fontSize: 12 }}>
+              <div style={{ padding: '10px 14px', margin: '8px 12px', borderRadius: 10, background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.3)', color: 'var(--err)', fontSize: 12 }}>
                 Couldn’t load notifications: {error}. This usually means the backend or database is unreachable.
               </div>
             )}

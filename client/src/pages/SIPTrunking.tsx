@@ -133,7 +133,7 @@ function SectionLabel({ text }: { text: string }) {
         fontWeight: 700,
         letterSpacing: "0.12em",
         textTransform: "uppercase",
-        color: "var(--text-secondary)",
+        color: "var(--tx-2)",
         marginBottom: 18,
       }}
     >
@@ -163,7 +163,7 @@ function Bullet({ text }: { text: string }) {
 
       <span
         style={{
-          color: "var(--text-secondary)",
+          color: "var(--tx-2)",
           fontSize: 14,
           lineHeight: 1.7,
         }}
@@ -184,7 +184,7 @@ export default function Vonage() {
       style={{
         minHeight: "100vh",
         background: "var(--bg-primary)",
-        color: "var(--text-primary)",
+        color: "var(--tx)",
       }}
     >
       <div
@@ -210,7 +210,7 @@ export default function Vonage() {
                 fontSize:"clamp(24px,5vw,30px)",
                 fontWeight: 800,
                 marginBottom: 6,
-                color: "var(--text-primary)",
+                color: "var(--tx)",
               }}
             >
               Vonage
@@ -219,7 +219,7 @@ export default function Vonage() {
             <p
               style={{
                 fontSize: 15,
-                color: "var(--text-primary)",
+                color: "var(--tx)",
               }}
             >
               Connect Vonage SIP trunks with UserKey and Secret authentication.
@@ -232,12 +232,12 @@ export default function Vonage() {
         <p
           style={{
             fontSize: 14,
-            color: "var(--text-secondary)",
+            color: "var(--tx-2)",
             lineHeight: 1.8,
             marginBottom: 42,
           }}
         >
-          Conversational AI Agent works with any SIP-compatible carrier, and Vonage is one
+          Spandan works with any SIP-compatible carrier, and Vonage is one
           popular example. Connect Vonage SIP trunks with UserKey and Secret
           authentication and optional IP whitelisting.
         </p>
@@ -270,7 +270,7 @@ export default function Vonage() {
 
           <div
             style={{
-              border: "1px solid var(--border)",
+              border: "1px solid var(--line)",
               borderRadius: 16,
               overflow: "hidden",
               background: "#111",
@@ -319,7 +319,7 @@ export default function Vonage() {
                   fontSize: 17,
                   fontWeight: 700,
                   marginBottom: 8,
-                  color: "var(--text-primary)",
+                  color: "var(--tx)",
                 }}
               >
                 Watch the Vonage setup
@@ -328,12 +328,12 @@ export default function Vonage() {
               <div
                 style={{
                   fontSize: 14,
-                  color: "var(--text-secondary)",
+                  color: "var(--tx-2)",
                   lineHeight: 1.7,
                 }}
               >
                 Learn how to connect your Vonage SIP trunk with
-                Conversational AI Agent in just a few minutes.
+                Spandan in just a few minutes.
               </div>
             </div>
           </div>
@@ -350,7 +350,7 @@ export default function Vonage() {
 
           <div
             style={{
-              border: "1px solid var(--border)",
+              border: "1px solid var(--line)",
               borderRadius: 16,
               padding:"clamp(18px,4vw,28px)",
             }}
@@ -360,7 +360,7 @@ export default function Vonage() {
                 fontSize: 17,
                 fontWeight: 700,
                 marginBottom: 8,
-                color: "var(--text-primary)",
+                color: "var(--tx)",
               }}
             >
               Read the full setup guide
@@ -368,7 +368,7 @@ export default function Vonage() {
 
             <div
               style={{
-                color: "var(--text-secondary)",
+                color: "var(--tx-2)",
                 fontSize: 14,
                 lineHeight: 1.7,
                 marginBottom: 18,
@@ -407,7 +407,7 @@ export default function Vonage() {
             borderRadius: 20,
             padding:"clamp(20px,5vw,40px)",
             marginBottom: 60,
-            border: "1px solid var(--border)",
+            border: "1px solid var(--line)",
             background:
               "linear-gradient(135deg,rgba(16,199,166,.12),rgba(16,199,166,.03))",
           }}
@@ -431,7 +431,7 @@ export default function Vonage() {
               fontWeight: 800,
               marginBottom: 12,
               letterSpacing: "-.02em",
-              color: "var(--text-primary)",
+              color: "var(--tx)",
             }}
           >
             Build a voice agent using Vonage
@@ -441,13 +441,13 @@ export default function Vonage() {
             style={{
               fontSize: 15,
               lineHeight: 1.8,
-              color: "var(--text-secondary)",
+              color: "var(--tx-2)",
               maxWidth: 520,
               marginBottom: 28,
             }}
           >
             Connect your existing Vonage SIP infrastructure with
-            Conversational AI Agent and launch production-ready AI voice
+            Spandan and launch production-ready AI voice
             agents in minutes.
           </p>
 
@@ -484,8 +484,8 @@ export default function Vonage() {
                 display: "inline-flex",
                 alignItems: "center",
                 gap: 8,
-                border: "1px solid var(--border)",
-                color: "var(--text-primary)",
+                border: "1px solid var(--line)",
+                color: "var(--tx)",
                 textDecoration: "none",
                 padding: "12px 24px",
                 borderRadius: 999,
@@ -517,7 +517,7 @@ export default function Vonage() {
 
             <div
               style={{
-                border: "1px solid var(--border)",
+                border: "1px solid var(--line)",
                 borderRadius: 14,
                 padding: 20,
                 transition: "all .2s ease",
@@ -532,7 +532,7 @@ export default function Vonage() {
                   fontSize: 15,
                   fontWeight: 700,
                   marginBottom: 8,
-                  color: "var(--text-primary)",
+                  color: "var(--tx)",
                 }}
               >
                 Twilio
@@ -541,7 +541,7 @@ export default function Vonage() {
               <div
                 style={{
                   fontSize: 13,
-                  color: "var(--text-secondary)",
+                  color: "var(--tx-2)",
                   lineHeight: 1.7,
                   marginBottom: 18,
                 }}
@@ -571,7 +571,7 @@ export default function Vonage() {
 
             <div
               style={{
-                border: "1px solid var(--border)",
+                border: "1px solid var(--line)",
                 borderRadius: 14,
                 padding: 20,
               }}
@@ -585,7 +585,7 @@ export default function Vonage() {
                   fontSize: 15,
                   fontWeight: 700,
                   marginBottom: 8,
-                  color: "var(--text-primary)",
+                  color: "var(--tx)",
                 }}
               >
                 RingCentral
@@ -594,12 +594,12 @@ export default function Vonage() {
               <div
                 style={{
                   fontSize: 13,
-                  color: "var(--text-secondary)",
+                  color: "var(--tx-2)",
                   lineHeight: 1.7,
                   marginBottom: 18,
                 }}
               >
-                Integrate RingCentral telephony with Conversational AI Agent
+                Integrate RingCentral telephony with Spandan
                 and automate inbound customer conversations.
               </div>
 
@@ -624,7 +624,7 @@ export default function Vonage() {
 
             <div
               style={{
-                border: "1px solid var(--border)",
+                border: "1px solid var(--line)",
                 borderRadius: 14,
                 padding: 20,
               }}
@@ -638,7 +638,7 @@ export default function Vonage() {
                   fontSize: 15,
                   fontWeight: 700,
                   marginBottom: 8,
-                  color: "var(--text-primary)",
+                  color: "var(--tx)",
                 }}
               >
                 Exotel
@@ -647,7 +647,7 @@ export default function Vonage() {
               <div
                 style={{
                   fontSize: 13,
-                  color: "var(--text-secondary)",
+                  color: "var(--tx-2)",
                   lineHeight: 1.7,
                   marginBottom: 18,
                 }}

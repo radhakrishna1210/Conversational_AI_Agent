@@ -92,18 +92,18 @@ function genderIcon(gender: string | null) {
 
 function categoryColor(category: string | null): string {
   const map: Record<string, string> = {
-    'Chirp HD': '#a78bfa',
-    'Chirp': '#818cf8',
+    'Chirp HD': 'var(--violet)',
+    'Chirp': 'var(--violet)',
     'Neural2': '#38bdf8',
     'WaveNet': '#34d399',
     'Studio': '#fb923c',
     'News': '#f472b6',
-    'Standard': '#94a3b8',
-    'premade': '#60a5fa',
-    'cloned': '#f59e0b',
+    'Standard': 'var(--tx-2)',
+    'premade': 'var(--cyan-fg)',
+    'cloned': 'var(--warn)',
     'generated': '#4ade80',
   };
-  return map[category ?? ''] ?? '#94a3b8';
+  return map[category ?? ''] ?? 'var(--tx-2)';
 }
 
 // ─── Sub-components ───────────────────────────────────────────────────────────
@@ -135,7 +135,7 @@ const CheckIcon = () => (
 );
 
 const SearchIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#666" strokeWidth="2">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--tx-3)" strokeWidth="2">
     <circle cx="11" cy="11" r="8" />
     <line x1="21" y1="21" x2="16.65" y2="16.65" />
   </svg>
@@ -342,8 +342,8 @@ export default function VoiceConfigModal({
           animation: voice-fadein 0.2s ease;
         }
         .voice-modal {
-          background: #111;
-          border: 1px solid #222;
+          background: var(--s1);
+          border: 1px solid var(--s2);
           border-radius: 16px;
           width: min(960px, 94vw);
           max-height: 88vh;
@@ -357,13 +357,13 @@ export default function VoiceConfigModal({
           padding: 22px 28px 0;
           flex-shrink: 0;
         }
-        .voice-modal-title { font-size: 17px; font-weight: 700; color: #fff; margin: 0; }
+        .voice-modal-title { font-size: 17px; font-weight: 700; color: var(--tx); margin: 0; }
         .voice-modal-close {
-          background: none; border: none; color: #666; cursor: pointer;
+          background: none; border: none; color: var(--tx-3); cursor: pointer;
           font-size: 22px; line-height: 1; padding: 4px;
           border-radius: 6px; transition: color 0.15s, background 0.15s;
         }
-        .voice-modal-close:hover { color: #fff; background: #222; }
+        .voice-modal-close:hover { color: var(--tx); background: var(--s2); }
         .voice-modal-controls { padding: 20px 28px 0; flex-shrink: 0; }
         .provider-tabs { display: flex; gap: 6px; margin-bottom: 16px; }
         .provider-tab {
@@ -372,9 +372,9 @@ export default function VoiceConfigModal({
           font-size: 13px; font-weight: 500;
           transition: all 0.15s;
         }
-        .provider-tab-active { background: #00bcd4; color: #000; }
-        .provider-tab-inactive { background: #1a1a1a; color: #aaa; border: 1px solid #2a2a2a; }
-        .provider-tab-inactive:hover { background: #222; color: #fff; }
+        .provider-tab-active { background: var(--cyan-fg); color: #000; }
+        .provider-tab-inactive { background: var(--s1); color: var(--tx-2); border: 1px solid var(--s3); }
+        .provider-tab-inactive:hover { background: var(--s2); color: var(--tx); }
         .provider-status-dot {
           width: 7px; height: 7px; border-radius: 50%;
           display: inline-block; flex-shrink: 0;
@@ -386,40 +386,40 @@ export default function VoiceConfigModal({
         .voice-search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; }
         .voice-search {
           width: 100%; padding: 9px 12px 9px 38px;
-          background: #1a1a1a; border: 1px solid #2a2a2a; border-radius: 8px;
-          color: #fff; font-size: 13px; outline: none; box-sizing: border-box;
+          background: var(--s1); border: 1px solid var(--s3); border-radius: 8px;
+          color: var(--tx); font-size: 13px; outline: none; box-sizing: border-box;
           transition: border-color 0.15s;
         }
-        .voice-search::placeholder { color: #555; }
-        .voice-search:focus { border-color: #00bcd4; }
+        .voice-search::placeholder { color: var(--tx-3); }
+        .voice-search:focus { border-color: var(--cyan-fg); }
         .voice-filter-select {
-          padding: 9px 12px; background: #1a1a1a; border: 1px solid #2a2a2a;
-          border-radius: 8px; color: #aaa; font-size: 12px; cursor: pointer;
+          padding: 9px 12px; background: var(--s1); border: 1px solid var(--s3);
+          border-radius: 8px; color: var(--tx-2); font-size: 12px; cursor: pointer;
           outline: none; transition: border-color 0.15s;
         }
-        .voice-filter-select:focus { border-color: #00bcd4; color: #fff; }
-        .voice-filter-select option { background: #1a1a1a; }
+        .voice-filter-select:focus { border-color: var(--cyan-fg); color: var(--tx); }
+        .voice-filter-select option { background: var(--s1); }
         .voice-modal-body {
           flex: 1; overflow-y: auto; padding: 20px 28px;
-          scrollbar-width: thin; scrollbar-color: #2a2a2a #0f0f0f;
+          scrollbar-width: thin; scrollbar-color: var(--s3) var(--bg);
         }
         .voice-modal-body::-webkit-scrollbar { width: 6px; }
-        .voice-modal-body::-webkit-scrollbar-track { background: #0f0f0f; }
-        .voice-modal-body::-webkit-scrollbar-thumb { background: #2a2a2a; border-radius: 3px; }
+        .voice-modal-body::-webkit-scrollbar-track { background: var(--bg); }
+        .voice-modal-body::-webkit-scrollbar-thumb { background: var(--s3); border-radius: 3px; }
         .voice-grid {
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
           gap: 12px;
         }
         .voice-card {
-          background: #161616; border: 1px solid #232323; border-radius: 12px;
+          background: var(--s1); border: 1px solid var(--line-2); border-radius: 12px;
           padding: 16px; cursor: pointer; transition: all 0.15s; position: relative;
         }
-        .voice-card:hover { border-color: #333; background: #1a1a1a; }
-        .voice-card-selected { border-color: #00bcd4 !important; background: #0d2226 !important; box-shadow: 0 0 0 1px #00bcd4; }
+        .voice-card:hover { border-color: var(--line-2); background: var(--s1); }
+        .voice-card-selected { border-color: var(--cyan-fg) !important; background: #0d2226 !important; box-shadow: 0 0 0 1px var(--cyan-fg); }
         .voice-card-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 10px; }
         .voice-card-name { font-size: 13px; font-weight: 600; color: #f0f0f0; line-height: 1.3; word-break: break-all; }
-        .voice-card-provider { font-size: 11px; color: #666; margin-top: 2px; }
+        .voice-card-provider { font-size: 11px; color: var(--tx-3); margin-top: 2px; }
         .voice-card-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 12px; }
         .voice-tag {
           font-size: 10px; padding: 2px 8px; border-radius: 4px;
@@ -429,43 +429,43 @@ export default function VoiceConfigModal({
         .voice-card-actions { display: flex; gap: 8px; align-items: center; }
         .voice-btn-preview {
           display: flex; align-items: center; gap: 5px;
-          padding: 6px 12px; border-radius: 6px; border: 1px solid #2a2a2a;
-          background: #1a1a1a; color: #aaa; font-size: 11px; font-weight: 500;
+          padding: 6px 12px; border-radius: 6px; border: 1px solid var(--s3);
+          background: var(--s1); color: var(--tx-2); font-size: 11px; font-weight: 500;
           cursor: pointer; transition: all 0.15s; flex-shrink: 0;
         }
-        .voice-btn-preview:hover { border-color: #444; color: #fff; }
+        .voice-btn-preview:hover { border-color: var(--line-2); color: var(--tx); }
         .voice-btn-preview-active { border-color: #ef4444 !important; color: #ef4444 !important; }
         .voice-btn-select {
-          flex: 1; padding: 6px 12px; border-radius: 6px; border: 1px solid #2a2a2a;
-          background: transparent; color: #aaa; font-size: 11px; font-weight: 500;
+          flex: 1; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--s3);
+          background: transparent; color: var(--tx-2); font-size: 11px; font-weight: 500;
           cursor: pointer; transition: all 0.15s;
         }
-        .voice-btn-select-active { border-color: #00bcd4 !important; color: #00bcd4 !important; background: rgba(0,188,212,0.08) !important; }
-        .voice-btn-select:hover { border-color: #444; color: #fff; }
+        .voice-btn-select-active { border-color: var(--cyan-fg) !important; color: var(--cyan-fg) !important; background: rgba(0,188,212,0.08) !important; }
+        .voice-btn-select:hover { border-color: var(--line-2); color: var(--tx); }
         .voice-modal-footer {
           flex-shrink: 0;
           padding: 16px 28px;
-          border-top: 1px solid #1a1a1a;
+          border-top: 1px solid var(--s1);
           display: flex; align-items: center; justify-content: space-between; gap: 12px;
         }
         .voice-pagination { display: flex; align-items: center; gap: 8px; }
         .voice-page-btn {
-          padding: 6px 12px; background: #1a1a1a; border: 1px solid #2a2a2a;
-          border-radius: 6px; color: #aaa; font-size: 12px; cursor: pointer;
+          padding: 6px 12px; background: var(--s1); border: 1px solid var(--s3);
+          border-radius: 6px; color: var(--tx-2); font-size: 12px; cursor: pointer;
           transition: all 0.15s;
         }
-        .voice-page-btn:hover:not(:disabled) { background: #222; color: #fff; }
+        .voice-page-btn:hover:not(:disabled) { background: var(--s2); color: var(--tx); }
         .voice-page-btn:disabled { opacity: 0.4; cursor: default; }
-        .voice-page-info { font-size: 12px; color: #555; white-space: nowrap; }
+        .voice-page-info { font-size: 12px; color: var(--tx-3); white-space: nowrap; }
         .voice-footer-right { display: flex; gap: 10px; align-items: center; }
         .voice-btn-cancel {
-          padding: 9px 20px; background: transparent; border: 1px solid #2a2a2a;
-          border-radius: 8px; color: #aaa; font-size: 13px; cursor: pointer;
+          padding: 9px 20px; background: transparent; border: 1px solid var(--s3);
+          border-radius: 8px; color: var(--tx-2); font-size: 13px; cursor: pointer;
           transition: all 0.15s;
         }
-        .voice-btn-cancel:hover { border-color: #444; color: #fff; }
+        .voice-btn-cancel:hover { border-color: var(--line-2); color: var(--tx); }
         .voice-btn-save {
-          padding: 9px 24px; background: #00bcd4; border: none; border-radius: 8px;
+          padding: 9px 24px; background: var(--cyan-fg); border: none; border-radius: 8px;
           color: #000; font-size: 13px; font-weight: 700; cursor: pointer;
           transition: all 0.15s; display: flex; align-items: center; gap: 6px;
         }
@@ -473,10 +473,10 @@ export default function VoiceConfigModal({
         .voice-btn-save:disabled { opacity: 0.5; cursor: default; }
         .voice-empty {
           display: flex; flex-direction: column; align-items: center; justify-content: center;
-          padding: 60px 20px; color: #555; text-align: center; gap: 12px;
+          padding: 60px 20px; color: var(--tx-3); text-align: center; gap: 12px;
         }
         .voice-empty-icon { font-size: 40px; }
-        .voice-empty-title { font-size: 14px; font-weight: 600; color: #666; }
+        .voice-empty-title { font-size: 14px; font-weight: 600; color: var(--tx-3); }
         .voice-empty-desc { font-size: 12px; line-height: 1.6; max-width: 380px; }
         .voice-loading-grid {
           display: grid;
@@ -484,9 +484,9 @@ export default function VoiceConfigModal({
           gap: 12px;
         }
         .voice-skeleton {
-          background: #161616; border: 1px solid #1e1e1e; border-radius: 12px;
+          background: var(--s1); border: 1px solid #1e1e1e; border-radius: 12px;
           padding: 16px; height: 120px;
-          background: linear-gradient(90deg, #161616 25%, #1e1e1e 50%, #161616 75%);
+          background: linear-gradient(90deg, var(--s1) 25%, #1e1e1e 50%, var(--s1) 75%);
           background-size: 200% 100%;
           animation: voice-shimmer 1.4s infinite;
         }
@@ -495,13 +495,13 @@ export default function VoiceConfigModal({
           100% { background-position: -200% 0; }
         }
         .voice-selected-info {
-          font-size: 12px; color: #666;
+          font-size: 12px; color: var(--tx-3);
           display: flex; align-items: center; gap: 6px;
         }
-        .voice-selected-name { color: #00bcd4; font-weight: 600; }
+        .voice-selected-name { color: var(--cyan-fg); font-weight: 600; }
         .voice-error {
           display: flex; align-items: center; gap: 8px;
-          padding: 14px 18px; background: #1a0e0e; border: 1px solid #3a1a1a;
+          padding: 14px 18px; background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.28);
           border-radius: 10px; color: #f87171; font-size: 13px; margin-bottom: 16px;
         }
       `}</style>
@@ -513,7 +513,7 @@ export default function VoiceConfigModal({
           <div className="voice-modal-header">
             <div>
               <h2 className="voice-modal-title">🎙 Voice Configuration</h2>
-              <p style={{ fontSize: '12px', color: '#555', margin: '4px 0 0' }}>
+              <p style={{ fontSize: '12px', color: 'var(--tx-3)', margin: '4px 0 0' }}>
                 {total > 0 ? `${total} voices available` : 'Select a voice for your agent'}
               </p>
             </div>
@@ -538,7 +538,7 @@ export default function VoiceConfigModal({
                   : p === 'FishAudio' ? providerStatus!.fishaudio
                   : undefined; // 'All' has no provider dot
                 const showDot = p !== 'All';
-                const dotColor = !loaded ? '#9ca3af' : healthy ? '#22c55e' : '#ef4444';
+                const dotColor = !loaded ? '#9ca3af' : healthy ? '#22c55e' : 'var(--err)';
                 const dotTitle = !loaded ? 'Checking provider…' : healthy ? 'Provider connected' : 'Provider not connected';
                 return (
                   <button
@@ -671,7 +671,7 @@ export default function VoiceConfigModal({
                           <div className="voice-card-provider">{v.provider}</div>
                         </div>
                         {isSelected && (
-                          <div style={{ color: '#00bcd4', flexShrink: 0, marginTop: '2px' }}>
+                          <div style={{ color: 'var(--cyan-fg)', flexShrink: 0, marginTop: '2px' }}>
                             <CheckIcon />
                           </div>
                         )}
@@ -694,7 +694,7 @@ export default function VoiceConfigModal({
                           </span>
                         )}
                         {v.accent && v.accent !== v.language && (
-                          <span className="voice-tag" style={{ background: '#1e1a2e', color: '#818cf8', border: '1px solid #3730a3' }}>
+                          <span className="voice-tag" style={{ background: '#1e1a2e', color: 'var(--violet)', border: '1px solid #3730a3' }}>
                             {v.accent}
                           </span>
                         )}
@@ -748,7 +748,7 @@ export default function VoiceConfigModal({
               {selectedVoice && (
                 <div className="voice-selected-info">
                   Selected: <span className="voice-selected-name">{selectedVoice.name}</span>
-                  <span style={{ color: '#444' }}>({selectedVoice.provider})</span>
+                  <span style={{ color: 'var(--line-2)' }}>({selectedVoice.provider})</span>
                 </div>
               )}
               <button className="voice-btn-cancel" onClick={onClose} id="voice-cancel-btn">

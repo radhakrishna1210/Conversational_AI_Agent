@@ -40,30 +40,37 @@ type CallModePreview = {
 const CONCURRENT_LIMIT = 1;
 
 const STATUS_STYLES: Record<string, { bg: string; color: string }> = {
-  RUNNING:   { bg: 'rgba(14,179,158,0.14)',  color: 'var(--teal-fg)' },
-  COMPLETED: { bg: 'rgba(34,197,94,0.14)',   color: '#22c55e' },
-  DRAFT:     { bg: 'rgba(148,163,184,0.14)', color: 'var(--text-secondary)' },
-  PAUSED:    { bg: 'rgba(250,204,21,0.14)',  color: '#facc15' },
-  FAILED:    { bg: 'rgba(248,113,113,0.14)', color: '#f87171' },
-  CANCELLED: { bg: 'rgba(251,146,60,0.14)',  color: '#fb923c' },
+  RUNNING:   { bg: 'rgba(14,179,158,0.14)',  color: 'var(--cyan-fg)' },
+  COMPLETED: { bg: 'rgba(34,197,94,0.14)',   color: 'var(--lime)' },
+  DRAFT:     { bg: 'rgba(148,163,184,0.14)', color: 'var(--tx-2)' },
+  PAUSED:    { bg: 'rgba(250,204,21,0.14)',  color: 'var(--warn)' },
+  FAILED:    { bg: 'rgba(248,113,113,0.14)', color: 'var(--err)' },
+  CANCELLED: { bg: 'rgba(251,146,60,0.14)',  color: 'var(--coral)' },
 };
 
 // Statuses the Start button applies to. PAUSED resumes from where it stopped.
 const STARTABLE = new Set(['DRAFT', 'SCHEDULED', 'PAUSED', 'FAILED']);
 
+// Mirrors .rz-table's th/td. Kept as objects because this table is built from
+// <th style=...> rather than a class-driven <table className="rz-table">, and
+// converting the whole grid would touch every cell for no visual gain.
 const thStyle: React.CSSProperties = {
-  padding: '14px 16px',
+  padding: '11px 16px',
   textAlign: 'left',
-  fontSize: '14px',
-  fontWeight: 600,
-  color: 'var(--text-primary)',
+  fontFamily: 'var(--ff-m)',
+  fontSize: '10.5px',
+  letterSpacing: '1px',
+  textTransform: 'uppercase',
+  fontWeight: 500,
+  color: 'var(--tx-3)',
+  background: 'var(--bg-2)',
   whiteSpace: 'nowrap',
 };
 
 const tdStyle: React.CSSProperties = {
-  padding: '14px 16px',
-  fontSize: '14px',
-  color: 'var(--text-primary)',
+  padding: '13px 16px',
+  fontSize: '13px',
+  color: 'var(--tx-2)',
   verticalAlign: 'middle',
 };
 
@@ -331,12 +338,12 @@ export default function BulkCall() {
   const hasRows = filtered.length > 0;
 
   const selectStyle: React.CSSProperties = {
-    padding: '10px 36px 10px 14px',
-    borderRadius: '8px',
-    border: '1px solid var(--border)',
-    background: 'var(--bg-card)',
-    color: 'var(--text-primary)',
-    fontSize: '14px',
+    padding: '10px 36px 10px 12px',
+    borderRadius: '10px',
+    border: '1px solid var(--line-2)',
+    background: 'var(--s2)',
+    color: 'var(--tx)',
+    fontSize: '13.5px',
     appearance: 'none' as const,
     WebkitAppearance: 'none' as const,
     backgroundImage:
@@ -347,62 +354,46 @@ export default function BulkCall() {
   };
 
   return (
-    <div>
+    <div className="rz-page rz-page-pad rz-bleed">
+     <div className="rz-wrap-wide">
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', marginBottom: '36px', flexWrap: 'wrap' }}>
+      <div className="rz-head">
         <div>
-          <h1 style={{ fontSize: '34px', fontWeight: 800, letterSpacing: '-0.5px', marginBottom: '8px', color: 'var(--text-primary)' }}>Bulk Call Campaigns</h1>
-          <p style={{ color: 'var(--text-secondary)', fontSize: '15px' }}>Manage and monitor your bulk call campaigns.</p>
+          <div className="rz-eyebrow">Operate</div>
+          <h1 className="rz-h1">Bulk call campaigns</h1>
+          <p className="rz-sub" style={{ margin: '8px 0 0' }}>
+            Dial a contact list with one of your agents, and watch it work through the queue.
+          </p>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '18px', flexWrap: 'wrap' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '14px', color: 'var(--text-secondary)' }}>
-            <strong style={{ color: 'var(--text-primary)' }}>{CONCURRENT_LIMIT}</strong>
-            <span>concurrent {CONCURRENT_LIMIT === 1 ? 'call' : 'calls'}</span>
-            <span
-              title="Maximum number of calls that can run at the same time on your plan."
-              style={{
-                display: 'inline-flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                width: '16px',
-                height: '16px',
-                borderRadius: '50%',
-                border: '1px solid var(--text-secondary)',
-                fontSize: '10px',
-                fontWeight: 700,
-                cursor: 'help',
-                userSelect: 'none',
-              }}
-            >
-              i
-            </span>
-          </div>
-          <button
-            className="btn btn-primary"
-            style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '11px 20px', borderRadius: '8px', fontWeight: 600 }}
-            onClick={() => setShowModal(true)}
+        <div className="rz-head-actions">
+          <span
+            className="rz-tag"
+            title="Maximum number of calls that can run at the same time on this workspace."
           >
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            {CONCURRENT_LIMIT} concurrent {CONCURRENT_LIMIT === 1 ? 'call' : 'calls'}
+          </span>
+          <button className="rz-btn rz-btn-primary" onClick={() => setShowModal(true)}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="12" r="10" />
               <line x1="12" y1="8" x2="12" y2="16" />
               <line x1="8" y1="12" x2="16" y2="12" />
             </svg>
-            Create New Campaign
+            New campaign
           </button>
         </div>
       </div>
 
       {/* Filters */}
-      <div style={{ marginBottom: '20px' }}>
-        <div style={{ fontSize: '13px', color: 'var(--text-secondary)', marginBottom: '10px' }}>Filter by</div>
-        <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+      <div style={{ marginBottom: '18px' }}>
+        <div className="rz-label" style={{ marginBottom: '10px' }}>Filter by</div>
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
           <div style={{ position: 'relative', minWidth: '250px' }}>
             <svg
               width="15"
               height="15"
               viewBox="0 0 24 24"
               fill="none"
-              stroke="var(--text-secondary)"
+              stroke="var(--tx-3)"
               strokeWidth="2"
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -414,16 +405,9 @@ export default function BulkCall() {
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by name or phone..."
-              style={{
-                width: '100%',
-                padding: '10px 14px 10px 38px',
-                borderRadius: '8px',
-                border: '1px solid var(--border)',
-                background: 'var(--bg-card)',
-                color: 'var(--text-primary)',
-                fontSize: '14px',
-              }}
+              placeholder="Search by name or phone…"
+              className="rz-input"
+              style={{ paddingLeft: '38px' }}
             />
           </div>
           <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ ...selectStyle, minWidth: '180px' }}>
@@ -442,48 +426,49 @@ export default function BulkCall() {
       </div>
 
       {error && (
-        <div style={{ marginBottom: '16px', padding: '12px 16px', borderRadius: '10px', background: 'rgba(248,113,113,0.1)', border: '1px solid rgba(248,113,113,0.3)', color: 'var(--error)', fontSize: '13px' }}>
+        <div style={{ marginBottom: '16px', padding: '12px 16px', borderRadius: '10px', background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.3)', color: 'var(--err)', fontSize: '13px' }}>
           {error}
         </div>
       )}
 
       {/* Bulk action bar — appears only when rows are selected */}
       {selected.size > 0 && (
-        <div style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '12px', padding: '10px 16px', borderRadius: '10px', border: '1px solid var(--border)', background: 'var(--bg-card)' }}>
-          <span style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>{selected.size} selected</span>
+        <div className="rz-enter" style={{ marginBottom: '12px', display: 'flex', alignItems: 'center', gap: '10px', padding: '10px 16px', borderRadius: '10px', border: '1px solid var(--line-2)', background: 'var(--s2)' }}>
+          <span className="rz-mono">{selected.size} selected</span>
           {startable.length > 0 && (
-            <button className="btn btn-primary btn-sm" onClick={handleStartSelected} disabled={Boolean(busyId)}>
+            <button className="rz-btn rz-btn-primary rz-btn-sm" onClick={handleStartSelected} disabled={Boolean(busyId)}>
               {busyId ? 'Starting…' : startable.some((c) => c.status === 'PAUSED') ? 'Resume' : 'Start'}
             </button>
           )}
           {pausable.length > 0 && (
-            <button className="btn btn-secondary btn-sm" onClick={handlePauseSelected} disabled={Boolean(busyId)}>
+            <button className="rz-btn rz-btn-secondary rz-btn-sm" onClick={handlePauseSelected} disabled={Boolean(busyId)}>
               Pause
             </button>
           )}
           {selectedCampaigns.some((c) => c.status === 'RUNNING' || c.status === 'PAUSED') && (
-            <button className="btn btn-secondary btn-sm" onClick={handleCancelSelected} disabled={Boolean(busyId)}>
+            <button className="rz-btn rz-btn-secondary rz-btn-sm" onClick={handleCancelSelected} disabled={Boolean(busyId)}>
               Cancel
             </button>
           )}
-          <button className="btn btn-secondary btn-sm" onClick={handleDeleteSelected}>
+          <button className="rz-btn rz-btn-danger rz-btn-sm" onClick={handleDeleteSelected}>
             Delete
           </button>
         </div>
       )}
 
       {/* Table */}
-      <div style={{ border: '1px solid var(--border)', borderRadius: '10px', overflow: 'hidden', background: 'var(--bg-card)' }}>
+      <div style={{ border: '1px solid var(--line)', borderRadius: '14px', overflow: 'hidden', background: 'var(--s1)' }}>
         <div style={{ overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: '900px' }}>
             <thead>
-              <tr style={{ borderBottom: '1px solid var(--border)' }}>
+              <tr style={{ borderBottom: '1px solid var(--line)' }}>
                 <th style={{ ...thStyle, width: '48px' }}>
                   <input
                     type="checkbox"
                     checked={allSelected}
                     onChange={toggleAll}
-                    style={{ width: '16px', height: '16px', accentColor: 'var(--teal)', cursor: 'pointer' }}
+                    aria-label="Select all campaigns"
+                    style={{ width: '16px', height: '16px', accentColor: 'var(--cyan)', cursor: 'pointer' }}
                   />
                 </th>
                 <th style={thStyle}>Name</th>
@@ -501,24 +486,24 @@ export default function BulkCall() {
                 filtered.map((campaign) => {
                   const pill = STATUS_STYLES[campaign.status] ?? STATUS_STYLES.DRAFT;
                   return (
-                    <tr key={campaign.id} style={{ borderTop: '1px solid var(--border)' }}>
+                    <tr key={campaign.id} style={{ borderTop: '1px solid var(--line)' }}>
                       <td style={tdStyle}>
                         <input
                           type="checkbox"
                           checked={selected.has(campaign.id)}
                           onChange={() => toggleOne(campaign.id)}
-                          style={{ width: '16px', height: '16px', accentColor: 'var(--teal)', cursor: 'pointer' }}
+                          style={{ width: '16px', height: '16px', accentColor: 'var(--cyan)', cursor: 'pointer' }}
                         />
                       </td>
                       <td style={{ ...tdStyle, fontWeight: 600 }}>
                         {campaign.name}
                         {campaign.callMode === 'greeting' && (
-                          <div style={{ fontSize: '11px', fontWeight: 500, color: '#facc15', marginTop: '3px' }}>
+                          <div style={{ fontSize: '11px', fontWeight: 500, color: 'var(--warn)', marginTop: '3px' }}>
                             greeting-only
                           </div>
                         )}
                         {campaign.lastError && (
-                          <div style={{ fontSize: '11px', fontWeight: 500, color: '#f87171', marginTop: '3px', maxWidth: '260px' }}>
+                          <div style={{ fontSize: '11px', fontWeight: 500, color: 'var(--err)', marginTop: '3px', maxWidth: '260px' }}>
                             {campaign.lastError}
                           </div>
                         )}
@@ -537,18 +522,18 @@ export default function BulkCall() {
                       <td style={{ ...tdStyle, minWidth: '160px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                           <div style={{ flex: 1, height: '8px', borderRadius: '999px', background: 'rgba(148,163,184,0.15)', overflow: 'hidden' }}>
-                            <div style={{ width: `${campaign.progress}%`, height: '100%', background: 'var(--teal)', transition: 'width 0.3s ease' }} />
+                            <div style={{ width: `${campaign.progress}%`, height: '100%', background: 'var(--cyan)', transition: 'width 0.3s ease' }} />
                           </div>
-                          <span style={{ fontSize: '12px', color: 'var(--text-secondary)', minWidth: '34px' }}>{campaign.progress}%</span>
+                          <span style={{ fontSize: '12px', color: 'var(--tx-2)', minWidth: '34px' }}>{campaign.progress}%</span>
                         </div>
                       </td>
                       <td style={tdStyle}>
-                        <span style={{ color: '#22c55e' }}>{campaign.sent ?? 0}</span>
+                        <span style={{ color: 'var(--lime)' }}>{campaign.sent ?? 0}</span>
                         {' / '}
-                        <span style={{ color: (campaign.failed ?? 0) > 0 ? '#f87171' : 'var(--text-secondary)' }}>
+                        <span style={{ color: (campaign.failed ?? 0) > 0 ? 'var(--err)' : 'var(--tx-2)' }}>
                           {campaign.failed ?? 0}
                         </span>
-                        <span style={{ color: 'var(--text-secondary)' }}> of {campaign.totalContacts ?? 0}</span>
+                        <span style={{ color: 'var(--tx-2)' }}> of {campaign.totalContacts ?? 0}</span>
                       </td>
                       <td style={tdStyle}>{campaign.concurrentCalls}</td>
                       <td style={tdStyle}>{new Date(campaign.createdAt).toLocaleDateString()}</td>
@@ -559,15 +544,15 @@ export default function BulkCall() {
                 <tr>
                   <td colSpan={9} style={{ padding: '56px 20px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
-                      <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: '12px' }}>
+                      <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="var(--tx-2)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: '12px' }}>
                         <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
                         <path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z" />
                       </svg>
-                      <p style={{ color: 'var(--text-primary)', fontSize: '14px', margin: 0 }}>
+                      <p style={{ color: 'var(--tx)', fontSize: '14px', margin: 0 }}>
                         {loading ? 'Loading campaigns...' : 'No bulk call campaigns found.'}
                       </p>
                       {!loading && (
-                        <p style={{ color: 'var(--text-secondary)', fontSize: '13px', margin: 0 }}>
+                        <p style={{ color: 'var(--tx-2)', fontSize: '13px', margin: 0 }}>
                           {campaigns.length > 0 ? 'Try adjusting your filters.' : 'Try creating a new campaign to get started.'}
                         </p>
                       )}
@@ -583,34 +568,34 @@ export default function BulkCall() {
       {/* Create campaign modal */}
       {showModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0, 0, 0, 0.65)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
-          <div style={{ width: '100%', maxWidth: '560px', background: 'var(--bg-card)', borderRadius: '20px', border: '1px solid var(--border)', boxShadow: 'var(--shadow-card)', padding: '28px' }}>
+          <div style={{ width: '100%', maxWidth: '560px', background: 'var(--s1)', borderRadius: '20px', border: '1px solid var(--line)', boxShadow: 'var(--shadow-card)', padding: '28px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
               <div>
                 <h2 style={{ margin: 0, fontSize: '22px', fontWeight: 700 }}>Create New Bulk Call Campaign</h2>
-                <p style={{ margin: '8px 0 0', color: 'var(--text-secondary)', fontSize: '13px' }}>Upload a CSV, choose a voice agent, and configure concurrent calls.</p>
+                <p style={{ margin: '8px 0 0', color: 'var(--tx-2)', fontSize: '13px' }}>Upload a CSV, choose a voice agent, and configure concurrent calls.</p>
               </div>
-              <button style={{ background: 'none', border: 'none', color: 'var(--text-secondary)', cursor: 'pointer', fontSize: '24px' }} onClick={() => setShowModal(false)}>
+              <button style={{ background: 'none', border: 'none', color: 'var(--tx-2)', cursor: 'pointer', fontSize: '24px' }} onClick={() => setShowModal(false)}>
                 ×
               </button>
             </div>
 
             <div style={{ display: 'grid', gap: '16px' }}>
-              <label style={{ display: 'grid', gap: '8px', color: 'var(--text-secondary)', fontSize: '13px' }}>
+              <label style={{ display: 'grid', gap: '8px', color: 'var(--tx-2)', fontSize: '13px' }}>
                 Campaign Name
                 <input
                   value={form.campaignName}
                   onChange={(event) => handleCreateChange('campaignName', event.target.value)}
                   placeholder="Enter campaign name"
-                  style={{ width: '100%', padding: '12px 14px', borderRadius: '12px', border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
+                  style={{ width: '100%', padding: '12px 14px', borderRadius: '12px', border: '1px solid var(--line)', background: 'var(--s2)', color: 'var(--tx)' }}
                 />
               </label>
 
-              <label style={{ display: 'grid', gap: '8px', color: 'var(--text-secondary)', fontSize: '13px' }}>
+              <label style={{ display: 'grid', gap: '8px', color: 'var(--tx-2)', fontSize: '13px' }}>
                 Select Voice Agent
                 <select
                   value={form.botId}
                   onChange={(event) => handleCreateChange('botId', event.target.value)}
-                  style={{ width: '100%', padding: '12px 14px', borderRadius: '12px', border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
+                  style={{ width: '100%', padding: '12px 14px', borderRadius: '12px', border: '1px solid var(--line)', background: 'var(--s2)', color: 'var(--tx)' }}
                 >
                   <option value="">Choose an agent</option>
                   {agents.map((agent) => (
@@ -629,10 +614,10 @@ export default function BulkCall() {
                   lineHeight: 1.55,
                   background: greetingOnly ? 'rgba(250,204,21,0.10)' : 'rgba(34,197,94,0.10)',
                   border: `1px solid ${greetingOnly ? 'rgba(250,204,21,0.35)' : 'rgba(34,197,94,0.35)'}`,
-                  color: 'var(--text-primary)',
+                  color: 'var(--tx)',
                 }}>
                   <strong>{greetingOnly ? '⚠️ Greeting-only broadcast' : '✅ Two-way conversation'}</strong>
-                  <div style={{ color: 'var(--text-secondary)', marginTop: '5px' }}>
+                  <div style={{ color: 'var(--tx-2)', marginTop: '5px' }}>
                     {greetingOnly
                       ? modePreview.reason
                       : 'Each recipient will have a live back-and-forth conversation with this agent.'}
@@ -643,9 +628,9 @@ export default function BulkCall() {
                         type="checkbox"
                         checked={ackGreetingOnly}
                         onChange={(e) => setAckGreetingOnly(e.target.checked)}
-                        style={{ marginTop: '2px', accentColor: 'var(--teal)' }}
+                        style={{ marginTop: '2px', accentColor: 'var(--cyan)' }}
                       />
-                      <span style={{ color: 'var(--text-primary)' }}>
+                      <span style={{ color: 'var(--tx)' }}>
                         I understand every recipient will hear a recorded message, not a conversation.
                       </span>
                     </label>
@@ -655,13 +640,13 @@ export default function BulkCall() {
 
               {/* Caller IDs. Rotating across several numbers spreads outbound
                   volume, which is what keeps carriers from flagging the campaign. */}
-              <div style={{ display: 'grid', gap: '8px', color: 'var(--text-secondary)', fontSize: '13px' }}>
+              <div style={{ display: 'grid', gap: '8px', color: 'var(--tx-2)', fontSize: '13px' }}>
                 Call from {selectedFrom.length > 1 && (
-                  <span style={{ color: 'var(--teal-fg)' }}>
+                  <span style={{ color: 'var(--cyan-fg)' }}>
                     — rotating across {selectedFrom.length} numbers
                   </span>
                 )}
-                {callerError && <div style={{ color: '#fca5a5', fontSize: '12px' }}>{callerError}</div>}
+                {callerError && <div style={{ color: 'var(--err)', fontSize: '12px' }}>{callerError}</div>}
                 {!callerError && callerNumbers.length === 0 && (
                   <div style={{ fontSize: '12px' }}>Loading your numbers…</div>
                 )}
@@ -669,10 +654,10 @@ export default function BulkCall() {
                   <div style={{
                     maxHeight: '132px',
                     overflowY: 'auto',
-                    border: '1px solid var(--border)',
+                    border: '1px solid var(--line)',
                     borderRadius: '10px',
                     padding: '8px',
-                    background: 'var(--bg-elevated)',
+                    background: 'var(--s2)',
                   }}>
                     {callerNumbers.map((n) => (
                       <label key={n.phoneNumber} style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '5px 4px', cursor: 'pointer' }}>
@@ -680,11 +665,11 @@ export default function BulkCall() {
                           type="checkbox"
                           checked={selectedFrom.includes(n.phoneNumber)}
                           onChange={() => toggleFrom(n.phoneNumber)}
-                          style={{ accentColor: 'var(--teal)' }}
+                          style={{ accentColor: 'var(--cyan)' }}
                         />
-                        <span style={{ color: 'var(--text-primary)', fontSize: '13px' }}>
+                        <span style={{ color: 'var(--tx)', fontSize: '13px' }}>
                           {n.phoneNumber}
-                          <span style={{ color: 'var(--text-secondary)' }}>
+                          <span style={{ color: 'var(--tx-2)' }}>
                             {' '}— {n.label} {n.source === 'own' ? '(your number ✓)' : '(platform)'}
                           </span>
                         </span>
@@ -692,35 +677,35 @@ export default function BulkCall() {
                     ))}
                   </div>
                 )}
-                <div style={{ fontSize: '11.5px', color: 'var(--text-muted)' }}>
+                <div style={{ fontSize: '11.5px', color: 'var(--tx-3)' }}>
                   {selectedFrom.length === 0
                     ? 'None selected — the platform default number will be used for every call.'
                     : 'Calls are spread evenly across the selected numbers.'}
                 </div>
               </div>
 
-              <label style={{ display: 'grid', gap: '8px', color: 'var(--text-secondary)', fontSize: '13px' }}>
+              <label style={{ display: 'grid', gap: '8px', color: 'var(--tx-2)', fontSize: '13px' }}>
                 Upload CSV File
                 <input
                   type="file"
                   accept=".csv,text/csv"
                   onChange={(event) => handleCreateChange('file', event.target.files?.[0] ?? null)}
-                  style={{ width: '100%', color: 'var(--text-primary)' }}
+                  style={{ width: '100%', color: 'var(--tx)' }}
                 />
               </label>
 
-              <label style={{ display: 'grid', gap: '8px', color: 'var(--text-secondary)', fontSize: '13px' }}>
+              <label style={{ display: 'grid', gap: '8px', color: 'var(--tx-2)', fontSize: '13px' }}>
                 Concurrent Calls
                 <input
                   type="number"
                   min={1}
                   value={form.concurrentCalls}
                   onChange={(event) => handleCreateChange('concurrentCalls', Number(event.target.value))}
-                  style={{ width: '100%', padding: '12px 14px', borderRadius: '12px', border: '1px solid var(--border)', background: 'var(--bg-elevated)', color: 'var(--text-primary)' }}
+                  style={{ width: '100%', padding: '12px 14px', borderRadius: '12px', border: '1px solid var(--line)', background: 'var(--s2)', color: 'var(--tx)' }}
                 />
               </label>
 
-              {error && <div style={{ color: 'var(--error)', fontSize: '13px' }}>{error}</div>}
+              {error && <div style={{ color: 'var(--err)', fontSize: '13px' }}>{error}</div>}
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', flexWrap: 'wrap' }}>
                 <button className="btn btn-secondary" onClick={() => setShowModal(false)} type="button">Cancel</button>
@@ -732,6 +717,7 @@ export default function BulkCall() {
           </div>
         </div>
       )}
+     </div>
     </div>
   );
 }

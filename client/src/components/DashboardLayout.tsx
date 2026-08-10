@@ -23,6 +23,7 @@ import {
 import { useTheme } from '../hooks/useTheme';
 import { CommandMenu } from './CommandMenu';
 import { NotificationPanel } from '@/components/notifications/NotificationPanel';
+import SpandanLogo from './SpandanLogo';
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const [profileDropdownOpen, setProfileDropdownOpen] = useState(false);
@@ -196,8 +197,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <aside id="layout-sidebar" className={`sidebar ${sidebarOpen ? "open" : ""}`}>
         <Link to="/" style={{textDecoration: 'none'}}>
           <div className="sidebar-header">
-            <div className="sidebar-logo-icon">C</div>
-            <div className="sidebar-logo-text">Conversational <span style={{color: 'white', fontWeight: 300}}>AI Agent</span></div>
+            <SpandanLogo size={26} />
           </div>
         </Link>
 
@@ -408,7 +408,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                     minWidth: '16px',
                     height: '16px',
                     padding: '0 4px',
-                    background: 'var(--teal)',
+                    background: 'var(--cyan)',
                     color: '#060c17',
                     borderRadius: '999px',
                     fontSize: '10px',
@@ -466,14 +466,14 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   overflow: 'hidden',
                 }}>
                   <div style={{ padding: '16px', borderBottom: '1px solid var(--dropdown-border)', display: 'flex', alignItems: 'center', gap: '12px', background: darkMode ? 'rgba(255,255,255,0.02)' : 'rgba(0,0,0,0.02)' }}>
-                    <div style={{ width: '38px', height: '38px', borderRadius: '50%', background: 'linear-gradient(135deg, var(--teal), #0cd4bc)', color: '#060c17', fontWeight: '800', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '13px', flexShrink: 0, boxShadow: '0 0 0 2px var(--teal-light)' }}>
+                    <div className="rz-avatar" style={{ width: '38px', height: '38px', fontSize: '13px', boxShadow: '0 0 0 2px var(--teal-light)' }}>
                       {user.initials}
                     </div>
                     <div style={{ overflow: 'hidden', flex: 1 }}>
                       <div style={{ fontWeight: '700', fontSize: '13.5px', color: 'var(--dropdown-text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{user.name}</div>
-                      <div style={{ fontSize: '11.5px', color: 'var(--text-secondary)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '1px' }}>{user.email}</div>
+                      <div style={{ fontSize: '11.5px', color: 'var(--tx-2)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', marginTop: '1px' }}>{user.email}</div>
                       {user.plan && (
-                        <span style={{ marginTop: '5px', display: 'inline-block', fontSize: '9px', fontWeight: '800', padding: '2px 8px', background: 'var(--teal-light)', color: 'var(--teal-fg)', borderRadius: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{user.plan}</span>
+                        <span style={{ marginTop: '5px', display: 'inline-block', fontSize: '9px', fontWeight: '800', padding: '2px 8px', background: 'var(--teal-light)', color: 'var(--cyan-fg)', borderRadius: '20px', textTransform: 'uppercase', letterSpacing: '0.5px' }}>{user.plan}</span>
                       )}
                     </div>
                   </div>
@@ -497,7 +497,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
                   <div style={{ padding: '6px 0' }}>
                     <div
                       onClick={() => { setProfileDropdownOpen(false); handleLogout(); }}
-                      style={{ display: 'flex', alignItems: 'center', padding: '9px 16px', cursor: 'pointer', color: 'var(--error)', fontSize: '13.5px', fontWeight: '500', transition: 'background 0.15s' }}
+                      style={{ display: 'flex', alignItems: 'center', padding: '9px 16px', cursor: 'pointer', color: 'var(--err)', fontSize: '13.5px', fontWeight: '500', transition: 'background 0.15s' }}
                       onMouseOver={e => (e.currentTarget.style.background = 'var(--dropdown-hover)')}
                       onMouseOut={e => (e.currentTarget.style.background = 'transparent')}
                     >

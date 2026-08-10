@@ -155,10 +155,60 @@
   --shadow-topbar:      0 1px 0 rgba(255,255,255,0.05);
 
   /* Font */
-  --font-main: 'Plus Jakarta Sans', 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-main: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 
   /* Transitions */
   --transition-theme: background 0.25s ease, color 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+
+  /*
+    ── Spandan "Resonance" token layer ──
+
+    The design system names surfaces s1/s2/s3, ink tx/tx-2/tx-3 and lines
+    line/line-2. Those are the names every Spandan_flagship_selection/*.dc.html
+    file uses, so components ported from those designs read as written instead
+    of being translated by hand at each use site.
+
+    These are ALIASES, not a third palette: every value below either points at
+    an existing token or is one of the four genuinely new values the designs
+    introduce (--s3, --line-2, --violet, --warn). Never hardcode the hex — set
+    the source token and these follow, which is what keeps the two naming
+    conventions from drifting the way the HSL/hex pair did.
+  */
+  --s1:     var(--bg-card);       /* #101828 — cards, panels, rows */
+  --s2:     var(--bg-elevated);   /* #162136 — inputs, raised chips */
+  --s3:     #20304d;              /* new — slider tracks, disabled fills */
+  --line:   var(--border);        /* #1a2740 — hairlines */
+  --line-2: #26364f;              /* new — input borders, stronger dividers */
+  --tx:     var(--text-primary);
+  --tx-2:   var(--text-secondary);
+  --tx-3:   var(--text-muted);
+
+  /*
+    State accents. Colour is never decorative in this system — each one names a
+    thing the agent is doing, so they are declared next to the states that use
+    them (see conversationStates in lib/voiceStates.ts).
+  */
+  /*
+    --cyan is the FILL (button backgrounds, the logo core, status dots) and is
+    the same value in both themes because it always pairs with dark text.
+    --cyan-fg is the same brand colour used as a FOREGROUND — label text, icons
+    and borders drawn on a page surface — and must dim in light mode, where
+    #0eb39e on white is only 2.3:1. Same split as --teal / --teal-fg, which
+    these alias; reach for --cyan-fg whenever the colour sits ON a surface.
+  */
+  --cyan:    var(--teal);         /* listening */
+  --cyan-fg: var(--teal-fg);
+  --violet: #818cf8;              /* new — thinking */
+  --lime:   var(--success);       /* acting / ok */
+  --coral:  var(--orange);        /* speaking */
+  --warn:   #f59e0b;              /* new — attention */
+  --err:    var(--error);         /* destructive */
+  --focus:  var(--focus-ring);
+
+  /* Type roles from the design system */
+  --ff-d: 'Space Grotesk', sans-serif;                       /* display */
+  --ff-b: 'Inter', -apple-system, "Segoe UI", sans-serif;    /* body */
+  --ff-m: 'JetBrains Mono', ui-monospace, monospace;         /* instruments */
 }
 
 /* ═══════════════════════════════════════════
@@ -233,6 +283,26 @@ html.light {
   /* Keyboard focus ring — the dimmed teal reads against white; #0cd4bc does not */
   --focus-ring: #0a8a79;
 
+  /*
+    Spandan token layer, light mode.
+
+    The aliases that point at other tokens (--s1, --tx, --cyan …) re-resolve on
+    their own, because this block already redefines their sources. Only the four
+    values the design system introduces as literal hex need an override here —
+    the Resonance system is specified dark-only, and all four fail contrast on
+    white at their dark-mode values:
+
+        --violet #818cf8 on #f0f4f9 = 2.7:1   → #4f46e5 = 6.0:1
+        --warn   #f59e0b on #f0f4f9 = 2.0:1   → #b45309 = 4.8:1
+
+    --s3 and --line-2 are fills and borders rather than text, so they invert to
+    the light end of the neutral ramp instead of darkening.
+  */
+  --s3:     #e2e8f0;
+  --line-2: #cbd5e1;
+  --violet: #4f46e5;
+  --warn:   #b45309;
+
   /* Shadows */
   --shadow-subtle:      0 2px 8px rgba(15,23,42,0.08);
   --shadow-card:        0 4px 20px rgba(15,23,42,0.10);
@@ -263,240 +333,31 @@ html.light body {
   color: var(--text-primary);
 }
 
-/* Global Light Mode Overrides for Hardcoded/Inline Colors to guarantee visibility and accessibility */
-html.light [style*="color: white"],
-html.light [style*="color:white"],
-html.light [style*="color: 'white'"],
-html.light [style*="color:'white'"],
-html.light [style*="color: '#fff'"],
-html.light [style*="color:'#fff'"],
-html.light [style*="color: #fff"],
-html.light [style*="color:#fff"],
-html.light [style*="color: #f5f5f5"],
-html.light [style*="color:#f5f5f5"],
-html.light [style*="color: #f1f1f1"],
-html.light [style*="color:#f1f1f1"],
-html.light [style*="color: #f4f4f4"],
-html.light [style*="color:#f4f4f4"],
-html.light [style*="color: #f6f6f6"],
-html.light [style*="color:#f6f6f6"],
-html.light [style*="color: #f2f2f2"],
-html.light [style*="color:#f2f2f2"],
-html.light [style*="color: #e8e8e8"],
-html.light [style*="color:#e8e8e8"],
-html.light [style*="color: #d6d6d6"],
-html.light [style*="color:#d6d6d6"],
-html.light [style*="color: rgb(255, 255, 255)"],
-html.light [style*="color:rgb(255, 255, 255)"],
-html.light [style*="color: rgb(255,255,255)"],
-html.light [style*="color:rgb(255,255,255)"],
-html.light [style*="color: rgb(245, 245, 245)"],
-html.light [style*="color: rgb(241, 241, 241)"],
-html.light [style*="color: rgb(244, 244, 244)"],
-html.light [style*="color: rgb(246, 246, 246)"],
-html.light [style*="color: rgb(242, 242, 242)"] {
-  color: var(--text-primary) !important;
-}
+/*
+  ── Removed: the inline-colour override layer ──
 
-html.light [style*="color: #a3a3a3"],
-html.light [style*="color:#a3a3a3"],
-html.light [style*="color: #8e8e8e"],
-html.light [style*="color:#8e8e8e"],
-html.light [style*="color: #9a9a9a"],
-html.light [style*="color:#9a9a9a"],
-html.light [style*="color: #8b8b8b"],
-html.light [style*="color:#8b8b8b"],
-html.light [style*="color: #8a8a8a"],
-html.light [style*="color:#8a8a8a"],
-html.light [style*="color: #999"],
-html.light [style*="color:#999"],
-html.light [style*="color: #888"],
-html.light [style*="color:#888"],
-html.light [style*="color: #666"],
-html.light [style*="color:#666"],
-html.light [style*="color: #b3b3b3"],
-html.light [style*="color:#b3b3b3"],
-html.light [style*="color: #b7b7b7"],
-html.light [style*="color:#b7b7b7"],
-html.light [style*="color: #8d8d8d"],
-html.light [style*="color:#8d8d8d"],
-html.light [style*="color: rgb(179, 179, 179)"],
-html.light [style*="color: rgb(183, 183, 183)"],
-html.light [style*="color: rgb(141, 141, 141)"],
-html.light [style*="color: rgb(136, 136, 136)"],
-html.light [style*="color: rgb(153, 153, 153)"],
-html.light [style*="color: rgb(102, 102, 102)"] {
-  color: var(--text-secondary) !important;
-}
+  Roughly 190 rules used to live here, of the form
 
-html.light [style*="background: #0f0f0f"],
-html.light [style*="background:#0f0f0f"],
-html.light [style*="background: rgb(15, 15, 15)"],
-html.light [style*="background:rgb(15, 15, 15)"],
-html.light [style*="background: rgb(15,15,15)"],
-html.light [style*="background:rgb(15,15,15)"] {
-  background: var(--bg-primary) !important;
-}
+      html.light [style*="color: white"],
+      html.light [style*="background: #1a1a1a"], … { … !important }
 
-html.light [style*="background: #0a0a0a"],
-html.light [style*="background:#0a0a0a"],
-html.light [style*="background: rgb(10, 10, 10)"],
-html.light [style*="background:rgb(10, 10, 10)"],
-html.light [style*="background: #0b0b0b"],
-html.light [style*="background:#0b0b0b"],
-html.light [style*="background: rgb(11, 11, 11)"],
-html.light [style*="background:rgb(11, 11, 11)"],
-html.light [style*="background: #0c0c0c"],
-html.light [style*="background:#0c0c0c"],
-html.light [style*="background: rgb(12, 12, 12)"],
-html.light [style*="background:rgb(12, 12, 12)"] {
-  background: var(--bg-secondary) !important;
-}
+  They existed because pages painted their own literal colours in inline
+  styles, and light mode then had to hunt those literals down by substring and
+  overrule them. That approach had three problems: the browser ran an
+  attribute-substring match against every element on every page, the patch only
+  covered whichever literals someone had remembered to list, and it depended on
+  how the browser serialised the style attribute (a rule keyed on
+  `color: '#fff'` never matched anything, because the DOM never contains those
+  quotes).
 
-html.light [style*="background: #111"],
-html.light [style*="background:#111"],
-html.light [style*="background: rgb(17, 17, 17)"],
-html.light [style*="background:rgb(17, 17, 17)"],
-html.light [style*="background: #101010"],
-html.light [style*="background:#101010"],
-html.light [style*="background: rgb(16, 16, 16)"],
-html.light [style*="background:rgb(16, 16, 16)"],
-html.light [style*="background: #151515"],
-html.light [style*="background:#151515"],
-html.light [style*="background: rgb(21, 21, 21)"],
-html.light [style*="background:rgb(21, 21, 21)"],
-html.light [style*="background: #1a1a1a"],
-html.light [style*="background:#1a1a1a"],
-html.light [style*="background: rgb(26, 26, 26)"],
-html.light [style*="background:rgb(26, 26, 26)"],
-html.light [style*="background: #050505"],
-html.light [style*="background:#050505"],
-html.light [style*="background: rgb(5, 5, 5)"],
-html.light [style*="background:rgb(5, 5, 5)"],
-html.light [style*="background: #141414"],
-html.light [style*="background:#141414"],
-html.light [style*="background: rgb(20, 20, 20)"],
-html.light [style*="background:rgb(20, 20, 20)"],
-html.light [style*="background: #171717"],
-html.light [style*="background:#171717"],
-html.light [style*="background: rgb(23, 23, 23)"],
-html.light [style*="background:rgb(23, 23, 23)"],
-html.light [style*="background: #062021"],
-html.light [style*="background:#062021"],
-html.light [style*="background: rgb(6, 32, 33)"],
-html.light [style*="background:rgb(6, 32, 33)"],
-html.light [style*="background: linear-gradient(180deg, #151515"],
-html.light [style*="background:linear-gradient(180deg, #151515"],
-html.light [style*="background: linear-gradient(180deg, #1e1e1e"],
-html.light [style*="background:linear-gradient(180deg, #1e1e1e"],
-html.light [style*="background: rgba(255,255,255,0.02)"],
-html.light [style*="background:rgba(255,255,255,0.02)"],
-html.light [style*="background: rgba(255,255,255,0.01)"],
-html.light [style*="background:rgba(255,255,255,0.01)"] {
-  background: var(--bg-card) !important;
-  background-image: none !important;
-}
-
-html.light [style*="background: #07393b"],
-html.light [style*="background:#07393b"],
-html.light [style*="background: rgb(7, 57, 59)"],
-html.light [style*="background:rgb(7, 57, 59)"] {
-  background: var(--bg-elevated) !important;
-}
-
-html.light [style*="background: rgba(0,0,0,0.1)"],
-html.light [style*="background:rgba(0,0,0,0.1)"],
-html.light [style*="background: rgba(0,0,0,0.2)"],
-html.light [style*="background:rgba(0,0,0,0.2)"],
-html.light [style*="background: rgba(0,0,0,0.3)"],
-html.light [style*="background:rgba(0,0,0,0.3)"] {
-  background: var(--bg-secondary) !important;
-}
-
-
-
-html.light [style*="border: 1px solid #2"],
-html.light [style*="border:1px solid #2"],
-html.light [style*="border: 1px solid #3"],
-html.light [style*="border:1px solid #3"],
-html.light [style*="border: 1px solid var(--border)"],
-html.light [style*="border:1px solid var(--border)"] {
-  border-color: var(--border) !important;
-}
-
-/* Align all variations of green/teal buttons/texts to var(--teal) in light mode */
-html.light [style*="background: #00bcd4"],
-html.light [style*="background:#00bcd4"],
-html.light [style*="background: rgb(0, 188, 212)"],
-html.light [style*="background:rgb(0, 188, 212)"],
-html.light [style*="background: #12c8d0"],
-html.light [style*="background:#12c8d0"],
-html.light [style*="background: rgb(18, 200, 208)"],
-html.light [style*="background:rgb(18, 200, 208)"],
-html.light [style*="background: #0f6f73"],
-html.light [style*="background:#0f6f73"],
-html.light [style*="background: rgb(15, 111, 115)"] {
-  background: var(--teal) !important;
-}
-
-html.light [style*="color: #00bcd4"],
-html.light [style*="color:#00bcd4"],
-html.light [style*="color: rgb(0, 188, 212)"],
-html.light [style*="color:rgb(0, 188, 212)"],
-html.light [style*="color: #11c7cf"],
-html.light [style*="color:#11c7cf"],
-html.light [style*="color: rgb(17, 199, 207)"],
-html.light [style*="color:rgb(17, 199, 207)"] {
-  color: var(--teal) !important;
-}
-
-html.light [style*="border-color: #00bcd4"],
-html.light [style*="border-color:#00bcd4"],
-html.light [style*="border: 1px solid #00bcd4"],
-html.light [style*="border:1px solid #00bcd4"],
-html.light [style*="border: 1px solid rgb(0, 188, 212)"],
-html.light [style*="border:1px solid rgb(0, 188, 212)"] {
-  border-color: var(--teal) !important;
-}
-
-/* Global Dark Mode Overrides for Hardcoded/Inline Colors to guarantee visibility and accessibility */
-html:not(.light) [style*="color: #666"],
-html:not(.light) [style*="color:#666"],
-html:not(.light) [style*="color: rgb(102, 102, 102)"],
-html:not(.light) [style*="color:rgb(102, 102, 102)"] {
-  color: #94a3b8 !important;
-}
-
-html:not(.light) [style*="color: #888"],
-html:not(.light) [style*="color:#888"],
-html:not(.light) [style*="color: rgb(136, 136, 136)"],
-html:not(.light) [style*="color:rgb(136, 136, 136)"] {
-  color: #cbd5e1 !important;
-}
-
-html:not(.light) [style*="color: #999"],
-html:not(.light) [style*="color:#999"],
-html:not(.light) [style*="color: rgb(153, 153, 153)"],
-html:not(.light) [style*="color:rgb(153, 153, 153)"] {
-  color: #e2e8f0 !important;
-}
+  Every page and component now paints with the tokens, which are already
+  theme-aware, so there is nothing left to override. Do not reintroduce this
+  layer — if a colour looks wrong in one theme, fix the token at the use site.
+*/
 
 /* ═══════════════════════════════════════════
    LIGHT MODE — Component overrides
    ═══════════════════════════════════════════ */
-
-/* Forms input fields / textareas overrides */
-html.light .form-input,
-html.light .form-select,
-html.light .form-textarea {
-  background: var(--bg-primary) !important;
-  color: var(--text-primary) !important;
-  border-color: var(--border) !important;
-}
-html.light .form-select option {
-  background: var(--bg-secondary) !important;
-  color: var(--text-primary) !important;
-}
 
 /* Voice Assistant Component overrides */
 html.light .voice-card {
@@ -549,19 +410,6 @@ html.light .voice-group-label {
 html.light .voice-group-count {
   background: rgba(0, 0, 0, 0.05) !important;
   color: var(--text-secondary) !important;
-}
-
-html.light [style*="background: rgba(255,255,255,0.05)"],
-html.light [style*="background:rgba(255,255,255,0.05)"],
-html.light [style*="background: rgba(255, 255, 255, 0.05)"],
-html.light [style*="background:rgba(255, 255, 255, 0.05)"] {
-  background: rgba(0, 0, 0, 0.04) !important;
-}
-html.light [style*="background: rgba(255,255,255,0.03)"],
-html.light [style*="background:rgba(255,255,255,0.03)"],
-html.light [style*="background: rgba(255, 255, 255, 0.03)"],
-html.light [style*="background:rgba(255, 255, 255, 0.03)"] {
-  background: rgba(0, 0, 0, 0.02) !important;
 }
 
 
@@ -727,7 +575,14 @@ img {
   Optical sizing: larger text needs tighter tracking and leading to look right,
   so both scale down as size goes up.
 */
+/*
+  Space Grotesk leads every heading — the display role in the Spandan type
+  scale. Headings previously inherited --font-main (Inter), so the display face
+  only ever appeared where a component opted in via .font-display, and the
+  distinction between the leading and carrying voices was invisible.
+*/
 h1, h2, h3, h4, h5, h6 {
+  font-family: var(--ff-d);
   font-weight: 700;
   line-height: 1.2;
   color: var(--text-primary);
@@ -868,8 +723,8 @@ p {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  padding: 14px 48px;
-  border-bottom: 1px solid var(--border);
+  padding: 14px 24px;
+  border-bottom: 1px solid var(--line);
   background-color: var(--topbar-bg);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
@@ -881,10 +736,11 @@ p {
 .navbar-logo {
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-weight: 800;
-  font-size: 18px;
-  letter-spacing: -0.5px;
+  gap: 11px;
+  font-family: var(--ff-d);
+  font-weight: 700;
+  font-size: 19px;
+  letter-spacing: -0.02em;
   justify-self: start;
 }
 
@@ -910,8 +766,8 @@ p {
 }
 
 .nav-link {
-  color: var(--text-secondary);
-  font-size: 14px;
+  color: var(--tx-2);
+  font-size: 14.5px;
   font-weight: 500;
   transition: color 0.2s;
   display: flex;
@@ -921,7 +777,7 @@ p {
 }
 
 .nav-link:hover, .nav-link.active {
-  color: var(--text-primary);
+  color: var(--tx);
 }
 
 .nav-dropdown {
@@ -932,9 +788,9 @@ p {
   position: absolute;
   top: 100%;
   left: -20px;
-  background-color: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  background-color: var(--s1);
+  border: 1px solid var(--line-2);
+  border-radius: 14px;
   padding: 24px;
   min-width: 600px;
   box-shadow: 0 20px 40px rgba(0,0,0,0.5);
@@ -944,38 +800,54 @@ p {
 }
 
 .dropdown-col-title {
-  font-size: 12px;
+  font-family: var(--ff-m);
+  font-size: 10.5px;
   text-transform: uppercase;
   letter-spacing: 1px;
-  color: var(--text-muted);
-  font-weight: 700;
-  margin-bottom: 16px;
+  color: var(--tx-3);
+  font-weight: 500;
+  margin-bottom: 14px;
 }
 
 .dropdown-item {
   display: flex;
   align-items: flex-start;
   gap: 12px;
-  padding: 8px 0;
-  color: var(--text-primary);
+  padding: 8px 10px;
+  margin: 0 -10px;
+  border-radius: 9px;
+  color: var(--tx);
   font-size: 14px;
   font-weight: 500;
-  transition: opacity 0.2s;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
+/*
+  Hover was `opacity: 0.7` — it dimmed the row rather than lighting it, so the
+  item under the pointer was the least legible one in the menu. It now takes
+  the same tinted fill the sidebar's hover uses.
+*/
 .dropdown-item:hover {
-  opacity: 0.7;
+  background: var(--s2);
+  color: var(--cyan-fg);
 }
 
 .dropdown-item-sub {
   font-size: 12px;
-  color: var(--text-secondary);
+  color: var(--tx-3);
   margin-top: 2px;
   font-weight: 400;
 }
 
 .item-icon {
-  font-size: 16px;
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  background: rgba(14, 179, 158, 0.1);
+  color: var(--cyan-fg);
+  flex-shrink: 0;
 }
 
 .navbar-actions {
@@ -1540,63 +1412,12 @@ p {
   max-height: 300px;
 }
 
-/* ── Footer ── */
+/* ── Footer ──
+   The wordmark/column layout lives with the component in Footer.tsx. Only the
+   rule that pins a short page's footer to the bottom is global, because it
+   depends on the flex column DefaultLayout sets up around it. */
 footer {
-  background: var(--bg-primary);
-  border-top: 1px solid var(--border);
-  padding: 40px 0;
   margin-top: auto;
-}
-
-.footer-inner {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 20px;
-}
-
-.footer-copy {
-  font-size: 13px;
-}
-
-.footer-links {
-  display: flex;
-  flex-wrap: wrap;          /* a fixed 24px gap across five links overflows ≤360px */
-  gap: 12px 24px;
-}
-
-.footer-link {
-  font-size: 13px;
-  color: var(--text-secondary);
-}
-
-.footer-link:hover {
-  color: var(--text-primary);
-}
-
-.footer-socials {
-  display: flex;
-  gap: 16px;
-}
-
-.social-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 50%;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  color: var(--text-secondary);
-  transition: all 0.2s;
-}
-
-.social-icon:hover {
-  color: var(--text-primary);
-  border-color: var(--text-muted);
 }
 
 /* ── Page Hero (Shared) ── */
@@ -2034,23 +1855,24 @@ footer {
 }
 
 .form-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 40px;
+  background: var(--s1);
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  padding: 34px;
   max-width: 800px;
   margin: 0 auto;
 }
 
 .form-section-title {
-  font-size: 12px;
+  font-family: var(--ff-m);
+  font-size: 10.5px;
   text-transform: uppercase;
   letter-spacing: 1px;
-  font-weight: 700;
-  color: var(--text-muted);
-  margin: 32px 0 16px;
+  font-weight: 500;
+  color: var(--tx-3);
+  margin: 30px 0 16px;
   padding-bottom: 8px;
-  border-bottom: 1px solid var(--border);
+  border-bottom: 1px solid var(--line);
 }
 
 .form-section-title:first-child {
@@ -2069,26 +1891,30 @@ footer {
 
 .form-label {
   display: block;
-  font-size: 13px;
+  font-size: 12.5px;
   font-weight: 600;
-  margin-bottom: 8px;
-  color: var(--text-primary);
+  margin-bottom: 7px;
+  color: var(--tx-2);
 }
 
 .required {
-  color: var(--teal-fg);
+  color: var(--cyan-fg);
 }
 
 .form-input, .form-select, .form-textarea {
   width: 100%;
-  background: rgba(0,0,0,0.2);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  padding: 12px 16px;
-  color: white;
-  font-family: inherit;
-  font-size: 14px;
-  transition: border-color 0.2s;
+  background: var(--s2);
+  border: 1px solid var(--line-2);
+  border-radius: 10px;
+  padding: 11px 13px;
+  color: var(--tx);
+  font-family: var(--ff-b);
+  font-size: 13.5px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.form-input::placeholder, .form-textarea::placeholder {
+  color: var(--tx-3);
 }
 
 /*
@@ -2098,8 +1924,8 @@ footer {
 */
 .form-input:focus, .form-select:focus, .form-textarea:focus {
   outline: none;
-  border-color: var(--teal-fg);
-  box-shadow: 0 0 0 3px var(--teal-light);
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 3px rgba(14, 179, 158, 0.15);
 }
 
 .form-textarea {
@@ -2109,26 +1935,29 @@ footer {
 
 .form-select {
   appearance: none;
-  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%23666'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%236b829e'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
-  background-position: right 16px center;
-  background-size: 16px;
-  padding-right: 40px;
+  background-position: right 14px center;
+  background-size: 15px;
+  padding-right: 38px;
+  cursor: pointer;
 }
 
 .form-select option {
-  background: var(--bg-card);
-  color: white;
+  background: var(--s1);
+  color: var(--tx);
 }
 
 .form-note {
-  font-size: 12px;
-  color: var(--text-muted);
-  margin-top: 24px;
+  font-family: var(--ff-m);
+  font-size: 11px;
+  color: var(--tx-3);
+  line-height: 1.6;
+  margin-top: 20px;
 }
 
 .form-note a {
-  color: var(--teal-fg);
+  color: var(--cyan-fg);
 }
 
 /* ── Dashboard Specific ── */
@@ -2140,114 +1969,69 @@ footer {
   background: var(--bg-primary);
 }
 
-/* Layout variables for responsive sidebar/main interactions */
+/*
+  Layout variables.
+
+  The rail used to be 68px collapsed, expanding to 260px on hover. The Spandan
+  designs specify a fixed 236px rail (`grid-template-columns:236px 1fr`), so the
+  hover-expand is gone: every label is readable at rest, nothing reflows under
+  the pointer, and the topbar and main content no longer animate their offsets
+  on an accidental mouse pass. The old variable names are kept as aliases
+  because the mobile rules and a few pages still refer to them.
+*/
 :root {
-  --sidebar-collapsed-width: 68px;
-  --sidebar-expanded-width: 260px;
+  --rail-width: 236px;
+  --topbar-height: 56px;
+  --sidebar-collapsed-width: var(--rail-width);
+  --sidebar-expanded-width: var(--rail-width);
 }
 
 /* ─────────────────────────────────────────
-   SIDEBAR
+   SIDEBAR — the Spandan rail
    ───────────────────────────────────────── */
 .sidebar {
   background: var(--sidebar-bg);
-  border-right: 1px solid var(--sidebar-border);
+  border-right: 1px solid var(--line);
   display: flex;
   flex-direction: column;
   position: fixed;
-  width: var(--sidebar-collapsed-width);
+  width: var(--rail-width);
   bottom: 0;
   top: 0;
   z-index: 100;
   overflow-x: hidden;
   overflow-y: hidden;
-  transition: width 0.28s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
-.sidebar:hover {
-  width: var(--sidebar-expanded-width);
-  box-shadow: 8px 0 32px rgba(0,0,0,0.45);
-}
-
-html.light .sidebar:hover {
-  box-shadow: 4px 0 24px rgba(15,23,42,0.18);
-}
-
-/* Topbar fixed positioning should follow sidebar width dynamically */
 .topbar-fixed {
   position: fixed;
   top: 0;
-  left: var(--sidebar-collapsed-width);
+  left: var(--rail-width);
   right: 0;
   z-index: 100;
-  height: 56px;
+  height: var(--topbar-height);
   overflow: visible;
   box-shadow: var(--shadow-topbar);
-  transition: left 0.28s ease;
 }
 
-/* When sidebar expands, shift topbar and main content */
-.sidebar:hover ~ .topbar-fixed {
-  left: var(--sidebar-expanded-width);
-}
-
-/* Main content adjusts to sidebar width to avoid overlap/jumps */
 .dashboard-main {
-  margin-top: 56px;
-  margin-left: var(--sidebar-collapsed-width);
-  transition: margin-left 0.28s ease, width 0.28s ease;
+  margin-top: var(--topbar-height);
+  margin-left: var(--rail-width);
   display: flex;
   flex: 1;
-  width: calc(100% - var(--sidebar-collapsed-width));
+  width: calc(100% - var(--rail-width));
   min-width: 0;
   flex-direction: column;
 }
 
-.sidebar:hover ~ .dashboard-main {
-  margin-left: var(--sidebar-expanded-width);
-  width: calc(100% - var(--sidebar-expanded-width));
-}
-
+/* Header aligns to the topbar so the two rules read as one hairline across the app. */
 .sidebar-header {
   display: flex;
   align-items: center;
-  height: 52px;
-  padding: 0 14px;
-  border-bottom: 1px solid var(--sidebar-border);
+  height: var(--topbar-height);
+  padding: 0 16px;
+  border-bottom: 1px solid var(--line);
   flex-shrink: 0;
-  min-width: 260px;
-}
-
-.sidebar-logo-icon {
-  width: 36px;
-  height: 36px;
-  background: linear-gradient(135deg, var(--teal), var(--teal-hover));
-  color: #060c17;
-  border-radius: 10px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 900;
-  font-size: 16px;
-  flex-shrink: 0;
-  box-shadow: 0 2px 12px var(--teal-glow);
-}
-
-.sidebar-logo-text {
-  margin-left: 12px;
-  font-size: 15px;
-  font-weight: 800;
-  color: #ffffff;
-  letter-spacing: 0.5px;
-  opacity: 0;
-  transition: opacity 0.2s ease;
-  white-space: nowrap;
-  text-transform: uppercase;
-}
-
-.sidebar:hover .sidebar-logo-text {
-  opacity: 1;
-  transition-delay: 0.1s;
 }
 
 .sidebar-content-scroll {
@@ -2264,100 +2048,92 @@ html.light .sidebar:hover {
 }
 
 .sidebar-section {
-  margin-bottom: 4px;
+  margin-bottom: 10px;
   position: relative;
-  min-width: 260px;
 }
 
+/*
+  Section headings are mono and tracked — design principle 02, "instrument,
+  don't decorate". The mono micro-label is the system's recurring device for
+  anything that names rather than speaks.
+*/
 .sidebar-category {
+  font-family: var(--ff-m);
   font-size: 10px;
-  font-weight: 700;
-  color: rgba(255,255,255,0.45);   /* was 0.25 — 1.6:1, effectively unreadable */
+  font-weight: 500;
+  color: var(--tx-3);
   text-transform: uppercase;
-  letter-spacing: 1px;
-  padding: 8px 16px 4px 68px;
+  letter-spacing: 1.5px;
+  padding: 14px 18px 6px;
   white-space: nowrap;
-  opacity: 0;
-  transition: opacity 0.2s ease, padding-left 0.2s ease;
-}
-
-.sidebar:hover .sidebar-category {
-  opacity: 1;
-  padding-left: 20px;
-  transition-delay: 0.1s;
 }
 
 .sidebar-item {
   display: flex;
   align-items: center;
-  padding: 0 10px;
-  height: 36px;
-  margin: 4px 8px;
+  gap: 10px;
+  padding: 0 12px;
+  height: 34px;
+  margin: 1px 10px;
   border-radius: 9px;
-  /* 0.45 measured 3.1:1 on --sidebar-bg, below AA for 13px text. */
-  color: rgba(255,255,255,0.62);
-  font-size: 13px;
+  color: var(--tx-2);
+  font-size: 13.5px;
   font-weight: 500;
   transition: background 0.15s ease, color 0.15s ease;
   cursor: pointer;
-  min-width: 240px;
 }
 
 .sidebar-item:hover {
-  background: rgba(14,179,158,0.10);
-  color: rgba(255,255,255,0.95);
+  background: var(--s2);
+  color: var(--tx);
 }
 
+/*
+  Active state is a tinted fill plus a cyan inset bar. It is drawn with an inset
+  box-shadow rather than border-left so the item keeps its width and radius —
+  the old rule swapped in a left border and cancelled its own margin, which made
+  the active row jump 10px left of every other row.
+*/
 .sidebar-item.active {
   background: var(--sidebar-item-active-bg);
-  color: var(--teal-fg);
-  border-left: 2px solid var(--sidebar-item-active-border);
-  border-radius: 0 9px 9px 0;
-  margin-left: 0;
-  padding-left: 10px;
+  color: var(--cyan);
+  font-weight: 600;
+  box-shadow: inset 2px 0 0 var(--cyan);
 }
 
 .sidebar-icon {
-  width: 34px;
-  height: 34px;
+  width: 18px;
+  height: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 15px;
   flex-shrink: 0;
-  border-radius: 8px;
 }
 
 .sidebar-text {
-  margin-left: 6px;
   white-space: nowrap;
-  opacity: 0;
-  transition: opacity 0.2s;
 }
 
-.sidebar:hover .sidebar-text {
-  opacity: 1;
-  transition-delay: 0.1s;
-}
-
+/*
+  The "New" badge was revealed by hovering the rail. With the rail always open
+  there is no hover to wait for, so it is simply visible — left at opacity 0 it
+  had become permanently invisible.
+*/
 .badge-new {
+  font-family: var(--ff-m);
   font-size: 9px;
-  font-weight: 800;
-  background: rgba(249,115,22,0.2);
-  color: #fb923c;
+  font-weight: 500;
+  background: rgba(249,115,22,0.16);
+  color: var(--coral);
   padding: 1px 6px;
   border-radius: 16px;
-  margin-left: 6px;
-  opacity: 0;
+  margin-left: auto;
   letter-spacing: 0.3px;
-  transition: opacity 0.2s;
 }
-.sidebar:hover .badge-new { opacity: 1; transition-delay: 0.1s; }
 
 .sidebar-bottom {
   padding-bottom: 16px;
-  min-width: 260px;
-  border-top: 1px solid var(--sidebar-border);
+  border-top: 1px solid var(--line);
   padding-top: 8px;
 }
 
@@ -2366,8 +2142,15 @@ html.light .sidebar:hover {
 /* ─────────────────────────────────────────
    MAIN CONTENT
    ───────────────────────────────────────── */
+/*
+  The offset lives on the single .dashboard-main rule above, next to the rail
+  width it has to match. This block used to redeclare `margin-left: 68px` and,
+  being later in the file, won the cascade — harmless while the rail was also
+  68px, but it pinned the content under the rail the moment the rail widened.
+  Two rules owning one measurement is what made that possible; don't reintroduce
+  a second margin-left here.
+*/
 .dashboard-main {
-  margin-left: 68px;
   padding: 0;
   display: flex;
   flex-direction: column;
@@ -2385,6 +2168,8 @@ html.light .sidebar:hover {
   box-sizing: border-box;
   overflow: visible;
   background: var(--topbar-bg);
+  /* Continues the rail's right edge as one unbroken hairline across the app. */
+  border-bottom: 1px solid var(--line);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
 }
@@ -2396,44 +2181,37 @@ html.light .sidebar:hover {
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(255,255,255,0.05);
-  border: 1px solid var(--border);
-  border-radius: 10px;
+  background: var(--s2);
+  border: 1px solid var(--line-2);
+  border-radius: 9px;
   padding: 5px 12px;
   width: 280px;
-  height: 36px;
-  color: var(--text-secondary);
+  height: 34px;
+  color: var(--tx-2);
   box-sizing: border-box;
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .topbar-search:focus-within {
-  border-color: var(--teal-dim);
-  box-shadow: 0 0 0 3px var(--teal-light);
+  border-color: var(--cyan);
+  box-shadow: 0 0 0 3px rgba(14, 179, 158, 0.14);
 }
 
-html.light .topbar-search {
-  background: rgba(0,0,0,0.04);
-}
-
+/* The ⌘K hint is an instrument, so it takes the mono face like every other key label. */
 .topbar-search span {
-  font-size: 11px;
-  background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(255,255,255,0.12);
+  font-family: var(--ff-m);
+  font-size: 10.5px;
+  background: var(--s3);
+  border: 1px solid var(--line-2);
   border-radius: 6px;
-  padding: 3px 8px;
-  color: var(--text-muted);
+  padding: 3px 7px;
+  color: var(--tx-3);
   display: flex;
   align-items: center;
   gap: 4px;
   margin-left: auto;
-  font-weight: 600;
+  font-weight: 500;
   white-space: nowrap;
-}
-
-html.light .topbar-search span {
-  background: rgba(0,0,0,0.06);
-  border-color: rgba(0,0,0,0.10);
 }
 
 .topbar-search input {
@@ -2744,57 +2522,6 @@ html.light .topbar-icon-btn:hover {
   font-size: 12px;
   color: var(--text-secondary);
   margin: 0;
-}
-
-.assistant-menu {
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  font-size: 20px;
-  line-height: 1;
-  padding: 0;
-  cursor: pointer;
-}
-
-.assistant-menu-dropdown {
-  position: absolute;
-  top: 30px;
-  right: 0;
-  background: var(--dropdown-bg);
-  border: 1px solid var(--dropdown-border);
-  border-radius: 8px;
-  box-shadow: var(--shadow-card);
-  display: flex;
-  flex-direction: column;
-  min-width: 160px;
-  z-index: 10;
-  overflow: hidden;
-}
-
-.assistant-menu-dropdown button {
-  background: transparent;
-  border: none;
-  color: var(--dropdown-text);
-  padding: 12px 16px;
-  text-align: left;
-  font-size: 14px;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  transition: background 0.2s;
-}
-
-.assistant-menu-dropdown button:hover {
-  background: var(--dropdown-hover);
-}
-
-.assistant-menu-dropdown button.delete-btn {
-  color: var(--error);
-}
-
-.assistant-menu-dropdown button.delete-btn:hover {
-  background: rgba(239, 68, 68, 0.1);
 }
 
 
@@ -3216,8 +2943,9 @@ html.light .topbar-icon-btn:hover {
 .breadcrumb {
   display: flex;
   gap: 8px;
-  font-size: 13px;
-  color: var(--text-muted);
+  font-family: var(--ff-m);
+  font-size: 11.5px;
+  color: var(--tx-3);
   margin-top: 24px;
 }
 
@@ -3246,73 +2974,6 @@ html.light .topbar-icon-btn:hover {
   margin-top: 32px;
 }
 
-.video-container {
-  width: 100%;
-  aspect-ratio: 16 / 9;
-  background: #000;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  margin-bottom: 80px;
-  position: relative;
-  overflow: hidden;
-  box-shadow: 0 20px 40px rgba(0,0,0,0.5);
-}
-
-.video-overlay {
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(circle, rgba(0,0,0,0) 0%, rgba(0,0,0,0.8) 100%);
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-}
-
-.video-title {
-  font-size: 32px;
-  font-weight: 900;
-  letter-spacing: 2px;
-  margin-bottom: 24px;
-  opacity: 0.8;
-}
-
-.video-play-btn {
-  width: 80px;
-  height: 80px;
-  border-radius: 50%;
-  background: rgba(255,255,255,0.1);
-  border: 1px solid rgba(255,255,255,0.2);
-  color: white;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 32px;
-  padding-left: 6px;
-  backdrop-filter: blur(4px);
-  cursor: pointer;
-  transition: all 0.3s;
-}
-
-.video-play-btn:hover {
-  background: var(--teal);
-  border-color: var(--teal-fg);
-  transform: scale(1.1);
-}
-
-.video-badge {
-  position: absolute;
-  top: 24px;
-  left: 24px;
-  background: rgba(0,0,0,0.5);
-  padding: 6px 12px;
-  border-radius: 4px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 1px;
-  color: var(--text-secondary);
-  border: 1px solid var(--border);
-}
-
 .doc-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -3320,28 +2981,37 @@ html.light .topbar-icon-btn:hover {
 }
 
 .doc-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 24px;
+  background: var(--s1);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 22px;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
   display: flex;
   flex-direction: column;
 }
 
 .doc-card:hover {
-  border-color: var(--text-muted);
+  border-color: rgba(14, 179, 158, 0.42);
   transform: translateY(-2px);
+  box-shadow: var(--shadow-card);
 }
 
 .doc-card-icon {
-  font-size: 24px;
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  background: rgba(14, 179, 158, 0.1);
+  color: var(--cyan-fg);
+  font-size: 18px;
   margin-bottom: 16px;
 }
 
 .doc-card h3 {
-  font-size: 16px;
+  font-family: var(--ff-d);
+  font-size: 15px;
   margin-bottom: 8px;
 }
 
@@ -3353,16 +3023,16 @@ html.light .topbar-icon-btn:hover {
 }
 
 .learn-more {
-  font-size: 13px;
-  color: var(--teal-fg);
-  font-weight: 600;
+  font-family: var(--ff-m);
+  font-size: 11.5px;
+  color: var(--cyan-fg);
 }
 
 .cta-box {
-  background: radial-gradient(circle at top right, rgba(0,212,200,0.1), transparent 50%), var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  padding: 60px 40px;
+  background: radial-gradient(circle at top right, rgba(14,179,158,0.12), transparent 45%), var(--s1);
+  border: 1px solid var(--line-2);
+  border-radius: 18px;
+  padding: 56px 40px;
   text-align: center;
 }
 
@@ -3501,30 +3171,6 @@ html.light .topbar-icon-btn:hover {
     font-size: 14px;
   }
 
-  .video-container {
-    margin-bottom: 48px;
-  }
-
-  .video-title {
-    font-size: 20px;
-    letter-spacing: 1px;
-    text-align: center;
-    padding: 0 12px;
-  }
-
-  .video-play-btn {
-    width: 60px;
-    height: 60px;
-    font-size: 24px;
-  }
-
-  .video-badge {
-    top: 12px;
-    left: 12px;
-    font-size: 10px;
-    padding: 4px 8px;
-  }
-
   /* ── Pricing page – mobile responsive ── */
   .page-hero {
     padding: 40px 0 32px;
@@ -3634,10 +3280,6 @@ html.light .topbar-icon-btn:hover {
   }
 
   .cta-box h2 {
-    font-size: 26px;
-  }
-
-  .video-title {
     font-size: 26px;
   }
 }
@@ -3860,6 +3502,22 @@ input:-webkit-autofill:active {
    Notification Drawer UI
    ========================= */
 
+/* ─────────────────────────────────────────
+   NOTIFICATION PANEL — the drawer from
+   Spandan Notifications.dc.html
+   ─────────────────────────────────────────
+
+   This block used to be three copies of the same design: a `html.light` set, a
+   `html:not(.light)` set, and a shared set — roughly 160 lines in which every
+   colour was written twice as a literal (#ffffff / #0a0a0a, #111827 /
+   #ffffff, #e5e7eb / rgba(255,255,255,.08)). None of those literals matched the
+   palette either, so the drawer was a near-black panel sliding over a navy app.
+
+   It is now one set of rules against the tokens, which are already
+   theme-aware — so light mode is free and the drawer is the same surface as
+   every other panel in the product.
+*/
+
 .notification-backdrop {
   position: fixed;
   inset: 0;
@@ -3871,210 +3529,71 @@ input:-webkit-autofill:active {
   position: fixed;
   top: 0;
   right: 0;
-  width: 540px;
+  width: 460px;
   max-width: 100vw;
   height: 100vh;
   z-index: 9999;
   display: flex;
   flex-direction: column;
-  box-shadow: -10px 0 40px rgba(0, 0, 0, 0.25);
+  background: var(--bg-2);
+  border-left: 1px solid var(--line);
+  box-shadow: -10px 0 40px rgba(0, 0, 0, 0.35);
 }
-
-/* =========================
-   LIGHT MODE
-   ========================= */
-
-html.light .notification-panel {
-  background: #ffffff;
-  border-left: 1px solid #e5e7eb;
-}
-
-html.light .notification-panel-header {
-  border-bottom: 1px solid #e5e7eb;
-}
-
-html.light .notification-panel-title {
-  color: #111827;
-}
-
-html.light .notification-empty {
-  color: #64748b;
-}
-
-html.light .notification-skeleton-line {
-  background: #e5e7eb;
-}
-
-html.light .notification-error {
-  color: #111827;
-}
-
-html.light .notification-group-label {
-  color: #6b7280;
-}
-
-html.light .notification-subgroup-label {
-  color: #9ca3af;
-}
-
-html.light .notification-item {
-  background: #ffffff;
-  border: 1px solid #e5e7eb;
-}
-
-html.light .notification-item:hover {
-  background: #f9fafb;
-}
-
-html.light .notification-item-title {
-  color: #111827;
-}
-
-html.light .notification-item-message,
-html.light .notification-item-list {
-  color: #4b5563;
-}
-
-html.light .notification-item-date {
-  color: #6b7280;
-}
-
-html.light .notification-action-btn {
-  background: #f3f4f6;
-  color: #374151;
-}
-
-html.light .notification-action-btn:hover {
-  background: #e5e7eb;
-}
-
-html.light .notification-panel-footer {
-  background: #ffffff;
-  border-top: 1px solid #e5e7eb;
-}
-
-/* =========================
-   DARK MODE
-   ========================= */
-
-html:not(.light) .notification-panel {
-  background: #0a0a0a;
-  border-left: 1px solid rgba(255,255,255,0.08);
-}
-
-html:not(.light) .notification-panel-header {
-  border-bottom: 1px solid rgba(255,255,255,0.08);
-}
-
-html:not(.light) .notification-panel-title {
-  color: #ffffff;
-}
-
-html:not(.light) .notification-empty {
-  color: rgba(255,255,255,0.55);
-}
-
-html:not(.light) .notification-skeleton-line {
-  background: rgba(255,255,255,0.08);
-}
-
-html:not(.light) .notification-error {
-  color: #ffffff;
-}
-
-html:not(.light) .notification-group-label {
-  color: rgba(255,255,255,0.55);
-}
-
-html:not(.light) .notification-subgroup-label {
-  color: rgba(255,255,255,0.45);
-}
-
-html:not(.light) .notification-item {
-  background: #111111;
-  border: 1px solid rgba(255,255,255,0.06);
-}
-
-html:not(.light) .notification-item:hover {
-  background: #171717;
-}
-
-html:not(.light) .notification-item-title {
-  color: #ffffff;
-}
-
-html:not(.light) .notification-item-message,
-html:not(.light) .notification-item-list {
-  color: rgba(255,255,255,0.65);
-}
-
-html:not(.light) .notification-item-date {
-  color: rgba(255,255,255,0.45);
-}
-
-html:not(.light) .notification-action-btn {
-  background: rgba(255,255,255,0.06);
-  color: rgba(255,255,255,0.75);
-}
-
-html:not(.light) .notification-action-btn:hover {
-  background: rgba(255,255,255,0.12);
-}
-
-html:not(.light) .notification-panel-footer {
-  background: #0a0a0a;
-  border-top: 1px solid rgba(255,255,255,0.08);
-}
-
-/* =========================
-   COMMON STYLES
-   ========================= */
 
 .notification-panel-header {
-  padding: 22px 24px;
+  padding: 18px 22px;
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 12px;
   flex-shrink: 0;
+  border-bottom: 1px solid var(--line);
 }
 
 .notification-panel-header-main {
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 
 .notification-panel-title {
   margin: 0;
-  font-size: 26px;
+  font-family: var(--ff-d);
+  font-size: 19px;
   font-weight: 700;
-  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--tx);
+  line-height: 1.2;
 }
 
 .notification-mark-all {
   background: transparent;
   border: none;
-  color: var(--teal-fg);
+  color: var(--cyan-fg);
   cursor: pointer;
-  font-size: 13px;
+  font-size: 12.5px;
   padding: 0;
-  margin-top: 6px;
+  margin-top: 4px;
+  text-align: left;
 }
 
 .notification-panel-close {
-  width: 40px;
-  height: 40px;
-  border-radius: 12px;
-  border: 2px solid var(--teal);
-  background: transparent;
-  color: var(--teal-fg);
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  border: 1px solid var(--line);
+  background: var(--s1);
+  color: var(--tx-2);
+  display: grid;
+  place-items: center;
   cursor: pointer;
+  flex-shrink: 0;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 
 .notification-panel-close:hover {
-  background: rgba(103,216,201,0.08);
+  background: var(--s2);
+  color: var(--tx);
 }
 
 .notification-panel-body {
@@ -4085,79 +3604,127 @@ html:not(.light) .notification-panel-footer {
 .notification-empty-wrapper {
   display: flex;
   justify-content: center;
-  margin-top: 52px;
+  padding: 56px 24px;
 }
 
 .notification-empty {
-  font-size: 15px;
+  font-size: 14px;
   text-align: center;
+  color: var(--tx-3);
   margin: 0;
 }
 
-.notification-loading {
-  padding: 20px;
-}
-
+.notification-loading,
 .notification-list {
-  padding: 20px;
+  padding: 18px;
 }
 
 .notification-group {
   margin-bottom: 20px;
 }
 
+/* The mono micro-label, same device as every other group heading. */
 .notification-group-label {
-  font-size: 12px;
-  font-weight: 700;
+  font-family: var(--ff-m);
+  font-size: 10.5px;
+  font-weight: 500;
+  letter-spacing: 1px;
   text-transform: uppercase;
-  margin-bottom: 12px;
+  color: var(--tx-3);
+  margin: 0 0 10px;
 }
 
 .notification-subgroup-label {
-  margin-bottom: 10px;
+  font-family: var(--ff-m);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--tx-3);
+  opacity: 0.8;
+  margin: 12px 0 8px;
 }
 
 .notification-item {
   position: relative;
   border-radius: 12px;
-  padding: 16px;
-  margin-bottom: 12px;
-  transition: all 0.2s ease;
+  padding: 14px 16px;
+  padding-right: 76px;   /* room for the absolutely-placed action pair */
+  margin-bottom: 8px;
+  background: var(--s1);
+  border: 1px solid var(--line);
+  transition: background 0.15s ease, border-color 0.15s ease;
 }
 
+.notification-item:hover {
+  background: var(--s2);
+  border-color: var(--line-2);
+}
+
+/*
+  Unread reads as a cyan inset bar rather than a border-left, so the row keeps
+  its width and radius — a 4px border shifted the whole card's content when it
+  was applied, which made the unread group visibly misalign with the read one.
+*/
 .notification-item.is-unread {
-  border-left: 4px solid var(--teal);
+  box-shadow: inset 3px 0 0 var(--cyan);
+}
+
+.notification-item.is-read {
+  opacity: 0.92;
 }
 
 .notification-item-header {
   display: flex;
   justify-content: space-between;
-  margin-bottom: 8px;
+  gap: 10px;
+  margin-bottom: 6px;
 }
 
 .notification-item-type {
-  color: var(--teal-fg);
-  font-size: 11px;
-  font-weight: 700;
+  font-family: var(--ff-m);
+  color: var(--cyan-fg);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 1px;
   text-transform: uppercase;
 }
 
 .notification-item-date {
-  font-size: 12px;
+  font-family: var(--ff-m);
+  font-size: 10.5px;
+  color: var(--tx-3);
+  white-space: nowrap;
 }
 
 .notification-item-title {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 600;
-  margin: 0 0 6px;
+  color: var(--tx);
+  margin: 0 0 4px;
 }
 
 .notification-item-message {
-  line-height: 1.5;
+  font-size: 12.5px;
+  color: var(--tx-2);
+  line-height: 1.55;
+  margin: 0;
+}
+
+.notification-item-list {
+  margin: 8px 0 0;
+  padding-left: 16px;
+  font-size: 12.5px;
+  color: var(--tx-2);
+  line-height: 1.6;
 }
 
 .notification-item-action {
-  color: var(--teal-fg);
+  display: inline-block;
+  margin-top: 10px;
+  font-family: var(--ff-m);
+  font-size: 11.5px;
+  color: var(--cyan-fg);
 }
 
 .notification-item-actions {
@@ -4171,290 +3738,68 @@ html:not(.light) .notification-panel-footer {
 .notification-action-btn {
   width: 28px;
   height: 28px;
-  border: none;
+  border: 1px solid var(--line-2);
   border-radius: 8px;
+  background: var(--s2);
+  color: var(--tx-2);
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  display: grid;
+  place-items: center;
+  transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.notification-action-btn:hover {
+  background: var(--s3);
+  color: var(--tx);
 }
 
 .notification-action-btn-danger:hover {
-  background: rgba(239,68,68,0.20);
+  background: rgba(248, 113, 113, 0.14);
+  border-color: rgba(248, 113, 113, 0.3);
+  color: var(--err);
 }
 
+.notification-skeleton {
+  padding: 14px 16px;
+  border-radius: 12px;
+  background: var(--s1);
+  border: 1px solid var(--line);
+  margin-bottom: 8px;
+}
+
+.notification-skeleton-line {
+  height: 9px;
+  border-radius: 5px;
+  background: var(--s3);
+  margin-bottom: 8px;
+}
+
+.notification-skeleton-line:last-child { margin-bottom: 0; }
+
 .notification-panel-footer {
-  padding: 22px;
+  padding: 14px 22px;
   text-align: center;
   flex-shrink: 0;
+  border-top: 1px solid var(--line);
+  background: var(--bg-2);
 }
 
 .notification-archived-link {
   border: none;
   background: transparent;
-  color: var(--teal-fg);
-  font-size: 16px;
+  color: var(--cyan-fg);
+  font-family: var(--ff-d);
+  font-weight: 600;
+  font-size: 13px;
   cursor: pointer;
 }
 
 .notification-archived-link:hover {
   color: var(--teal-hover);
 }
-/* =========================
-   NOTIFICATION ARCHIVE
-========================= */
 
-.archive-page {
-  min-height: 100vh;
-  background: var(--bg-primary);   /* was #000, ignoring the palette entirely */
-  color: var(--text-primary);
-}
-
-/* =========================
-   TOP BANNER
-========================= */
-
-.archive-banner {
-  height: 48px;
-  background: var(--teal);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 14px;
-  color: #fff;
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.archive-banner-btn {
-  border: none;
-  background: var(--orange);
-  color: white;
-  padding: 7px 16px;
-  border-radius: 999px;
-  cursor: pointer;
-  font-size: 12px;
-  font-weight: 600;
-}
-
-/* =========================
-   MAIN CONTENT
-========================= */
-
-.archive-content {
-  padding: clamp(24px, 4vw, 45px) clamp(16px, 4vw, 55px);
-}
-
-/* =========================
-   HEADER
-========================= */
-
-.archive-top-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
-  margin-bottom: 34px;
-}
-
-.archive-title {
-  font-size: 32px;
-  font-weight: 800;
-  margin: 0;
-  color: var(--text-primary);
-}
-
-.archive-subtitle {
-  margin-top: 6px;
-  font-size: 14px;
-  color: var(--text-secondary);
-}
-
-/* =========================
-   FILTERS
-========================= */
-
-.archive-filters {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  padding: 4px;
-  border-radius: 10px;
-}
-
-.archive-filters button {
-  border: none;
-  background: transparent;
-  color: var(--text-secondary);
-  padding: 8px 14px;
-  border-radius: 8px;
-  font-size: 12px;
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.archive-filters button:hover {
-  color: var(--text-primary);
-}
-
-.archive-filters button.active {
-  background: var(--bg-primary);
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
-/* =========================
-   CARDS GRID
-========================= */
-
-.archive-grid {
-  display: grid;
-  /*
-    Was `repeat(3, 390px)` — three fixed tracks plus gaps need 1280px of content
-    box, so the page scrolled horizontally on anything narrower than a large
-    desktop, including every tablet and phone.
-  */
-  grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 390px));
-  gap: 24px;
-  justify-content: start;
-}
-
-/* =========================
-   CARD
-========================= */
-
-.archive-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  padding: 22px;
-  min-height: 300px;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
-}
-
-.archive-card:hover {
-  border-color: var(--teal-dim);
-  box-shadow: var(--shadow-card);
-}
-
-.archive-card-header,
-.archive-card-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 16px;
-}
-
-.archive-top-row {
-  flex-wrap: wrap;
-  gap: 16px;
-}
-
-/* =========================
-   BADGE
-========================= */
-
-.archive-badge {
-  background: var(--teal);
-  color: #060c17;
-  font-size: 10px;
-  font-weight: 700;
-  padding: 5px 11px;
-  border-radius: 6px;
-}
-
-.archive-date {
-  font-size: 11px;
-  color: var(--text-muted);
-}
-
-/* =========================
-   TEXT
-========================= */
-
-.archive-card h3 {
-  color: var(--text-primary);
-  font-size: 16px;
-  font-weight: 700;
-  margin-bottom: 10px;
-}
-
-.archive-card p {
-  color: var(--text-secondary);
-  font-size: 13px;
-  line-height: 1.7;
-  margin-bottom: 14px;
-}
-
-/* =========================
-   RED BUTTON
-========================= */
-
-.archive-tag,
-.archive-action {
-  border: none;
-  background: #dc2626;
-  color: white;
-  padding: 7px 13px;
-  border-radius: 6px;
-  font-size: 11px;
-  font-weight: 600;
-  margin-bottom: 18px;
-}
-
-/* =========================
-   SECTION TITLE
-========================= */
-
-.archive-card h4 {
-  color: var(--text-primary);
-  font-size: 14px;
-  font-weight: 700;
-  margin-bottom: 12px;
-}
-
-/* =========================
-   LIST
-========================= */
-
-.archive-card ul {
-  list-style: none;
-  padding: 0;
-  margin: 0;
-}
-
-.archive-card li {
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.6;
-  margin-bottom: 10px;
-}
-
-/* =========================
-   LIGHT MODE
-========================= */
-
-/*
-  The archive page now reads the --bg and --text tokens directly, so the
-  per-element light overrides that restated every colour here are gone. Only the
-  segmented filter control still needs theme-specific treatment, because its
-  active state inverts (dark pill on light track, light pill on dark track).
-*/
-.light .archive-filters {
-  background: #e8edf2;
-  border: none;
-}
-
-.light .archive-filters button {
-  color: #475569;
-}
-
-.light .archive-filters button.active {
-  background: white;
-  color: #111827;
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+@media (max-width: 520px) {
+  .notification-panel { width: 100vw; }
 }
 
 /* ===========================
@@ -4617,15 +3962,12 @@ html:not(.light) .notification-panel-footer {
 .sidebar-item:focus-visible,
 .topbar-icon-btn:focus-visible,
 .topbar-avatar:focus-visible,
-.assistant-menu:focus-visible,
 .faq-question:focus-visible,
 .solution-faq-question:focus-visible,
 .pricing-tab:focus-visible,
 .doc-card:focus-visible,
-.social-icon:focus-visible,
 .close-btn:focus-visible,
 .notification-action-btn:focus-visible,
-.archive-filters button:focus-visible,
 .how-it-works-step:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
@@ -4700,8 +4042,116 @@ html:not(.light) .notification-panel-footer {
   .feature-card:hover,
   .doc-card:hover,
   .solution-feature-card:hover,
-  .topbar-avatar:hover,
-  .video-play-btn:hover {
+  .topbar-avatar:hover {
     transform: none;
   }
+}
+
+/* ═══════════════════════════════════════════
+   SPANDAN "RESONANCE" COMPONENT PRIMITIVES
+
+   The small, repeating pieces every design page shares. They live here rather
+   than in each page's own <style> block because the whole point of the system
+   is that a status pill on Calls is the same object as a status pill on Admin.
+   ═══════════════════════════════════════════ */
+
+/* ── Mono micro-label ──
+   The tracked, uppercase instrument label that opens a section or names a
+   reading. Design principle 02: instrument, don't decorate. */
+.sp-label {
+  font-family: var(--ff-m);
+  font-size: 11px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--tx-3);
+}
+.sp-label-accent { color: var(--cyan-fg); }
+
+/* ── Status pills ──
+   A tinted wash, the colour at full strength for the text, and a 27%-alpha
+   border. Modifier picks the meaning; never use a pill colour decoratively. */
+.sp-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-family: var(--ff-m);
+  font-size: 11.5px;
+  padding: 4px 11px;
+  border-radius: 100px;
+  white-space: nowrap;
+  border: 1px solid transparent;
+}
+.sp-pill-ok      { background: rgba(52,211,153,.11); color: var(--lime);    border-color: rgba(52,211,153,.27); }
+.sp-pill-live    { background: rgba(14,179,158,.11); color: var(--cyan-fg); border-color: rgba(14,179,158,.27); }
+.sp-pill-warn    { background: rgba(245,158,11,.11); color: var(--warn);    border-color: rgba(245,158,11,.27); }
+.sp-pill-err     { background: rgba(248,113,113,.11); color: var(--err);    border-color: rgba(248,113,113,.27); }
+.sp-pill-info    { background: rgba(129,140,248,.11); color: var(--violet); border-color: rgba(129,140,248,.27); }
+.sp-pill-idle    { background: rgba(107,130,158,.11); color: var(--tx-3);   border-color: rgba(107,130,158,.27); }
+
+/* A pill can carry a live dot; it pulses only for genuinely live states. */
+.sp-pill-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: currentColor;
+  box-shadow: 0 0 8px currentColor;
+  flex-shrink: 0;
+}
+.sp-pill-live .sp-pill-dot { animation: sp-blink 2s infinite; }
+@keyframes sp-blink { 0%, 100% { opacity: 1 } 50% { opacity: .3 } }
+
+/* ── Stat card ──
+   A mono label over a large display numeral. The numeral is mono-figure so
+   columns of changing numbers do not jitter. */
+.sp-stat {
+  background: var(--s1);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px;
+}
+.sp-stat-label {
+  font-family: var(--ff-m);
+  font-size: 11px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--tx-3);
+}
+.sp-stat-value {
+  font-family: var(--ff-d);
+  font-weight: 700;
+  font-size: 28px;
+  margin-top: 8px;
+  color: var(--tx);
+  font-variant-numeric: tabular-nums;
+}
+.sp-stat-unit { font-size: 13px; color: var(--tx-3); font-weight: 400; }
+.sp-stat-delta { font-family: var(--ff-m); font-size: 11px; }
+.sp-stat-delta-up   { color: var(--lime); }
+.sp-stat-delta-down { color: var(--err); }
+
+/* The one accent card per view — the live or featured item. */
+.sp-stat-accent {
+  background: linear-gradient(180deg, rgba(14,179,158,.08), rgba(129,140,248,.04));
+  border-color: rgba(14,179,158,.3);
+}
+
+/* ── Panel ──
+   The default framed surface: cards, list rows, config groups. */
+.sp-panel {
+  background: var(--s1);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+}
+.sp-panel-hover { transition: border-color .15s; }
+.sp-panel-hover:hover { border-color: var(--line-2); }
+
+/* ── Instrument numerals ──
+   Any figure the user reads as a measurement: latency, counts, durations, ids. */
+.sp-num {
+  font-family: var(--ff-m);
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sp-pill-live .sp-pill-dot { animation: none; }
 }

@@ -208,7 +208,7 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
       <div
         style={{
           padding: '16px',
-          background: 'var(--bg-card)',
+          background: 'var(--s1)',
           borderBottom: '1px solid #333',
           display: 'flex',
           justifyContent: 'space-between',
@@ -216,10 +216,10 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
         }}
       >
         <div>
-          <h3 style={{ margin: 0, fontSize: '14px', fontWeight: 600, color: '#fff' }}>
+          <h3 style={{ margin: 0, fontFamily: 'var(--ff-d)', fontSize: '14px', fontWeight: 700, color: 'var(--tx)' }}>
             Chat Assistant
           </h3>
-          <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: 'var(--text-secondary)' }}>
+          <p style={{ margin: '4px 0 0 0', fontSize: '11px', color: 'var(--tx-2)' }}>
             Languages: {selectedLanguages.join(', ')}
           </p>
         </div>
@@ -240,7 +240,7 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
           <div
             style={{
               textAlign: 'center',
-              color: 'var(--text-secondary)',
+              color: 'var(--tx-2)',
               paddingTop: '40px',
               fontSize: '13px',
             }}
@@ -264,7 +264,7 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
                 borderRadius: '8px',
                 background:
                   msg.type === 'user'
-                    ? '#00bcd4'
+                    ? 'var(--cyan-fg)'
                     : msg.text.includes('Error')
                       ? '#f44336'
                       : '#1a1a1a',
@@ -280,7 +280,7 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
                 <div
                   style={{
                     fontSize: '10px',
-                    color: 'var(--text-secondary)',
+                    color: 'var(--tx-2)',
                     marginTop: '6px',
                     fontStyle: 'italic',
                   }}
@@ -298,8 +298,8 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
               style={{
                 padding: '10px 14px',
                 borderRadius: '8px',
-                background: 'var(--bg-card)',
-                color: 'var(--text-secondary)',
+                background: 'var(--s1)',
+                color: 'var(--tx-2)',
                 border: '1px solid #333',
                 fontSize: '13px',
               }}
@@ -320,7 +320,7 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
             background: '#f44336',
             color: '#fff',
             fontSize: '11px',
-            borderTop: '1px solid #333',
+            borderTop: '1px solid var(--line)',
           }}
         >
           {error}
@@ -332,7 +332,7 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
         onSubmit={handleSendMessage}
         style={{
           padding: '12px',
-          background: 'var(--bg-card)',
+          background: 'var(--s1)',
           borderTop: '1px solid #333',
           display: 'flex',
           gap: '8px',
@@ -348,9 +348,9 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
             flex: 1,
             padding: '8px 12px',
             background: 'var(--bg-primary)',
-            border: '1px solid #333',
+            border: '1px solid var(--line-2)',
             borderRadius: '6px',
-            color: '#fff',
+            color: 'var(--tx)',
             fontSize: '12px',
             outline: 'none',
             opacity: loading ? 0.6 : 1,
@@ -361,7 +361,7 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
           disabled={loading || !inputValue.trim() || selectedLanguages.length === 0}
           style={{
             padding: '8px 16px',
-            background: '#00bcd4',
+            background: 'var(--cyan-fg)',
             color: '#000',
             border: 'none',
             borderRadius: '6px',

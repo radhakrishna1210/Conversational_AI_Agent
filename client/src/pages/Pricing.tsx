@@ -17,6 +17,10 @@ import { Link } from 'react-router-dom';
  * in Super Admin → Wallet Rate and is shown to a signed-in account in Billing,
  * which is the same value settlement deducts — so what a customer is quoted and
  * what the wallet takes still cannot drift apart.
+ *
+ * The Spandan Pricing.dc.html design is a three-tier card grid. That grid is
+ * deliberately NOT ported — it is the plan catalogue this product removed. What
+ * is ported is its type scale, eyebrow and panel treatment.
  */
 
 const COVERED = [
@@ -47,76 +51,93 @@ const HOW = [
 
 export default function Pricing() {
   return (
-    <>
-      <div className="page-hero">
-        <div className="container">
-          <h1 style={{ color: 'var(--teal-fg)' }}>Pricing</h1>
-          <p>
-            Pay for the minutes your agents actually talk. No plans, no seats, no monthly
-            minimum — and the figure comes from a conversation, not a price tag.
+    <div className="rz-page">
+      {/* Hero */}
+      <div style={{ padding: '80px 24px 56px', textAlign: 'center', borderBottom: '1px solid var(--line)' }}>
+        <div className="rz-wrap" style={{ maxWidth: 780 }}>
+          <div className="rz-eyebrow-pill">Pricing</div>
+          <h1 className="rz-h1" style={{ fontSize: 'clamp(34px, 5vw, 52px)', margin: '18px 0 0' }}>
+            Pay for the minutes your agents actually talk.
+          </h1>
+          <p className="rz-sub-lg" style={{ margin: '14px auto 0', maxWidth: 620 }}>
+            No plans, no seats, no monthly minimum — and the figure comes from a conversation,
+            not a price tag.
           </p>
-          <div className="pricing-perks" style={{ display: 'flex', alignItems: 'center', gap: '20px', justifyContent: 'center', marginTop: '16px', fontSize: '13px', color: 'var(--text-secondary)', flexWrap: 'wrap' }}>
-            <span>✓ No setup fees</span>
-            <span>✓ Nothing renews</span>
-            <span>✓ Balance never expires monthly</span>
+          <div className="rz-cluster rz-mono" style={{ justifyContent: 'center', gap: 20, marginTop: 20 }}>
+            <span>no setup fees</span>
+            <span>nothing renews</span>
+            <span>balance never expires</span>
           </div>
         </div>
       </div>
 
-      <div className="container" style={{ maxWidth: 780, paddingBottom: 80 }}>
+      <div className="rz-wrap" style={{ maxWidth: 780, padding: '48px 24px 90px' }}>
+        {/* The offer, without a number */}
         <div
+          className="rz-card"
           style={{
-            border: '1px solid var(--border)', borderRadius: 16, background: 'var(--bg-card)',
-            padding: 'clamp(28px, 5vw, 48px)', textAlign: 'center', marginBottom: 28,
+            borderRadius: 18,
+            padding: 'clamp(28px, 5vw, 44px)',
+            textAlign: 'center',
+            marginBottom: 20,
+            background:
+              'radial-gradient(circle at top right, rgba(14,179,158,0.12), transparent 45%), var(--s1)',
+            borderColor: 'var(--line-2)',
           }}
         >
-          <div style={{ fontSize: 11, letterSpacing: '0.18em', textTransform: 'uppercase', color: 'var(--text-muted)', marginBottom: 14 }}>
-            What it costs
-          </div>
-          <div style={{ fontSize: 'clamp(26px, 5vw, 36px)', fontWeight: 700, letterSpacing: '-0.03em', lineHeight: 1.2, color: 'var(--teal-fg)' }}>
+          <div className="rz-label">What it costs</div>
+          <div
+            className="rz-h1"
+            style={{ fontSize: 'clamp(26px, 5vw, 38px)', color: 'var(--cyan-fg)', margin: '12px 0 0' }}
+          >
             Talk-minutes only
           </div>
-          <p style={{ color: 'var(--text-secondary)', fontSize: 15, lineHeight: 1.6, marginTop: 14, maxWidth: 520, marginLeft: 'auto', marginRight: 'auto' }}>
-            What that works out to depends on how long your calls run and how many you
-            take. Tell us roughly what you expect and we will price it with you — or
-            start free and see your rate in Billing before you load anything.
+          <p className="rz-sub-lg" style={{ margin: '14px auto 0', maxWidth: 520 }}>
+            What that works out to depends on how long your calls run and how many you take.
+            Tell us roughly what you expect and we will price it with you — or start free and
+            see your rate in Billing before you load anything.
           </p>
 
-          <div style={{ display: 'flex', gap: 12, justifyContent: 'center', marginTop: 28, flexWrap: 'wrap' }}>
-            <Link to="/contact"><button className="btn btn-primary">Talk to us about pricing</button></Link>
-            <Link to="/signup"><button className="btn btn-secondary">Start free</button></Link>
+          <div className="rz-cluster" style={{ justifyContent: 'center', marginTop: 26 }}>
+            <Link to="/contact" className="rz-btn rz-btn-primary rz-btn-lg">Talk to us about pricing</Link>
+            <Link to="/signup" className="rz-btn rz-btn-secondary rz-btn-lg">Start free</Link>
           </div>
         </div>
 
-        <div style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 'clamp(20px, 4vw, 30px)', marginBottom: 28 }}>
-          <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 16 }}>How billing works</h2>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 18 }}>
+        <div className="rz-card rz-card-lg" style={{ marginBottom: 20 }}>
+          <div className="rz-h3" style={{ marginBottom: 18 }}>How billing works</div>
+          <div className="rz-stack" style={{ gap: 18 }}>
             {HOW.map((row) => (
               <div key={row.k}>
-                <div style={{ fontSize: 15, fontWeight: 650, marginBottom: 4 }}>{row.k}</div>
-                <p style={{ color: 'var(--text-secondary)', fontSize: 14.5, lineHeight: 1.55, margin: 0 }}>{row.v}</p>
+                <div style={{ fontFamily: 'var(--ff-d)', fontSize: 15, fontWeight: 600, color: 'var(--tx)', marginBottom: 4 }}>
+                  {row.k}
+                </div>
+                <p className="rz-sub" style={{ margin: 0, fontSize: 14.5 }}>{row.v}</p>
               </div>
             ))}
           </div>
         </div>
 
-        <div style={{ border: '1px solid var(--border)', borderRadius: 14, padding: 'clamp(20px, 4vw, 30px)' }}>
-          <h2 style={{ fontSize: 18, fontWeight: 700, marginBottom: 16 }}>What a talk-minute covers</h2>
+        <div className="rz-card rz-card-lg">
+          <div className="rz-h3" style={{ marginBottom: 18 }}>What a talk-minute covers</div>
           <ul style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
             {COVERED.map((line) => (
-              <li key={line} style={{ display: 'grid', gridTemplateColumns: '18px 1fr', gap: 10, fontSize: 14.5, lineHeight: 1.55, color: 'var(--text-secondary)' }}>
-                <span style={{ color: 'var(--teal-fg)' }}>✓</span>
+              <li
+                key={line}
+                style={{ display: 'grid', gridTemplateColumns: '18px 1fr', gap: 10, fontSize: 14.5, lineHeight: 1.6, color: 'var(--tx-2)' }}
+              >
+                <span style={{ color: 'var(--cyan-fg)' }} aria-hidden>✓</span>
                 <span>{line}</span>
               </li>
             ))}
           </ul>
-          <p style={{ color: 'var(--text-muted)', fontSize: 13, marginTop: 20, lineHeight: 1.6 }}>
+          <p className="rz-mono" style={{ marginTop: 20, lineHeight: 1.7 }}>
             Rented phone numbers are billed separately at the carrier’s monthly rate. Calls stop
             when the balance runs out and resume the moment you top up.{' '}
-            <Link to="/contact" style={{ color: 'var(--teal-fg)' }}>Ask us anything about it</Link>.
+            <Link to="/contact" style={{ color: 'var(--cyan-fg)' }}>Ask us anything about it</Link>.
           </p>
         </div>
       </div>
-    </>
+    </div>
   );
 }

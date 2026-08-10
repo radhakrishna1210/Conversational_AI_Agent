@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { whapi } from '../lib/whapi';
 import { format, parseISO } from 'date-fns';
+import { RzCard, RzStat, RzTabs, RzMeter, RzEmpty, RzPill, type Tone } from '@/components/rz';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -58,39 +59,36 @@ interface ChatbotData {
   deliveryChart: { date: string; sent: number; delivered: number; rate: number }[];
 }
 
-const COLORS = ['#00d4c8', '#ff6b6b', '#4ecdc4', '#45b7d1', '#96ceb4', '#ffeaa7'];
+/*
+  The categorical ramp. These were six arbitrary hexes (#00d4c8, #ff6b6b,
+  #96ceb4 …) that existed nowhere else in the product; every one of them is now
+  a state accent from the design system, so a slice labelled "transferred" is
+  the same coral here, on the Calls screen and in the admin console.
 
-// ─── Small reusable components ────────────────────────────────────────────────
+  Order matters: the first three carry the most series, so they are the three
+  most separable hues.
+*/
+const SERIES = [
+  'var(--cyan)',
+  'var(--coral)',
+  'var(--violet)',
+  'var(--lime)',
+  'var(--warn)',
+  'var(--tx-3)',
+];
 
-const Badge = ({ label, bg, color }: { label: string; bg: string; color: string }) => (
-  <span style={{ padding: '2px 8px', borderRadius: '4px', fontSize: '11px', fontWeight: 700, background: bg, color }}>{label}</span>
-);
-
-const StatusBadge = ({ status }: { status: string }) => {
-  const map: Record<string, [string, string]> = {
-    completed:  ['rgba(78,205,196,0.15)',  '#4ecdc4'],
-    failed:     ['rgba(255,107,107,0.15)', '#ff6b6b'],
-    busy:       ['rgba(255,234,167,0.15)', '#ffeaa7'],
-    'no-answer':['rgba(255,234,167,0.15)', '#ffeaa7'],
-  };
-  const [bg, color] = map[status] ?? ['rgba(255,255,255,0.07)', 'var(--text-muted)'];
-  return <Badge label={status} bg={bg} color={color} />;
+/** Outcome / status → the one pill tone that always means that thing. */
+const statusTone = (status: string): Tone => {
+  const s = status?.toLowerCase();
+  if (s === 'completed' || s === 'resolved' || s === 'booked') return 'ok';
+  if (s === 'failed' || s === 'error') return 'err';
+  if (s === 'busy' || s === 'no-answer' || s === 'voicemail') return 'warn';
+  if (s === 'transferred') return 'speak';
+  return 'idle';
 };
 
-const DirBadge = ({ dir }: { dir: string }) => (
-  <Badge label={dir} bg={dir === 'INBOUND' ? 'rgba(0,212,200,0.1)' : 'rgba(69,183,209,0.1)'} color={dir === 'INBOUND' ? '#00d4c8' : '#45b7d1'} />
-);
-
-const SentBadge = ({ s }: { s: string | null }) => {
-  if (!s) return <span style={{ color: 'var(--text-muted)' }}>—</span>;
-  const map: Record<string, [string, string]> = {
-    positive: ['rgba(0,212,200,0.1)',   '#00d4c8'],
-    negative: ['rgba(255,107,107,0.1)', '#ff6b6b'],
-    neutral:  ['rgba(255,255,255,0.05)','var(--text-muted)'],
-  };
-  const [bg, color] = map[s] ?? map.neutral;
-  return <Badge label={s} bg={bg} color={color} />;
-};
+const sentimentTone = (s: string | null): Tone =>
+  s === 'positive' ? 'ok' : s === 'negative' ? 'err' : 'idle';
 
 // ─── Main Component ───────────────────────────────────────────────────────────
 
@@ -167,9 +165,20 @@ export default function Analytics() {
   useEffect(() => { tab === 'calls' ? loadCalls() : loadChatbot(); }, [tab, loadCalls, loadChatbot]);
 
   // ─── Chart: Area ───────────────────────────────────────────────────────────
+  /*
+    Drawn against the tokens rather than fixed hexes: the node halo used to be
+    #1a1a2e, a colour that matched neither theme's card, so every point on the
+    line wore a dark ring on a white background in light mode.
+  */
   const AreaChart = () => {
     const data = timeSeries?.data ?? [];
-    if (!data.length) return <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100%', color:'var(--text-muted)' }}>{loading ? 'Loading…' : 'No data'}</div>;
+    if (!data.length) {
+      return (
+        <div className="rz-empty" style={{ height: '100%', padding: 0 }}>
+          <span className="rz-mono">{loading ? 'Loading…' : 'No data for this period'}</span>
+        </div>
+      );
+    }
     const W = 800, H = 260, P = { t:10, r:20, b:40, l:50 };
     const cW = W-P.l-P.r, cH = H-P.t-P.b;
     const max = Math.max(...data.map(d => d.value), 1);
@@ -179,403 +188,374 @@ export default function Analytics() {
     const step = Math.max(1, Math.floor(data.length/6));
     return (
       <svg viewBox={`0 0 ${W} ${H}`} style={{ width:'100%', height:'100%' }} preserveAspectRatio="none">
-        {[0,.25,.5,.75,1].map((r,i) => { const y = P.t+cH-r*cH; return <g key={i}><line x1={P.l} y1={y} x2={W-P.r} y2={y} stroke="rgba(255,255,255,0.05)" strokeDasharray="3,3"/><text x={P.l-6} y={y+4} textAnchor="end" fill="var(--text-muted)" fontSize="11">{metric==='duration'?`${Math.round(max*r)}m`:Math.round(max*r)}</text></g>; })}
-        {data.filter((_,i)=>i%step===0||i===data.length-1).map((d,i)=><text key={i} x={P.l+(data.indexOf(d)/(data.length-1||1))*cW} y={H-10} textAnchor="middle" fill="var(--text-muted)" fontSize="11">{format(parseISO(d.date),'MMM dd')}</text>)}
-        <defs><linearGradient id="ag" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="#00d4c8" stopOpacity=".25"/><stop offset="100%" stopColor="#00d4c8" stopOpacity="0"/></linearGradient></defs>
+        {[0,.25,.5,.75,1].map((r,i) => { const y = P.t+cH-r*cH; return <g key={i}><line x1={P.l} y1={y} x2={W-P.r} y2={y} stroke="var(--line)" strokeDasharray="3,3"/><text x={P.l-6} y={y+4} textAnchor="end" fill="var(--tx-3)" fontSize="11" fontFamily="var(--ff-m)">{metric==='duration'?`${Math.round(max*r)}m`:Math.round(max*r)}</text></g>; })}
+        {data.filter((_,i)=>i%step===0||i===data.length-1).map((d,i)=><text key={i} x={P.l+(data.indexOf(d)/(data.length-1||1))*cW} y={H-10} textAnchor="middle" fill="var(--tx-3)" fontSize="11" fontFamily="var(--ff-m)">{format(parseISO(d.date),'MMM dd')}</text>)}
+        <defs><linearGradient id="ag" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stopColor="var(--cyan)" stopOpacity=".25"/><stop offset="100%" stopColor="var(--cyan)" stopOpacity="0"/></linearGradient></defs>
         <path d={area} fill="url(#ag)"/>
-        <path d={line} fill="none" stroke="#00d4c8" strokeWidth="2"/>
-        {pts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r="3" fill="#00d4c8" stroke="#1a1a2e" strokeWidth="2"><title>{p.date}: {p.value}</title></circle>)}
+        <path d={line} fill="none" stroke="var(--cyan)" strokeWidth="2"/>
+        {pts.map((p,i)=><circle key={i} cx={p.x} cy={p.y} r="3" fill="var(--cyan)" stroke="var(--s1)" strokeWidth="2"><title>{p.date}: {p.value}</title></circle>)}
       </svg>
     );
   };
 
-  // ─── Chart: Donut ──────────────────────────────────────────────────────────
-  const DonutChart = () => {
-    if (!outcomes.length) return <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100%', color:'var(--text-muted)' }}>No data</div>;
-    const total = outcomes.reduce((s,o)=>s+o.count,0);
-    const sz=180, cx=90, cy=90, r=60, ri=40;
-    let angle=0;
-    const slices = outcomes.map((o,i)=>{
-      const a=(o.count/total)*360, ea=angle+a, big=a>180?1:0;
-      const x1=cx+r*Math.cos((angle-90)*Math.PI/180), y1=cy+r*Math.sin((angle-90)*Math.PI/180);
-      const x2=cx+r*Math.cos((ea-90)*Math.PI/180),    y2=cy+r*Math.sin((ea-90)*Math.PI/180);
-      const x3=cx+ri*Math.cos((ea-90)*Math.PI/180),   y3=cy+ri*Math.sin((ea-90)*Math.PI/180);
-      const x4=cx+ri*Math.cos((angle-90)*Math.PI/180),y4=cy+ri*Math.sin((angle-90)*Math.PI/180);
-      const d=`M ${x1} ${y1} A ${r} ${r} 0 ${big} 1 ${x2} ${y2} L ${x3} ${y3} A ${ri} ${ri} 0 ${big} 0 ${x4} ${y4} Z`;
-      angle=ea; return { d, color: COLORS[i%COLORS.length], ...o };
-    });
-    return <svg viewBox={`0 0 ${sz} ${sz}`} style={{ width:'100%', height:'100%', maxHeight:'180px' }}>{slices.map((s,i)=><path key={i} d={s.d} fill={s.color} stroke="#1a1a2e" strokeWidth="2"><title>{s.outcome}: {s.count}</title></path>)}<text x={cx} y={cy-4} textAnchor="middle" fill="white" fontSize="14" fontWeight="700">{total}</text><text x={cx} y={cy+12} textAnchor="middle" fill="var(--text-muted)" fontSize="10">Total</text></svg>;
-  };
-
-  // ─── Chart: Bar (sentiment) ────────────────────────────────────────────────
-  const BarChart = () => {
-    if (!sentiment.length) return <div style={{ display:'flex', alignItems:'center', justifyContent:'center', height:'100%', color:'var(--text-muted)' }}>No data</div>;
-    const W=300,H=200,P={t:10,r:20,b:30,l:40};
-    const cW=W-P.l-P.r, cH=H-P.t-P.b;
-    const max=Math.max(...sentiment.map(d=>d.count),1);
-    const bw=cW/sentiment.length*.6, bg=cW/sentiment.length*.4;
-    return <svg viewBox={`0 0 ${W} ${H}`} style={{ width:'100%', height:'100%' }}>{[0,.25,.5,.75,1].map((r,i)=>{const y=P.t+cH-r*cH;return <g key={i}><line x1={P.l} y1={y} x2={W-P.r} y2={y} stroke="rgba(255,255,255,0.05)" strokeDasharray="3,3"/><text x={P.l-4} y={y+4} textAnchor="end" fill="var(--text-muted)" fontSize="10">{Math.round(max*r)}</text></g>;})}
-    {sentiment.map((d,i)=>{const bh=(d.count/max)*cH,x=P.l+i*(bw+bg)+bg/2,y=P.t+cH-bh;const c=d.sentiment==='positive'?'#00d4c8':d.sentiment==='negative'?'#ff6b6b':'#96ceb4';return <g key={i}><rect x={x} y={y} width={bw} height={bh} fill={c} rx="3"/><text x={x+bw/2} y={H-10} textAnchor="middle" fill="var(--text-muted)" fontSize="10">{d.sentiment}</text><text x={x+bw/2} y={y-5} textAnchor="middle" fill="white" fontSize="10" fontWeight="600">{d.count}</text></g>;})}
-    </svg>;
-  };
-
-  // ─── Shared styles ─────────────────────────────────────────────────────────
-  const card: React.CSSProperties = { border:'1px solid var(--border)', borderRadius:'8px', background:'rgba(255,255,255,0.01)', padding:'24px' };
-  const tabBtn = (active: boolean): React.CSSProperties => ({ background: active?'rgba(255,255,255,0.05)':'transparent', border: active?'1px solid var(--border)':'1px solid transparent', color: active?'white':'var(--text-secondary)', padding:'8px 24px', borderRadius:'6px', fontSize:'13px', fontWeight:600, cursor:'pointer' });
-  const rangeBtn = (active: boolean): React.CSSProperties => ({ background: active?'rgba(0,212,200,0.05)':'transparent', border: active?'1px solid rgba(0,212,200,0.3)':'1px solid transparent', color: active?'var(--teal)':'white', padding:'6px 16px', borderRadius:'6px', fontSize:'12px', fontWeight:600, cursor:'pointer' });
-  const inp: React.CSSProperties = { padding:'6px 12px', fontSize:'13px', background:'transparent', border:'1px solid var(--border)', borderRadius:'6px', color:'white' };
-
-  const StatCard = ({ title, value, trend, icon, suffix='' }: any) => (
-    <div style={{ ...card, borderTop:'2px solid var(--teal)' }}>
-      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'16px' }}>
-        <span style={{ color:'var(--text-secondary)', fontSize:'13px', fontWeight:600 }}>{title}</span>
-        <span style={{ fontSize:'20px' }}>{icon}</span>
-      </div>
-      <div style={{ fontSize:'28px', fontWeight:700, color:'white', marginBottom:'8px' }}>{loading?'—':value}{suffix}</div>
-      {trend != null && !loading && (
-        <div style={{ fontSize:'12px', fontWeight:600, color:trend>=0?'#00d4c8':'#ff6b6b' }}>
-          {trend>=0?'↑':'↓'} {Math.abs(trend)}% vs prev period
-        </div>
-      )}
-    </div>
-  );
-
-  const MiniCard = ({ label, value, color }: any) => (
-    <div style={{ ...card, textAlign:'center' }}>
-      <div style={{ fontSize:'11px', color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:'6px' }}>{label}</div>
-      <div style={{ fontSize:'20px', fontWeight:700, color }}>{loading?'—':value}</div>
-    </div>
-  );
+  const rangeLabel = { '7d': 'Last 7 days', '30d': 'Last 30 days', '90d': 'Last 90 days' } as const;
 
   // ─── JSX ───────────────────────────────────────────────────────────────────
   return (
-    <div style={{ padding:'24px', maxWidth:'1400px', margin:'0 auto' }}>
+    <div className="rz-page rz-page-pad rz-bleed">
+      <div className="rz-wrap-wide">
 
-      {/* Header */}
-      <div style={{ marginBottom:'32px' }}>
-        <h1 style={{ fontSize:'28px', fontWeight:800, letterSpacing:'-0.5px', color:'white', marginBottom:'6px' }}>Analytics</h1>
-        <p style={{ color:'var(--text-secondary)', fontSize:'14px' }}>View and analyze your call and chatbot performance metrics</p>
-      </div>
-
-      {/* Error banner */}
-      {error && (
-        <div style={{ background:'rgba(255,107,107,0.1)', border:'1px solid rgba(255,107,107,0.3)', borderRadius:'8px', padding:'12px 16px', color:'#ff6b6b', fontSize:'13px', marginBottom:'16px' }}>
-          ⚠️ {error}
+        {/* Header */}
+        <div className="rz-head">
+          <div>
+            <div className="rz-eyebrow">Operate</div>
+            <h1 className="rz-h1">Calls &amp; Analytics</h1>
+            <p className="rz-sub" style={{ margin: '8px 0 0' }}>
+              Volume, outcomes and latency across every conversation your agents handled.
+            </p>
+          </div>
+          <div className="rz-head-actions">
+            <RzTabs
+              tabs={[{ value: 'calls', label: 'Phone calls' }, { value: 'chatbot', label: 'Chatbot' }]}
+              value={tab}
+              onChange={setTab}
+            />
+          </div>
         </div>
-      )}
 
-      {/* Filter bar */}
-      <div style={{ ...card, display:'flex', justifyContent:'space-between', alignItems:'center', flexWrap:'wrap', gap:'12px', marginBottom:'24px' }}>
-        <div style={{ display:'flex', gap:'8px', alignItems:'center', flexWrap:'wrap' }}>
-          {(['7d','30d','90d'] as const).map(r => (
-            <button key={r} onClick={() => { setCustomFrom(''); setCustomTo(''); setRange(r); }} style={rangeBtn(range===r && !customFrom)}>
-              Last {r==='7d'?'7 days':r==='30d'?'30 days':'90 days'}
-            </button>
-          ))}
-          <div style={{ width:'1px', height:'24px', background:'var(--border)' }} />
-          <input type="date" value={customFrom} onChange={e=>setCustomFrom(e.target.value)} style={inp} />
-          <span style={{ color:'var(--text-muted)' }}>to</span>
-          <input type="date" value={customTo}   onChange={e=>setCustomTo(e.target.value)}   style={inp} />
-          {customFrom && customTo && (
-            <button onClick={() => tab==='calls'?loadCalls():loadChatbot()} style={{ background:'var(--teal)', color:'#1a1a2e', border:'none', padding:'6px 14px', borderRadius:'6px', fontSize:'12px', fontWeight:700, cursor:'pointer' }}>Apply</button>
-          )}
-        </div>
-        {tab==='calls' && (
-          <div style={{ display:'flex', alignItems:'center', gap:'10px' }}>
-            <span style={{ color:'white', fontSize:'13px', fontWeight:600 }}>Agent</span>
-            <select value={agentFilter} onChange={e=>setAgentFilter(e.target.value)} style={{ ...inp, paddingRight:'28px' }}>
-              <option value="all">All Agents</option>
-              {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </select>
+        {/* Error banner */}
+        {error && (
+          <div
+            className="rz-card"
+            style={{
+              background: 'rgba(248,113,113,0.08)',
+              borderColor: 'rgba(248,113,113,0.3)',
+              color: 'var(--err)',
+              fontSize: 13,
+              padding: '12px 16px',
+              marginBottom: 14,
+            }}
+          >
+            {error}
           </div>
         )}
-      </div>
 
-      {/* Tabs */}
-      <div style={{ display:'flex', gap:'4px', marginBottom:'24px' }}>
-        <button onClick={()=>setTab('calls')}   style={tabBtn(tab==='calls')}>📞 Phone Call Analytics</button>
-        <button onClick={()=>setTab('chatbot')} style={tabBtn(tab==='chatbot')}>💬 Website Chatbot Analytics</button>
-      </div>
-
-      {tab === 'calls' ? (
-        <>
-          {/* Stat cards */}
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(220px,1fr))', gap:'16px', marginBottom:'24px' }}>
-            <StatCard title="Total Calls"     value={overview?.totalCalls??0}     trend={overview?.totalCallsTrend}    icon="📞" />
-            <StatCard title="Total Duration"  value={overview?.totalDuration??0}  trend={overview?.totalDurationTrend} icon="🕒" suffix=" min" />
-            <StatCard title="Avg Duration"    value={overview?.avgDuration??0}    icon="⏱️" suffix=" min" />
-            <StatCard title="Total Agents"    value={overview?.totalAgents??0}    icon="👥" />
-          </div>
-
-          {/* Mini metric strip */}
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(130px,1fr))', gap:'12px', marginBottom:'24px' }}>
-            <MiniCard label="Success Rate" value={`${overview?.successRate??0}%`}    color="#00d4c8" />
-            <MiniCard label="Completed"    value={overview?.completedCalls??0}       color="#4ecdc4" />
-            <MiniCard label="Failed"       value={overview?.failedCalls??0}          color="#ff6b6b" />
-            <MiniCard label="Inbound"      value={overview?.inboundCalls??0}         color="#45b7d1" />
-            <MiniCard label="Outbound"     value={overview?.outboundCalls??0}        color="#96ceb4" />
-          </div>
-
-          {/* Metric toggle */}
-          <div style={{ display:'flex', gap:'4px', marginBottom:'16px' }}>
-            {(['volume','duration'] as const).map(m => (
-              <button key={m} onClick={()=>setMetric(m)} style={tabBtn(metric===m)}>
-                {m==='volume'?'Call Volume':'Call Duration'}
-              </button>
-            ))}
-          </div>
-
-          {/* Area chart */}
-          <div style={{ ...card, marginBottom:'24px' }}>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start', marginBottom:'20px' }}>
-              <div>
-                <h3 style={{ color:'white', fontSize:'16px', fontWeight:700, marginBottom:'4px' }}>{metric==='volume'?'Call Volume Over Time':'Call Duration Over Time'}</h3>
-                <p style={{ color:'var(--text-secondary)', fontSize:'13px' }}>{metric==='volume'?'Calls per day':'Total duration per day (minutes)'}</p>
-              </div>
-              {timeSeries?.summary && (
-                <div style={{ textAlign:'right' }}>
-                  <div style={{ fontSize:'11px', color:'var(--text-muted)' }}>Total</div>
-                  <div style={{ fontSize:'18px', fontWeight:700, color:'var(--teal-fg)' }}>{timeSeries.summary.total?.toLocaleString()}{metric==='duration'?' min':''}</div>
-                </div>
-              )}
-            </div>
-            <div style={{ height:'280px' }}><AreaChart /></div>
-          </div>
-
-          {/* Bottom grid */}
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(300px,1fr))', gap:'24px', marginBottom:'24px' }}>
-            {/* Outcomes donut */}
-            <div style={card}>
-              <h3 style={{ color:'white', fontSize:'16px', fontWeight:700, marginBottom:'16px' }}>Call Outcomes</h3>
-              <div style={{ height:'180px', display:'flex', justifyContent:'center' }}><DonutChart /></div>
-              <div style={{ marginTop:'16px' }}>
-                {outcomes.map((o,i) => (
-                  <div key={o.outcome} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'8px' }}>
-                    <div style={{ display:'flex', alignItems:'center', gap:'8px' }}>
-                      <div style={{ width:'8px', height:'8px', borderRadius:'50%', background:COLORS[i%COLORS.length] }} />
-                      <span style={{ color:'var(--text-secondary)', fontSize:'13px', textTransform:'capitalize' }}>{o.outcome.replace(/_/g,' ')}</span>
-                    </div>
-                    <span style={{ color:'white', fontSize:'13px', fontWeight:600 }}>{o.count} ({o.percentage}%)</span>
-                  </div>
-                ))}
-                {!outcomes.length && !loading && <p style={{ color:'var(--text-muted)', fontSize:'13px', textAlign:'center' }}>No outcome data for this period</p>}
-              </div>
-            </div>
-
-            {/* Sentiment bar */}
-            <div style={card}>
-              <h3 style={{ color:'white', fontSize:'16px', fontWeight:700, marginBottom:'16px' }}>Sentiment Analysis</h3>
-              <div style={{ height:'180px' }}><BarChart /></div>
-              <div style={{ marginTop:'16px' }}>
-                {sentiment.map(s => (
-                  <div key={s.sentiment} style={{ display:'flex', justifyContent:'space-between', marginBottom:'6px' }}>
-                    <span style={{ color:'var(--text-secondary)', fontSize:'13px', textTransform:'capitalize' }}>{s.sentiment}</span>
-                    <span style={{ color:'white', fontSize:'13px', fontWeight:600 }}>{s.count} calls · avg {s.avgDuration} min</span>
-                  </div>
-                ))}
-                {!sentiment.length && !loading && <p style={{ color:'var(--text-muted)', fontSize:'13px', textAlign:'center' }}>No sentiment data for this period</p>}
-              </div>
-            </div>
-
-            {/* Heatmap */}
-            <div style={card}>
-              <h3 style={{ color:'white', fontSize:'16px', fontWeight:700, marginBottom:'16px' }}>Call Activity Heatmap</h3>
-              <div style={{ overflowX:'auto' }}>
-                <div style={{ display:'grid', gridTemplateColumns:'36px repeat(24,1fr)', gap:'2px', minWidth:'480px' }}>
-                  <div />
-                  {Array.from({length:24},(_,h) => <div key={h} style={{ textAlign:'center', fontSize:'9px', color:'var(--text-muted)' }}>{h}</div>)}
-                  {heatmap.map(day => (
-                    <>
-                      <div key={day.day} style={{ fontSize:'10px', color:'var(--text-secondary)', display:'flex', alignItems:'center' }}>{day.day}</div>
-                      {day.hours.map(h => (
-                        <div key={h.hour} title={`${day.day} ${h.hour}:00 — ${h.count} calls`}
-                          style={{ aspectRatio:'1', borderRadius:'2px', minWidth:'14px',
-                            background: h.count>0 ? `rgba(0,212,200,${Math.max(h.intensity/100, 0.1)})` : 'rgba(255,255,255,0.03)' }} />
-                      ))}
-                    </>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Call logs table */}
-          <div style={{ border:'1px solid var(--border)', borderRadius:'8px', overflow:'hidden', background:'rgba(255,255,255,0.01)', marginBottom:'24px' }}>
-            <div style={{ padding:'18px 24px', borderBottom:'1px solid var(--border)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-              <h3 style={{ color:'white', fontSize:'16px', fontWeight:700 }}>Recent Calls</h3>
-              <span style={{ color:'var(--text-muted)', fontSize:'13px' }}>{callLogs?.pagination?.total??0} total</span>
-            </div>
-            <div style={{ overflowX:'auto' }}>
-              <table style={{ width:'100%', borderCollapse:'collapse' }}>
-                <thead>
-                  <tr style={{ borderBottom:'1px solid var(--border)' }}>
-                    {['Agent','From','To','Direction','Status','Duration','Cost','Sentiment','Started'].map(h => (
-                      <th key={h} style={{ padding:'10px 14px', textAlign:'left', fontSize:'11px', fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.5px', whiteSpace:'nowrap' }}>{h}</th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {loading ? (
-                    <tr><td colSpan={9} style={{ padding:'40px', textAlign:'center', color:'var(--text-muted)' }}>Loading…</td></tr>
-                  ) : !callLogs?.data?.length ? (
-                    <tr><td colSpan={9} style={{ padding:'40px', textAlign:'center', color:'var(--text-muted)' }}>No calls found</td></tr>
-                  ) : callLogs.data.map(c => (
-                    <tr key={c.id} style={{ borderBottom:'1px solid rgba(255,255,255,0.03)' }}>
-                      <td style={{ padding:'10px 14px', color:'white',              fontSize:'13px', fontWeight:600 }}>{c.assistant}</td>
-                      <td style={{ padding:'10px 14px', color:'var(--text-secondary)', fontSize:'13px' }}>{c.from}</td>
-                      <td style={{ padding:'10px 14px', color:'var(--text-secondary)', fontSize:'13px' }}>{c.to}</td>
-                      <td style={{ padding:'10px 14px' }}><DirBadge dir={c.direction} /></td>
-                      <td style={{ padding:'10px 14px' }}><StatusBadge status={c.status} /></td>
-                      <td style={{ padding:'10px 14px', color:'white',              fontSize:'13px', fontWeight:600 }}>{c.durationFormatted}</td>
-                      <td style={{ padding:'10px 14px', color:'var(--text-secondary)', fontSize:'13px' }}>${c.cost?.toFixed(2)??'0.00'}</td>
-                      <td style={{ padding:'10px 14px' }}><SentBadge s={c.sentiment} /></td>
-                      <td style={{ padding:'10px 14px', color:'var(--text-muted)',  fontSize:'13px', whiteSpace:'nowrap' }}>{c.startedAt ? format(parseISO(c.startedAt),'MMM dd, HH:mm') : '—'}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            {callLogs?.pagination && callLogs.pagination.totalPages > 1 && (
-              <div style={{ padding:'14px 24px', borderTop:'1px solid var(--border)', display:'flex', justifyContent:'space-between', alignItems:'center' }}>
-                <button disabled={!callLogs.pagination.hasPrev} onClick={()=>setLogsPage(p=>p-1)} style={{ padding:'6px 16px', borderRadius:'6px', border:'1px solid var(--border)', background:'transparent', color: callLogs.pagination.hasPrev?'white':'var(--text-muted)', cursor: callLogs.pagination.hasPrev?'pointer':'not-allowed', fontSize:'13px' }}>← Prev</button>
-                <span style={{ color:'var(--text-secondary)', fontSize:'13px' }}>Page {callLogs.pagination.page} / {callLogs.pagination.totalPages}</span>
-                <button disabled={!callLogs.pagination.hasNext} onClick={()=>setLogsPage(p=>p+1)} style={{ padding:'6px 16px', borderRadius:'6px', border:'1px solid var(--border)', background:'transparent', color: callLogs.pagination.hasNext?'white':'var(--text-muted)', cursor: callLogs.pagination.hasNext?'pointer':'not-allowed', fontSize:'13px' }}>Next →</button>
-              </div>
+        {/* Filter bar */}
+        <div className="rz-card rz-between" style={{ flexWrap: 'wrap', marginBottom: 14 }}>
+          <div className="rz-cluster">
+            <RzTabs
+              tabs={(['7d','30d','90d'] as const).map(r => ({ value: r, label: rangeLabel[r] }))}
+              value={customFrom && customTo ? ('' as any) : range}
+              onChange={(r) => { setCustomFrom(''); setCustomTo(''); setRange(r); }}
+            />
+            <span className="rz-divider" style={{ width: 1, height: 22, background: 'var(--line)' }} />
+            <input type="date" className="rz-input" style={{ width: 'auto' }} value={customFrom} onChange={e=>setCustomFrom(e.target.value)} />
+            <span className="rz-mono">to</span>
+            <input type="date" className="rz-input" style={{ width: 'auto' }} value={customTo} onChange={e=>setCustomTo(e.target.value)} />
+            {customFrom && customTo && (
+              <button className="rz-btn rz-btn-primary rz-btn-sm" onClick={() => tab==='calls'?loadCalls():loadChatbot()}>Apply</button>
             )}
           </div>
+          {tab==='calls' && (
+            <div className="rz-cluster-sm">
+              <span className="rz-label">Agent</span>
+              <select className="rz-select" style={{ width: 'auto', minWidth: 160 }} value={agentFilter} onChange={e=>setAgentFilter(e.target.value)}>
+                <option value="all">All agents</option>
+                {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+              </select>
+            </div>
+          )}
+        </div>
 
-          {/* Agent performance table */}
-          {agentPerf.length > 0 && (
-            <div style={{ border:'1px solid var(--border)', borderRadius:'8px', overflow:'hidden', background:'rgba(255,255,255,0.01)' }}>
-              <div style={{ padding:'18px 24px', borderBottom:'1px solid var(--border)' }}>
-                <h3 style={{ color:'white', fontSize:'16px', fontWeight:700 }}>Agent Performance</h3>
-              </div>
-              <div style={{ overflowX:'auto' }}>
-                <table style={{ width:'100%', borderCollapse:'collapse' }}>
+        {tab === 'calls' ? (
+          <div className="rz-stack">
+
+            {/* KPI row */}
+            <div className="rz-stats">
+              <RzStat label="TOTAL CALLS"    value={loading ? '—' : (overview?.totalCalls ?? 0)}
+                delta={overview?.totalCallsTrend != null && !loading ? `${overview.totalCallsTrend >= 0 ? '↑' : '↓'} ${Math.abs(overview.totalCallsTrend)}% vs prev` : undefined}
+                trend={(overview?.totalCallsTrend ?? 0) >= 0 ? 'up' : 'down'} />
+              <RzStat label="TOTAL DURATION" value={loading ? '—' : `${overview?.totalDuration ?? 0}m`}
+                delta={overview?.totalDurationTrend != null && !loading ? `${overview.totalDurationTrend >= 0 ? '↑' : '↓'} ${Math.abs(overview.totalDurationTrend)}% vs prev` : undefined}
+                trend={(overview?.totalDurationTrend ?? 0) >= 0 ? 'up' : 'down'} />
+              <RzStat label="AVG DURATION"   value={loading ? '—' : `${overview?.avgDuration ?? 0}m`} />
+              <RzStat label="SUCCESS RATE"   value={loading ? '—' : `${overview?.successRate ?? 0}%`} color="var(--lime)" />
+              <RzStat label="AGENTS"         value={loading ? '—' : (overview?.totalAgents ?? 0)} />
+            </div>
+
+            {/* Secondary strip */}
+            <div className="rz-stats">
+              <RzStat label="COMPLETED" value={loading ? '—' : (overview?.completedCalls ?? 0)} color="var(--lime)" />
+              <RzStat label="FAILED"    value={loading ? '—' : (overview?.failedCalls ?? 0)}    color="var(--err)" />
+              <RzStat label="INBOUND"   value={loading ? '—' : (overview?.inboundCalls ?? 0)}   color="var(--cyan-fg)" />
+              <RzStat label="OUTBOUND"  value={loading ? '—' : (overview?.outboundCalls ?? 0)}  color="var(--violet)" />
+            </div>
+
+            {/* Volume chart + outcomes */}
+            <div className="rz-grid-main">
+              <RzCard
+                title={metric === 'volume' ? 'Call volume over time' : 'Call duration over time'}
+                actions={
+                  <RzTabs
+                    tabs={[{ value: 'volume', label: 'Volume' }, { value: 'duration', label: 'Duration' }]}
+                    value={metric}
+                    onChange={setMetric}
+                  />
+                }
+              >
+                {timeSeries?.summary && (
+                  <div className="rz-cluster-sm" style={{ marginBottom: 10 }}>
+                    <span className="rz-label">Total</span>
+                    <span className="rz-metric-sm" style={{ color: 'var(--cyan-fg)' }}>
+                      {timeSeries.summary.total?.toLocaleString()}{metric === 'duration' ? ' min' : ''}
+                    </span>
+                  </div>
+                )}
+                <div style={{ height: 260 }}><AreaChart /></div>
+              </RzCard>
+
+              <RzCard title="Outcomes">
+                {outcomes.length ? (
+                  <div className="rz-stack" style={{ gap: 12 }}>
+                    {outcomes.map((o, i) => (
+                      <RzMeter
+                        key={o.outcome}
+                        label={<span style={{ textTransform: 'capitalize' }}>{o.outcome.replace(/_/g, ' ')}</span>}
+                        hint={`${o.count} · ${o.percentage}%`}
+                        segments={[{ pct: o.percentage, color: SERIES[i % SERIES.length] }]}
+                      />
+                    ))}
+                  </div>
+                ) : (
+                  <RzEmpty title="No outcomes yet" text="Outcomes appear once your agents have completed calls in this period." />
+                )}
+              </RzCard>
+            </div>
+
+            {/* Sentiment + heatmap */}
+            <div className="rz-grid-2">
+              <RzCard title="Sentiment">
+                {sentiment.length ? (
+                  <div className="rz-stack" style={{ gap: 12 }}>
+                    {sentiment.map(s => {
+                      const total = sentiment.reduce((sum, x) => sum + x.count, 0) || 1;
+                      return (
+                        <RzMeter
+                          key={s.sentiment}
+                          label={<span style={{ textTransform: 'capitalize' }}>{s.sentiment}</span>}
+                          hint={`${s.count} calls · avg ${s.avgDuration}m`}
+                          segments={[{
+                            pct: (s.count / total) * 100,
+                            color: s.sentiment === 'positive' ? 'var(--lime)'
+                              : s.sentiment === 'negative' ? 'var(--err)'
+                              : 'var(--tx-3)',
+                          }]}
+                        />
+                      );
+                    })}
+                  </div>
+                ) : (
+                  <RzEmpty title="No sentiment data" text="Sentiment is scored after a call completes with a transcript." />
+                )}
+              </RzCard>
+
+              <RzCard title="Activity by hour">
+                <div style={{ overflowX: 'auto' }}>
+                  <div style={{ display: 'grid', gridTemplateColumns: '36px repeat(24, 1fr)', gap: 2, minWidth: 480 }}>
+                    <div />
+                    {Array.from({ length: 24 }, (_, h) => (
+                      <div key={h} className="rz-mono-xs" style={{ textAlign: 'center', fontSize: 9 }}>{h}</div>
+                    ))}
+                    {heatmap.map(day => (
+                      <div key={day.day} style={{ display: 'contents' }}>
+                        <div className="rz-mono-xs" style={{ display: 'flex', alignItems: 'center' }}>{day.day}</div>
+                        {day.hours.map(h => (
+                          <div
+                            key={h.hour}
+                            title={`${day.day} ${h.hour}:00 — ${h.count} calls`}
+                            style={{
+                              aspectRatio: '1',
+                              borderRadius: 2,
+                              minWidth: 14,
+                              background: h.count > 0
+                                ? `rgba(14,179,158,${Math.max(h.intensity / 100, 0.12)})`
+                                : 'var(--s2)',
+                            }}
+                          />
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </RzCard>
+            </div>
+
+            {/* Call log table */}
+            <RzCard
+              flush
+              title="Recent calls"
+              actions={<span className="rz-mono">{callLogs?.pagination?.total ?? 0} total</span>}
+            >
+              <div className="rz-table-wrap">
+                <table className="rz-table">
                   <thead>
-                    <tr style={{ borderBottom:'1px solid var(--border)' }}>
-                      {['Agent','Total','Completed','Failed','Avg Duration','Success Rate','Cost'].map(h=>(
-                        <th key={h} style={{ padding:'10px 14px', textAlign:'left', fontSize:'11px', fontWeight:700, color:'var(--text-muted)', textTransform:'uppercase', letterSpacing:'0.5px' }}>{h}</th>
-                      ))}
+                    <tr>
+                      {['Agent','From','To','Direction','Status','Duration','Cost','Sentiment','Started'].map(h => <th key={h}>{h}</th>)}
                     </tr>
                   </thead>
                   <tbody>
-                    {agentPerf.map(a => (
-                      <tr key={a.id} style={{ borderBottom:'1px solid rgba(255,255,255,0.03)' }}>
-                        <td style={{ padding:'10px 14px', color:'white',  fontSize:'13px', fontWeight:600 }}>{a.name}</td>
-                        <td style={{ padding:'10px 14px', color:'white',  fontSize:'13px' }}>{a.totalCalls}</td>
-                        <td style={{ padding:'10px 14px', color:'#4ecdc4',fontSize:'13px' }}>{a.completedCalls}</td>
-                        <td style={{ padding:'10px 14px', color:'#ff6b6b',fontSize:'13px' }}>{a.failedCalls}</td>
-                        <td style={{ padding:'10px 14px', color:'var(--text-secondary)', fontSize:'13px' }}>{a.avgDuration} min</td>
-                        <td style={{ padding:'10px 14px' }}>
-                          <span style={{ padding:'2px 8px', borderRadius:'4px', fontSize:'11px', fontWeight:700, background: a.successRate>=50?'rgba(0,212,200,0.1)':'rgba(255,107,107,0.1)', color: a.successRate>=50?'#00d4c8':'#ff6b6b' }}>{a.successRate}%</span>
-                        </td>
-                        <td style={{ padding:'10px 14px', color:'var(--text-secondary)', fontSize:'13px' }}>${a.totalCost}</td>
+                    {loading ? (
+                      <tr><td colSpan={9} style={{ textAlign: 'center', padding: 40 }} className="rz-mono">Loading…</td></tr>
+                    ) : !callLogs?.data?.length ? (
+                      <tr><td colSpan={9} style={{ padding: 0 }}>
+                        <RzEmpty title="No calls in this period" text="Adjust the date range or agent filter to widen the search." />
+                      </td></tr>
+                    ) : callLogs.data.map(c => (
+                      <tr key={c.id}>
+                        <td className="rz-td-strong">{c.assistant}</td>
+                        <td className="rz-td-mono">{c.from}</td>
+                        <td className="rz-td-mono">{c.to}</td>
+                        <td><RzPill tone={c.direction === 'INBOUND' ? 'info' : 'think'}>{c.direction?.toLowerCase()}</RzPill></td>
+                        <td><RzPill tone={statusTone(c.status)}>{c.status}</RzPill></td>
+                        <td className="rz-td-strong rz-td-mono">{c.durationFormatted}</td>
+                        <td className="rz-td-mono">${c.cost?.toFixed(2) ?? '0.00'}</td>
+                        <td>{c.sentiment ? <RzPill tone={sentimentTone(c.sentiment)}>{c.sentiment}</RzPill> : <span className="rz-muted">—</span>}</td>
+                        <td className="rz-td-mono" style={{ whiteSpace: 'nowrap' }}>{c.startedAt ? format(parseISO(c.startedAt), 'MMM dd, HH:mm') : '—'}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-            </div>
-          )}
-        </>
-      ) : (
-        /* ── Chatbot tab ── */
-        <>
-          {chatbot ? (
-            <>
-              {/* KPI cards */}
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(200px,1fr))', gap:'16px', marginBottom:'24px' }}>
-                {[
-                  { label:'💬 Messages',     val: chatbot.messages.total,       sub:`${chatbot.messages.inbound} in · ${chatbot.messages.outbound} out`, color:'var(--teal-fg)' },
-                  { label:'🗨️ Conversations', val: chatbot.conversations.total,  sub:`${chatbot.conversations.open} open · ${chatbot.conversations.resolved} resolved`, color:'#45b7d1' },
-                  { label:'👥 Contacts',      val: chatbot.contacts.total,       sub:`+${chatbot.contacts.new} new this period`, color:'#96ceb4' },
-                  { label:'📣 Campaigns',     val: chatbot.campaigns.total,      sub:`${chatbot.campaigns.active} active`, color:'#ffeaa7' },
-                ].map(({ label, val, sub, color }) => (
-                  <div key={label} style={{ ...card, borderTop:`2px solid ${color}` }}>
-                    <div style={{ fontSize:'12px', color:'var(--text-secondary)', fontWeight:600, marginBottom:'8px' }}>{label}</div>
-                    <div style={{ fontSize:'28px', fontWeight:700, color:'white' }}>{val.toLocaleString()}</div>
-                    <div style={{ fontSize:'12px', color:'var(--text-muted)', marginTop:'4px' }}>{sub}</div>
-                  </div>
-                ))}
-              </div>
-
-              {/* Rate metrics */}
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(140px,1fr))', gap:'12px', marginBottom:'24px' }}>
-                <MiniCard label="Delivery Rate"  value={`${chatbot.rates.deliveryRate}%`}  color="#00d4c8" />
-                <MiniCard label="Read Rate"      value={`${chatbot.rates.readRate}%`}      color="#4ecdc4" />
-                <MiniCard label="Response Rate"  value={`${chatbot.rates.responseRate}%`}  color="#45b7d1" />
-                <MiniCard label="Opt-Out Rate"   value={`${chatbot.rates.optOutRate}%`}    color="#ff6b6b" />
-                <MiniCard label="Opt-Outs"       value={chatbot.contacts.optOuts}          color="#ff6b6b" />
-              </div>
-
-              {/* Delivery bar chart */}
-              <div style={{ ...card, marginBottom:'24px' }}>
-                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:'16px' }}>
-                  <div>
-                    <h3 style={{ color:'white', fontSize:'16px', fontWeight:700, marginBottom:'4px' }}>Message Delivery Rate</h3>
-                    <p style={{ color:'var(--text-secondary)', fontSize:'13px' }}>Daily sent vs delivered</p>
-                  </div>
-                  <div style={{ display:'flex', gap:'16px', fontSize:'11px', color:'var(--text-muted)' }}>
-                    <span><span style={{ color:'#00d4c8' }}>■</span> &gt;97%</span>
-                    <span><span style={{ color:'#ffeaa7' }}>■</span> 93–97%</span>
-                    <span><span style={{ color:'#ff6b6b' }}>■</span> &lt;93%</span>
-                  </div>
+              {callLogs?.pagination && callLogs.pagination.totalPages > 1 && (
+                <div className="rz-between" style={{ padding: '14px 18px', borderTop: '1px solid var(--line)' }}>
+                  <button className="rz-btn rz-btn-ghost rz-btn-sm" disabled={!callLogs.pagination.hasPrev} onClick={() => setLogsPage(p => p - 1)}>← Prev</button>
+                  <span className="rz-mono">Page {callLogs.pagination.page} / {callLogs.pagination.totalPages}</span>
+                  <button className="rz-btn rz-btn-ghost rz-btn-sm" disabled={!callLogs.pagination.hasNext} onClick={() => setLogsPage(p => p + 1)}>Next →</button>
                 </div>
-                <div style={{ display:'flex', alignItems:'flex-end', gap:'6px', height:'120px' }}>
+              )}
+            </RzCard>
+
+            {/* Agent performance */}
+            {agentPerf.length > 0 && (
+              <RzCard flush title="Agent performance">
+                <div className="rz-table-wrap">
+                  <table className="rz-table">
+                    <thead>
+                      <tr>
+                        {['Agent','Total','Completed','Failed','Avg duration','Success rate','Cost'].map(h => <th key={h}>{h}</th>)}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {agentPerf.map(a => (
+                        <tr key={a.id}>
+                          <td className="rz-td-strong">{a.name}</td>
+                          <td className="rz-td-mono">{a.totalCalls}</td>
+                          <td className="rz-td-mono" style={{ color: 'var(--lime)' }}>{a.completedCalls}</td>
+                          <td className="rz-td-mono" style={{ color: 'var(--err)' }}>{a.failedCalls}</td>
+                          <td className="rz-td-mono">{a.avgDuration} min</td>
+                          <td><RzPill tone={a.successRate >= 50 ? 'ok' : 'err'}>{a.successRate}%</RzPill></td>
+                          <td className="rz-td-mono">${a.totalCost}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </RzCard>
+            )}
+          </div>
+        ) : (
+          /* ── Chatbot tab ── */
+          chatbot ? (
+            <div className="rz-stack">
+              <div className="rz-stats">
+                <RzStat label="MESSAGES"      value={chatbot.messages.total.toLocaleString()}      delta={`${chatbot.messages.inbound} in · ${chatbot.messages.outbound} out`} />
+                <RzStat label="CONVERSATIONS" value={chatbot.conversations.total.toLocaleString()} delta={`${chatbot.conversations.open} open · ${chatbot.conversations.resolved} resolved`} />
+                <RzStat label="CONTACTS"      value={chatbot.contacts.total.toLocaleString()}      delta={`+${chatbot.contacts.new} new`} trend="up" />
+                <RzStat label="CAMPAIGNS"     value={chatbot.campaigns.total.toLocaleString()}     delta={`${chatbot.campaigns.active} active`} />
+              </div>
+
+              <div className="rz-stats">
+                <RzStat label="DELIVERY RATE" value={`${chatbot.rates.deliveryRate}%`} color="var(--lime)" />
+                <RzStat label="READ RATE"     value={`${chatbot.rates.readRate}%`}     color="var(--cyan-fg)" />
+                <RzStat label="RESPONSE RATE" value={`${chatbot.rates.responseRate}%`} color="var(--violet)" />
+                <RzStat label="OPT-OUT RATE"  value={`${chatbot.rates.optOutRate}%`}   color="var(--err)" />
+              </div>
+
+              <RzCard
+                title="Message delivery rate"
+                actions={
+                  <div className="rz-cluster-sm rz-mono">
+                    <span style={{ color: 'var(--lime)' }}>● &gt;97%</span>
+                    <span style={{ color: 'var(--warn)' }}>● 93–97%</span>
+                    <span style={{ color: 'var(--err)' }}>● &lt;93%</span>
+                  </div>
+                }
+              >
+                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 130 }}>
                   {chatbot.deliveryChart.map(d => (
-                    <div key={d.date} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:'4px', height:'100%', justifyContent:'flex-end' }}>
-                      <span style={{ fontSize:'9px', color:'var(--text-muted)' }}>{d.sent>0?`${d.rate}%`:'—'}</span>
-                      <div style={{ width:'100%', minHeight:'2px', height:`${d.sent>0?Math.max(d.rate,2):2}%`, background: d.rate>97?'#00d4c8':d.rate>93?'#ffeaa7':'#ff6b6b', borderRadius:'3px 3px 0 0' }} title={`${d.date}: ${d.sent} sent, ${d.delivered} delivered`} />
-                      <span style={{ fontSize:'9px', color:'var(--text-muted)' }}>{d.date.slice(5)}</span>
+                    <div key={d.date} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, height: '100%', justifyContent: 'flex-end' }}>
+                      <span className="rz-mono-xs" style={{ fontSize: 9 }}>{d.sent > 0 ? `${d.rate}%` : '—'}</span>
+                      <div
+                        title={`${d.date}: ${d.sent} sent, ${d.delivered} delivered`}
+                        style={{
+                          width: '100%',
+                          minHeight: 2,
+                          height: `${d.sent > 0 ? Math.max(d.rate, 2) : 2}%`,
+                          background: d.rate > 97 ? 'var(--lime)' : d.rate > 93 ? 'var(--warn)' : 'var(--err)',
+                          borderRadius: '3px 3px 0 0',
+                        }}
+                      />
+                      <span className="rz-mono-xs" style={{ fontSize: 9 }}>{d.date.slice(5)}</span>
                     </div>
                   ))}
                 </div>
-              </div>
+              </RzCard>
 
-              {/* Message breakdown + conversation status */}
-              <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(280px,1fr))', gap:'24px' }}>
-                <div style={card}>
-                  <h3 style={{ color:'white', fontSize:'15px', fontWeight:700, marginBottom:'16px' }}>Message Breakdown</h3>
-                  {[
-                    { label:'Sent (outbound)',    val: chatbot.messages.outbound,  color:'#45b7d1', max: chatbot.messages.total },
-                    { label:'Received (inbound)', val: chatbot.messages.inbound,   color:'#00d4c8', max: chatbot.messages.total },
-                    { label:'Delivered',          val: chatbot.messages.delivered, color:'#4ecdc4', max: chatbot.messages.outbound },
-                    { label:'Read',               val: chatbot.messages.read,      color:'#96ceb4', max: chatbot.messages.outbound },
-                  ].map(({ label, val, color, max }) => (
-                    <div key={label} style={{ marginBottom:'12px' }}>
-                      <div style={{ display:'flex', justifyContent:'space-between', marginBottom:'4px' }}>
-                        <span style={{ fontSize:'13px', color:'var(--text-secondary)' }}>{label}</span>
-                        <span style={{ fontSize:'13px', color:'white', fontWeight:600 }}>{val.toLocaleString()}</span>
+              <div className="rz-grid-2">
+                <RzCard title="Message breakdown">
+                  <div className="rz-stack" style={{ gap: 12 }}>
+                    {[
+                      { label: 'Sent (outbound)',    val: chatbot.messages.outbound,  color: 'var(--violet)', max: chatbot.messages.total },
+                      { label: 'Received (inbound)', val: chatbot.messages.inbound,   color: 'var(--cyan)',   max: chatbot.messages.total },
+                      { label: 'Delivered',          val: chatbot.messages.delivered, color: 'var(--lime)',   max: chatbot.messages.outbound },
+                      { label: 'Read',               val: chatbot.messages.read,      color: 'var(--warn)',   max: chatbot.messages.outbound },
+                    ].map(({ label, val, color, max }) => (
+                      <RzMeter
+                        key={label}
+                        label={label}
+                        hint={val.toLocaleString()}
+                        segments={[{ pct: max > 0 ? Math.min((val / max) * 100, 100) : 0, color }]}
+                      />
+                    ))}
+                  </div>
+                </RzCard>
+
+                <RzCard title="Conversation status">
+                  <div className="rz-stack" style={{ gap: 0 }}>
+                    {[
+                      { label: 'Open',        val: chatbot.conversations.open,     color: 'var(--warn)' },
+                      { label: 'Resolved',    val: chatbot.conversations.resolved, color: 'var(--lime)' },
+                      { label: 'This period', val: chatbot.conversations.total,    color: 'var(--cyan-fg)' },
+                    ].map(({ label, val, color }) => (
+                      <div key={label} className="rz-between" style={{ padding: '13px 0', borderBottom: '1px solid var(--line)' }}>
+                        <span className="rz-sub">{label}</span>
+                        <span className="rz-metric-sm" style={{ color }}>{val.toLocaleString()}</span>
                       </div>
-                      <div style={{ height:'4px', background:'rgba(255,255,255,0.05)', borderRadius:'2px' }}>
-                        <div style={{ height:'100%', width:`${max>0?Math.min((val/max)*100,100):0}%`, background:color, borderRadius:'2px', transition:'width 0.5s' }} />
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div style={card}>
-                  <h3 style={{ color:'white', fontSize:'15px', fontWeight:700, marginBottom:'16px' }}>Conversation Status</h3>
-                  {[
-                    { label:'Open',       val: chatbot.conversations.open,     color:'#ffeaa7' },
-                    { label:'Resolved',   val: chatbot.conversations.resolved, color:'#00d4c8' },
-                    { label:'This Period',val: chatbot.conversations.total,    color:'#45b7d1' },
-                  ].map(({ label, val, color }) => (
-                    <div key={label} style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'12px 0', borderBottom:'1px solid rgba(255,255,255,0.04)' }}>
-                      <span style={{ fontSize:'13px', color:'var(--text-secondary)' }}>{label}</span>
-                      <span style={{ fontSize:'18px', fontWeight:700, color }}>{val.toLocaleString()}</span>
-                    </div>
-                  ))}
-                </div>
+                    ))}
+                  </div>
+                </RzCard>
               </div>
-            </>
-          ) : (
-            <div style={{ ...card, textAlign:'center', padding:'60px' }}>
-              {loading ? <><div style={{ fontSize:'32px', marginBottom:'12px' }}>⏳</div><p style={{ color:'var(--text-muted)' }}>Loading chatbot data…</p></> : <><div style={{ fontSize:'48px', marginBottom:'16px' }}>💬</div><h3 style={{ color:'white', marginBottom:'8px' }}>No Chatbot Data Yet</h3><p style={{ color:'var(--text-muted)' }}>Send your first WhatsApp campaign to see analytics here.</p></>}
             </div>
-          )}
-        </>
-      )}
+          ) : (
+            <RzCard>
+              <RzEmpty
+                title={loading ? 'Loading chatbot data…' : 'No chatbot data yet'}
+                text={loading ? undefined : 'Send your first WhatsApp campaign to see analytics here.'}
+              />
+            </RzCard>
+          )
+        )}
+      </div>
     </div>
   );
 }

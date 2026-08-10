@@ -250,68 +250,79 @@ export default function CloneVoice() {
 
   const tabBtn = (tab: 'record' | 'upload', label: string) => (
     <button
+      type="button"
+      role="tab"
+      aria-selected={activeTab === tab}
+      className={`rz-tab${activeTab === tab ? ' is-active' : ''}`}
       onClick={() => setActiveTab(tab)}
-      style={{
-        padding: '8px 16px', borderRadius: '6px', border: '1px solid var(--border)',
-        background: activeTab === tab ? '#111827' : 'transparent', color: 'var(--text-primary)',
-        fontSize: '13px', fontWeight: 600, cursor: 'pointer',
-        display: 'flex', alignItems: 'center', gap: '6px',
-      }}
     >
       {label}
     </button>
   );
 
   return (
-    <>
-      <div style={{ marginBottom: '32px' }}>
-        <h1 style={{ fontSize: '28px', fontWeight: 800, letterSpacing: '-0.5px', marginBottom: '6px' }}>Clone Voice</h1>
-        <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
-          Create custom AI voices by uploading audio samples. Minimum {MIN_SECONDS} seconds, recommended 30-60 seconds of clear speech.
-        </p>
+    <div className="rz-page rz-page-pad rz-bleed">
+     <div className="rz-wrap">
+      <div className="rz-head">
+        <div>
+          <div className="rz-eyebrow">Voice lab</div>
+          <h1 className="rz-h1">Clone a voice</h1>
+          <p className="rz-sub" style={{ margin: '8px 0 0', maxWidth: 620 }}>
+            Build a custom voice from a recording. {MIN_SECONDS} seconds is the minimum;
+            30–60 seconds of clear speech gives a noticeably better clone.
+          </p>
+        </div>
       </div>
 
-      <div style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: '32px', background: 'rgba(255,255,255,0.01)', marginBottom: '32px' }}>
-        <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '16px', marginBottom: '8px' }}>
-          <span style={{ fontSize: '16px' }}>🎙️</span> Clone Your Voice
-        </h3>
-        <p style={{ color: 'var(--text-secondary)', fontSize: '13px', marginBottom: '24px' }}>
-          Upload an audio sample or record directly from your microphone. Speak clearly with minimal background noise for best results.
+      <div className="rz-card rz-card-lg" style={{ marginBottom: '22px' }}>
+        <div className="rz-title" style={{ fontSize: 17 }}>Record or upload a sample</div>
+        <p className="rz-sub" style={{ margin: '6px 0 18px' }}>
+          Speak clearly with minimal background noise. The clone reproduces whatever it hears, room tone included.
         </p>
 
-        <div style={{ display: 'flex', gap: '8px', marginBottom: '24px' }}>
-          {tabBtn('record', '🎙️ Record')}
-          {tabBtn('upload', '☁️ Upload File')}
+        <div className="rz-tabs" style={{ marginBottom: '20px' }}>
+          {tabBtn('record', 'Record')}
+          {tabBtn('upload', 'Upload file')}
         </div>
 
         {activeTab === 'record' && (
           <div
             onClick={recording ? stopRecording : startRecording}
             style={{
-              border: recording ? '1px dashed #ef4444' : '1px dashed var(--border)',
-              borderRadius: '8px', padding: '48px 24px', display: 'flex', flexDirection: 'column',
-              alignItems: 'center', background: 'rgba(0,0,0,0.15)', marginBottom: '24px', cursor: 'pointer',
+              border: `1.5px dashed ${recording ? 'var(--err)' : 'var(--line-2)'}`,
+              borderRadius: '16px', padding: '44px 24px', display: 'flex', flexDirection: 'column',
+              alignItems: 'center', background: 'var(--bg-2)', marginBottom: '20px', cursor: 'pointer',
+              transition: 'border-color .15s ease',
             }}
           >
-            <div style={{
-              width: '48px', height: '48px', borderRadius: '50%',
-              background: recording ? 'rgba(239,68,68,0.15)' : 'rgba(0, 212, 200, 0.1)',
-              border: recording ? '1px solid rgba(239,68,68,0.4)' : '1px solid rgba(0, 212, 200, 0.2)',
-              display: 'flex', alignItems: 'center', justifyContent: 'center',
-              color: recording ? '#ef4444' : 'var(--teal)', marginBottom: '16px', fontSize: '20px',
-            }}>
-              {recording ? '⏺' : '🎙️'}
+            {/* The mark pulses only while recording — a live indicator, not decoration. */}
+            <div
+              className={`rz-mark rz-mark-lg ${recording ? '' : ''}`}
+              style={{
+                width: 52, height: 52, borderRadius: 14, marginBottom: 16,
+                background: recording ? 'rgba(248,113,113,0.14)' : 'rgba(14,179,158,0.1)',
+                color: recording ? 'var(--err)' : 'var(--cyan-fg)',
+              }}
+            >
+              {recording
+                ? <span className="rz-dot rz-dot-err rz-dot-live" style={{ width: 14, height: 14 }} />
+                : (
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" />
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="23" />
+                  </svg>
+                )}
             </div>
-            <h4 style={{ fontSize: '15px', color: 'var(--text-primary)', marginBottom: '4px' }}>
+            <div className="rz-title-lg" style={{ fontSize: 17 }}>
               {recording ? `Recording… ${formatTime(elapsed)} — click to stop` : 'Click to start recording'}
-            </h4>
-            <p style={{ color: 'var(--text-muted)', fontSize: '13px', marginBottom: '24px' }}>
-              Speak clearly • at least {MIN_SECONDS} seconds
+            </div>
+            <p className="rz-sub" style={{ margin: '6px 0 20px' }}>
+              Speak clearly · at least {MIN_SECONDS} seconds
             </p>
-            <div style={{ display: 'flex', gap: '24px', fontSize: '12px', color: 'var(--text-muted)' }}>
-              <span>🤫 Quiet room</span>
-              <span>📏 15-30 cm away</span>
-              <span>🗣️ Normal pace</span>
+            <div className="rz-cluster" style={{ gap: 20, justifyContent: 'center' }}>
+              <span className="rz-mono-xs">Quiet room</span>
+              <span className="rz-mono-xs">15–30 cm away</span>
+              <span className="rz-mono-xs">Normal pace</span>
             </div>
           </div>
         )}
@@ -322,7 +333,7 @@ export default function CloneVoice() {
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files?.[0]; if (f) handleFile(f); }}
             style={{
-              border: '1px dashed var(--border)', borderRadius: '8px', padding: '60px 24px',
+              border: '1px dashed var(--line)', borderRadius: '8px', padding: '60px 24px',
               display: 'flex', flexDirection: 'column', alignItems: 'center',
               background: 'rgba(0,0,0,0.15)', marginBottom: '24px', cursor: 'pointer',
             }}
@@ -335,31 +346,31 @@ export default function CloneVoice() {
               onChange={(e) => { const f = e.target.files?.[0]; if (f) handleFile(f); e.target.value = ''; }}
             />
             <div style={{ fontSize: '32px', marginBottom: '16px' }}>☁️</div>
-            <p style={{ color: 'var(--text-primary)', fontWeight: 600, marginBottom: '8px' }}>Click to upload or drag and drop</p>
-            <p style={{ color: 'var(--text-muted)', fontSize: '13px' }}>MP3, WAV up to {MAX_FILE_MB}MB</p>
+            <p style={{ color: 'var(--tx)', fontWeight: 600, marginBottom: '8px' }}>Click to upload or drag and drop</p>
+            <p style={{ color: 'var(--tx-3)', fontSize: '13px' }}>MP3, WAV up to {MAX_FILE_MB}MB</p>
           </div>
         )}
 
         {sample && previewUrl && (
           <div style={{
             display: 'flex', alignItems: 'center', gap: '12px', padding: '12px 16px',
-            border: '1px solid var(--border)', borderRadius: '8px', marginBottom: '24px',
+            border: '1px solid var(--line)', borderRadius: '8px', marginBottom: '24px',
             background: 'rgba(0,212,200,0.05)',
           }}>
             <span style={{ fontSize: '18px' }}>🎧</span>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div style={{ color: 'var(--text-primary)', fontSize: '13px', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sampleName}</div>
-              <div style={{ color: 'var(--text-muted)', fontSize: '12px' }}>
+              <div style={{ color: 'var(--tx)', fontSize: '13px', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{sampleName}</div>
+              <div style={{ color: 'var(--tx-3)', fontSize: '12px' }}>
                 {sampleDuration !== null ? `${sampleDuration}s` : 'Duration unknown'}
                 {sampleDuration !== null && sampleDuration < MIN_SECONDS && (
-                  <span style={{ color: '#f59e0b' }}> — too short, aim for {MIN_SECONDS}s+</span>
+                  <span style={{ color: 'var(--warn)' }}> — too short, aim for {MIN_SECONDS}s+</span>
                 )}
               </div>
             </div>
             <audio controls src={previewUrl} style={{ height: '32px', maxWidth: '220px' }} />
             <button
               onClick={() => { setSample(null); setSampleName(''); setSampleDuration(null); if (previewUrl) { URL.revokeObjectURL(previewUrl); setPreviewUrl(null); } }}
-              style={{ background: 'transparent', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', fontSize: '16px' }}
+              style={{ background: 'transparent', border: 'none', color: 'var(--tx-3)', cursor: 'pointer', fontSize: '16px' }}
               title="Remove sample"
             >
               ✕
@@ -369,7 +380,7 @@ export default function CloneVoice() {
 
         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px', marginBottom: '24px' }}>
           <div>
-            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>Voice Name *</label>
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--tx)', marginBottom: '8px' }}>Voice Name *</label>
             <input
               type="text" className="form-input" placeholder="e.g. My Professional Voice"
               value={name} onChange={(e) => setName(e.target.value)}
@@ -377,7 +388,7 @@ export default function CloneVoice() {
             />
           </div>
           <div>
-            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>Gender *</label>
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--tx)', marginBottom: '8px' }}>Gender *</label>
             <select className="form-select" value={gender} onChange={(e) => setGender(e.target.value)} style={{ width: '100%', background: 'rgba(0,0,0,0.2)', backgroundImage: 'none' }}>
               <option>Female</option>
               <option>Male</option>
@@ -385,7 +396,7 @@ export default function CloneVoice() {
             </select>
           </div>
           <div>
-            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>Language *</label>
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--tx)', marginBottom: '8px' }}>Language *</label>
             <select className="form-select" value={language} onChange={(e) => setLanguage(e.target.value)} style={{ width: '100%', background: 'rgba(0,0,0,0.2)', backgroundImage: 'none' }}>
               <option>English</option>
               <option>Hindi</option>
@@ -398,8 +409,8 @@ export default function CloneVoice() {
             </select>
           </div>
           <div>
-            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '8px' }}>
-              Description <span style={{ color: 'var(--text-muted)', fontWeight: 400 }}>(optional)</span>
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--tx)', marginBottom: '8px' }}>
+              Description <span style={{ color: 'var(--tx-3)', fontWeight: 400 }}>(optional)</span>
             </label>
             <textarea
               className="form-input" placeholder="Describe this voice or its intended use..."
@@ -421,25 +432,25 @@ export default function CloneVoice() {
       </div>
 
       {/* Cloned voices list */}
-      <div style={{ border: '1px solid var(--border)', borderRadius: '8px', padding: voices.length ? '24px' : '48px', background: 'rgba(255,255,255,0.01)' }}>
+      <div className="rz-card rz-card-lg" style={{ padding: voices.length ? 22 : 0 }}>
         {loadingList ? (
-          <p style={{ color: 'var(--text-muted)', textAlign: 'center' }}>Loading your voices…</p>
+          <p style={{ color: 'var(--tx-3)', textAlign: 'center' }}>Loading your voices…</p>
         ) : voices.length === 0 ? (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
-            <div style={{ color: 'var(--text-muted)', marginBottom: '16px', fontSize: '32px' }}>🎙️</div>
-            <h3 style={{ fontSize: '16px', marginBottom: '8px' }}>No Cloned Voices Yet</h3>
-            <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>
+            <div style={{ color: 'var(--tx-3)', marginBottom: '16px', fontSize: '32px' }}>🎙️</div>
+            <h3 className="rz-empty-title" style={{ marginBottom: '8px' }}>No cloned voices yet</h3>
+            <p style={{ color: 'var(--tx-2)', fontSize: '14px' }}>
               Upload your first audio sample above to create a custom AI voice.
             </p>
           </div>
         ) : (
           <>
-            <h3 style={{ fontSize: '16px', marginBottom: '16px' }}>Your Cloned Voices ({voices.length})</h3>
+            <div className="rz-title" style={{ fontSize: 16, marginBottom: '16px' }}>Your cloned voices ({voices.length})</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
               {voices.map((v) => (
                 <div key={v.id} style={{
                   display: 'flex', alignItems: 'center', gap: '14px',
-                  padding: '14px 16px', border: '1px solid var(--border)', borderRadius: '8px',
+                  padding: '14px 16px', border: '1px solid var(--line)', borderRadius: '8px',
                 }}>
                   <button
                     onClick={() => playSample(v)}
@@ -449,15 +460,15 @@ export default function CloneVoice() {
                       width: '36px', height: '36px', borderRadius: '50%',
                       cursor: v.hasSample ? 'pointer' : 'not-allowed',
                       opacity: v.hasSample ? 1 : 0.4,
-                      border: '1px solid var(--border)', background: 'rgba(0,212,200,0.08)',
-                      color: playingId === v.id ? '#ef4444' : 'var(--teal)', fontSize: '14px',
+                      border: '1px solid var(--line)', background: 'rgba(0,212,200,0.08)',
+                      color: playingId === v.id ? 'var(--err)' : 'var(--cyan)', fontSize: '14px',
                     }}
                   >
                     {playingId === v.id ? '■' : '▶'}
                   </button>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ color: 'var(--text-primary)', fontWeight: 600, fontSize: '14px' }}>{v.name}</div>
-                    <div style={{ color: 'var(--text-muted)', fontSize: '12px' }}>
+                    <div style={{ color: 'var(--tx)', fontWeight: 600, fontSize: '14px' }}>{v.name}</div>
+                    <div style={{ color: 'var(--tx-3)', fontSize: '12px' }}>
                       {[v.gender, v.language].filter(Boolean).join(' • ')}
                       {v.description ? ` — ${v.description}` : ''}
                     </div>
@@ -465,7 +476,7 @@ export default function CloneVoice() {
                   <span style={{
                     padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 700,
                     background: v.status === 'cloned' ? 'rgba(34,197,94,0.12)' : 'rgba(245,158,11,0.12)',
-                    color: v.status === 'cloned' ? '#22c55e' : '#f59e0b',
+                    color: v.status === 'cloned' ? 'var(--lime)' : 'var(--warn)',
                     border: `1px solid ${v.status === 'cloned' ? 'rgba(34,197,94,0.3)' : 'rgba(245,158,11,0.3)'}`,
                   }}>
                     {v.status === 'cloned' ? 'Cloned' : 'Sample saved'}
@@ -480,8 +491,8 @@ export default function CloneVoice() {
                         title="Delete only the uploaded recording — the cloned voice keeps working"
                         style={{
                           padding: '6px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 600,
-                          border: '1px solid var(--border)', background: 'transparent',
-                          color: 'var(--text-secondary)', cursor: busyId === v.id ? 'wait' : 'pointer',
+                          border: '1px solid var(--line)', background: 'transparent',
+                          color: 'var(--tx-2)', cursor: busyId === v.id ? 'wait' : 'pointer',
                         }}
                       >
                         Delete sample
@@ -494,7 +505,7 @@ export default function CloneVoice() {
                       style={{
                         padding: '6px 10px', borderRadius: '6px', fontSize: '12px', fontWeight: 600,
                         border: '1px solid rgba(239,68,68,0.35)', background: 'rgba(239,68,68,0.08)',
-                        color: '#f87171', cursor: busyId === v.id ? 'wait' : 'pointer',
+                        color: 'var(--err)', cursor: busyId === v.id ? 'wait' : 'pointer',
                       }}
                     >
                       🗑 Delete
@@ -506,6 +517,7 @@ export default function CloneVoice() {
           </>
         )}
       </div>
-    </>
+     </div>
+    </div>
   );
 }

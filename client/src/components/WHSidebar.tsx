@@ -142,7 +142,7 @@ export default function WHSidebar() {
 
       {/* Footer tour card */}
       <div style={{ padding: '12px 16px' }}>
-        <div className="wh-sidebar-tour" style={{ backgroundColor: '#062828', borderRadius: '8px', padding: '14px', color: '#fff' }}>
+        <div className="wh-sidebar-tour" style={{ backgroundColor: 'var(--s2)', borderRadius: '10px', padding: '14px', color: 'var(--tx)' }}>
           <div style={{ fontSize: '12px', fontWeight: 600, display: 'flex', gap: '6px', marginBottom: '12px' }}>
             <span style={{ fontSize: '16px' }}>🎓</span> Need a Quick Tour?
           </div>
