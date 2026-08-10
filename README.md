@@ -52,7 +52,7 @@ Marketing site → Sign up → Workspace → Build agent → Web call test → P
 - **Call logs** with recordings and transcripts.
 
 ### WhatsApp Business
-Meta Cloud API integration: numbers, message templates, contacts, conversations, keyword triggers, automation flows, broadcast campaigns and webhooks. The dedicated WhatsApp dashboard lives in [`chatflow-pro/`](#repository-layout).
+Meta Cloud API integration: numbers, message templates, contacts, conversations, keyword triggers, automation flows, broadcast campaigns and webhooks. The WhaBridge dashboard lives under `/WhaBridge` in the main client.
 
 ### Platform
 - **Multi-tenant workspaces** with member roles and invites.
@@ -71,11 +71,8 @@ flowchart TB
     subgraph Client["client/ — React SPA :5173"]
         Marketing[Marketing site]
         Dash[Workspace dashboard]
+        WH[WhaBridge dashboard /WhaBridge]
         Admin[Admin console /admin]
-    end
-
-    subgraph CF["chatflow-pro/ — WhatsApp SPA :8080"]
-        WH[WhaBridge dashboard]
     end
 
     subgraph Backend["backend/ — Express + ws :4000"]
@@ -100,7 +97,6 @@ flowchart TB
     end
 
     Client --> API
-    CF --> API
     Dash -.web call.-> WS
     Tel -.media stream.-> WS
     WS --> Runtime
@@ -206,7 +202,6 @@ Conversational_AI_Agent/
 │       ├── components/          Layouts, campaign wizard, notifications, ui/ (shadcn)
 │       └── services/            Web-call sockets, audio player, ambient sound
 │
-├── chatflow-pro/                WhaBridge — WhatsApp Business dashboard (:8080)
 ├── STARTUP.ps1 / STARTUP.bat    Windows convenience bootstrap
 ├── AUDIT_REPORT.md              Codebase audit
 ├── BUG_SHEET.md                 Tracked defects
@@ -257,17 +252,7 @@ npm run dev
 
 Opens on **http://localhost:5173**. Vite proxies `/api` → `localhost:4000` with `ws: true`, so web-call WebSockets work through the dev server without extra config.
 
-### 3. WhatsApp dashboard (optional)
-
-```bash
-cd chatflow-pro
-npm install
-npm run dev
-```
-
-Runs on **http://localhost:8080** — matching the `CHATFLOW_PRO_URL` default that the backend allows through CORS.
-
-### 4. Create an account
+### 3. Create an account
 
 Register at `/signup`. Outside production, signup completes without a working SMTP server (`ALLOW_UNVERIFIED_SIGNUP` forces the same behaviour in production if you need it). Alternatively seed a demo workspace:
 
@@ -300,7 +285,7 @@ The server starts without anything else. Every optional subsystem fails closed: 
 
 | Group | Variables |
 |---|---|
-| **Server** | `NODE_ENV`, `PORT`, `CLIENT_URL`, `CHATFLOW_PRO_URL`, `JSON_BODY_LIMIT`, `LOG_LEVEL` |
+| **Server** | `NODE_ENV`, `PORT`, `CLIENT_URL`, `JSON_BODY_LIMIT`, `LOG_LEVEL` |
 | **Roles** | `SUPER_ADMIN_EMAIL` — the platform owner; authoritative at every login, grants `/admin` |
 | **Security** | `ENCRYPTION_KEY` (32 chars, encrypts stored integration tokens), `BCRYPT_SALT_ROUNDS` |
 | **Queues** | `REDIS_URL`, `CAMPAIGN_BATCH_SIZE`, `CAMPAIGN_WORKER_CONCURRENCY`, `CAMPAIGN_DIAL_SPACING_MS` |
@@ -323,7 +308,7 @@ The server starts without anything else. Every optional subsystem fails closed: 
 `client/.env`:
 
 ```env
-VITE_WHABRIDGE_URL=http://localhost:8080/dashboard
+VITE_API_URL=http://localhost:4000
 ```
 
 ---
