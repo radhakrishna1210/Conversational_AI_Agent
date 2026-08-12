@@ -13,7 +13,7 @@ set -euo pipefail
 APP_ROOT="/root/apps/convai-voice"
 REPO_URL="${REPO_URL:-https://github.com/HerbsMagic/HM-Voice-agent.git}"
 BRANCH="${DEPLOY_BRANCH:-main}"
-DOMAIN="voice.herbsmagic.in"
+DOMAIN="spandan.mannmate.com"
 PORT="4300"
 NODE_BIN="/root/.nvm/versions/node/v20.10.0/bin"
 

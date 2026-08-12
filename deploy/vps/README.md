@@ -1,4 +1,4 @@
-# VPS Deployment — voice.herbsmagic.in
+# VPS Deployment — spandan.mannmate.com
 
 Deployment of this project onto the **shared** Hostinger VPS at `62.72.12.185`,
 alongside four existing production apps.
@@ -36,7 +36,7 @@ Everything mutable lives outside the git working tree, because `deploy.sh` runs
 
 ## First-time setup
 
-**Prerequisite:** a DNS **A record** for `voice.herbsmagic.in` → `62.72.12.185`,
+**Prerequisite:** a DNS **A record** for `spandan.mannmate.com` → `62.72.12.185`,
 propagated. Certbot's HTTP-01 challenge fails without it.
 
 ```bash
@@ -60,7 +60,7 @@ Then, in order:
    > Supabase database; a fresh value makes every saved credential permanently
    > unreadable, with no recovery path.
 
-2. **Issue the certificate** — `certbot --nginx -d voice.herbsmagic.in`
+2. **Issue the certificate** — `certbot --nginx -d spandan.mannmate.com`
 
 3. **Redis policy** — bootstrap prints the current `maxmemory-policy`. If it
    isn't `noeviction`, check what the other project has in there first
@@ -73,9 +73,84 @@ Then, in order:
 4. **First deploy** — `/root/apps/convai-voice/repo/deploy/vps/deploy.sh`
 
 5. **Point the webhooks** at the new host:
-   - Twilio voice webhook + status callback → `https://voice.herbsmagic.in/api/v1/...`
-   - Razorpay → `https://voice.herbsmagic.in/api/v1/billing/razorpay/webhook`
+   - Twilio voice webhook + status callback → `https://spandan.mannmate.com/api/v1/...`
+   - Razorpay → `https://spandan.mannmate.com/api/v1/billing/razorpay/webhook`
    - Google OAuth redirect URIs → re-register in Google Cloud Console
+
+## Cutover from voice.herbsmagic.in
+
+This app was first deployed at `voice.herbsmagic.in` on this same box, port
+4300. The move to `spandan.mannmate.com` is a **rename in place**: same VPS,
+same port, same PM2 process, same Supabase database, same `shared/uploads`.
+Nothing is copied and nothing is reinstalled — only the hostname in front of it
+changes.
+
+**Order matters.** Every external service still calling the old host keeps
+working right up until the old nginx site is removed, and breaks the instant it
+is. So the old site comes down *last*, after the new one is proven and every
+provider has been re-pointed.
+
+```bash
+# 1. DNS — A record  spandan.mannmate.com → 62.72.12.185
+#    Leave the voice.herbsmagic.in record in place for now.
+dig +short spandan.mannmate.com     # must return 62.72.12.185 before step 3
+
+# 2. New nginx site (the old one stays enabled and serving)
+ssh root@62.72.12.185
+cd /root/apps/convai-voice/repo && git fetch origin main && git reset --hard origin/main
+grep -rn 'server_name' /etc/nginx/sites-enabled/ | grep mannmate   # check for a wildcard
+cp deploy/vps/nginx/spandan.mannmate.com.conf /etc/nginx/sites-available/spandan.mannmate.com
+ln -sfn /etc/nginx/sites-available/spandan.mannmate.com /etc/nginx/sites-enabled/
+nginx -t && systemctl reload nginx      # -t FIRST — five other sites share this nginx
+
+# 3. Certificate
+certbot --nginx -d spandan.mannmate.com
+
+# 4. Env — both hostnames allowed during the overlap, so neither origin breaks
+vim /root/apps/convai-voice/shared/.env
+#   CLIENT_URL=https://spandan.mannmate.com,https://voice.herbsmagic.in
+#   PUBLIC_BACKEND_WS_URL=wss://spandan.mannmate.com
+#   GOOGLE_REDIRECT_URI=https://spandan.mannmate.com/api/v1/integrations/google_calendar/callback
+#   GOOGLE_AUTH_REDIRECT_URI=https://spandan.mannmate.com/api/v1/auth/google/callback
+pm2 restart convai-voice-api --update-env
+```
+
+`CLIENT_URL` is comma-separated and read as a CORS allowlist (`app.js:16`), so
+listing both hosts is what keeps the old page working while you re-register
+providers. `PUBLIC_BACKEND_WS_URL` is a single value and moves immediately —
+it is only ever dialled by Twilio/Exotel, which are re-pointed in step 5.
+
+**5. Re-register every external callback.** Each of these is a separate
+dashboard, and a missed one fails *silently* rather than loudly:
+
+| Provider | What to change |
+|---|---|
+| Google Cloud Console | Both redirect URIs above, on the OAuth client. Old ones can be deleted in the same edit. |
+| Twilio | Voice webhook + status callback on each number → `https://spandan.mannmate.com/api/v1/...` |
+| Exotel | Connect applet's Voicebot URL + status callback (`EXOTEL_STATUS_CALLBACK` if set explicitly) |
+| Razorpay | Settings → Webhooks → `https://spandan.mannmate.com/api/v1/billing/razorpay/webhook`. `RAZORPAY_WEBHOOK_SECRET` is per-webhook — if you create a new one instead of editing, the secret changes and top-ups reject until `.env` matches. |
+| Meta / WhatsApp | Callback URL in the app's webhook config, if WhatsApp is live |
+
+**6. Verify on the new host before tearing anything down.**
+
+```bash
+curl -s https://spandan.mannmate.com/health
+```
+Then in a browser: log in, make a **web call** (proves the WS block), and make
+one **inbound phone call** (proves `PUBLIC_BACKEND_WS_URL` and the media-stream
+block). A phone call that greets you and then goes silent means the media
+socket is wrong — see Troubleshooting.
+
+**7. Only now, retire the old host.**
+
+```bash
+rm /etc/nginx/sites-enabled/voice.herbsmagic.in
+nginx -t && systemctl reload nginx
+certbot delete --cert-name voice.herbsmagic.in    # stops renewal failure mail
+# keep /etc/nginx/sites-available/voice.herbsmagic.in until you are confident
+```
+Then drop `https://voice.herbsmagic.in` from `CLIENT_URL` in `shared/.env`,
+`pm2 restart convai-voice-api --update-env`, and delete the DNS A record.
 
 ## Deploying
 
