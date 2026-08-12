@@ -7,11 +7,10 @@
  * themselves are unchanged and still live in AdminPanel.tsx — only navigation
  * moved, which keeps this change reviewable.
  */
-import { Users, Phone, Bug, CreditCard, TrendingUp, Activity, CalendarDays, Cpu } from 'lucide-react';
+import { Users, Bug, CreditCard, TrendingUp, Activity, CalendarDays, Cpu } from 'lucide-react';
 import {
   AdminPageHeader,
   UserManagementTab,
-  NumberPoolTab,
   ReportIssuesTab,
   AppointmentsTab,
   WalletRateTab,
@@ -29,19 +28,6 @@ export function AdminUsersPage() {
         icon={<Users size={21} />}
       />
       <UserManagementTab />
-    </>
-  );
-}
-
-export function AdminNumbersPage() {
-  return (
-    <>
-      <AdminPageHeader
-        title="Number Pool"
-        subtitle="WABA numbers: assign, unassign, reset and deactivate"
-        icon={<Phone size={21} />}
-      />
-      <NumberPoolTab />
     </>
   );
 }

@@ -50,15 +50,6 @@ interface HeatmapDay   { day: string; hours: { hour: number; count: number; inte
 interface AgentPerf    { id: string; name: string; totalCalls: number; completedCalls: number; failedCalls: number; avgDuration: number; totalCost: number; successRate: number; }
 interface AgentItem    { id: string; name: string; }
 
-interface ChatbotData {
-  conversations: { total: number; open: number; resolved: number };
-  messages: { total: number; inbound: number; outbound: number; delivered: number; read: number };
-  contacts: { total: number; new: number; optOuts: number };
-  campaigns: { total: number; active: number };
-  rates: { deliveryRate: number; readRate: number; optOutRate: number; responseRate: number };
-  deliveryChart: { date: string; sent: number; delivered: number; rate: number }[];
-}
-
 /*
   The categorical ramp. These were six arbitrary hexes (#00d4c8, #ff6b6b,
   #96ceb4 …) that existed nowhere else in the product; every one of them is now
@@ -93,7 +84,6 @@ const sentimentTone = (s: string | null): Tone =>
 // ─── Main Component ───────────────────────────────────────────────────────────
 
 export default function Analytics() {
-  const [tab,         setTab]         = useState<'calls'|'chatbot'>('calls');
   const [range,       setRange]       = useState<'7d'|'30d'|'90d'>('7d');
   const [customFrom,  setCustomFrom]  = useState('');
   const [customTo,    setCustomTo]    = useState('');
@@ -110,7 +100,6 @@ export default function Analytics() {
   const [sentiment,    setSentiment]    = useState<SentimentItem[]>([]);
   const [heatmap,      setHeatmap]      = useState<HeatmapDay[]>([]);
   const [agentPerf,    setAgentPerf]    = useState<AgentPerf[]>([]);
-  const [chatbot,      setChatbot]      = useState<ChatbotData | null>(null);
   const [loading,      setLoading]      = useState(false);
   const [error,        setError]        = useState<string | null>(null);
 
@@ -152,17 +141,7 @@ export default function Analytics() {
     } finally { setLoading(false); }
   }, [qs, metric, logsPage]);
 
-  // Fetch chatbot analytics
-  const loadChatbot = useCallback(async () => {
-    setLoading(true); setError(null);
-    try {
-      const r = await whapi.get<any>(`/analytics/chatbot/overview?range=${range}`);
-      if (r?.success) setChatbot(r.data);
-    } catch (e: any) { setError(e.message); }
-    finally { setLoading(false); }
-  }, [range]);
-
-  useEffect(() => { tab === 'calls' ? loadCalls() : loadChatbot(); }, [tab, loadCalls, loadChatbot]);
+  useEffect(() => { loadCalls(); }, [loadCalls]);
 
   // ─── Chart: Area ───────────────────────────────────────────────────────────
   /*
@@ -214,13 +193,6 @@ export default function Analytics() {
               Volume, outcomes and latency across every conversation your agents handled.
             </p>
           </div>
-          <div className="rz-head-actions">
-            <RzTabs
-              tabs={[{ value: 'calls', label: 'Phone calls' }, { value: 'chatbot', label: 'Chatbot' }]}
-              value={tab}
-              onChange={setTab}
-            />
-          </div>
         </div>
 
         {/* Error banner */}
@@ -253,308 +225,213 @@ export default function Analytics() {
             <span className="rz-mono">to</span>
             <input type="date" className="rz-input" style={{ width: 'auto' }} value={customTo} onChange={e=>setCustomTo(e.target.value)} />
             {customFrom && customTo && (
-              <button className="rz-btn rz-btn-primary rz-btn-sm" onClick={() => tab==='calls'?loadCalls():loadChatbot()}>Apply</button>
+              <button className="rz-btn rz-btn-primary rz-btn-sm" onClick={() => loadCalls()}>Apply</button>
             )}
           </div>
-          {tab==='calls' && (
-            <div className="rz-cluster-sm">
-              <span className="rz-label">Agent</span>
-              <select className="rz-select" style={{ width: 'auto', minWidth: 160 }} value={agentFilter} onChange={e=>setAgentFilter(e.target.value)}>
-                <option value="all">All agents</option>
-                {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-              </select>
-            </div>
-          )}
+          <div className="rz-cluster-sm">
+            <span className="rz-label">Agent</span>
+            <select className="rz-select" style={{ width: 'auto', minWidth: 160 }} value={agentFilter} onChange={e=>setAgentFilter(e.target.value)}>
+              <option value="all">All agents</option>
+              {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </div>
         </div>
 
-        {tab === 'calls' ? (
-          <div className="rz-stack">
+        <div className="rz-stack">
 
-            {/* KPI row */}
-            <div className="rz-stats">
-              <RzStat label="TOTAL CALLS"    value={loading ? '—' : (overview?.totalCalls ?? 0)}
-                delta={overview?.totalCallsTrend != null && !loading ? `${overview.totalCallsTrend >= 0 ? '↑' : '↓'} ${Math.abs(overview.totalCallsTrend)}% vs prev` : undefined}
-                trend={(overview?.totalCallsTrend ?? 0) >= 0 ? 'up' : 'down'} />
-              <RzStat label="TOTAL DURATION" value={loading ? '—' : `${overview?.totalDuration ?? 0}m`}
-                delta={overview?.totalDurationTrend != null && !loading ? `${overview.totalDurationTrend >= 0 ? '↑' : '↓'} ${Math.abs(overview.totalDurationTrend)}% vs prev` : undefined}
-                trend={(overview?.totalDurationTrend ?? 0) >= 0 ? 'up' : 'down'} />
-              <RzStat label="AVG DURATION"   value={loading ? '—' : `${overview?.avgDuration ?? 0}m`} />
-              <RzStat label="SUCCESS RATE"   value={loading ? '—' : `${overview?.successRate ?? 0}%`} color="var(--lime)" />
-              <RzStat label="AGENTS"         value={loading ? '—' : (overview?.totalAgents ?? 0)} />
-            </div>
+          {/* KPI row */}
+          <div className="rz-stats">
+            <RzStat label="TOTAL CALLS"    value={loading ? '—' : (overview?.totalCalls ?? 0)}
+              delta={overview?.totalCallsTrend != null && !loading ? `${overview.totalCallsTrend >= 0 ? '↑' : '↓'} ${Math.abs(overview.totalCallsTrend)}% vs prev` : undefined}
+              trend={(overview?.totalCallsTrend ?? 0) >= 0 ? 'up' : 'down'} />
+            <RzStat label="TOTAL DURATION" value={loading ? '—' : `${overview?.totalDuration ?? 0}m`}
+              delta={overview?.totalDurationTrend != null && !loading ? `${overview.totalDurationTrend >= 0 ? '↑' : '↓'} ${Math.abs(overview.totalDurationTrend)}% vs prev` : undefined}
+              trend={(overview?.totalDurationTrend ?? 0) >= 0 ? 'up' : 'down'} />
+            <RzStat label="AVG DURATION"   value={loading ? '—' : `${overview?.avgDuration ?? 0}m`} />
+            <RzStat label="SUCCESS RATE"   value={loading ? '—' : `${overview?.successRate ?? 0}%`} color="var(--lime)" />
+            <RzStat label="AGENTS"         value={loading ? '—' : (overview?.totalAgents ?? 0)} />
+          </div>
 
-            {/* Secondary strip */}
-            <div className="rz-stats">
-              <RzStat label="COMPLETED" value={loading ? '—' : (overview?.completedCalls ?? 0)} color="var(--lime)" />
-              <RzStat label="FAILED"    value={loading ? '—' : (overview?.failedCalls ?? 0)}    color="var(--err)" />
-              <RzStat label="INBOUND"   value={loading ? '—' : (overview?.inboundCalls ?? 0)}   color="var(--cyan-fg)" />
-              <RzStat label="OUTBOUND"  value={loading ? '—' : (overview?.outboundCalls ?? 0)}  color="var(--violet)" />
-            </div>
+          {/* Secondary strip */}
+          <div className="rz-stats">
+            <RzStat label="COMPLETED" value={loading ? '—' : (overview?.completedCalls ?? 0)} color="var(--lime)" />
+            <RzStat label="FAILED"    value={loading ? '—' : (overview?.failedCalls ?? 0)}    color="var(--err)" />
+            <RzStat label="INBOUND"   value={loading ? '—' : (overview?.inboundCalls ?? 0)}   color="var(--cyan-fg)" />
+            <RzStat label="OUTBOUND"  value={loading ? '—' : (overview?.outboundCalls ?? 0)}  color="var(--violet)" />
+          </div>
 
-            {/* Volume chart + outcomes */}
-            <div className="rz-grid-main">
-              <RzCard
-                title={metric === 'volume' ? 'Call volume over time' : 'Call duration over time'}
-                actions={
-                  <RzTabs
-                    tabs={[{ value: 'volume', label: 'Volume' }, { value: 'duration', label: 'Duration' }]}
-                    value={metric}
-                    onChange={setMetric}
-                  />
-                }
-              >
-                {timeSeries?.summary && (
-                  <div className="rz-cluster-sm" style={{ marginBottom: 10 }}>
-                    <span className="rz-label">Total</span>
-                    <span className="rz-metric-sm" style={{ color: 'var(--cyan-fg)' }}>
-                      {timeSeries.summary.total?.toLocaleString()}{metric === 'duration' ? ' min' : ''}
-                    </span>
-                  </div>
-                )}
-                <div style={{ height: 260 }}><AreaChart /></div>
-              </RzCard>
-
-              <RzCard title="Outcomes">
-                {outcomes.length ? (
-                  <div className="rz-stack" style={{ gap: 12 }}>
-                    {outcomes.map((o, i) => (
-                      <RzMeter
-                        key={o.outcome}
-                        label={<span style={{ textTransform: 'capitalize' }}>{o.outcome.replace(/_/g, ' ')}</span>}
-                        hint={`${o.count} · ${o.percentage}%`}
-                        segments={[{ pct: o.percentage, color: SERIES[i % SERIES.length] }]}
-                      />
-                    ))}
-                  </div>
-                ) : (
-                  <RzEmpty title="No outcomes yet" text="Outcomes appear once your agents have completed calls in this period." />
-                )}
-              </RzCard>
-            </div>
-
-            {/* Sentiment + heatmap */}
-            <div className="rz-grid-2">
-              <RzCard title="Sentiment">
-                {sentiment.length ? (
-                  <div className="rz-stack" style={{ gap: 12 }}>
-                    {sentiment.map(s => {
-                      const total = sentiment.reduce((sum, x) => sum + x.count, 0) || 1;
-                      return (
-                        <RzMeter
-                          key={s.sentiment}
-                          label={<span style={{ textTransform: 'capitalize' }}>{s.sentiment}</span>}
-                          hint={`${s.count} calls · avg ${s.avgDuration}m`}
-                          segments={[{
-                            pct: (s.count / total) * 100,
-                            color: s.sentiment === 'positive' ? 'var(--lime)'
-                              : s.sentiment === 'negative' ? 'var(--err)'
-                              : 'var(--tx-3)',
-                          }]}
-                        />
-                      );
-                    })}
-                  </div>
-                ) : (
-                  <RzEmpty title="No sentiment data" text="Sentiment is scored after a call completes with a transcript." />
-                )}
-              </RzCard>
-
-              <RzCard title="Activity by hour">
-                <div style={{ overflowX: 'auto' }}>
-                  <div style={{ display: 'grid', gridTemplateColumns: '36px repeat(24, 1fr)', gap: 2, minWidth: 480 }}>
-                    <div />
-                    {Array.from({ length: 24 }, (_, h) => (
-                      <div key={h} className="rz-mono-xs" style={{ textAlign: 'center', fontSize: 9 }}>{h}</div>
-                    ))}
-                    {heatmap.map(day => (
-                      <div key={day.day} style={{ display: 'contents' }}>
-                        <div className="rz-mono-xs" style={{ display: 'flex', alignItems: 'center' }}>{day.day}</div>
-                        {day.hours.map(h => (
-                          <div
-                            key={h.hour}
-                            title={`${day.day} ${h.hour}:00 — ${h.count} calls`}
-                            style={{
-                              aspectRatio: '1',
-                              borderRadius: 2,
-                              minWidth: 14,
-                              background: h.count > 0
-                                ? `rgba(14,179,158,${Math.max(h.intensity / 100, 0.12)})`
-                                : 'var(--s2)',
-                            }}
-                          />
-                        ))}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              </RzCard>
-            </div>
-
-            {/* Call log table */}
+          {/* Volume chart + outcomes */}
+          <div className="rz-grid-main">
             <RzCard
-              flush
-              title="Recent calls"
-              actions={<span className="rz-mono">{callLogs?.pagination?.total ?? 0} total</span>}
+              title={metric === 'volume' ? 'Call volume over time' : 'Call duration over time'}
+              actions={
+                <RzTabs
+                  tabs={[{ value: 'volume', label: 'Volume' }, { value: 'duration', label: 'Duration' }]}
+                  value={metric}
+                  onChange={setMetric}
+                />
+              }
             >
+              {timeSeries?.summary && (
+                <div className="rz-cluster-sm" style={{ marginBottom: 10 }}>
+                  <span className="rz-label">Total</span>
+                  <span className="rz-metric-sm" style={{ color: 'var(--cyan-fg)' }}>
+                    {timeSeries.summary.total?.toLocaleString()}{metric === 'duration' ? ' min' : ''}
+                  </span>
+                </div>
+              )}
+              <div style={{ height: 260 }}><AreaChart /></div>
+            </RzCard>
+
+            <RzCard title="Outcomes">
+              {outcomes.length ? (
+                <div className="rz-stack" style={{ gap: 12 }}>
+                  {outcomes.map((o, i) => (
+                    <RzMeter
+                      key={o.outcome}
+                      label={<span style={{ textTransform: 'capitalize' }}>{o.outcome.replace(/_/g, ' ')}</span>}
+                      hint={`${o.count} · ${o.percentage}%`}
+                      segments={[{ pct: o.percentage, color: SERIES[i % SERIES.length] }]}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <RzEmpty title="No outcomes yet" text="Outcomes appear once your agents have completed calls in this period." />
+              )}
+            </RzCard>
+          </div>
+
+          {/* Sentiment + heatmap */}
+          <div className="rz-grid-2">
+            <RzCard title="Sentiment">
+              {sentiment.length ? (
+                <div className="rz-stack" style={{ gap: 12 }}>
+                  {sentiment.map(s => {
+                    const total = sentiment.reduce((sum, x) => sum + x.count, 0) || 1;
+                    return (
+                      <RzMeter
+                        key={s.sentiment}
+                        label={<span style={{ textTransform: 'capitalize' }}>{s.sentiment}</span>}
+                        hint={`${s.count} calls · avg ${s.avgDuration}m`}
+                        segments={[{
+                          pct: (s.count / total) * 100,
+                          color: s.sentiment === 'positive' ? 'var(--lime)'
+                            : s.sentiment === 'negative' ? 'var(--err)'
+                            : 'var(--tx-3)',
+                        }]}
+                      />
+                    );
+                  })}
+                </div>
+              ) : (
+                <RzEmpty title="No sentiment data" text="Sentiment is scored after a call completes with a transcript." />
+              )}
+            </RzCard>
+
+            <RzCard title="Activity by hour">
+              <div style={{ overflowX: 'auto' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '36px repeat(24, 1fr)', gap: 2, minWidth: 480 }}>
+                  <div />
+                  {Array.from({ length: 24 }, (_, h) => (
+                    <div key={h} className="rz-mono-xs" style={{ textAlign: 'center', fontSize: 9 }}>{h}</div>
+                  ))}
+                  {heatmap.map(day => (
+                    <div key={day.day} style={{ display: 'contents' }}>
+                      <div className="rz-mono-xs" style={{ display: 'flex', alignItems: 'center' }}>{day.day}</div>
+                      {day.hours.map(h => (
+                        <div
+                          key={h.hour}
+                          title={`${day.day} ${h.hour}:00 — ${h.count} calls`}
+                          style={{
+                            aspectRatio: '1',
+                            borderRadius: 2,
+                            minWidth: 14,
+                            background: h.count > 0
+                              ? `rgba(14,179,158,${Math.max(h.intensity / 100, 0.12)})`
+                              : 'var(--s2)',
+                          }}
+                        />
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </RzCard>
+          </div>
+
+          {/* Call log table */}
+          <RzCard
+            flush
+            title="Recent calls"
+            actions={<span className="rz-mono">{callLogs?.pagination?.total ?? 0} total</span>}
+          >
+            <div className="rz-table-wrap">
+              <table className="rz-table">
+                <thead>
+                  <tr>
+                    {['Agent','From','To','Direction','Status','Duration','Cost','Sentiment','Started'].map(h => <th key={h}>{h}</th>)}
+                  </tr>
+                </thead>
+                <tbody>
+                  {loading ? (
+                    <tr><td colSpan={9} style={{ textAlign: 'center', padding: 40 }} className="rz-mono">Loading…</td></tr>
+                  ) : !callLogs?.data?.length ? (
+                    <tr><td colSpan={9} style={{ padding: 0 }}>
+                      <RzEmpty title="No calls in this period" text="Adjust the date range or agent filter to widen the search." />
+                    </td></tr>
+                  ) : callLogs.data.map(c => (
+                    <tr key={c.id}>
+                      <td className="rz-td-strong">{c.assistant}</td>
+                      <td className="rz-td-mono">{c.from}</td>
+                      <td className="rz-td-mono">{c.to}</td>
+                      <td><RzPill tone={c.direction === 'INBOUND' ? 'info' : 'think'}>{c.direction?.toLowerCase()}</RzPill></td>
+                      <td><RzPill tone={statusTone(c.status)}>{c.status}</RzPill></td>
+                      <td className="rz-td-strong rz-td-mono">{c.durationFormatted}</td>
+                      <td className="rz-td-mono">${c.cost?.toFixed(2) ?? '0.00'}</td>
+                      <td>{c.sentiment ? <RzPill tone={sentimentTone(c.sentiment)}>{c.sentiment}</RzPill> : <span className="rz-muted">—</span>}</td>
+                      <td className="rz-td-mono" style={{ whiteSpace: 'nowrap' }}>{c.startedAt ? format(parseISO(c.startedAt), 'MMM dd, HH:mm') : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {callLogs?.pagination && callLogs.pagination.totalPages > 1 && (
+              <div className="rz-between" style={{ padding: '14px 18px', borderTop: '1px solid var(--line)' }}>
+                <button className="rz-btn rz-btn-ghost rz-btn-sm" disabled={!callLogs.pagination.hasPrev} onClick={() => setLogsPage(p => p - 1)}>← Prev</button>
+                <span className="rz-mono">Page {callLogs.pagination.page} / {callLogs.pagination.totalPages}</span>
+                <button className="rz-btn rz-btn-ghost rz-btn-sm" disabled={!callLogs.pagination.hasNext} onClick={() => setLogsPage(p => p + 1)}>Next →</button>
+              </div>
+            )}
+          </RzCard>
+
+          {/* Agent performance */}
+          {agentPerf.length > 0 && (
+            <RzCard flush title="Agent performance">
               <div className="rz-table-wrap">
                 <table className="rz-table">
                   <thead>
                     <tr>
-                      {['Agent','From','To','Direction','Status','Duration','Cost','Sentiment','Started'].map(h => <th key={h}>{h}</th>)}
+                      {['Agent','Total','Completed','Failed','Avg duration','Success rate','Cost'].map(h => <th key={h}>{h}</th>)}
                     </tr>
                   </thead>
                   <tbody>
-                    {loading ? (
-                      <tr><td colSpan={9} style={{ textAlign: 'center', padding: 40 }} className="rz-mono">Loading…</td></tr>
-                    ) : !callLogs?.data?.length ? (
-                      <tr><td colSpan={9} style={{ padding: 0 }}>
-                        <RzEmpty title="No calls in this period" text="Adjust the date range or agent filter to widen the search." />
-                      </td></tr>
-                    ) : callLogs.data.map(c => (
-                      <tr key={c.id}>
-                        <td className="rz-td-strong">{c.assistant}</td>
-                        <td className="rz-td-mono">{c.from}</td>
-                        <td className="rz-td-mono">{c.to}</td>
-                        <td><RzPill tone={c.direction === 'INBOUND' ? 'info' : 'think'}>{c.direction?.toLowerCase()}</RzPill></td>
-                        <td><RzPill tone={statusTone(c.status)}>{c.status}</RzPill></td>
-                        <td className="rz-td-strong rz-td-mono">{c.durationFormatted}</td>
-                        <td className="rz-td-mono">${c.cost?.toFixed(2) ?? '0.00'}</td>
-                        <td>{c.sentiment ? <RzPill tone={sentimentTone(c.sentiment)}>{c.sentiment}</RzPill> : <span className="rz-muted">—</span>}</td>
-                        <td className="rz-td-mono" style={{ whiteSpace: 'nowrap' }}>{c.startedAt ? format(parseISO(c.startedAt), 'MMM dd, HH:mm') : '—'}</td>
+                    {agentPerf.map(a => (
+                      <tr key={a.id}>
+                        <td className="rz-td-strong">{a.name}</td>
+                        <td className="rz-td-mono">{a.totalCalls}</td>
+                        <td className="rz-td-mono" style={{ color: 'var(--lime)' }}>{a.completedCalls}</td>
+                        <td className="rz-td-mono" style={{ color: 'var(--err)' }}>{a.failedCalls}</td>
+                        <td className="rz-td-mono">{a.avgDuration} min</td>
+                        <td><RzPill tone={a.successRate >= 50 ? 'ok' : 'err'}>{a.successRate}%</RzPill></td>
+                        <td className="rz-td-mono">${a.totalCost}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              {callLogs?.pagination && callLogs.pagination.totalPages > 1 && (
-                <div className="rz-between" style={{ padding: '14px 18px', borderTop: '1px solid var(--line)' }}>
-                  <button className="rz-btn rz-btn-ghost rz-btn-sm" disabled={!callLogs.pagination.hasPrev} onClick={() => setLogsPage(p => p - 1)}>← Prev</button>
-                  <span className="rz-mono">Page {callLogs.pagination.page} / {callLogs.pagination.totalPages}</span>
-                  <button className="rz-btn rz-btn-ghost rz-btn-sm" disabled={!callLogs.pagination.hasNext} onClick={() => setLogsPage(p => p + 1)}>Next →</button>
-                </div>
-              )}
             </RzCard>
-
-            {/* Agent performance */}
-            {agentPerf.length > 0 && (
-              <RzCard flush title="Agent performance">
-                <div className="rz-table-wrap">
-                  <table className="rz-table">
-                    <thead>
-                      <tr>
-                        {['Agent','Total','Completed','Failed','Avg duration','Success rate','Cost'].map(h => <th key={h}>{h}</th>)}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {agentPerf.map(a => (
-                        <tr key={a.id}>
-                          <td className="rz-td-strong">{a.name}</td>
-                          <td className="rz-td-mono">{a.totalCalls}</td>
-                          <td className="rz-td-mono" style={{ color: 'var(--lime)' }}>{a.completedCalls}</td>
-                          <td className="rz-td-mono" style={{ color: 'var(--err)' }}>{a.failedCalls}</td>
-                          <td className="rz-td-mono">{a.avgDuration} min</td>
-                          <td><RzPill tone={a.successRate >= 50 ? 'ok' : 'err'}>{a.successRate}%</RzPill></td>
-                          <td className="rz-td-mono">${a.totalCost}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </RzCard>
-            )}
-          </div>
-        ) : (
-          /* ── Chatbot tab ── */
-          chatbot ? (
-            <div className="rz-stack">
-              <div className="rz-stats">
-                <RzStat label="MESSAGES"      value={chatbot.messages.total.toLocaleString()}      delta={`${chatbot.messages.inbound} in · ${chatbot.messages.outbound} out`} />
-                <RzStat label="CONVERSATIONS" value={chatbot.conversations.total.toLocaleString()} delta={`${chatbot.conversations.open} open · ${chatbot.conversations.resolved} resolved`} />
-                <RzStat label="CONTACTS"      value={chatbot.contacts.total.toLocaleString()}      delta={`+${chatbot.contacts.new} new`} trend="up" />
-                <RzStat label="CAMPAIGNS"     value={chatbot.campaigns.total.toLocaleString()}     delta={`${chatbot.campaigns.active} active`} />
-              </div>
-
-              <div className="rz-stats">
-                <RzStat label="DELIVERY RATE" value={`${chatbot.rates.deliveryRate}%`} color="var(--lime)" />
-                <RzStat label="READ RATE"     value={`${chatbot.rates.readRate}%`}     color="var(--cyan-fg)" />
-                <RzStat label="RESPONSE RATE" value={`${chatbot.rates.responseRate}%`} color="var(--violet)" />
-                <RzStat label="OPT-OUT RATE"  value={`${chatbot.rates.optOutRate}%`}   color="var(--err)" />
-              </div>
-
-              <RzCard
-                title="Message delivery rate"
-                actions={
-                  <div className="rz-cluster-sm rz-mono">
-                    <span style={{ color: 'var(--lime)' }}>● &gt;97%</span>
-                    <span style={{ color: 'var(--warn)' }}>● 93–97%</span>
-                    <span style={{ color: 'var(--err)' }}>● &lt;93%</span>
-                  </div>
-                }
-              >
-                <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 130 }}>
-                  {chatbot.deliveryChart.map(d => (
-                    <div key={d.date} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4, height: '100%', justifyContent: 'flex-end' }}>
-                      <span className="rz-mono-xs" style={{ fontSize: 9 }}>{d.sent > 0 ? `${d.rate}%` : '—'}</span>
-                      <div
-                        title={`${d.date}: ${d.sent} sent, ${d.delivered} delivered`}
-                        style={{
-                          width: '100%',
-                          minHeight: 2,
-                          height: `${d.sent > 0 ? Math.max(d.rate, 2) : 2}%`,
-                          background: d.rate > 97 ? 'var(--lime)' : d.rate > 93 ? 'var(--warn)' : 'var(--err)',
-                          borderRadius: '3px 3px 0 0',
-                        }}
-                      />
-                      <span className="rz-mono-xs" style={{ fontSize: 9 }}>{d.date.slice(5)}</span>
-                    </div>
-                  ))}
-                </div>
-              </RzCard>
-
-              <div className="rz-grid-2">
-                <RzCard title="Message breakdown">
-                  <div className="rz-stack" style={{ gap: 12 }}>
-                    {[
-                      { label: 'Sent (outbound)',    val: chatbot.messages.outbound,  color: 'var(--violet)', max: chatbot.messages.total },
-                      { label: 'Received (inbound)', val: chatbot.messages.inbound,   color: 'var(--cyan)',   max: chatbot.messages.total },
-                      { label: 'Delivered',          val: chatbot.messages.delivered, color: 'var(--lime)',   max: chatbot.messages.outbound },
-                      { label: 'Read',               val: chatbot.messages.read,      color: 'var(--warn)',   max: chatbot.messages.outbound },
-                    ].map(({ label, val, color, max }) => (
-                      <RzMeter
-                        key={label}
-                        label={label}
-                        hint={val.toLocaleString()}
-                        segments={[{ pct: max > 0 ? Math.min((val / max) * 100, 100) : 0, color }]}
-                      />
-                    ))}
-                  </div>
-                </RzCard>
-
-                <RzCard title="Conversation status">
-                  <div className="rz-stack" style={{ gap: 0 }}>
-                    {[
-                      { label: 'Open',        val: chatbot.conversations.open,     color: 'var(--warn)' },
-                      { label: 'Resolved',    val: chatbot.conversations.resolved, color: 'var(--lime)' },
-                      { label: 'This period', val: chatbot.conversations.total,    color: 'var(--cyan-fg)' },
-                    ].map(({ label, val, color }) => (
-                      <div key={label} className="rz-between" style={{ padding: '13px 0', borderBottom: '1px solid var(--line)' }}>
-                        <span className="rz-sub">{label}</span>
-                        <span className="rz-metric-sm" style={{ color }}>{val.toLocaleString()}</span>
-                      </div>
-                    ))}
-                  </div>
-                </RzCard>
-              </div>
-            </div>
-          ) : (
-            <RzCard>
-              <RzEmpty
-                title={loading ? 'Loading chatbot data…' : 'No chatbot data yet'}
-                text={loading ? undefined : 'Send your first WhatsApp campaign to see analytics here.'}
-              />
-            </RzCard>
-          )
-        )}
+          )}
+        </div>
       </div>
     </div>
   );

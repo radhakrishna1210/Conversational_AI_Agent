@@ -399,13 +399,13 @@ export default function VoiceConfigModal({
         }
         .voice-filter-select:focus { border-color: var(--cyan-fg); color: var(--tx); }
         .voice-filter-select option { background: var(--s1); }
+        /* Scrollbar deliberately unstyled: the global SCROLLBARS block in
+           styles.css themes every scroll surface off the --sb-* tokens, and the
+           local override here painted its track --bg, which read as a groove cut
+           into the modal rather than part of it. */
         .voice-modal-body {
           flex: 1; overflow-y: auto; padding: 20px 28px;
-          scrollbar-width: thin; scrollbar-color: var(--s3) var(--bg);
         }
-        .voice-modal-body::-webkit-scrollbar { width: 6px; }
-        .voice-modal-body::-webkit-scrollbar-track { background: var(--bg); }
-        .voice-modal-body::-webkit-scrollbar-thumb { background: var(--s3); border-radius: 3px; }
         .voice-grid {
           display: grid;
           grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));

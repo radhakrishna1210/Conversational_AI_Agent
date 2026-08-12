@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { Link, useLocation, Outlet, useNavigate } from 'react-router-dom';
 import {
-  Shield, BarChart3, Users, Phone, Bug, CreditCard, TrendingUp,
+  Shield, BarChart3, Users, Bug, CreditCard, TrendingUp,
   Activity, ScrollText, LogOut, Menu, X, ChevronDown, CalendarDays, PhoneCall, Cpu,
 } from 'lucide-react';
 import { clearAuth, decodeJwtPayload, getToken } from '@/lib/authStorage';
@@ -64,7 +64,6 @@ const NAV: NavGroup[] = [
   {
     title: 'Telephony',
     items: [
-      { to: '/admin/numbers', label: 'Number Pool', icon: <Phone size={16} /> },
     ],
   },
   {
@@ -360,12 +359,20 @@ function AdminShell() {
           -ms-overflow-style: none;       /* legacy Edge */
           overscroll-behavior: contain;   /* don't chain scroll to the page */
         }
-        .admin-nav-scroll::-webkit-scrollbar { width: 6px; }
+        /* The 2px transparent border is restated from the global SCROLLBARS
+           block in styles.css: it pads the thumb into a pill, and inheriting it
+           onto a narrow track would leave nothing visible. 8px − 2×2px = 4px. */
+        .admin-nav-scroll::-webkit-scrollbar { width: 8px; }
         .admin-nav-scroll::-webkit-scrollbar-track { background: transparent; }
-        .admin-nav-scroll::-webkit-scrollbar-thumb { background: transparent; border-radius: 999px; }
+        .admin-nav-scroll::-webkit-scrollbar-thumb {
+          background: transparent;
+          border: 2px solid transparent;
+          background-clip: padding-box;
+          border-radius: 999px;
+        }
         .admin-nav-scroll:hover { scrollbar-width: thin; scrollbar-color: rgba(148,163,184,0.35) transparent; }
-        .admin-nav-scroll:hover::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.28); }
-        .admin-nav-scroll:hover::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.45); }
+        .admin-nav-scroll:hover::-webkit-scrollbar-thumb { background: rgba(148,163,184,0.30); background-clip: padding-box; }
+        .admin-nav-scroll:hover::-webkit-scrollbar-thumb:hover { background: rgba(148,163,184,0.48); background-clip: padding-box; }
 
         @media (max-width: 900px) {
           .admin-sidebar-desktop { display: none; }

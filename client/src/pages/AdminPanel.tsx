@@ -3,8 +3,8 @@ import { adminFetch, API } from '@/lib/adminApi';
 import { authFetch } from '@/lib/authFetch';
 import {
   Users, Bot, Phone, BarChart3, TrendingUp, RefreshCw,
-  Search, Filter, Plus, Trash2, UserCheck, UserX,
-  PowerOff, RotateCcw, Globe, ChevronDown, X, Check,
+  Search, Filter, Trash2, UserCheck,
+  Globe, ChevronDown, X, Check,
   AlertCircle, Ban, ChevronLeft, ChevronRight,
   Eye, Bug
 } from 'lucide-react';
@@ -53,51 +53,12 @@ interface RecentUser {
   role: string | null;
 }
 
-interface PoolNumber {
-  id: string;
-  phoneNumber: string;
-  displayName: string | null;
-  status: string;
-  assignedTo: string | null;
-  registeredAt: string;
-  createdAt: string;
-  workspace?: {
-    id: string;
-    name: string;
-    slug: string;
-    agents: { id: string; name: string }[];
-  } | null;
-}
-
-interface Workspace {
-  id: string;
-  name: string;
-  slug: string;
-  planName: string;
-}
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 // One transport for the whole console, from lib/adminApi — it refreshes an
 // expired access token and replays, so the panel no longer starts 401-ing once
 // the ~15-min access token runs out.
 const apiFetch = adminFetch;
-
-function statusColor(status: string) {
-  switch (status.toUpperCase()) {
-    case 'AVAILABLE': return { bg: 'rgba(14,179,158,0.12)', color: 'var(--cyan-fg)', dot: 'var(--cyan-fg)' };
-    case 'ASSIGNED':  return { bg: 'rgba(99,102,241,0.12)', color: 'var(--violet)', dot: 'var(--violet)' };
-    case 'INACTIVE':  return { bg: 'rgba(255,255,255,0.06)', color: 'var(--tx-2)', dot: 'var(--tx-3)' };
-    case 'BANNED':    return { bg: 'rgba(239,68,68,0.12)', color: 'var(--err)', dot: 'var(--err)' };
-    default:          return { bg: 'rgba(255,255,255,0.06)', color: 'var(--tx-2)', dot: 'var(--tx-3)' };
-  }
-}
-
-function countryFlag(phone: string) {
-  if (phone.startsWith('+91')) return '🇮🇳 IN';
-  if (phone.startsWith('+1'))  return '🇺🇸 US';
-  return '🌐';
-}
 
 function fmtDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -206,136 +167,6 @@ function ToastContainer({ toasts }: { toasts: { id: number; msg: string; type: '
 }
 
 // ─── Assign Modal ─────────────────────────────────────────────────────────────
-
-function AssignModal({ number, workspaces, onClose, onAssign }: {
-  number: PoolNumber;
-  workspaces: Workspace[];
-  onClose: () => void;
-  onAssign: (numberId: string, workspaceId: string) => Promise<void>;
-}) {
-  const [selected, setSelected] = useState('');
-  const [loading, setLoading] = useState(false);
-
-  const handleAssign = async () => {
-    if (!selected) return;
-    setLoading(true);
-    await onAssign(number.id, selected);
-    setLoading(false);
-    onClose();
-  };
-
-  return (
-    <div style={{
-      position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000,
-      display: 'flex', alignItems: 'center', justifyContent: 'center',
-    }} onClick={onClose}>
-      <div style={{
-        background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 14,
-        padding: 28, width: 420, maxWidth: '90vw',
-      }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--tx)', margin: 0 }}>Assign Number</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--tx-2)', cursor: 'pointer' }}><X size={18} /></button>
-        </div>
-        <p style={{ color: 'var(--tx-2)', fontSize: 13, marginBottom: 20 }}>
-          Assign <strong style={{ color: 'var(--tx)' }}>{number.phoneNumber}</strong> to a workspace
-        </p>
-        <div style={{ position: 'relative', marginBottom: 20 }}>
-          <select
-            value={selected}
-            onChange={(e) => setSelected(e.target.value)}
-            style={{
-              width: '100%', padding: '10px 36px 10px 14px', background: 'var(--s2)',
-              border: '1px solid var(--line)', borderRadius: 8, color: 'var(--tx)',
-              fontSize: 13, appearance: 'none', cursor: 'pointer',
-            }}
-          >
-            <option value="">Select workspace...</option>
-            {workspaces.map((w) => (
-              <option key={w.id} value={w.id}>{w.name}</option>
-            ))}
-          </select>
-          <ChevronDown size={14} style={{ position: 'absolute', right: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--tx-2)', pointerEvents: 'none' }} />
-        </div>
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end' }}>
-          <button onClick={onClose} style={{ padding: '8px 18px', background: 'transparent', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--tx-2)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-          <button
-            onClick={handleAssign}
-            disabled={!selected || loading}
-            style={{ padding: '8px 18px', background: selected ? 'var(--cyan)' : 'var(--s2)', border: 'none', borderRadius: 7, color: selected ? 'var(--on-cyan)' : 'var(--tx-3)', fontSize: 13, fontWeight: 700, cursor: selected ? 'pointer' : 'not-allowed' }}
-          >
-            {loading ? 'Assigning...' : 'Assign'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Add Number Modal ─────────────────────────────────────────────────────────
-
-function AddNumberModal({ onClose, onAdd }: {
-  onClose: () => void;
-  onAdd: (data: { phoneNumber: string; phoneNumberId: string; wabaId: string; accessToken: string; displayName: string }) => Promise<void>;
-}) {
-  const [form, setForm] = useState({ phoneNumber: '', phoneNumberId: '', wabaId: '', accessToken: '', displayName: '' });
-  const [loading, setLoading] = useState(false);
-
-  const set = (k: string, v: string) => setForm((f) => ({ ...f, [k]: v }));
-
-  const handleAdd = async () => {
-    if (!form.phoneNumber || !form.phoneNumberId || !form.wabaId || !form.accessToken) return;
-    setLoading(true);
-    await onAdd(form);
-    setLoading(false);
-    onClose();
-  };
-
-  const fields: { key: keyof typeof form; label: string; placeholder: string }[] = [
-    { key: 'phoneNumber', label: 'Phone Number (E.164)', placeholder: '+919876543210' },
-    { key: 'displayName', label: 'Display Name', placeholder: 'My Business Number' },
-    { key: 'phoneNumberId', label: 'Meta Phone Number ID', placeholder: '1234567890' },
-    { key: 'wabaId', label: 'WABA ID', placeholder: '9876543210' },
-    { key: 'accessToken', label: 'Access Token', placeholder: 'EAAxxxxxxx...' },
-  ];
-
-  return (
-    <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', zIndex: 1000, display: 'flex', alignItems: 'center', justifyContent: 'center' }} onClick={onClose}>
-      <div style={{ background: 'var(--bg-2)', border: '1px solid var(--line)', borderRadius: 14, padding: 28, width: 460, maxWidth: '90vw' }} onClick={(e) => e.stopPropagation()}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <h3 style={{ fontSize: 16, fontWeight: 700, color: 'var(--tx)', margin: 0 }}>Add Number to Pool</h3>
-          <button onClick={onClose} style={{ background: 'none', border: 'none', color: 'var(--tx-2)', cursor: 'pointer' }}><X size={18} /></button>
-        </div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          {fields.map((f) => (
-            <div key={f.key}>
-              <label style={{ fontSize: 12, color: 'var(--tx-2)', fontWeight: 600, display: 'block', marginBottom: 6 }}>{f.label}</label>
-              <input
-                type={f.key === 'accessToken' ? 'password' : 'text'}
-                value={form[f.key]}
-                onChange={(e) => set(f.key, e.target.value)}
-                placeholder={f.placeholder}
-                style={{ width: '100%', padding: '9px 14px', background: 'var(--s2)', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--tx)', fontSize: 13, boxSizing: 'border-box' }}
-              />
-            </div>
-          ))}
-        </div>
-        <div style={{ display: 'flex', gap: 10, justifyContent: 'flex-end', marginTop: 20 }}>
-          <button onClick={onClose} style={{ padding: '8px 18px', background: 'transparent', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--tx-2)', fontSize: 13, cursor: 'pointer' }}>Cancel</button>
-          <button
-            onClick={handleAdd}
-            disabled={loading}
-            style={{ padding: '8px 18px', background: 'var(--cyan)', border: 'none', borderRadius: 7, color: 'var(--on-cyan)', fontSize: 13, fontWeight: 700, cursor: 'pointer' }}
-          >
-            {loading ? 'Adding...' : 'Add Number'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── Analytics Tab ────────────────────────────────────────────────────────────
 
 export function AnalyticsTab() {
   const [overview, setOverview] = useState<Overview | null>(null);
@@ -523,265 +354,6 @@ export function AnalyticsTab() {
   );
 }
 
-// ─── Number Pool Tab ──────────────────────────────────────────────────────────
-
-export function NumberPoolTab() {
-  const [pool, setPool] = useState<PoolNumber[]>([]);
-  const [summary, setSummary] = useState({ total: 0, available: 0, assigned: 0, inactive: 0, banned: 0 });
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [search, setSearch] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [countryFilter, setCountryFilter] = useState('');
-  const [assignTarget, setAssignTarget] = useState<PoolNumber | null>(null);
-  const [showAddModal, setShowAddModal] = useState(false);
-  const { toasts, show: toast } = useToast();
-
-  const loadPool = useCallback(async () => {
-    setLoading(true);
-    setError('');
-    try {
-      const params = new URLSearchParams();
-      if (statusFilter) params.set('status', statusFilter);
-      if (countryFilter) params.set('country', countryFilter);
-      if (search) params.set('search', search);
-
-      const [poolData, wsData] = await Promise.all([
-        apiFetch(`/numbers/pool?${params}`),
-        apiFetch('/workspaces'),
-      ]);
-      setPool(poolData.pool ?? []);
-      setSummary(poolData.summary ?? {});
-      setWorkspaces(wsData.workspaces ?? []);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to load number pool');
-    } finally {
-      setLoading(false);
-    }
-  }, [statusFilter, countryFilter, search]);
-
-  useEffect(() => { loadPool(); }, [loadPool]);
-
-  const action = async (fn: () => Promise<unknown>, successMsg: string) => {
-    try {
-      await fn();
-      toast(successMsg, 'ok');
-      loadPool();
-    } catch (e: unknown) {
-      toast(e instanceof Error ? e.message : 'Action failed', 'err');
-    }
-  };
-
-  const handleAssign = async (numberId: string, workspaceId: string) => {
-    await action(
-      () => apiFetch(`/numbers/pool/${numberId}/assign`, { method: 'PATCH', body: JSON.stringify({ workspaceId }) }),
-      'Number assigned successfully'
-    );
-  };
-
-  const handleUnassign = (id: string) =>
-    action(() => apiFetch(`/numbers/pool/${id}/unassign`, { method: 'PATCH' }), 'Number unassigned');
-
-  const handleDeactivate = (id: string) =>
-    action(() => apiFetch(`/numbers/pool/${id}/deactivate`, { method: 'PATCH' }), 'Number deactivated');
-
-  const handleReset = (id: string) =>
-    action(() => apiFetch(`/numbers/pool/${id}/reset`, { method: 'PATCH' }), 'Number reset to Available');
-
-  const handleDelete = (id: string, phone: string) => {
-    if (!confirm(`Delete ${phone} from pool? This cannot be undone.`)) return;
-    action(() => apiFetch(`/numbers/pool/${id}`, { method: 'DELETE' }), 'Number deleted');
-  };
-
-  const handleAdd = async (data: Parameters<typeof apiFetch>[1] extends undefined ? never : { phoneNumber: string; phoneNumberId: string; wabaId: string; accessToken: string; displayName: string }) => {
-    await action(
-      () => apiFetch('/numbers/add', { method: 'POST', body: JSON.stringify(data) }),
-      'Number added to pool'
-    );
-  };
-
-  return (
-    <div>
-      <ToastContainer toasts={toasts} />
-
-      {/* Summary pills */}
-      <div style={{ display: 'flex', gap: 12, marginBottom: 24, flexWrap: 'wrap' }}>
-        {[
-          { label: 'Total', value: summary.total, color: 'var(--tx-2)' },
-          { label: 'Available', value: summary.available, color: 'var(--cyan-fg)' },
-          { label: 'Assigned', value: summary.assigned, color: 'var(--violet)' },
-          { label: 'Inactive', value: summary.inactive, color: 'var(--tx-3)' },
-          { label: 'Banned', value: summary.banned, color: 'var(--err)' },
-        ].map((s) => (
-          <div key={s.label} style={{ padding: '8px 18px', background: 'var(--s1)', border: '1px solid var(--line)', borderRadius: 8, display: 'flex', alignItems: 'center', gap: 8 }}>
-            <span style={{ width: 8, height: 8, borderRadius: '50%', background: s.color, display: 'inline-block' }} />
-            <span style={{ fontSize: 12, color: 'var(--tx-2)' }}>{s.label}</span>
-            <span style={{ fontSize: 15, fontWeight: 800, color: 'var(--tx)' }}>{s.value}</span>
-          </div>
-        ))}
-      </div>
-
-      {/* Filters + Add button */}
-      <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap', alignItems: 'center' }}>
-        <div style={{ position: 'relative', flex: 1, minWidth: 200 }}>
-          <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--tx-3)' }} />
-          <input
-            type="text"
-            placeholder="Search by number..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            style={{ width: '100%', padding: '9px 14px 9px 34px', background: 'var(--s1)', border: '1px solid var(--line)', borderRadius: 8, color: 'var(--tx)', fontSize: 13, boxSizing: 'border-box' }}
-          />
-        </div>
-
-        <div style={{ position: 'relative' }}>
-          <Filter size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--tx-3)' }} />
-          <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} style={{ padding: '9px 32px 9px 30px', background: 'var(--s1)', border: '1px solid var(--line)', borderRadius: 8, color: statusFilter ? 'white' : 'var(--tx-3)', fontSize: 13, appearance: 'none', cursor: 'pointer' }}>
-            <option value="">All Status</option>
-            <option value="AVAILABLE">Available</option>
-            <option value="ASSIGNED">Assigned</option>
-            <option value="INACTIVE">Inactive</option>
-            <option value="BANNED">Banned</option>
-          </select>
-          <ChevronDown size={13} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--tx-3)', pointerEvents: 'none' }} />
-        </div>
-
-        <div style={{ position: 'relative' }}>
-          <Globe size={13} style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--tx-3)' }} />
-          <select value={countryFilter} onChange={(e) => setCountryFilter(e.target.value)} style={{ padding: '9px 32px 9px 30px', background: 'var(--s1)', border: '1px solid var(--line)', borderRadius: 8, color: countryFilter ? 'white' : 'var(--tx-3)', fontSize: 13, appearance: 'none', cursor: 'pointer' }}>
-            <option value="">All Countries</option>
-            <option value="IN">🇮🇳 India (+91)</option>
-            <option value="US">🇺🇸 USA (+1)</option>
-          </select>
-          <ChevronDown size={13} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--tx-3)', pointerEvents: 'none' }} />
-        </div>
-
-        <button onClick={loadPool} style={{ padding: '9px 14px', background: 'transparent', border: '1px solid var(--line)', borderRadius: 8, color: 'var(--tx-2)', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-          <RefreshCw size={13} /> Refresh
-        </button>
-
-        <button onClick={() => setShowAddModal(true)} style={{ padding: '9px 18px', background: 'var(--cyan)', border: 'none', borderRadius: 8, color: 'var(--on-cyan)', fontWeight: 700, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 }}>
-          <Plus size={14} /> Add Number
-        </button>
-      </div>
-
-      {/* Error */}
-      {error && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--err)', padding: 16, background: 'rgba(239,68,68,0.08)', borderRadius: 8, border: '1px solid rgba(239,68,68,0.2)', marginBottom: 16 }}>
-          <AlertCircle size={16} /> {error}
-        </div>
-      )}
-
-      {/* Table */}
-      <div style={{ background: 'var(--s1)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden' }}>
-        <div style={{ overflowX: 'auto' }}>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
-            <thead>
-              <tr style={{ borderBottom: '1px solid var(--line)', background: 'rgba(255,255,255,0.02)' }}>
-                {['Phone Number', 'Country', 'Status', 'Assigned To', 'Agents', 'Added', 'Actions'].map((h) => (
-                  <th key={h} style={{ padding: '12px 16px', textAlign: 'left', color: 'var(--tx-2)', fontWeight: 600, fontSize: 11, textTransform: 'uppercase', letterSpacing: '0.5px', whiteSpace: 'nowrap' }}>{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
-                <tr><td colSpan={7} style={{ padding: 40, textAlign: 'center', color: 'var(--tx-2)' }}>
-                  <RefreshCw size={18} style={{ animation: 'spin 1s linear infinite', display: 'inline-block', marginRight: 8 }} />Loading...
-                </td></tr>
-              ) : pool.length === 0 ? (
-                <tr><td colSpan={7} style={{ padding: 40, textAlign: 'center', color: 'var(--tx-2)' }}>No numbers found</td></tr>
-              ) : pool.map((num) => {
-                const sc = statusColor(num.status);
-                return (
-                  <tr key={num.id} style={{ borderBottom: '1px solid rgba(255,255,255,0.04)' }}
-                    onMouseOver={(e) => (e.currentTarget.style.background = 'rgba(255,255,255,0.02)')}
-                    onMouseOut={(e) => (e.currentTarget.style.background = 'transparent')}
-                  >
-                    <td style={{ padding: '13px 16px' }}>
-                      <div style={{ fontWeight: 700, color: 'var(--tx)', fontFamily: 'monospace', fontSize: 13 }}>{num.phoneNumber}</div>
-                      {num.displayName && <div style={{ fontSize: 11, color: 'var(--tx-2)', marginTop: 2 }}>{num.displayName}</div>}
-                    </td>
-                    <td style={{ padding: '13px 16px', color: 'var(--tx-2)', fontSize: 12 }}>{countryFlag(num.phoneNumber)}</td>
-                    <td style={{ padding: '13px 16px' }}>
-                      <span style={{ padding: '3px 10px', borderRadius: 20, background: sc.bg, color: sc.color, fontSize: 11, fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 5 }}>
-                        <span style={{ width: 5, height: 5, borderRadius: '50%', background: sc.dot, display: 'inline-block' }} />
-                        {num.status}
-                      </span>
-                    </td>
-                    <td style={{ padding: '13px 16px' }}>
-                      {num.workspace ? (
-                        <div>
-                          <div style={{ color: 'var(--tx)', fontWeight: 600 }}>{num.workspace.name}</div>
-                          <div style={{ fontSize: 11, color: 'var(--tx-2)' }}>/{num.workspace.slug}</div>
-                        </div>
-                      ) : <span style={{ color: 'var(--tx-3)', fontSize: 12 }}>—</span>}
-                    </td>
-                    <td style={{ padding: '13px 16px', color: 'var(--tx-2)', fontSize: 12 }}>
-                      {num.workspace?.agents?.length ?? 0}
-                    </td>
-                    <td style={{ padding: '13px 16px', color: 'var(--tx-2)', fontSize: 12, whiteSpace: 'nowrap' }}>
-                      {fmtDate(num.createdAt)}
-                    </td>
-                    <td style={{ padding: '13px 16px' }}>
-                      <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                        {num.status === 'AVAILABLE' && (
-                          <button onClick={() => setAssignTarget(num)} title="Assign to workspace"
-                            style={{ padding: '5px 10px', background: 'rgba(129,140,248,0.1)', border: '1px solid rgba(129,140,248,0.3)', borderRadius: 6, color: 'var(--violet)', cursor: 'pointer', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <UserCheck size={12} /> Assign
-                          </button>
-                        )}
-                        {num.status === 'ASSIGNED' && (
-                          <button onClick={() => handleUnassign(num.id)} title="Unassign"
-                            style={{ padding: '5px 10px', background: 'rgba(245,158,11,0.1)', border: '1px solid rgba(245,158,11,0.3)', borderRadius: 6, color: 'var(--warn)', cursor: 'pointer', fontSize: 11, fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
-                            <UserX size={12} /> Unassign
-                          </button>
-                        )}
-                        {(num.status === 'AVAILABLE' || num.status === 'ASSIGNED') && (
-                          <button onClick={() => handleDeactivate(num.id)} title="Deactivate"
-                            style={{ padding: '5px 8px', background: 'rgba(255,255,255,0.04)', border: '1px solid var(--line)', borderRadius: 6, color: 'var(--tx-2)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                            <PowerOff size={12} />
-                          </button>
-                        )}
-                        {(num.status === 'INACTIVE' || num.status === 'BANNED') && (
-                          <button onClick={() => handleReset(num.id)} title="Reset to Available"
-                            style={{ padding: '5px 8px', background: 'rgba(14,179,158,0.08)', border: '1px solid rgba(14,179,158,0.2)', borderRadius: 6, color: 'var(--cyan-fg)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                            <RotateCcw size={12} />
-                          </button>
-                        )}
-                        <button onClick={() => handleDelete(num.id, num.phoneNumber)} title="Delete"
-                          style={{ padding: '5px 8px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.2)', borderRadius: 6, color: 'var(--err)', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                          <Trash2 size={12} />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </div>
-
-      {/* Modals */}
-      {assignTarget && (
-        <AssignModal
-          number={assignTarget}
-          workspaces={workspaces}
-          onClose={() => setAssignTarget(null)}
-          onAssign={handleAssign}
-        />
-      )}
-      {showAddModal && (
-        <AddNumberModal
-          onClose={() => setShowAddModal(false)}
-          onAdd={handleAdd}
-        />
-      )}
-    </div>
-  );
-}
-
 // ─── User Management Tab ─────────────────────────────────────────────────────
 
 interface UserRow {
@@ -804,8 +376,7 @@ interface UserDetail extends UserRow {
     workspace: {
       id: string; name: string; slug: string;
       agents: { id: string; name: string; aiModel: string; createdAt: string }[];
-      numberPool: { id: string; phoneNumber: string; status: string } | null;
-      _count: { agents: number; campaigns: number; contacts: number };
+      _count: { agents: number; campaigns: number };
     };
   }[];
 }
@@ -884,7 +455,6 @@ function UserDetailModal({ userId, onClose, onAction }: {
                   <div style={{ display: 'flex', gap: 16, fontSize: 12, color: 'var(--tx-2)' }}>
                     <span>🤖 {m.workspace._count.agents} agents</span>
                     <span>📋 {m.workspace._count.campaigns} campaigns</span>
-                    <span>👥 {m.workspace._count.contacts} contacts</span>
                   </div>
                 </div>
                 {m.workspace.agents.length > 0 && (
@@ -894,11 +464,6 @@ function UserDetailModal({ userId, onClose, onAction }: {
                         🤖 {a.name} <span style={{ color: 'var(--tx-3)', fontSize: 10 }}>({a.aiModel})</span>
                       </span>
                     ))}
-                  </div>
-                )}
-                {m.workspace.numberPool && (
-                  <div style={{ marginTop: 8, fontSize: 12, color: 'var(--tx-2)' }}>
-                    📞 {m.workspace.numberPool.phoneNumber} · <span style={{ color: statusColor(m.workspace.numberPool.status).color }}>{m.workspace.numberPool.status}</span>
                   </div>
                 )}
               </div>

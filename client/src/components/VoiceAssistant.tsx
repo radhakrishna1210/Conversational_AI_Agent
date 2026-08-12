@@ -576,11 +576,9 @@ export default function VoiceAssistant() {
           max-height: 420px;
           overflow-y: auto;
           padding-right: 6px;
-          scrollbar-width: thin;
-          scrollbar-color: var(--line) transparent;
         }
-        .voice-selector-container::-webkit-scrollbar { width: 4px; }
-        .voice-selector-container::-webkit-scrollbar-thumb { background: var(--line); border-radius: 4px; }
+        /* No local scrollbar rules — the global SCROLLBARS block in styles.css
+           themes this off the --sb-* tokens, in both light and dark. */
 
         /* ── Group header ───────────────────────────────────────────────── */
         .voice-group-header {

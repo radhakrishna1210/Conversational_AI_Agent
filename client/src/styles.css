@@ -141,6 +141,19 @@
   /* Keyboard focus ring — bright enough to read against every dark surface */
   --focus-ring: #0cd4bc;
 
+  /*
+    Scrollbars.
+
+    Alpha rather than a flat hex on purpose: a scroll container can sit on the
+    page canvas, on --s1 or on --s2, and one translucent cool grey reads
+    correctly on all three instead of banding against two of them. The thumb
+    picks up the brand teal on hover — the only place the scrollbar is allowed
+    to be anything other than quiet.
+  */
+  --sb-thumb:       rgba(140, 165, 200, 0.22);
+  --sb-thumb-hover: rgba(14, 179, 158, 0.55);
+  --sb-track:       rgba(255, 255, 255, 0.03);
+
   /* Radii */
   --radius-sm:   6px;
   --radius-md:   12px;
@@ -283,6 +296,12 @@ html.light {
   /* Keyboard focus ring — the dimmed teal reads against white; #0cd4bc does not */
   --focus-ring: #0a8a79;
 
+  /* Scrollbars — the slate ramp inverted; hover uses the dimmed teal that
+     clears contrast on white, same split as --teal / --teal-fg. */
+  --sb-thumb:       rgba(71, 85, 105, 0.30);
+  --sb-thumb-hover: rgba(10, 138, 121, 0.60);
+  --sb-track:       rgba(15, 23, 42, 0.04);
+
   /*
     Spandan token layer, light mode.
 
@@ -309,6 +328,97 @@ html.light {
   --shadow-glow:        0 0 24px rgba(14,179,158,0.15);
   --shadow-glow-strong: 0 0 40px rgba(14,179,158,0.25);
   --shadow-topbar:      0 1px 0 rgba(0,0,0,0.07);
+}
+
+/* ═══════════════════════════════════════════
+   SCROLLBARS — one system, both themes
+   ═══════════════════════════════════════════
+
+  Every scroll surface in the app used to render a white OS scrollbar in dark
+  mode. Two independent causes, and both have to be fixed or the bars stay
+  wrong on some surfaces:
+
+   1. `color-scheme` was declared only in an index.html <meta>, which advertises
+      which schemes the page SUPPORTS — the browser then picks using the
+      *operating system* preference. On a light-mode OS, Chrome painted the
+      root scrollbar, <select> popups and every other native control light
+      while the app was dark. Binding the CSS property to the theme class
+      instead makes the app's own toggle authoritative, because the pre-paint
+      script in index.html has already put .dark / .light on <html>.
+
+   2. The ::-webkit-scrollbar rules were scoped to `html.light`, so dark mode —
+      the default theme — had no custom scrollbar at all.
+
+  Setting color-scheme alone would give correctly-dark *native* bars; the
+  pseudo-elements below are what make them match Resonance rather than merely
+  not being white.
+*/
+html { color-scheme: dark; }
+html.light { color-scheme: light; }
+
+/*
+  WebKit/Blink. The 2px transparent border + background-clip is what turns a
+  10px track into a 6px pill with breathing room on either side, so the thumb
+  reads as an object floating in the gutter rather than a bar welded to the
+  edge.
+*/
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-track {
+  background: var(--sb-track);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--sb-thumb);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--sb-thumb-hover);
+  background-clip: padding-box;
+}
+/* The dead square where two bars meet, and the textarea resize grip. */
+::-webkit-scrollbar-corner,
+::-webkit-resizer {
+  background: transparent;
+}
+
+/*
+  Firefox has no scrollbar pseudo-elements, so it needs the standard
+  properties. They are gated behind @supports rather than declared outright
+  because Chrome 121+ ALSO honours scrollbar-color, and when it does it ignores
+  the ::-webkit-* block above — costing the padded pill and the hover state for
+  no gain. `selector(::-webkit-scrollbar)` is true in Chrome/Safari and false in
+  Firefox, so each engine takes exactly one of the two paths.
+
+  scrollbar-color is inherited, so declaring it on the root covers every
+  descendant.
+*/
+@supports not selector(::-webkit-scrollbar) {
+  html {
+    scrollbar-width: thin;
+    scrollbar-color: var(--sb-thumb) var(--sb-track);
+  }
+}
+
+/*
+  The sidebar keeps its deep navy surface in BOTH themes (see the html.light
+  .sidebar override further down), so it is the one place where the light
+  palette's dark thumb would be invisible. Anything scrolling inside it uses the
+  dark-mode treatment regardless of theme.
+*/
+html.light .sidebar ::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.16);
+  background-clip: padding-box;
+}
+html.light .sidebar ::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.28);
+  background-clip: padding-box;
+}
+html.light .sidebar ::-webkit-scrollbar-track {
+  background: transparent;
 }
 
 /*
@@ -430,7 +540,8 @@ html.light .sidebar-item:hover { background: rgba(255,255,255,0.10); color: #fff
    the same token as dark mode — 6.0:1 against #14213d. */
 html.light .sidebar-item.active { background: rgba(14,179,158,0.18); color: var(--teal); }
 html.light .sidebar-category { color: rgba(255,255,255,0.48); }
-html.light .sidebar-content-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); }
+/* The sidebar's scrollbar is handled by the `html.light .sidebar` rules in the
+   SCROLLBARS block near the top — it needs white-alpha in both themes. */
 
 /* Dashboard main area */
 html.light .dashboard-layout { background: var(--bg-primary); }
@@ -487,11 +598,8 @@ html.light .btn-dark:hover { background: rgba(15,23,42,0.10); }
 /* Topbar search bar in light mode */
 html.light .topbar-search input { color: var(--text-primary); }
 
-/* Scrollbar */
-html.light ::-webkit-scrollbar { width: 6px; }
-html.light ::-webkit-scrollbar-track { background: transparent; }
-html.light ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 6px; }
-html.light ::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+/* Scrollbars are no longer a light-mode patch — see the SCROLLBARS system block
+   near the top of this file, which drives both themes off --sb-* tokens. */
 
 /* Public Navbar in light mode */
 html.light .navbar {
@@ -2041,10 +2149,27 @@ footer {
   padding-top: 12px;
 }
 
-.sidebar-content-scroll::-webkit-scrollbar { width: 3px; }
+/*
+  The nav rail runs the full height of a 264px sidebar, so it takes a slimmer
+  bar than the 10px the rest of the app uses — at full width it reads as a seam
+  down the edge of the panel. The border is restated rather than inherited: the
+  global thumb pads itself with a 2px transparent border, which on a narrow
+  track would consume the whole thumb. 8px − 2×2px leaves a 4px pill.
+
+  White-alpha in both themes, because the sidebar surface stays deep navy in
+  light mode too.
+*/
+.sidebar-content-scroll::-webkit-scrollbar { width: 8px; }
+.sidebar-content-scroll::-webkit-scrollbar-track { background: transparent; }
 .sidebar-content-scroll::-webkit-scrollbar-thumb {
-  background: rgba(255,255,255,0.08);
-  border-radius: 4px;
+  background: rgba(255,255,255,0.14);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 999px;
+}
+.sidebar-content-scroll::-webkit-scrollbar-thumb:hover {
+  background: rgba(255,255,255,0.26);
+  background-clip: padding-box;
 }
 
 .sidebar-section {
