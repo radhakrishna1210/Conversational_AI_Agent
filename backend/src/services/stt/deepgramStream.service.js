@@ -218,9 +218,16 @@ export class DeepgramStreamSession {
    */
   constructor({
     sampleRate = 24000, language, endpointingMs, onEndOfTurn, endpointGraceMs,
+    encoding = 'linear16',
   } = {}) {
     this.sampleRate = sampleRate;
     this.language = language;
+    // Wire format of the audio being fed in. 'linear16' is the browser path
+    // (PCM16 at the AudioContext's rate). 'mulaw' is the telephony path: a
+    // carrier's media stream is 8kHz G.711, and Deepgram decodes it natively,
+    // so the phone bridge hands frames straight over without transcoding — the
+    // same zero-conversion principle the bundled engines get from g711_ulaw.
+    this.encoding = encoding;
     this.endpointingMs = endpointingMs;
     this.onEndOfTurn = typeof onEndOfTurn === 'function' ? onEndOfTurn : null;
 
@@ -309,7 +316,7 @@ export class DeepgramStreamSession {
 
     const params = new URLSearchParams({
       model,
-      encoding: 'linear16',
+      encoding: this.encoding,
       sample_rate: String(this.sampleRate),
       channels: '1',
       punctuate: 'true',

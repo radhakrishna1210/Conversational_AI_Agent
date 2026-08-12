@@ -92,8 +92,7 @@ export const getUserDetail = async (userId) => {
           workspace: {
             include: {
               agents: { select: { id: true, name: true, aiModel: true, createdAt: true } },
-              numberPool: { select: { id: true, phoneNumber: true, status: true } },
-              _count: { select: { agents: true, campaigns: true, contacts: true } },
+              _count: { select: { agents: true, campaigns: true } },
             },
           },
         },

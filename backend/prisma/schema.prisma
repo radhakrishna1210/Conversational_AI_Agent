@@ -51,27 +51,22 @@ model User {
   createdAt             DateTime          @default(now())
   updatedAt             DateTime          @updatedAt
   mobile                String?           @unique
-  assignedConversations Conversation[]
-  sentMessages          Message[]
   refreshTokens         RefreshToken[]
   memberships           WorkspaceMember[]
 }
 
-// The five Meta/WhatsApp columns that used to sit between logoUrl and planName
-// — metaWabaId, metaAccessToken, metaBusinessId, wabaId, numberAssigned — were
-// dropped from the database by the 20260809140000_remove_whatsapp migration but
-// left behind here.
+// The 20260809140000_remove_whatsapp migration tore WhatsApp out of the
+// database — five Meta columns off Workspace, and nine whole tables. None of it
+// was taken out of this file, and a stale schema here is not cosmetic: Prisma's
+// default selection asks for every scalar it believes exists, so a bare
+// `findFirst()` — or any `include` — asks Postgres for columns that are gone and
+// fails with P2022. That is how the Meta columns took down password login,
+// Google login and every workspace-scoped request at once, and how the leftover
+// `Campaign.templateId` later took down the bulk-call page.
 //
-// That is not cosmetic. Prisma's default selection asks for every scalar it
-// believes exists, so a bare `workspace.findFirst()` — or any `include:
-// { workspace: true }` — asked Postgres for columns that were gone and failed
-// with P2022. Since those includes sit in loginUser, loginOrRegisterWithGoogle
-// and the workspaceContext middleware, this took down password login, Google
-// login and every workspace-scoped API request at once.
-//
-// The database is the source of truth; the schema was stale. If a Meta column
-// is ever needed again it comes back through a migration that actually creates
-// it, not by being re-declared here.
+// The database is the source of truth. The WhatsApp models and their relations
+// are gone from here now; if any of it is ever needed again it comes back
+// through a migration that actually creates the table, not by being re-declared.
 model Workspace {
   id                  String               @id @default(cuid())
   name                String
@@ -82,10 +77,8 @@ model Workspace {
   updatedAt           DateTime             @updatedAt
   agents              Agent[]
   apiKeys             ApiKey[]
-  automationFlow      AutomationFlow?
   campaigns           Campaign[]
-  contacts            Contact[]
-  conversations       Conversation[]
+  compliance          WorkspaceCompliance?
   customApiConfigs    CustomApiConfig[]
   integrations        Integration[]
   integrationLogs     IntegrationLog[]
@@ -94,16 +87,12 @@ model Workspace {
   invoices            Invoice[]
   paymentOrders       PaymentOrder[]
   subscription        Subscription?
-  keywordTriggers     KeywordTrigger[]
-  messages            Message[]
   notifications       Notification[]
-  numberPool          NumberPool?
   oauthSessions       OAuthSession[]
+  plivoSubaccount     PlivoSubaccount?
   syncJobs            SyncJob[]
-  templates           Template[]
-  webhookConfig       WebhookConfig?
+  voiceNumbers        VoiceNumber[]
   webhookEvents       WebhookEvent[]
-  whatsappNumbers     WhatsappNumber[]
   invites             WorkspaceInvite[]
   members             WorkspaceMember[]
   settings            WorkspaceSettings?
@@ -146,29 +135,6 @@ model WorkspaceInvite {
   @@unique([workspaceId, email])
 }
 
-model WhatsappNumber {
-  id                String         @id @default(cuid())
-  workspaceId       String
-  phoneNumber       String
-  displayName       String
-  category          String?
-  website           String?
-  description       String?
-  logoUrl           String?
-  metaPhoneNumberId String?
-  status            String         @default("Pending")
-  wabaId            String?
-  accessToken       String?
-  qualityRating     String?
-  messagingLimit    String?
-  createdAt         DateTime       @default(now())
-  updatedAt         DateTime       @updatedAt
-  campaigns         Campaign[]
-  conversations     Conversation[]
-  workspace         Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-
-  @@unique([workspaceId, phoneNumber])
-}
 
 model ApiKey {
   id          String    @id @default(cuid())
@@ -183,68 +149,13 @@ model ApiKey {
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
-model WebhookConfig {
-  id               String    @id @default(cuid())
-  workspaceId      String    @unique
-  url              String
-  secret           String
-  subscribedEvents String    @default("")
-  isActive         Boolean   @default(true)
-  lastPingAt       DateTime?
-  lastPingStatus   Int?
-  updatedAt        DateTime  @updatedAt
-  workspace        Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-}
 
-model Template {
-  id              String     @id @default(cuid())
-  workspaceId     String
-  metaTemplateId  String?
-  name            String
-  category        String     @default("MARKETING")
-  language        String     @default("en")
-  bodyText        String
-  headerText      String?
-  footerText      String?
-  buttons         String?    @default("")
-  status          String     @default("PENDING")
-  rejectionReason String?
-  createdAt       DateTime   @default(now())
-  updatedAt       DateTime   @updatedAt
-  campaigns       Campaign[]
-  messages        Message[]
-  workspace       Workspace  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
-  @@unique([workspaceId, name, language])
-}
-
-model Contact {
-  id            String              @id @default(cuid())
-  workspaceId   String
-  phoneNumber   String
-  name          String?
-  email         String?
-  tags          String              @default("")
-  customFields  String?             @default("")
-  optedOut      Boolean             @default(false)
-  optedOutAt    DateTime?
-  createdAt     DateTime            @default(now())
-  updatedAt     DateTime            @updatedAt
-  campaigns     CampaignRecipient[]
-  workspace     Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  conversations Conversation[]
-
-  @@unique([workspaceId, phoneNumber])
-}
 
 model Campaign {
   id               String              @id @default(cuid())
   workspaceId      String
   name             String
-  // WhatsApp-only; a VOICE campaign has neither.
-  templateId       String?
-  whatsappNumberId String?
-  variableMapping  String?             @default("{}")
   // 'WHATSAPP' (template broadcast) or 'VOICE' (bulk calls).
   channel          String              @default("WHATSAPP")
   botId            String?
@@ -264,13 +175,9 @@ model Campaign {
   completedAt      DateTime?
   totalContacts    Int                 @default(0)
   sent             Int                 @default(0)
-  delivered        Int                 @default(0)
-  read             Int                 @default(0)
   failed           Int                 @default(0)
   createdAt        DateTime            @default(now())
   updatedAt        DateTime            @updatedAt
-  template         Template?           @relation(fields: [templateId], references: [id])
-  whatsappNumber   WhatsappNumber?     @relation(fields: [whatsappNumberId], references: [id])
   workspace        Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   recipients       CampaignRecipient[]
 }
@@ -278,92 +185,24 @@ model Campaign {
 model CampaignRecipient {
   id            String    @id @default(cuid())
   campaignId    String
-  // Null for VOICE campaigns: recipients come from an uploaded CSV and have no
-  // Contact row. phoneNumber carries the target instead.
-  contactId     String?
+  // Recipients come from an uploaded CSV, so phoneNumber carries the target.
+  // There is no Contact row behind it — that model went with WhatsApp.
   phoneNumber   String?
   callLogId     String?
   attempts      Int       @default(0)
-  metaMessageId String?
   status        String    @default("pending")
   failureReason String?
   startedAt     DateTime?
   sentAt        DateTime?
-  deliveredAt   DateTime?
-  readAt        DateTime?
   campaign      Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  contact       Contact?  @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
-  @@unique([campaignId, contactId])
   @@unique([campaignId, phoneNumber])
   @@index([campaignId, status])
 }
 
-model Conversation {
-  id               String         @id @default(cuid())
-  workspaceId      String
-  contactId        String
-  whatsappNumberId String
-  assignedAgentId  String?
-  status           String         @default("OPEN")
-  label            String?
-  botEnabled       Boolean        @default(true)
-  sessionExpiresAt DateTime?
-  lastMessageAt    DateTime?
-  unreadCount      Int            @default(0)
-  createdAt        DateTime       @default(now())
-  updatedAt        DateTime       @updatedAt
-  assignedAgent    User?          @relation(fields: [assignedAgentId], references: [id])
-  contact          Contact        @relation(fields: [contactId], references: [id])
-  whatsappNumber   WhatsappNumber @relation(fields: [whatsappNumberId], references: [id])
-  workspace        Workspace      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  messages         Message[]
-}
 
-model Message {
-  id             String       @id @default(cuid())
-  conversationId String
-  workspaceId    String
-  metaMessageId  String?      @unique
-  direction      String       @default("OUTBOUND")
-  type           String       @default("TEXT")
-  body           String?
-  mediaUrl       String?
-  mediaCaption   String?
-  templateId     String?
-  templateVars   String       @default("{}")
-  status         String       @default("sent")
-  senderUserId   String?
-  sentAt         DateTime     @default(now())
-  deliveredAt    DateTime?
-  readAt         DateTime?
-  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  senderUser     User?        @relation(fields: [senderUserId], references: [id])
-  template       Template?    @relation(fields: [templateId], references: [id])
-  workspace      Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-}
 
-model KeywordTrigger {
-  id          String    @id @default(cuid())
-  workspaceId String
-  keyword     String
-  replyText   String
-  isActive    Boolean   @default(true)
-  matchExact  Boolean   @default(false)
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
-  @@unique([workspaceId, keyword])
-}
-
-model AutomationFlow {
-  id          String    @id @default(cuid())
-  workspaceId String    @unique
-  flowJson    String    @default("{}")
-  updatedAt   DateTime  @updatedAt
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-}
 
 model WorkspaceSettings {
   id                  String    @id @default(cuid())
@@ -406,20 +245,6 @@ model Invoice {
   @@index([workspaceId, invoiceDate])
 }
 
-model NumberPool {
-  id            String     @id @default(cuid())
-  phoneNumber   String     @unique
-  phoneNumberId String     @unique
-  wabaId        String
-  accessToken   String
-  displayName   String?
-  status        String     @default("AVAILABLE")
-  assignedTo    String?    @unique
-  registeredAt  DateTime   @default(now())
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
-  workspace     Workspace? @relation(fields: [assignedTo], references: [id])
-}
 
 model Agent {
   id                   String    @id @default(cuid())
@@ -438,7 +263,15 @@ model Agent {
   createdAt            DateTime  @default(now())
   updatedAt            DateTime  @updatedAt
   settings             String    @default("{}")
+  // The DLT-approved voice template this agent's opening is registered under.
+  // Required for Indian outbound: a template is only meaningful if the words
+  // actually spoken match it, so the greeting is pinned to the approved body
+  // rather than generated. Null for web calls and non-India traffic.
+  dltTemplateId        String?
+  dltTemplate          DltVoiceTemplate? @relation(fields: [dltTemplateId], references: [id], onDelete: SetNull)
   workspace            Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([dltTemplateId])
 }
 
 // Per-agent interaction history shown in Edit Agent → Recent Calls.
@@ -941,4 +774,167 @@ model AuditLog {
   @@index([category, createdAt])
   @@index([action, createdAt])
   @@index([targetType, targetId, createdAt])
+}
+
+// ─── TRAI / DLT compliance ───────────────────────────────────────────────────
+//
+// India gates outbound commercial calling on two separate verifications, and
+// neither can be performed by us on the client's behalf:
+//
+//   ENTITY — the client registers itself as a Principal Entity on an access
+//     provider's DLT portal (Airtel, Jio, Vi, BSNL, Tata, ...) and receives a
+//     19-digit PE ID. Once per client.
+//   NUMBER — each caller ID is then registered as a voice CLI/header under that
+//     PE ID. Once per number.
+//
+// The consequence for the product is that numbers cannot be bought in bulk and
+// held: a carrier will only rent one against an approved per-customer
+// compliance application, and the CLI is bound to that customer's PE ID from
+// the moment it is provisioned. Provisioning therefore comes AFTER verification,
+// not before.
+//
+// String enums rather than Prisma enums, matching the rest of this schema —
+// see src/constants/compliance.js for the permitted values of every field.
+
+model WorkspaceCompliance {
+  id          String    @id @default(cuid())
+  workspaceId String    @unique
+  // PROMOTIONAL | TRANSACTIONAL. Declared before a number is bought because it
+  // decides the series, and the series cannot be changed afterwards without
+  // releasing the number.
+  useCase     String?
+  // Legal entity as it appears on the registration documents. Must match the
+  // brand name registered on DLT, or the header registration is rejected.
+  entityName  String?
+  legalEntityType String?
+
+  // Our reseller compliance application to the carrier, filed per end customer.
+  carrierApplicationStatus String    @default("NOT_SUBMITTED")
+  carrierApplicationRef    String?
+  carrierApplicationAt     DateTime?
+  carrierRejectionReason   String?
+  provider                 String    @default("PLIVO")
+
+  // The client's DLT Principal Entity registration. peOperator is derived from
+  // the first three digits of the PE ID.
+  peId           String?
+  peOperator     String?
+  peStatus       String    @default("NOT_STARTED")
+  peVerifiedAt   DateTime?
+
+  // PE-TM chain binding: the client declares our telemarketer (aggregator) ID
+  // in their DLT portal. Without it the PE ID and our infrastructure are
+  // unlinked and the traffic is unregistered however valid the PE is.
+  tmId             String?
+  tmBindingStatus  String    @default("NOT_BOUND")
+  tmBoundAt        DateTime?
+
+  // Set when a violation is found. Independent of the checklist: a workspace
+  // that satisfies every requirement can still be stopped.
+  suspended       Boolean   @default(false)
+  suspendedReason String?
+  suspendedAt     DateTime?
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  workspace   Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  documents   ComplianceDocument[]
+  templates   DltVoiceTemplate[]
+}
+
+model ComplianceDocument {
+  id           String    @id @default(cuid())
+  complianceId String
+  // COI | UDYAM | PAN | GST | AUTH_LETTER | ADDRESS_PROOF
+  kind         String
+  fileName     String
+  // Storage key, not the bytes. These are KYC documents; they do not belong in
+  // a Postgres column and they do not belong in a public bucket.
+  storageKey   String
+  mimeType     String?
+  sizeBytes    Int?
+  status       String    @default("UPLOADED")
+  reviewNote   String?
+  reviewedAt   DateTime?
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  compliance   WorkspaceCompliance @relation(fields: [complianceId], references: [id], onDelete: Cascade)
+
+  // One live document per kind; re-uploading replaces rather than accumulates.
+  @@unique([complianceId, kind])
+  @@index([complianceId, status])
+}
+
+model DltVoiceTemplate {
+  id            String    @id @default(cuid())
+  complianceId  String
+  // The template ID issued by the DLT portal. Null while still a local draft.
+  dltTemplateId String?
+  name          String
+  // The approved script. The agent's opening must match this — a free-form LLM
+  // greeting is what makes a registered template meaningless.
+  body          String
+  status        String    @default("DRAFT")
+  rejectionReason String?
+  approvedAt    DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  compliance    WorkspaceCompliance @relation(fields: [complianceId], references: [id], onDelete: Cascade)
+  agents        Agent[]
+
+  @@index([complianceId, status])
+}
+
+// One Plivo subaccount per workspace. Isolation and attribution only — NOT a
+// billing boundary: charges from every subaccount aggregate to our parent
+// account. Never expose a Plivo balance to a client; the wallet is the only
+// thing they see. See backend/docs/PLIVO_INTEGRATION.md §2.
+model PlivoSubaccount {
+  id             String    @id @default(cuid())
+  workspaceId    String    @unique
+  authId         String    @unique
+  // Plivo returns the subaccount auth_token EXACTLY ONCE, in the creation
+  // response, and it is never retrievable from the API again. Encrypted at rest
+  // because it authenticates real, billable spend against our parent account.
+  authTokenEnc   String
+  name           String
+  enabled        Boolean   @default(true)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+model VoiceNumber {
+  id             String    @id @default(cuid())
+  workspaceId    String
+  phoneNumber    String    @unique
+  // PLIVO | EXOTEL | TWILIO
+  provider       String
+  providerNumberId String?
+  // Per-workspace carrier subaccount, so one client's calling behaviour cannot
+  // degrade the caller-ID reputation of another client's numbers.
+  subaccountId   String?
+  // PROMOTIONAL_140 | TRANSACTIONAL_LANDLINE | BFSI_1600 | MOBILE | UNKNOWN.
+  // Recorded from what the carrier sold us — 140 and 1600 are the only series
+  // decidable from the digits, landline and mobile ranges overlap.
+  series         String    @default("UNKNOWN")
+  headerStatus   String    @default("NOT_REGISTERED")
+  headerRejectionReason String?
+  headerRegisteredAt DateTime?
+  status         String    @default("ACTIVE")
+  assignedAt     DateTime  @default(now())
+  releasedAt     DateTime?
+  // Rolling reputation guard. A number's answer rate collapsing is the earliest
+  // signal that carriers have started filtering it.
+  dailyDialCap   Int       @default(200)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, status])
 }

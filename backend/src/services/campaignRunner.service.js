@@ -14,6 +14,7 @@ import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
 import { CAMPAIGN_STATUS } from '../constants/campaignStatus.js';
 import { assertCanStartCall } from './billing/settlement.service.js';
+import { assertRotationCompliant } from './compliance/compliance.service.js';
 import { placeOutboundCall, resolveCallMode, telephonyStatus } from './outboundCall.service.js';
 
 // Campaigns being dispatched by THIS process. Guards against the same campaign
@@ -121,6 +122,17 @@ export async function runCampaign(campaignId, workspaceId) {
       return { started: false, reason: 'telephony' };
     }
 
+    // DLT gate. Checked before the first dial rather than per recipient: an
+    // incomplete registration is a property of the workspace and its caller
+    // IDs, so discovering it on recipient 4,000 would mean 3,999 unregistered
+    // commercial calls have already gone out. Non-Indian caller IDs pass
+    // through untouched — DLT is Indian law about Indian traffic.
+    const dlt = await assertRotationCompliant(workspaceId, rotation);
+    if (!dlt.allowed) {
+      await finish(campaignId, CAMPAIGN_STATUS.FAILED, dlt.message);
+      return { started: false, reason: 'compliance' };
+    }
+
     const { mode, reason } = resolveCallMode(agent);
     await prisma.campaign.update({
       where: { id: campaignId },
@@ -148,6 +160,17 @@ export async function runCampaign(campaignId, workspaceId) {
       }
       if (current.status === CAMPAIGN_STATUS.PAUSED) {
         await syncProgress(campaignId);
+        return { started: true, dialled };
+      }
+
+      // Re-check compliance once per batch, not per call. A workspace can be
+      // suspended or a header revoked while a long campaign is mid-flight, and
+      // the whole point of the gate is that it stops the traffic then — but a
+      // database round trip per dial to catch a rare event is the wrong trade.
+      const stillCompliant = await assertRotationCompliant(workspaceId, rotation);
+      if (!stillCompliant.allowed) {
+        logger.warn({ campaignId, code: stillCompliant.code }, `Campaign paused mid-flight: ${stillCompliant.message}`);
+        await finish(campaignId, CAMPAIGN_STATUS.PAUSED, stillCompliant.message);
         return { started: true, dialled };
       }
 

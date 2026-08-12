@@ -1,11 +1,9 @@
 import '../config/env.js'; // validate env on startup
 import { createCampaignWorker } from './campaign.worker.js';
-import { createContactImportWorker } from './contactImport.worker.js';
 import logger from '../lib/logger.js';
 
 const workers = [
   createCampaignWorker(),
-  createContactImportWorker(),
 ].filter(Boolean);
 
 if (workers.length === 0) {

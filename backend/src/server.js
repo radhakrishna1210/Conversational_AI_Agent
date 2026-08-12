@@ -14,6 +14,8 @@ import { startVoiceSyncScheduler } from './services/voice/voice.startup.js';
 import { handleWebCallUpgrade } from './ws/webCallRealtime.handler.js';
 import { handleWebCallModularUpgrade } from './ws/webCallModularRealtime.handler.js';
 import { handleTwilioMediaUpgrade } from './ws/twilioMediaRealtime.handler.js';
+import { handleTwilioMediaModularUpgrade } from './ws/twilioMediaModular.handler.js';
+import { handleExotelMediaUpgrade } from './ws/exotelMediaRealtime.handler.js';
 
 mkdirSync(env.UPLOAD_DIR, { recursive: true });
 
@@ -71,6 +73,7 @@ const httpServer = http.createServer(app);
 const webCallWss = new WebSocketServer({ noServer: true });
 const modularWebCallWss = new WebSocketServer({ noServer: true });
 const twilioMediaWss = new WebSocketServer({ noServer: true });
+const exotelMediaWss = new WebSocketServer({ noServer: true });
 
 // /api/v1/workspaces/:workspaceId/agents/:agentId/xai-call  (bundled engine)
 const WEB_CALL_UPGRADE_PATH = /^\/api\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/xai-call$/;
@@ -78,15 +81,47 @@ const WEB_CALL_UPGRADE_PATH = /^\/api\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\
 const MODULAR_WEB_CALL_UPGRADE_PATH = /^\/api\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/web-call$/;
 // /api/v1/twilio-media/:workspaceId/:agentId
 const TWILIO_MEDIA_UPGRADE_PATH = /^\/api\/v1\/twilio-media\/([^/]+)\/([^/]+)$/;
+// /api/v1/exotel-media/:workspaceId/:agentId?sample-rate=…&callLogId=…
+const EXOTEL_MEDIA_UPGRADE_PATH = /^\/api\/v1\/exotel-media\/([^/]+)\/([^/]+)$/;
+// Exotel accepts exactly these; anything else on the URL is ignored by Exotel,
+// so accepting it here would leave the two ends disagreeing about the rate.
+const EXOTEL_SAMPLE_RATES = new Set([8000, 16000, 24000]);
+
+/**
+ * Does this agent run on a bundled speech-to-speech engine?
+ *
+ * Never throws: an unreachable database must not take the call down. Falling
+ * back to the bundled bridge is deliberate — it refuses a mismatched engine
+ * loudly on the first frame, whereas guessing modular would run an entire call
+ * through the wrong pipeline.
+ */
+async function resolveBundledEngine(workspaceId, agentId) {
+  try {
+    const agent = await prisma.agent.findFirst({
+      where: { id: agentId, workspaceId },
+      select: { settings: true },
+    });
+    let engine = 'modular';
+    try { engine = JSON.parse(agent?.settings || '{}').voiceEngine || 'modular'; } catch { /* default */ }
+    return engine === 'xai' || engine === 'elevenlabs';
+  } catch (e) {
+    logger.warn(`Could not resolve voice engine for media stream: ${e.message}`);
+    return true;
+  }
+}
 
 httpServer.on('upgrade', (req, socket, head) => {
-  let pathname;
+  let url;
   try {
-    pathname = new URL(req.url, `http://${req.headers.host}`).pathname;
+    url = new URL(req.url, `http://${req.headers.host}`);
   } catch {
     socket.destroy();
     return;
   }
+  // The query string is not decoration on the Exotel path: `sample-rate` sets
+  // the PCM rate on both directions of that socket, and `callLogId` is how a
+  // stream-mode call identifies itself.
+  const { pathname } = url;
 
   const webCallMatch = pathname.match(WEB_CALL_UPGRADE_PATH);
   if (webCallMatch) {
@@ -106,8 +141,52 @@ httpServer.on('upgrade', (req, socket, head) => {
 
   const twilioMatch = pathname.match(TWILIO_MEDIA_UPGRADE_PATH);
   if (twilioMatch) {
-    twilioMediaWss.handleUpgrade(req, socket, head, (ws) => {
-      handleTwilioMediaUpgrade(ws, { workspaceId: twilioMatch[1], agentId: twilioMatch[2] });
+    const [, workspaceId, agentId] = twilioMatch;
+
+    // One carrier path, two bridges. Which one depends on the agent's engine:
+    // a bundled engine owns its own realtime session (pipe), a modular agent
+    // needs the server to run the conversation itself. Resolved per call rather
+    // than per route so switching an agent's engine takes effect on the next
+    // dial with no config change anywhere else.
+    //
+    // THE LOOKUP MUST FINISH BEFORE handleUpgrade, NOT INSIDE IT. A carrier
+    // sends `connected` and `start` the instant it sees the 101 response, and
+    // `ws` delivers a message only to listeners attached at the time it
+    // arrives — anything landing before the bridge attaches its handler is
+    // dropped on the floor. Awaiting a Supabase round trip inside the upgrade
+    // callback opened exactly that window: the bridge never saw `start`, never
+    // started a session, and the caller heard silence for the whole call while
+    // the log sat at INITIATED. Resolving first means the handshake — and so
+    // the carrier's first frame — cannot happen until we are ready to listen.
+    resolveBundledEngine(workspaceId, agentId).then((bundled) => {
+      twilioMediaWss.handleUpgrade(req, socket, head, (ws) => {
+        if (bundled) handleTwilioMediaUpgrade(ws, { workspaceId, agentId });
+        else handleTwilioMediaModularUpgrade(ws, { workspaceId, agentId });
+      });
+    });
+    return;
+  }
+
+  const exotelMatch = pathname.match(EXOTEL_MEDIA_UPGRADE_PATH);
+  if (exotelMatch) {
+    const [, workspaceId, agentId] = exotelMatch;
+    // No engine branch here, unlike Twilio: the modular pipeline is µ-law
+    // native and has no Exotel bridge, so outboundCall.service refuses those
+    // agents before dialling and this path is bundled-only.
+    const requested = Number(url.searchParams.get('sample-rate'));
+    const sampleRate = EXOTEL_SAMPLE_RATES.has(requested) ? requested : 8000;
+    if (requested && !EXOTEL_SAMPLE_RATES.has(requested)) {
+      // 8000 is Exotel's own default when it does not understand the parameter,
+      // so falling back to it keeps both ends agreeing rather than guessing.
+      logger.warn(`Exotel stream requested unsupported sample rate ${requested}; using 8000`);
+    }
+    exotelMediaWss.handleUpgrade(req, socket, head, (ws) => {
+      handleExotelMediaUpgrade(ws, {
+        workspaceId,
+        agentId,
+        sampleRate,
+        callLogId: url.searchParams.get('callLogId'),
+      });
     });
     return;
   }

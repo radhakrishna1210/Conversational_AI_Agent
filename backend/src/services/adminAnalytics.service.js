@@ -1,56 +1,30 @@
 import prisma from '../config/prisma.js';
-import logger from '../lib/logger.js';
 
 // ─── Platform-wide Analytics ──────────────────────────────────────────────────
 
 /*
- * ── A note on the two defensive patterns in this file ──
+ * Every query in this file names its columns with an explicit `select`.
  *
- * prisma/schema.prisma is a superset of what this deployment's database
- * actually has: it still carries the WhatsApp-era models (NumberPool, Contact,
- * Conversation, Message, Template, WhatsappNumber, KeywordTrigger,
- * AutomationFlow, WebhookConfig) and the Meta columns on Workspace and
- * Campaign. None of those tables or columns exist here.
+ * That is a rule, not a style preference. A bare findMany() asks Postgres for
+ * every scalar Prisma believes exists, so a query that reads three fields dies
+ * on a fourth it never wanted — which is exactly how `Workspace.metaWabaId`
+ * once took this dashboard down. The console loads its overview with six
+ * parallel requests, so one bad query collapsed the whole Promise.all into a
+ * single "Internal server error" with no clue which of the six had failed.
  *
- * That drift used to take the whole admin dashboard down. The console loads its
- * overview with six parallel requests, so one query hitting a missing table
- * collapsed the entire Promise.all into a single "Internal server error" — with
- * no clue which of the six had failed, and no data on a page whose other four
- * queries were perfectly fine.
- *
- * So:
- *   1. Every query names its columns with an explicit `select`. A bare
- *      findMany() asks for every scalar Prisma believes exists, which is how a
- *      query that reads three fields died on `Workspace.metaWabaId`.
- *   2. Anything touching a WhatsApp-era table is wrapped so a missing table
- *      degrades that one figure to null instead of failing the request.
- *
- * `null` deliberately, not 0 — this deployment has no number pool at all, and
- * reporting "0 numbers" would state something false about the platform. The
- * console omits a tile whose value is null.
- *
- * Removing these guards is correct ONLY once the schema and the database
- * agree. Do not "clean this up" before then.
+ * The P2021/P2022 guards that used to wrap the WhatsApp-era queries are gone
+ * with the models themselves: schema.prisma and the database now agree, so a
+ * missing-table error here would be a real fault and should surface, not be
+ * swallowed into a null.
  */
 
 /**
- * Run a query that may target a table this deployment does not have.
- * P2021 = table missing, P2022 = column missing.
- */
-const optional = async (label, fn) => {
-  try {
-    return await fn();
-  } catch (err) {
-    if (err?.code === 'P2021' || err?.code === 'P2022') {
-      logger.warn({ label, code: err.code }, 'admin analytics: skipping query, schema drift');
-      return null;
-    }
-    throw err;
-  }
-};
-
-/**
- * Top-level platform stats: users, agents, workspaces, numbers.
+ * Top-level platform stats: users, workspaces, agents.
+ *
+ * The three number-pool figures that used to be reported here went with the
+ * WhatsApp number pool. They were already null on this deployment — the console
+ * omits a tile whose value is null — so dropping the keys changes nothing the
+ * dashboard renders.
  */
 export const getPlatformOverview = async () => {
   const [totalUsers, totalWorkspaces, totalAgents] = await prisma.$transaction([
@@ -59,26 +33,7 @@ export const getPlatformOverview = async () => {
     prisma.agent.count(),
   ]);
 
-  // The number pool is a WhatsApp-era feature with no table here. Kept as one
-  // guarded block so the three figures stay consistent with each other —
-  // either all three are real, or all three are null.
-  const pool = await optional('numberPool', async () => {
-    const [total, available, assigned] = await prisma.$transaction([
-      prisma.numberPool.count(),
-      prisma.numberPool.count({ where: { status: 'AVAILABLE' } }),
-      prisma.numberPool.count({ where: { status: 'ASSIGNED' } }),
-    ]);
-    return { total, available, assigned };
-  });
-
-  return {
-    totalUsers,
-    totalWorkspaces,
-    totalAgents,
-    totalNumbers: pool?.total ?? null,
-    availableNumbers: pool?.available ?? null,
-    assignedNumbers: pool?.assigned ?? null,
-  };
+  return { totalUsers, totalWorkspaces, totalAgents };
 };
 
 /**
@@ -197,45 +152,4 @@ export const getRecentUsers = async (limit = 20) => {
     plan: u.memberships[0]?.workspace?.planName ?? null,
     role: u.memberships[0]?.role ?? null,
   }));
-};
-
-/**
- * Number pool summary with workspace assignment details.
- *
- * Returns [] where the table is absent, so the Number Pool page renders its
- * empty state instead of an error — there genuinely are no numbers to show.
- */
-export const getNumberPoolDetails = async ({ status, country, search } = {}) => {
-  const where = {};
-
-  if (status) where.status = status.toUpperCase();
-
-  if (country) {
-    if (country === 'IN') where.phoneNumber = { startsWith: '+91' };
-    else if (country === 'US') where.phoneNumber = { startsWith: '+1' };
-  }
-
-  if (search) {
-    where.phoneNumber = { contains: search };
-  }
-
-  const entries = await optional('numberPool.findMany', () =>
-    prisma.numberPool.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      include: {
-        workspace: {
-          select: {
-            id: true,
-            name: true,
-            slug: true,
-            agents: { select: { id: true, name: true }, take: 5 },
-          },
-        },
-      },
-    }),
-  );
-
-  // accessToken is a live credential and must never reach the client.
-  return (entries ?? []).map(({ accessToken: _omit, ...safe }) => safe);
 };

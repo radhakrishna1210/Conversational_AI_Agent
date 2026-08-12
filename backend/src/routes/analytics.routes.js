@@ -1,10 +1,5 @@
 import { Router } from 'express';
 import {
-  getOverview,
-  getDeliveryChart,
-  getCampaignPerformance,
-  getAgentPerformance,
-  getChatbotOverview,
   getCallOverview,
   getCallTimeSeries,
   getCallOutcomes,
@@ -17,15 +12,9 @@ import {
 
 const router = Router({ mergeParams: true });
 
-// ─── WhatsApp / Chatbot routes ────────────────────────────────────────────────
-router.get('/overview',            getOverview);
-router.get('/delivery-chart',      getDeliveryChart);
-router.get('/delivery',            getDeliveryChart);        // alias used by frontend
-router.get('/campaign-performance', getCampaignPerformance);
-router.get('/campaigns',           getCampaignPerformance);  // alias used by frontend
-router.get('/agent-performance',   getAgentPerformance);
-router.get('/agents',              getAgentPerformance);     // alias used by frontend
-router.get('/chatbot/overview',    getChatbotOverview);
+// Message delivery, contact opt-out and chatbot-conversation analytics used to
+// be served here. They counted rows in Message, Contact and Conversation, all
+// of which went with the WhatsApp models.
 
 // ─── Voice / Call routes ──────────────────────────────────────────────────────
 router.get('/calls/overview',        getCallOverview);

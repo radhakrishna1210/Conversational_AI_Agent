@@ -9,6 +9,7 @@
   "scripts": {
     "predev": "prisma generate && node scripts/prisma-migrate-deploy.js",
     "dev": "node --env-file=.env --watch src/server.js",
+    "dev:tunnel": "node scripts/start-with-tunnel.mjs",
     "prestart": "prisma generate && node scripts/prisma-migrate-deploy.js",
     "start": "node --env-file=.env src/server.js",
     "worker": "node --env-file=.env src/workers/workerBootstrap.js",

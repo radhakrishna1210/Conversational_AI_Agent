@@ -156,15 +156,19 @@ export async function previewVoice(voiceId, text, opts = {}) {
  * 128k output for fidelity.
  * @param {string} voiceId
  * @param {string} text
- * @param {{ pace?: number }} [opts]
+ * @param {{ pace?: number, audioFormat?: string }} [opts] - `audioFormat`
+ *   overrides the default MP3. The phone bridge passes 'ulaw_8000' so the bytes
+ *   ElevenLabs returns are already exactly what a carrier's media stream wants:
+ *   no MP3 decode, no resample, no added latency on a live call.
  * @returns {Promise<{ body: ReadableStream, contentType: string }>}
  */
 export async function streamVoice(voiceId, text, opts = {}) {
+  const outputFormat = opts.audioFormat || 'mp3_44100_128';
   const res = await fetch(
     // Level 3 by default = max latency optimization that keeps the text
     // normalizer on (4 would disable it and mangle numbers/dates). See
     // streamingLatency() for why this is worth turning DOWN.
-    `${BASE_URL}/text-to-speech/${voiceId}/stream?output_format=mp3_44100_128&optimize_streaming_latency=${streamingLatency()}`,
+    `${BASE_URL}/text-to-speech/${voiceId}/stream?output_format=${encodeURIComponent(outputFormat)}&optimize_streaming_latency=${streamingLatency()}`,
     {
       method: 'POST',
       headers: authHeaders(),
@@ -211,6 +215,10 @@ export class ElevenLabsTtsStream extends EventEmitter {
     this.modelId = opts.modelId || ttsModel();
     this.pace = opts.pace;
     this.affect = opts.affect;
+    // 'ulaw_8000' on the phone bridge — see streamVoice(). Kept as a plain
+    // string so the caller owns the provider's vocabulary and this class stays
+    // a transport.
+    this.audioFormat = opts.audioFormat || 'mp3_44100_128';
     this.ws = null;
     this._open = false;
     this._pending = [];
@@ -227,7 +235,8 @@ export class ElevenLabsTtsStream extends EventEmitter {
       + `?model_id=${encodeURIComponent(this.modelId)}`
       // Same output format as the single-call/welcome path so the reply doesn't
       // audibly drop in fidelity when the overlap pipeline is active.
-      + `&output_format=mp3_44100_128&optimize_streaming_latency=${streamingLatency()}&auto_mode=true`;
+      + `&output_format=${encodeURIComponent(this.audioFormat)}`
+      + `&optimize_streaming_latency=${streamingLatency()}&auto_mode=true`;
     this.ws = new WebSocket(url);
 
     this.ws.on('open', () => {

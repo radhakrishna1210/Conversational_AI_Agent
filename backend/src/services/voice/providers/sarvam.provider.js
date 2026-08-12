@@ -82,11 +82,29 @@ export async function previewVoice(voiceId, text, languageCode = 'en-IN') {
 }
 
 /**
+ * Codecs Sarvam's stream endpoint accepts. `mulaw` is the one that matters:
+ * it is raw 8kHz G.711 with no container header, which is exactly what a
+ * carrier media stream carries — so a Sarvam voice reaches the phone with no
+ * transcoding at all, the same passthrough ElevenLabs gets.
+ *
+ * This is why `sarvam` is registered in TELEPHONY_TTS. Without it, every
+ * Sarvam-voiced agent was refused by the phone bridge ("cannot emit a
+ * telephony audio format") — which, for a product whose Indian-language voices
+ * all come from Sarvam, meant those agents could not take calls at all.
+ */
+const TELEPHONY_CODECS = new Set(['mulaw', 'alaw']);
+
+/**
  * Start Sarvam's binary HTTP audio stream. Unlike the JSON REST endpoint,
  * this resolves as soon as response headers arrive and lets callers forward
  * audio chunks without buffering the complete utterance.
+ *
+ * @param {{ pace?: number, audioFormat?: 'mp3'|'mulaw'|'alaw'|'linear16' }} [opts]
  */
 export async function streamVoice(voiceId, text, languageCode = 'en-IN', opts = {}) {
+  const codec = opts.audioFormat || 'mp3';
+  const telephony = TELEPHONY_CODECS.has(codec);
+
   const res = await fetch(`${BASE_URL}/text-to-speech/stream`, {
     method: 'POST',
     headers: authHeaders(),
@@ -95,12 +113,18 @@ export async function streamVoice(voiceId, text, languageCode = 'en-IN', opts = 
       target_language_code: languageCode,
       speaker: voiceId,
       pace: opts.pace ?? 1.05,
-      speech_sample_rate: 22050,
+      // 22050 elsewhere: at 8000 the same speaker sounds like a different
+      // (telephone-quality) voice, so the welcome and the streamed replies
+      // audibly mismatched mid-call. On a phone line that argument inverts —
+      // the line IS 8kHz, and G.711 is only defined at 8kHz.
+      speech_sample_rate: telephony ? 8000 : 22050,
       enable_preprocessing: false,
       model: 'bulbul:v3',
       temperature: 0.6,
-      output_audio_codec: 'mp3',
-      output_audio_bitrate: '64k',
+      output_audio_codec: codec,
+      // Meaningless for G.711, which is a fixed 64kbit/s, and Sarvam rejects
+      // parameters that do not apply.
+      ...(codec === 'mp3' ? { output_audio_bitrate: '64k' } : {}),
     }),
     signal: AbortSignal.timeout(15_000),
   });
@@ -112,7 +136,7 @@ export async function streamVoice(voiceId, text, languageCode = 'en-IN', opts = 
 
   return {
     body: res.body,
-    contentType: res.headers.get('content-type') || 'audio/mpeg',
+    contentType: res.headers.get('content-type') || (telephony ? 'audio/mulaw' : 'audio/mpeg'),
   };
 }
 

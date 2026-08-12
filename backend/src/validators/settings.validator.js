@@ -1,10 +1,5 @@
 import { z } from 'zod';
 
-export const webhookConfigSchema = z.object({
-  url: z.string().url(),
-  subscribedEvents: z.array(z.string()).min(1),
-});
-
 export const notificationPrefsSchema = z.object({
   notifyOnNewConv: z.boolean().optional(),
   notifyOnOptOut: z.boolean().optional(),

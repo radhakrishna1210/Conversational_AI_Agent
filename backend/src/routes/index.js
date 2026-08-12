@@ -16,15 +16,9 @@ import { readFileSync } from 'fs';
 import authRoutes from './auth.routes.js';
 import adminRoutes from './admin.routes.js';
 import workspaceRoutes from './workspace.routes.js';
-import whatsappRoutes from './whatsapp.routes.js';
-import metaOauthRoutes from './metaOauth.routes.js';
 import apiKeyRoutes from './apiKey.routes.js';
-import webhookRoutes from './webhook.routes.js';
-import templateRoutes from './template.routes.js';
-import contactRoutes from './contact.routes.js';
 import campaignRoutes from './campaign.routes.js';
-import conversationRoutes from './conversation.routes.js';
-import automationRoutes from './automation.routes.js';
+import complianceRoutes from './compliance.routes.js';
 import analyticsRoutes from './analytics.routes.js';
 import settingsRoutes from './settings.routes.js';
 import llmRoutes from './llm.routes.js';
@@ -39,6 +33,7 @@ import notificationRoutes from './notification.routes.js';
 import contactFormRoutes from './contactForm.routes.js';
 import appointmentRoutes from './appointment.routes.js';
 import reportIssueRoutes from './reportIssue.routes.js';
+import exotelRoutes from './exotel.routes.js';
 
 import { getHealth as getGeminiHealth, getMetrics as getGeminiMetrics } from '../controllers/gemini.controller.js';
 import { getHealth as getOpenAIHealth, getMetrics as getOpenAIMetrics } from '../controllers/openai.controller.js';
@@ -60,6 +55,9 @@ router.use('/report-issue', rateLimit({ windowMs: 60_000, max: 10, keyPrefix: 'i
 // They perform data mutations / paid model work and now live exclusively under
 // the authenticated workspace router below (see `ws`).
 router.use('/integrations', integrationsPublicRoutes);
+// Exotel's own callbacks (per-call stream URL + terminal call status). Public
+// because a carrier cannot authenticate; see exotel.routes.js.
+router.use('/exotel', exotelRoutes);
 // The only pricing this deployment publishes: one wallet rate per minute.
 router.get('/config/wallet-rate', platform.getWalletRatePublic);
 
@@ -120,23 +118,17 @@ router.post('/assistant/chat', rateLimit({ windowMs: 60_000, max: 8, keyPrefix: 
 // Admin (authenticate + isAdmin enforced inside admin.routes.js)
 router.use('/admin', adminRoutes);
 
-// Meta webhook (public — verified by Meta challenge / HMAC)
-router.use('/', webhookRoutes);
-
 // Workspace-scoped (authenticated)
 const ws = Router({ mergeParams: true });
 ws.use(authenticate);
 ws.use(workspaceContext);
 
 ws.use('/', workspaceRoutes);
-ws.use('/whatsapp', whatsappRoutes);
-ws.use('/meta/oauth', metaOauthRoutes);
 ws.use('/api-keys', apiKeyRoutes);
-ws.use('/templates', templateRoutes);
-ws.use('/contacts', contactRoutes);
 ws.use('/campaigns', campaignRoutes);
-ws.use('/conversations', conversationRoutes);
-ws.use('/automation', automationRoutes);
+// TRAI/DLT onboarding. Gates outbound calling to Indian numbers — see
+// services/compliance/.
+ws.use('/compliance', complianceRoutes);
 ws.use('/analytics', analyticsRoutes);
 ws.use('/settings', settingsRoutes);
 ws.use('/llm', llmRoutes);

@@ -114,7 +114,7 @@ The backend runs a plain `http.Server` wrapping Express so WebSocket upgrades sh
 |---|---|
 | `/api/v1/workspaces/:wsId/agents/:agentId/xai-call` | Bundled speech-to-speech web call |
 | `/api/v1/workspaces/:wsId/agents/:agentId/web-call` | Modular STT+LLM+TTS web call |
-| `/api/v1/twilio-media/:wsId/:agentId` | Twilio Media Streams phone bridge |
+| `/api/v1/twilio-media/:wsId/:agentId` | Twilio Media Streams phone bridge — dispatches per call to the bundled or the modular handler based on the agent's `voiceEngine` |
 
 Background work runs in-process by default (campaign dispatch, integration scheduler, voice sync, subscription renewal sweep). When `REDIS_URL` is set, campaign and contact-import jobs move to BullMQ workers — the dispatcher is written to work either way, because all progress lives in database rows rather than queue state. To run workers as a separate process:
 
@@ -147,7 +147,21 @@ You pick each stage. More control, cheaper, and the only path with knowledge-bas
 | **LLM** | Gemini, OpenAI, Azure OpenAI, Groq, Sarvam, or any OpenAI-compatible endpoint |
 | **TTS** | ElevenLabs, Fish Audio, Google Cloud TTS, Sarvam, Cartesia |
 
-> **Phone-call limitation:** a modular agent has no telephony bridge, so a phone call to it plays a **one-way greeting only**. `resolveCallMode()` surfaces this explicitly rather than letting a campaign dial thousands of people expecting a conversation. Use a bundled engine for real two-way phone conversations.
+> **Modular agents now hold two-way phone conversations too**, via
+> `ws/twilioMediaModular.handler.js`. That bridge supplies what the browser
+> supplies on a web call — turn detection (Deepgram semantic endpointing),
+> conversation state, and barge-in — plus 8 kHz μ-law in both directions.
+>
+> It has two requirements the bundled engines don't have, because it assembles
+> the pipeline itself:
+>
+> | Requirement | Why |
+> |---|---|
+> | `DEEPGRAM_API_KEY` | Streaming STT *is* the turn detector — nothing else can tell when the caller stopped speaking |
+> | An **ElevenLabs** voice | Every provider defaults to MP3, which a phone line cannot play. ElevenLabs is currently the only one wired to emit `ulaw_8000`. Cartesia, Google, Sarvam and Fish can all do telephony formats at the API level but their provider modules still hardcode MP3 — see `TELEPHONY_TTS` in `services/voice/telephonyAudio.js` for how to add one |
+>
+> When either is missing, `resolveCallMode()` still returns **greeting-only**
+> with a specific reason, rather than dialling thousands of people and hoping.
 
 ### Latency techniques in play
 
@@ -468,7 +482,7 @@ Python scripts in the same folder handle the voice-cloning dataset pipeline (VCT
 
 **Web call connects but no audio.** Check that the agent's voice provider key is set and that its provider supports the selected path. `/api/v1/gemini/health` and the equivalent provider health routes report configuration state.
 
-**Phone call plays a greeting and hangs up.** The agent uses a modular pipeline. Switch it to a bundled engine (xAI or ElevenLabs ConvAI) for two-way phone conversations, and set `PUBLIC_BACKEND_WS_URL` to a publicly reachable `wss://` origin.
+**Phone call plays a greeting and hangs up.** `resolveCallMode()` decided the agent cannot converse, and its `reason` says which of the three gates failed: `PUBLIC_BACKEND_WS_URL` is unset (no public `wss://` origin for the carrier), `DEEPGRAM_API_KEY` is unset (a modular agent has no turn detector without it), or the agent's TTS provider can only emit MP3 (switch to an ElevenLabs or Cartesia voice). The reason is surfaced in the UI on the Bulk Call and test-call screens.
 
 **Campaign shows no progress.** Redis is unreachable and the in-process dispatcher didn't start, or the plan's concurrency ceiling is full. Both are logged. Progress lives in `CampaignRecipient` rows, so restarting resumes rather than re-dialling.
 

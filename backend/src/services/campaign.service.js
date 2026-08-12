@@ -8,14 +8,12 @@ import { resolveCallMode } from './outboundCall.service.js';
 export const listCampaigns = (workspaceId) =>
   prisma.campaign.findMany({
     where: { workspaceId },
-    include: { template: { select: { name: true } }, whatsappNumber: { select: { phoneNumber: true } } },
     orderBy: { createdAt: 'desc' },
   });
 
 export const getCampaign = (workspaceId, campaignId) =>
   prisma.campaign.findFirstOrThrow({
     where: { id: campaignId, workspaceId },
-    include: { template: true, whatsappNumber: true },
   });
 
 export const createCampaign = (workspaceId, data) =>

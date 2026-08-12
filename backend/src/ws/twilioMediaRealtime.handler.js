@@ -15,13 +15,11 @@
 
 import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
-import { settleCall } from '../services/billing/settlement.service.js';
 import { getAgentKbText } from '../services/agentRuntime.service.js';
 import { createRealtimeSession } from '../services/voice/realtimeEngine.factory.js';
 import { isModelAllowed } from '../services/platform/modelCatalog.js';
 import { createAmbiencePump } from '../services/voice/ambiencePump.js';
-import { extractAndStoreCallVariables } from '../services/postCallExtraction.service.js';
-import { deliverPostCall } from '../controllers/agentCallLog.controller.js';
+import { createCallFinalizer } from './callFinalizer.js';
 
 const safeJson = (str, fallback) => {
   try {
@@ -36,56 +34,17 @@ export function handleTwilioMediaUpgrade(ws, { workspaceId, agentId }) {
   let pump = null;   // ambience/pacing pump; null when ambience is off
   let streamSid = null;
   let callLogId = null;
-  let finalized = false;
   const transcript = [];
   const startedAt = Date.now();
 
-  const finalizeCallLog = async (status) => {
-    // Twilio ends a call with a `stop` event followed by a socket `close`, so
-    // cleanup() runs more than once. Guard against re-entry — otherwise
-    // extraction and Post-Call delivery would fire twice and duplicate the
-    // Google Sheets row / webhook / email for a single call.
-    if (!callLogId || finalized) return;
-    finalized = true;
-
-    try {
-      await prisma.agentCallLog.update({
-        where: { id: callLogId },
-        data: {
-          status,
-          transcript: JSON.stringify(transcript.slice(-200)),
-          durationSec: Math.round((Date.now() - startedAt) / 1000),
-          endedAt: new Date(),
-        },
-      });
-    } catch (e) {
-      // Fall through to settlement rather than returning. Failing to write the
-      // status must not also abandon the bill: a call left PENDING is never
-      // revisited by anything, so it shows as "pending" forever.
-      logger.warn(`Could not finalize realtime phone call log: ${e.message}`);
-    }
-
-    // BUG-002: charge the wallet for telephony minutes. Billing only the web
-    // path would have made phone minutes free — a revenue hole and an
-    // inconsistency a customer would eventually dispute. Idempotent per call,
-    // which matters here because Twilio's `stop` event and the socket `close`
-    // both reach cleanup().
-    await settleCall(callLogId);
-
-    // A phone call has no browser client to PATCH the REST call-log endpoint,
-    // so extraction + Post-Call delivery (webhook / email / Google Sheets) must
-    // be driven from here — mirroring updateCallLog in agentCallLog.controller.js.
-    // Best-effort: a delivery failure must never crash the socket teardown.
-    try {
-      await extractAndStoreCallVariables(workspaceId, agentId, callLogId);
-      const row = await prisma.agentCallLog.findFirst({
-        where: { id: callLogId, workspaceId, agentId },
-      });
-      if (row) await deliverPostCall(workspaceId, agentId, row);
-    } catch (e) {
-      logger.warn(`Post-call extraction/delivery failed for phone call ${callLogId}: ${e.message}`);
-    }
-  };
+  // Writes the status, charges the wallet (BUG-002 — billing only the web path
+  // would have made phone minutes free) and runs post-call delivery, exactly
+  // once. Twilio ends a call with a `stop` event followed by a socket `close`,
+  // so cleanup() always runs more than once; the once-only guard lives in the
+  // finalizer. Shared with the modular and Exotel bridges.
+  const finalizeCallLog = createCallFinalizer({
+    workspaceId, agentId, label: 'realtime phone call',
+  });
 
   const cleanup = (status) => {
     // First: a leaked 20ms interval would outlive the call permanently.
@@ -93,7 +52,7 @@ export function handleTwilioMediaUpgrade(ws, { workspaceId, agentId }) {
     pump?.stop();
     pump = null;
     session?.close();
-    if (status) finalizeCallLog(status);
+    if (status) finalizeCallLog(callLogId, status, { transcript, startedAt });
   };
 
   ws.on('message', async (raw) => {

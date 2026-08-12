@@ -1,34 +1,5 @@
 import * as svc from '../services/analytics.service.js';
 
-// ─── WhatsApp / Chatbot ───────────────────────────────────────────────────────
-
-export const getOverview = async (req, res) => {
-  const data = await svc.getOverviewMetrics(req.params.workspaceId);
-  res.json(data);
-};
-
-export const getDeliveryChart = async (req, res) => {
-  const data = await svc.getDeliveryRateLast7Days(req.params.workspaceId);
-  res.json(data);
-};
-
-export const getCampaignPerformance = async (req, res) => {
-  const data = await svc.getCampaignPerformance(req.params.workspaceId);
-  res.json(data);
-};
-
-export const getAgentPerformance = async (req, res) => {
-  const data = await svc.getAgentPerformance(req.params.workspaceId);
-  res.json(data);
-};
-
-export const getChatbotOverview = async (req, res) => {
-  const { workspaceId } = req.params;
-  const { range = '7d' } = req.query;
-  const data = await svc.getChatbotOverview(workspaceId, range);
-  res.json({ success: true, data });
-};
-
 // ─── Voice / Call ─────────────────────────────────────────────────────────────
 
 export const getCallOverview = async (req, res) => {

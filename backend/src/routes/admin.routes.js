@@ -1,8 +1,6 @@
 import { Router } from 'express';
 import { authenticate } from '../middleware/authenticate.js';
 import { isAdmin } from '../middleware/authorize.js';
-import { validate } from '../middleware/validate.js';
-import { addNumberToPoolSchema } from '../validators/admin.validator.js';
 import * as ctrl from '../controllers/admin.controller.js';
 import * as callLogs from '../controllers/adminCallLogs.controller.js';
 import * as adminBilling from '../controllers/adminBilling.controller.js';
@@ -10,37 +8,13 @@ import * as modelCatalog from '../controllers/modelCatalog.controller.js';
 
 const router = Router();
 
-// ─── Public webhooks ──────────────────────────────────────────────────────────
-// Twilio SMS webhook — public (called by Twilio servers, not by our clients)
-router.post('/twilio/sms-webhook', ctrl.twilioSmsWebhook);
+// The number pool lived here: a pool of WhatsApp numbers registered against a
+// Meta WABA, plus the Twilio sync and SMS-OTP dance that provisioned them. It
+// went with the WhatsApp models — every route needed a NumberPool table that no
+// longer exists. Voice caller IDs are unrelated and live under
+// /workspaces/:id/caller-numbers.
 
-// ─── Twilio / Meta sync ───────────────────────────────────────────────────────
-router.post('/twilio/sync', authenticate, isAdmin, ctrl.syncTwilioNumbers);
-router.post('/meta/test-calls', authenticate, isAdmin, ctrl.runMetaTestCalls);
-router.get('/waba/numbers', authenticate, isAdmin, ctrl.listWabaNumbers);
-router.post('/numbers/request-otp', authenticate, isAdmin, ctrl.requestOtp);
-router.post('/numbers/verify-otp',  authenticate, isAdmin, ctrl.verifyOtp);
-
-// ─── Number Pool CRUD ─────────────────────────────────────────────────────────
-router.post(
-  '/numbers/add',
-  authenticate,
-  isAdmin,
-  validate(addNumberToPoolSchema),
-  ctrl.addNumberToPool
-);
-
-// Filtered pool list (supports ?status=&country=&search=)
-router.get('/numbers/pool', authenticate, isAdmin, ctrl.getNumberPoolFiltered);
-
-// Number state transitions
-router.patch('/numbers/pool/:id/reset',      authenticate, isAdmin, ctrl.resetPoolNumber);
-router.patch('/numbers/pool/:id/assign',     authenticate, isAdmin, ctrl.assignPoolNumber);
-router.patch('/numbers/pool/:id/unassign',   authenticate, isAdmin, ctrl.unassignPoolNumber);
-router.patch('/numbers/pool/:id/deactivate', authenticate, isAdmin, ctrl.deactivatePoolNumber);
-router.delete('/numbers/pool/:id',           authenticate, isAdmin, ctrl.deletePoolNumber);
-
-// ─── Workspace list (for assign dropdown) ────────────────────────────────────
+// ─── Workspace list ──────────────────────────────────────────────────────────
 router.get('/workspaces', authenticate, isAdmin, ctrl.listWorkspaces);
 
 // ─── User Management ──────────────────────────────────────────────────────────

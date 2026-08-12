@@ -1111,7 +1111,14 @@ export async function voiceTurn(workspaceId, agentId, audioBuffer, mimeType, his
  *   hesitated. Omitting it keeps the per-reply rules and lets the LLM's own
  *   restraint set the rate.
  */
-export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeType, history = [], { onEvent, shouldAbort, userText: providedText, audioHadSpeech = false, affect = null, fillerBudget = null } = {}) {
+/**
+ * `audioFormat` (optional) asks TTS for something other than the default MP3.
+ * The phone bridge passes the provider's telephony format (e.g. ElevenLabs
+ * 'ulaw_8000') so audio reaches the carrier without an MP3 decode on the hot
+ * path of a live call. Everything else about the turn is identical, which is
+ * the point: web and phone run the same conversation code.
+ */
+export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeType, history = [], { onEvent, shouldAbort, userText: providedText, audioHadSpeech = false, affect = null, fillerBudget = null, audioFormat = null } = {}) {
   const emit = typeof onEvent === 'function' ? onEvent : () => {};
   const aborted = typeof shouldAbort === 'function' ? shouldAbort : () => false;
   const turnStartedAt = performance.now();
@@ -1362,7 +1369,9 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
     const ttsStart = performance.now();
     if (firstTtsTextAt == null) firstTtsTextAt = ttsStart;
     try {
-      const { stream, contentType } = await streamSynthesizeVoice(voice, clean, { fast: true, pace: speakingRate, affect });
+      const { stream, contentType } = await streamSynthesizeVoice(voice, clean, {
+        fast: true, pace: speakingRate, affect, ...(audioFormat ? { audioFormat } : {}),
+      });
       if (aborted()) return;
       audioStarted = true;
       emit({ type: 'audio-start', contentType });
@@ -1389,7 +1398,9 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
     // generated. One continuous stream → no concatenation corruption.
     const ttsStart = performance.now();
     const ttsProvider = synthesisProviderName(voice);
-    const tts = createTokenTtsStream(voice, { pace: speakingRate, affect });
+    const tts = createTokenTtsStream(voice, {
+      pace: speakingRate, affect, ...(audioFormat ? { audioFormat } : {}),
+    });
     let wsSegmentOpen = false; // this path is ONE continuous stream = one segment
     const audioDone = new Promise((resolve) => {
       tts?.on('audio', (buf) => {
