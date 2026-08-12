@@ -112,8 +112,15 @@ export async function sendMail({ to, subject, text, html }) {
          'Content-Type: text/html; charset=utf-8', '', html, `--${boundary}--`].join(CRLF)
       : (text || '');
 
+    // RFC 5322 §2.1: the header block ends with an EMPTY line, so the separator
+    // is CRLF CRLF. headers[] contributes only the first of those (its trailing
+    // '' element), hence the explicit CRLF here. Without it the first body line
+    // — "--boundary" for multipart, or the OTP text itself for plain — is parsed
+    // as a malformed header. Receivers disagree about what to do with that:
+    // some deliver the mail with an empty body, some reject DATA outright. That
+    // is what made verification mail arrive only sometimes.
     // dot-stuff lines starting with "."
-    const payload = (headers.join(CRLF) + body).split(CRLF).map(l => (l.startsWith('.') ? '.' + l : l)).join(CRLF);
+    const payload = (headers.join(CRLF) + CRLF + body).split(CRLF).map(l => (l.startsWith('.') ? '.' + l : l)).join(CRLF);
     session.socket.write(payload + CRLF + '.' + CRLF);
     const final = await session.read();
     if (final.code !== 250) throw new Error(`SMTP DATA rejected: ${final.text.trim().slice(0, 200)}`);

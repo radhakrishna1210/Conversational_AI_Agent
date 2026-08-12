@@ -10,11 +10,17 @@ const router = Router();
 
 // Manual signup now requires email OTP verification (issue #27).
 // /register sends the OTP; /verify-otp creates the account.
-const authLimiter = rateLimit({ windowMs: 60_000, max: 6, keyPrefix: 'auth-otp' });
-router.post('/register', authLimiter, validate(registerSchema), verifyCtrl.requestSignupOtp);
-router.post('/verify-otp', authLimiter, verifyCtrl.verifySignupOtp);
-router.post('/forgot-password', authLimiter, verifyCtrl.forgotPassword);
-router.post('/reset-password', authLimiter, verifyCtrl.resetPassword);
+// Separate buckets per step. A single shared 'auth-otp' bucket meant one signup
+// (register + a mistyped code + a resend) burned most of a 6/minute allowance
+// and locked the user out of the *next* step of their own signup — the entering
+// of the code they had just been emailed. Sending mail is the expensive, abusable
+// action, so it stays tight; verifying a code the user already holds does not.
+const sendLimiter   = rateLimit({ windowMs: 60_000, max: 5,  keyPrefix: 'auth-otp-send' });
+const verifyLimiter = rateLimit({ windowMs: 60_000, max: 12, keyPrefix: 'auth-otp-verify' });
+router.post('/register', sendLimiter, validate(registerSchema), verifyCtrl.requestSignupOtp);
+router.post('/verify-otp', verifyLimiter, verifyCtrl.verifySignupOtp);
+router.post('/forgot-password', sendLimiter, verifyCtrl.forgotPassword);
+router.post('/reset-password', verifyLimiter, verifyCtrl.resetPassword);
 router.post('/login', validate(loginSchema), ctrl.login);
 router.post('/refresh', validate(refreshSchema), ctrl.refresh);
 router.post('/logout', ctrl.logout);

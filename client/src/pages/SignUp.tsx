@@ -16,17 +16,31 @@ export default function SignUp() {
     setForm({ ...form, [e.target.name]: e.target.value });
   };
 
-  const validateName = (name: string) => /^[A-Za-z ]{2,50}$/.test(name.trim());
+  // Server allows 2-80 of anything. Letters-and-spaces-only rejected ordinary
+  // names — "R. Krishna", "O'Brien", "Anne-Marie" — and every non-ASCII script,
+  // so it is widened to match rather than invent a stricter client-side rule.
+  const validateName = (name: string) => {
+    const n = name.trim();
+    return n.length >= 2 && n.length <= 80 && !/\d/.test(n);
+  };
   const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  // Must agree with the server (PASSWORD_MIN/MAX_LENGTH = 8/100, no composition
+  // rule). The previous regex also demanded upper+lower+digit+one of "@$!%*?&",
+  // which the server never enforced — so the form rejected passwords the API
+  // would have accepted. Worst of all it rejected browser-generated ones:
+  // Chrome suggests things like "Xkq3vnRs7bTz" (no symbol) and "Kmw4-pZtq9Lr"
+  // (a hyphen, not in that set), so accepting the password manager's suggestion
+  // made signup impossible. Length is the check that carries its weight here;
+  // the strength meter below stays as guidance rather than a gate.
   const validatePassword = (password: string) =>
-    /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&]).{8,}$/.test(password);
+    password.length >= 8 && password.length <= 100;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
 
     if (!validateName(form.name)) {
-      setErrorMsg('Full name should contain only letters and spaces.');
+      setErrorMsg('Please enter your full name (2-80 characters, no digits).');
       return;
     }
     if (!validateEmail(form.email)) {
@@ -34,7 +48,7 @@ export default function SignUp() {
       return;
     }
     if (!validatePassword(form.password)) {
-      setErrorMsg('Password must be at least 8 characters and include uppercase, lowercase, a number and a special character.');
+      setErrorMsg('Password must be between 8 and 100 characters.');
       return;
     }
     if (form.password !== form.confirm) {
