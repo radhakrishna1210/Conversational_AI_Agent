@@ -36,6 +36,7 @@ import { createRealtimeSession } from '../services/voice/realtimeEngine.factory.
 import { isModelAllowed } from '../services/platform/modelCatalog.js';
 import { createAmbiencePump } from '../services/voice/ambiencePump.js';
 import { createCallFinalizer } from './callFinalizer.js';
+import { createRecordingTap } from './callRecordingTap.js';
 import { STREAM_CONTENT_TYPE, STREAM_SAMPLE_RATE } from '../services/telephony/plivo.provider.js';
 
 const safeJson = (str, fallback) => {
@@ -57,11 +58,15 @@ export function handlePlivoMediaUpgrade(ws, { workspaceId, agentId, callLogId = 
     workspaceId, agentId, label: 'Plivo phone call',
   });
 
+  /** Both legs, mixed to one WAV at hangup. See callRecordingTap.js. */
+  const recording = createRecordingTap({ label: 'Plivo phone call', startedAt });
+
   const cleanup = (status) => {
     // First: a leaked 20ms interval would outlive the call permanently.
     pump?.stop();
     pump = null;
     session?.close();
+    recording.save(callLogId);
     if (status) finalizeCallLog(callLogId, status, { transcript, startedAt });
   };
 
@@ -76,6 +81,10 @@ export function handlePlivoMediaUpgrade(ws, { workspaceId, agentId, callLogId = 
    */
   const sendFrame = (payload) => {
     if (ws.readyState !== ws.OPEN) return;
+    // Tapped here rather than on the engine's `audio` event, so the recording
+    // matches what the caller heard: with ambience enabled the pump owns pacing
+    // and mixes the bed in, and only what reaches this function is on the wire.
+    recording.outbound(payload);
     ws.send(JSON.stringify({
       event: 'playAudio',
       media: {
@@ -130,6 +139,7 @@ export function handlePlivoMediaUpgrade(ws, { workspaceId, agentId, callLogId = 
           // would be sent afterwards and resurrect the interrupted sentence.
           session.on('clear', () => {
             pump?.flush();
+            recording.barge();
             if (ws.readyState === ws.OPEN && streamId) {
               ws.send(JSON.stringify({ event: 'clearAudio', streamId }));
             }
@@ -158,8 +168,10 @@ export function handlePlivoMediaUpgrade(ws, { workspaceId, agentId, callLogId = 
       }
 
       case 'media':
-        if (session && msg.media?.payload) {
-          session.sendAudioChunk(Buffer.from(msg.media.payload, 'base64'));
+        if (msg.media?.payload) {
+          const frame = Buffer.from(msg.media.payload, 'base64');
+          recording.inbound(frame);
+          if (session) session.sendAudioChunk(frame);
         }
         break;
 

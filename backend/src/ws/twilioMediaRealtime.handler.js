@@ -20,6 +20,7 @@ import { createRealtimeSession } from '../services/voice/realtimeEngine.factory.
 import { isModelAllowed } from '../services/platform/modelCatalog.js';
 import { createAmbiencePump } from '../services/voice/ambiencePump.js';
 import { createCallFinalizer } from './callFinalizer.js';
+import { createRecordingTap } from './callRecordingTap.js';
 
 const safeJson = (str, fallback) => {
   try {
@@ -46,12 +47,16 @@ export function handleTwilioMediaUpgrade(ws, { workspaceId, agentId }) {
     workspaceId, agentId, label: 'realtime phone call',
   });
 
+  /** Both legs, mixed to one WAV at hangup. See callRecordingTap.js. */
+  const recording = createRecordingTap({ label: 'realtime phone call', startedAt });
+
   const cleanup = (status) => {
     // First: a leaked 20ms interval would outlive the call permanently.
     // stop() is idempotent because cleanup() is reachable more than once.
     pump?.stop();
     pump = null;
     session?.close();
+    recording.save(callLogId);
     if (status) finalizeCallLog(callLogId, status, { transcript, startedAt });
   };
 
@@ -90,6 +95,11 @@ export function handleTwilioMediaUpgrade(ws, { workspaceId, agentId }) {
           // effort optimising.
           const sendFrame = (payload) => {
             if (ws.readyState === ws.OPEN && streamSid) {
+              // Tapped here rather than on the engine's `audio` event, so the
+              // recording matches what the caller heard: with ambience enabled
+              // the pump owns pacing and mixes the bed in, and only what
+              // reaches this function goes on the wire.
+              recording.outbound(payload);
               ws.send(JSON.stringify({
                 event: 'media',
                 streamSid,
@@ -119,6 +129,7 @@ export function handleTwilioMediaUpgrade(ws, { workspaceId, agentId }) {
             // what Twilio holds; anything still queued here would be emitted
             // afterwards and resurrect the interrupted sentence.
             pump?.flush();
+            recording.barge();
             if (ws.readyState === ws.OPEN && streamSid) {
               ws.send(JSON.stringify({ event: 'clear', streamSid }));
             }
@@ -149,8 +160,10 @@ export function handleTwilioMediaUpgrade(ws, { workspaceId, agentId }) {
       }
 
       case 'media':
-        if (session && msg.media?.payload) {
-          session.sendAudioChunk(Buffer.from(msg.media.payload, 'base64'));
+        if (msg.media?.payload) {
+          const frame = Buffer.from(msg.media.payload, 'base64');
+          recording.inbound(frame);
+          if (session) session.sendAudioChunk(frame);
         }
         break;
 

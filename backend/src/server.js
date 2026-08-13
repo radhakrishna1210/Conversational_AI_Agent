@@ -19,6 +19,7 @@ import { handleExotelMediaUpgrade } from './ws/exotelMediaRealtime.handler.js';
 import { handlePlivoMediaUpgrade } from './ws/plivoMediaRealtime.handler.js';
 import { handlePlivoMediaModularUpgrade } from './ws/plivoMediaModular.handler.js';
 import { resumeStuckKbJobs } from './services/kbChunking.service.js';
+import { startRecordingRetention } from './services/recordingRetention.service.js';
 
 mkdirSync(env.UPLOAD_DIR, { recursive: true });
 
@@ -67,6 +68,10 @@ if (campaignWorker) {
 
 const integrationScheduler = startIntegrationScheduler();
 const voiceSyncScheduler = startVoiceSyncScheduler();
+
+// Call recordings are the one upload with no natural ceiling — every call adds
+// a file and, before this, only deleting the agent ever removed one.
+const recordingRetention = startRecordingRetention();
 
 // KB files chunk+embed in the background (kbChunking.service.js), not inside
 // the upload request — so a process crash/deploy mid-job can leave a file
@@ -276,6 +281,7 @@ const shutdown = async (signal) => {
   server.close(async () => {
     if (integrationScheduler?.stop) integrationScheduler.stop();
     if (voiceSyncScheduler?.stop) voiceSyncScheduler.stop();
+    if (recordingRetention?.stop) recordingRetention.stop();
     clearInterval(renewalTimer);
     await prisma.$disconnect();
     logger.info('Shutdown complete');

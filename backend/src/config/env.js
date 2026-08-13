@@ -122,6 +122,16 @@ export const env = {
   // longer risks blocking it or any concurrent live call.
   MAX_FILE_SIZE_MB: parseInt(optional('MAX_FILE_SIZE_MB', '25'), 10),
 
+  // Days a call recording is kept on disk before it is deleted
+  // (recordingRetention.service.js). Only the audio goes — the call log,
+  // transcript and billing columns are permanent. Set to 0 to keep audio
+  // forever, which on the shared VPS means unbounded growth: size it against
+  // free disk, not against how long the audio might conceivably be wanted.
+  RECORDING_RETENTION_DAYS: parseInt(optional('RECORDING_RETENTION_DAYS', '7'), 10),
+  RECORDING_RETENTION_SWEEP_INTERVAL_MS: parseInt(
+    optional('RECORDING_RETENTION_SWEEP_INTERVAL_MS', '21600000'), 10, // 6h
+  ),
+
   SUPER_ADMIN_EMAIL: optional('SUPER_ADMIN_EMAIL', ''),
 
   BCRYPT_SALT_ROUNDS: parseInt(optional('BCRYPT_SALT_ROUNDS', '12'), 10),

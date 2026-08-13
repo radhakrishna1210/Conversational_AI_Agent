@@ -72,6 +72,7 @@ import {
   PHONE_SAMPLE_RATE,
 } from '../services/voice/telephonyAudio.js';
 import { createPlayoutWindow } from '../services/voice/playoutWindow.js';
+import { createRecordingTap } from './callRecordingTap.js';
 import { createCallFinalizer } from './callFinalizer.js';
 
 const safeJson = (str, fallback) => {
@@ -183,10 +184,14 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
    */
   const playout = createPlayoutWindow();
 
+  /** Both legs of the call, mixed to one WAV at hangup. See callRecordingTap.js. */
+  const recording = createRecordingTap({ label: carrier.label, startedAt });
+
   const sendFrame = (frame) => {
     if (ws.readyState !== ws.OPEN || !streamId) return;
     carrier.sendAudio(ws, streamId, frame);
     playout.noteFrame();
+    recording.outbound(frame);
   };
 
   /** Drop the carrier's buffered playback — the caller has interrupted. */
@@ -413,6 +418,7 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
     playout.stop();
     try { dg?.close(); } catch { /* already gone */ }
     dg = null;
+    recording.save(callLogId);
     if (status) finalizeCallLog(callLogId, status, { transcript, startedAt });
   };
 
@@ -526,6 +532,8 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
         if (!dg) break;
         const frame = Buffer.from(msg.media.payload, 'base64');
 
+        recording.inbound(frame);
+
         // Always feed STT — including while the agent speaks, so the words a
         // caller says over the top are not lost when the barge lands.
         try { dg.send(frame); } catch { /* session died; next attempt recreates */ }
@@ -568,6 +576,7 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
             const cutMs = playout.remainingMs();
             playout.stop();
             clearPlayback();
+            recording.barge();
             // Logged because a barge that should not have happened is otherwise
             // indistinguishable from the agent simply going quiet — which is
             // exactly how the false-positive bug hid.
