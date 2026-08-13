@@ -16,6 +16,7 @@ import {
   createFrameSplitter,
   supportsTelephony,
   telephonyOutputFormat,
+  playableWithFormat,
   PHONE_SAMPLE_RATE,
   ULAW_FRAME_BYTES,
 } from '../telephonyAudio.js';
@@ -175,6 +176,31 @@ test('Sarvam is native mu-law', () => {
   assert.ok(supportsTelephony('Sarvam'));
   assert.equal(telephonyOutputFormat('Sarvam').kind, 'native');
   assert.equal(telephonyOutputFormat('sarvam').format, 'mulaw');
+});
+
+test('a native bridge only plays segments synthesized in its own format', () => {
+  const elevenlabs = telephonyOutputFormat('ElevenLabs');
+
+  assert.equal(playableWithFormat('ulaw_8000', elevenlabs), true);
+
+  // THE BUG THIS EXISTS FOR. The pre-synthesized ack clip ("Mm-hmm") was cached
+  // without a format, so a phone call that had asked TTS for G.711 was handed
+  // MP3 bytes and put them on the wire as if they were mu-law. The caller heard
+  // static in front of every reply, and the real audio played behind it — which
+  // is also most of why phone calls felt slower than web calls.
+  assert.equal(playableWithFormat(null, elevenlabs), false);
+  assert.equal(playableWithFormat(undefined, elevenlabs), false);
+  assert.equal(playableWithFormat('mp3_44100_128', elevenlabs), false);
+
+  // Two native providers, two names for mu-law. A segment made for one carrier
+  // path is not playable on the other.
+  assert.equal(playableWithFormat('mulaw', elevenlabs), false);
+  assert.equal(playableWithFormat('ulaw_8000', telephonyOutputFormat('Sarvam')), false);
+
+  // A converting bridge resamples whatever it is given, so the guard is not its
+  // business — and must not silence it.
+  assert.equal(playableWithFormat(null, { kind: 'pcm', format: 'pcm_24000' }), true);
+  assert.equal(playableWithFormat(null, null), true);
 });
 
 test('providers that ignore opts.audioFormat are NOT advertised as capable', () => {

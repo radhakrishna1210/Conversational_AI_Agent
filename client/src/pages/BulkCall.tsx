@@ -692,9 +692,9 @@ export default function BulkCall() {
 
       {/* Create campaign modal */}
       {showModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0, 0, 0, 0.65)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px' }}>
-          <div style={{ width: '100%', maxWidth: '560px', background: 'var(--s1)', borderRadius: '20px', border: '1px solid var(--line)', boxShadow: 'var(--shadow-card)', padding: '28px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0, 0, 0, 0.65)', zIndex: 50, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '24px', overflowY: 'auto' }}>
+          <div style={{ width: '100%', maxWidth: '560px', maxHeight: 'calc(100vh - 48px)', background: 'var(--s1)', borderRadius: '20px', border: '1px solid var(--line)', boxShadow: 'var(--shadow-card)', padding: '28px', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexShrink: 0 }}>
               <div>
                 <h2 style={{ margin: 0, fontSize: '22px', fontWeight: 700 }}>Create New Bulk Call Campaign</h2>
                 <p style={{ margin: '8px 0 0', color: 'var(--tx-2)', fontSize: '13px' }}>Pick a saved contact cluster (or upload a CSV, which becomes one), choose a voice agent, and configure concurrent calls.</p>
@@ -704,7 +704,7 @@ export default function BulkCall() {
               </button>
             </div>
 
-            <div style={{ display: 'grid', gap: '16px' }}>
+            <div style={{ display: 'grid', gap: '16px', alignContent: 'start', overflowY: 'auto', minHeight: 0, flex: 1, paddingRight: '6px', marginRight: '-6px' }}>
               <label style={{ display: 'grid', gap: '8px', color: 'var(--tx-2)', fontSize: '13px' }}>
                 Campaign Name
                 <input
@@ -927,6 +927,9 @@ export default function BulkCall() {
                 />
               </label>
 
+            </div>
+
+            <div style={{ flexShrink: 0, display: 'grid', gap: '12px', marginTop: '20px', paddingTop: '20px', borderTop: '1px solid var(--line)' }}>
               {error && <div style={{ color: 'var(--err)', fontSize: '13px' }}>{error}</div>}
 
               <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '12px', flexWrap: 'wrap' }}>

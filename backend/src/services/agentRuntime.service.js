@@ -842,23 +842,43 @@ const FILLER_TEXTS = {
   // Gender-neutral phrasing on purpose — the voice may be male or female.
   hi: ['हम्म।', 'जी, एक सेकंड।', 'ठीक है।'],
 };
-const fillerCache = new Map(); // `${voiceId}|${lang}` -> { variants: [{buf, contentType}], last }
+const fillerCache = new Map(); // `${voiceId}|${lang}|${format}` -> { variants: [{buf, contentType}], last }
 const fillerWarmInFlight = new Set();
 
-/** Pre-synthesize this voice's filler variants (idempotent, fire-and-forget). */
-export async function warmFillers(voice, lang, pace) {
+/**
+ * Cache key for a set of filler clips.
+ *
+ * THE FORMAT IS PART OF THE KEY, and leaving it out was a live-call bug rather
+ * than an inefficiency. These clips are emitted as ordinary audio segments, so
+ * a phone bridge that asked TTS for `ulaw_8000` still received whatever bytes
+ * the cache happened to hold — MP3, if a web call had warmed it first — and
+ * shipped them to the carrier as if they were G.711. The caller heard a burst
+ * of static before every reply, and the real audio queued behind it.
+ */
+const fillerKey = (voice, lang, audioFormat) => `${voice.id}|${lang}|${audioFormat || 'default'}`;
+
+/**
+ * Pre-synthesize this voice's filler variants (idempotent, fire-and-forget).
+ *
+ * @param {string} [audioFormat] the transport's audio format when it is not the
+ *   default MP3 — the phone bridge passes its carrier format so the ack is
+ *   playable over a phone line at all.
+ */
+export async function warmFillers(voice, lang, pace, audioFormat = null) {
   if (!voice) return;
-  const key = `${voice.id}|${lang}`;
+  const key = fillerKey(voice, lang, audioFormat);
   if (fillerCache.has(key) || fillerWarmInFlight.has(key)) return;
   fillerWarmInFlight.add(key);
   try {
     const variants = [];
     for (const text of FILLER_TEXTS[lang] || FILLER_TEXTS.en) {
-      const { stream, contentType } = await streamSynthesizeVoice(voice, text, { fast: true, pace });
+      const { stream, contentType } = await streamSynthesizeVoice(voice, text, {
+        fast: true, pace, ...(audioFormat ? { audioFormat } : {}),
+      });
       const chunks = [];
       for await (const c of stream) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c));
       const buf = Buffer.concat(chunks);
-      if (buf.length) variants.push({ buf, contentType });
+      if (buf.length) variants.push({ buf, contentType, audioFormat: audioFormat || null });
     }
     if (variants.length) fillerCache.set(key, { variants, last: -1 });
   } catch (err) {
@@ -869,8 +889,8 @@ export async function warmFillers(voice, lang, pace) {
 }
 
 /** Pick a filler clip at random, never the same one twice in a row. */
-function takeFiller(voice, lang) {
-  const entry = fillerCache.get(`${voice.id}|${lang}`);
+function takeFiller(voice, lang, audioFormat = null) {
+  const entry = fillerCache.get(fillerKey(voice, lang, audioFormat));
   if (!entry || !entry.variants.length) return null;
   if (entry.variants.length === 1) return entry.variants[0];
   let i = entry.last;
@@ -878,6 +898,24 @@ function takeFiller(voice, lang) {
   entry.last = i;
   return entry.variants[i];
 }
+
+/**
+ * MIME type for a provider's audio-format string.
+ *
+ * Providers name the same thing differently ('ulaw_8000' on ElevenLabs,
+ * 'mulaw' on Sarvam), so this matches on the family rather than the exact
+ * token. Used to label audio segments honestly; consumers that need to be sure
+ * read the `format` field, which is the value we ASKED the provider for.
+ */
+const mimeForAudioFormat = (format) => {
+  const f = String(format || '').toLowerCase();
+  if (f.includes('ulaw')) return 'audio/mulaw';   // covers 'mulaw' and 'ulaw_8000'
+  if (f.includes('alaw')) return 'audio/alaw';
+  if (f.includes('pcm') || f.includes('linear16')) return 'audio/l16';
+  if (f.includes('wav')) return 'audio/wav';
+  if (f.includes('opus')) return 'audio/ogg';
+  return 'audio/mpeg';
+};
 
 const fillerLangFor = (settings, agent) => {
   let langs = [];
@@ -890,8 +928,12 @@ const fillerLangFor = (settings, agent) => {
  * filler audio) — called by the WS handler on `start-turn`, i.e. WHILE THE
  * CALLER IS STILL SPEAKING, so a cold cache is paid in parallel with their
  * speech instead of serially after it (the prepMs spikes in latency.log).
+ *
+ * @param {string} [audioFormat] the transport's TTS format. Phone bridges MUST
+ *   pass theirs: warming the default MP3 clips for a call that will ask for
+ *   G.711 warms the wrong cache entry, which is the same as not warming at all.
  */
-export function warmVoiceTurn(workspaceId, agentId) {
+export function warmVoiceTurn(workspaceId, agentId, audioFormat = null) {
   (async () => {
     const agent = await loadAgent(workspaceId, agentId);
     if (!agent) return;
@@ -903,7 +945,7 @@ export function warmVoiceTurn(workspaceId, agentId) {
     // cold cache means the first turn of the call — the one where the caller is
     // deciding whether this thing is responsive — silently gets no ack at all.
     if (voice && process.env.VOICE_FILLER !== 'false') {
-      warmFillers(voice, fillerLangFor(settings, agent), Number(settings.speakingRate) || 1.05);
+      warmFillers(voice, fillerLangFor(settings, agent), Number(settings.speakingRate) || 1.05, audioFormat);
     }
   })().catch(() => {});
 }
@@ -1257,14 +1299,18 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
     const lang = fillerLangFor(settings, agent);
     fillerTimer = setTimeout(() => {
       if (audioStarted || aborted()) return; // reply already speaking / barged
-      const f = takeFiller(voice, lang);
-      if (!f) { warmFillers(voice, lang, speakingRate); return; } // cold: warm for next turn
+      // Same format as the reply. An ack synthesized in the default MP3 and
+      // played into a call that asked for G.711 is not a slightly-wrong ack, it
+      // is noise on the line — see fillerKey().
+      const f = takeFiller(voice, lang, audioFormat);
+      // cold: warm for next turn
+      if (!f) { warmFillers(voice, lang, speakingRate, audioFormat); return; }
       fillerPlayed = true;
       // The caller has now heard the agent react, so the spoken reply must not
       // ALSO open with "Alright," — that is the same beat twice. Spending the
       // turn's opener here is what keeps the two mechanisms from stacking.
       fillerBudget?.noteAudioAck();
-      emit({ type: 'audio-start', contentType: f.contentType });
+      emit({ type: 'audio-start', contentType: f.contentType, format: f.audioFormat ?? null });
       emit({ type: 'audio-chunk', data: f.buf.toString('base64') });
       emit({ type: 'audio-end' });
     }, fillerDelayMs);
@@ -1374,7 +1420,7 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
       });
       if (aborted()) return;
       audioStarted = true;
-      emit({ type: 'audio-start', contentType });
+      emit({ type: 'audio-start', contentType, format: audioFormat || null });
       for await (const c of stream) {
         if (aborted()) break; // barge-in: stop shovelling audio nobody's hearing
         if (firstAudioAt == null) firstAudioAt = performance.now();
@@ -1405,7 +1451,19 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
     const audioDone = new Promise((resolve) => {
       tts?.on('audio', (buf) => {
         if (aborted() || !buf.length) return;
-        if (!wsSegmentOpen) { wsSegmentOpen = true; audioStarted = true; emit({ type: 'audio-start', contentType: 'audio/mpeg' }); }
+        if (!wsSegmentOpen) {
+          wsSegmentOpen = true;
+          audioStarted = true;
+          // The socket was opened with `audioFormat`, so saying "audio/mpeg"
+          // unconditionally was a lie whenever a phone bridge asked for G.711 —
+          // harmless while every consumer ignored the label, and a silent call
+          // the moment one started trusting it.
+          emit({
+            type: 'audio-start',
+            contentType: audioFormat ? mimeForAudioFormat(audioFormat) : 'audio/mpeg',
+            format: audioFormat || null,
+          });
+        }
         if (firstAudioAt == null) firstAudioAt = performance.now();
         emit({ type: 'audio-chunk', data: buf.toString('base64') });
       });
