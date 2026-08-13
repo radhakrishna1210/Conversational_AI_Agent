@@ -22,6 +22,11 @@ import { createReplyTextFilter, filterReplyText, stripSpeechMarkup } from './voi
 import { groqService } from './groq.service.js';
 import { transcribeAudio } from './stt.service.js';
 import { isLikelySttHallucination, stripAgentEcho } from './stt/speechGate.js';
+// Circular-ish import: kbChunking.service.js imports invalidateKbCaches back
+// from this file. Safe — both sides only call the other's export from inside
+// a function body (never at module-evaluation time), so by the time either
+// runs, both modules have already finished loading.
+import { hasKbChunks, retrieveKbChunks } from './kbChunking.service.js';
 
 const safeJson = (str, fallback) => {
   try { return JSON.parse(str); } catch { return fallback; }
@@ -237,7 +242,11 @@ export async function getAgentKbText(workspaceId, agentId) {
   const hit = kbCache.get(key);
   if (hit && Date.now() - hit.at < KB_TTL_MS) return hit.value;
   const rows = await prisma.kbFile.findMany({
-    where: { workspaceId, OR: [{ agentId }, { agentId: null }], textContent: { not: null } },
+    // chunked: false excludes files RAG has taken over for (kbChunking.service.js)
+    // — once a file is chunked+embedded, retrieval serves it instead, and
+    // pasting its (truncated) full text here too would waste this budget on
+    // content _prepareConverse's retrieval step already returns more precisely.
+    where: { workspaceId, OR: [{ agentId }, { agentId: null }], textContent: { not: null }, chunked: false },
     orderBy: { createdAt: 'desc' },
     take: 20,
   });
@@ -646,9 +655,21 @@ export function buildRuntimeMessages({
   prior = [],
   lastContent = '',
   affectNote = '',
+  ragText = '',
   voiceMode = false,
   supportsChatHistory = false,
 }) {
+  // RAG-retrieved chunks vary with every question, so — unlike kbText above —
+  // they must NEVER sit in the system prompt or the static synthetic KB turn
+  // below. Either placement would poison Gemini's implicit-caching prefix for
+  // every turn of every call, RAG agent or not (see the caching rules in the
+  // comment above this function... i.e. two paragraphs up in the file).
+  // Folded into THIS turn's message instead, same principle already applied
+  // to affectNote.
+  const withRag = (content) => (ragText
+    ? `${content}\n\n[Relevant knowledge base excerpts — reference material, not something the caller said:]\n${ragText}`
+    : content);
+
   if (!supportsChatHistory) {
     let systemPrompt = buildAgentSystemPrompt(agent, kbText, { voiceMode });
     if (prior.length) {
@@ -660,7 +681,7 @@ export function buildRuntimeMessages({
     if (affectNote) {
       systemPrompt += `\n\n# Caller state (detected from their voice this turn)\n${affectNote}`;
     }
-    return { systemPrompt, chatHistory: [], message: lastContent };
+    return { systemPrompt, chatHistory: [], message: withRag(lastContent) };
   }
 
   const chatHistory = [];
@@ -673,10 +694,11 @@ export function buildRuntimeMessages({
   return {
     systemPrompt: buildAgentSystemPrompt(agent, kbText, { voiceMode, kbInline: false }),
     chatHistory,
-    // Affect rides on the current turn, never the system prompt.
+    // Order is RAG excerpts, then affect — both ride on the current turn,
+    // never the system prompt or the cached KB turn.
     message: affectNote
-      ? `${lastContent}\n\n[Voice note, not spoken aloud by the caller: ${affectNote}]`
-      : lastContent,
+      ? `${withRag(lastContent)}\n\n[Voice note, not spoken aloud by the caller: ${affectNote}]`
+      : withRag(lastContent),
   };
 }
 
@@ -699,6 +721,21 @@ async function _prepareConverse(workspaceId, agentId, messages, { voiceMode = fa
     throw err;
   }
 
+  // Kick off RAG retrieval (if this agent has any chunked files at all) as
+  // early as possible — concurrently with the flat-text KB fetch and LLM
+  // provider resolution below — so its cost isn't purely additive on top of
+  // theirs. hasKbChunks() is a cheap indexed existence check; the actual
+  // similarity search (an embedding call + a vector query) only runs when it
+  // says yes. Never lets a retrieval failure fail the turn — falls through to
+  // whatever the flat-text kbText path already provides.
+  const ragStartedAt = performance.now();
+  const ragPromise = hasKbChunks(workspaceId, agentId)
+    .then((has) => (has ? retrieveKbChunks(workspaceId, agentId, last.content) : []))
+    .catch((err) => {
+      logger.warn(`KB retrieval failed, continuing without it: ${err.message}`);
+      return [];
+    });
+
   const { kbText } = await getAgentKbText(workspaceId, agentId).catch(() => ({ kbText: '' }));
   const promptKb = voiceMode ? kbText.slice(0, KB_VOICE_CHARS) : kbText;
   const prior = history.slice(0, -1);
@@ -706,12 +743,19 @@ async function _prepareConverse(workspaceId, agentId, messages, { voiceMode = fa
 
   const { llm, provider, model } = resolveLlmForAgent(agent, { lowLatency: voiceMode });
 
+  const ragChunks = await ragPromise;
+  const ragMs = Math.round(performance.now() - ragStartedAt);
+  const ragText = ragChunks.length
+    ? ragChunks.map((c) => `### Source: ${c.fileName}\n${c.content}`).join('\n\n')
+    : '';
+
   const { systemPrompt, chatHistory, message } = buildRuntimeMessages({
     agent,
     kbText: promptKb,
     prior,
     lastContent: last.content,
     affectNote,
+    ragText,
     voiceMode,
     supportsChatHistory: Boolean(llm.supportsChatHistory),
   });
@@ -722,7 +766,7 @@ async function _prepareConverse(workspaceId, agentId, messages, { voiceMode = fa
   // doesn't need a reasoning pass, and it costs ~2-3s per reply.
   const options = { systemPrompt, chatHistory, maxTokens: voiceMode ? 320 : 2000, thinkingBudget: 0 };
   const config = { model, temperature: DEFAULT_TEMPERATURE };
-  return { agent, message, llm, provider, model, config, options, voiceMode };
+  return { agent, message, llm, provider, model, config, options, voiceMode, ragMs };
 }
 
 // Markdown → speakable text. The reply is sent to TTS, so strip formatting.
@@ -737,14 +781,14 @@ const stripForVoice = (s) =>
   s.replace(/[*_#`]+/g, '').replace(/^\s*>+\s?/gm, '').replace(/\s+/g, ' ').trim();
 
 export async function converse(workspaceId, agentId, messages, { voiceMode = false, affect = null } = {}) {
-  const { agent, message, llm, provider, model, config, options } =
+  const { agent, message, llm, provider, model, config, options, ragMs } =
     await _prepareConverse(workspaceId, agentId, messages, { voiceMode, affect });
 
   const raw = await llm.generateResponse(message, config, options);
   let reply = (typeof raw === 'object' ? raw.message : raw) || '';
   if (voiceMode) reply = stripForVoice(reply);
 
-  return { reply, provider, model, agent };
+  return { reply, provider, model, agent, ragMs };
 }
 
 /**
@@ -754,12 +798,12 @@ export async function converse(workspaceId, agentId, messages, { voiceMode = fal
  * don't implement generateResponseStream fall back to a single delta, so every
  * provider keeps working — just without token-level streaming.
  *
- * The generator's RETURN value is `{ provider, model }` (grab it from the
- * final `iterator.next()` result) for latency logging.
- * @returns {AsyncGenerator<string, { provider: string, model: string }>}
+ * The generator's RETURN value is `{ provider, model, ragMs }` (grab it from
+ * the final `iterator.next()` result) for latency logging.
+ * @returns {AsyncGenerator<string, { provider: string, model: string, ragMs: number }>}
  */
 export async function* converseStream(workspaceId, agentId, messages, { voiceMode = false, affect = null } = {}) {
-  const { message, llm, provider, model, config, options } =
+  const { message, llm, provider, model, config, options, ragMs } =
     await _prepareConverse(workspaceId, agentId, messages, { voiceMode, affect });
 
   if (typeof llm.generateResponseStream === 'function') {
@@ -770,7 +814,7 @@ export async function* converseStream(workspaceId, agentId, messages, { voiceMod
     const reply = (typeof raw === 'object' ? raw.message : raw) || '';
     if (reply) yield reply;
   }
-  return { provider, model };
+  return { provider, model, ragMs };
 }
 
 /**
@@ -1160,7 +1204,7 @@ export async function voiceTurn(workspaceId, agentId, audioBuffer, mimeType, his
  * path of a live call. Everything else about the turn is identical, which is
  * the point: web and phone run the same conversation code.
  */
-export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeType, history = [], { onEvent, shouldAbort, userText: providedText, audioHadSpeech = false, affect = null, fillerBudget = null, audioFormat = null } = {}) {
+export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeType, history = [], { onEvent, shouldAbort, userText: providedText, audioHadSpeech = false, affect = null, fillerBudget = null, audioFormat = null, channel = null, preLlmMs = null } = {}) {
   const emit = typeof onEvent === 'function' ? onEvent : () => {};
   const aborted = typeof shouldAbort === 'function' ? shouldAbort : () => false;
   const turnStartedAt = performance.now();
@@ -1394,6 +1438,7 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
   let reply = '';
   let provider;
   let model;
+  let ragMs = null; // RAG retrieval time, if this agent has any chunked KB files — see _prepareConverse
   let llmMs = 0;
   let ttsMs = 0;
   let firstAudioAt = null;
@@ -1509,7 +1554,7 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
           const tail = filter.flush(); // opener held back on a very short reply
           if (tail) { reply += tail; tts.pushText(tail); }
         }
-        if (result.done) ({ provider, model } = result.value || {});
+        if (result.done) ({ provider, model, ragMs } = result.value || {});
         llmMs = Math.round(performance.now() - llmStartedAt); // LLM done (audio may still be arriving)
         if (aborted()) tts.close(); else tts.end();
         await audioDone;
@@ -1600,7 +1645,7 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
         result = await iterator.next();
       }
       if (!aborted()) reply += filter.flush();
-      if (result.done) ({ provider, model } = result.value || {});
+      if (result.done) ({ provider, model, ragMs } = result.value || {});
       llmMs = Math.round(performance.now() - llmStartedAt);
       // splitIdx indexes the RAW reply — take the remainder before stripping,
       // or the seam would duplicate/drop characters.
@@ -1627,7 +1672,7 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
       logger.warn(`Voice LLM slow (>${LLM_SPIKE_TIMEOUT_MS}ms) — retrying once`);
       converseResult = await runConverse(); // fresh attempt; almost always fast
     }
-    ({ provider, model } = converseResult);
+    ({ provider, model, ragMs } = converseResult);
     reply = stripForVoice(filterReplyText(converseResult.reply || '', replyFilterOpts));
     llmMs = Math.round(performance.now() - llmStartedAt);
     llmTtftMs = llmMs; // buffered call: first token only exists once the reply is done
@@ -1656,7 +1701,11 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
     : `${fillerEnabled ? 'hesitation' : 'openers'}`
       + `${replyFilterOpts.inject ? '+inject' : ''}`
       + `${ssmlBreaks ? '+pauses' : ''}`;
-  const latency = { agentId, sttProvider, llmProvider: provider, model, prepMs, sttMs, voiceWaitMs, llmMs, llmTtftMs, ttsMs, ttsTtfaMs, ttfaMs, totalMs, streamed: true, mode: ttsMode, filler: fillerPlayed, natural: naturalMode };
+  const latency = {
+    agentId, channel, sttProvider, llmProvider: provider, model, prepMs, preLlmMs,
+    sttMs, voiceWaitMs, ragMs, llmMs, llmTtftMs, ttsMs, ttsTtfaMs, ttfaMs, totalMs,
+    streamed: true, mode: ttsMode, filler: fillerPlayed, natural: naturalMode,
+  };
   logger.info(latency, 'Web call streaming turn latency');
   logTurnLatency(latency);
 

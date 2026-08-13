@@ -646,9 +646,51 @@ model KbFile {
   sizeBytes    Int
   textContent  String?
   createdAt    DateTime @default(now())
+  // Drives the startup sweep's "stuck" check (kbChunking.service.js) — a file
+  // whose status hasn't moved in a while is presumed abandoned by a crashed
+  // process, not still legitimately running. createdAt alone would be wrong
+  // here: it never changes, so a file stuck on its SECOND processing attempt
+  // (first attempt updated status, then crashed) would look falsely fresh.
+  updatedAt    DateTime @updatedAt
+
+  // RAG processing state. 'ready' is the default so every pre-existing row is
+  // unaffected by this migration — it only ever applies to files large enough to
+  // be chunked (see kbChunking.service.js). 'pending' -> 'processing' -> 'ready'
+  // | 'failed'.
+  status         String  @default("ready")
+  // Flips true once this file's KbChunk rows exist with embeddings. While false,
+  // getAgentKbText() still serves this file's textContent via the flat-text path
+  // (today's behavior) — a large file is usable immediately and "graduates" to
+  // retrieval-only once chunking finishes, never stuck unusable in between.
+  chunked        Boolean @default(false)
+  embeddingError String?
 
   @@index([workspaceId])
   @@index([workspaceId, agentId])
+}
+
+// One retrievable slice of a KbFile's text, embedded once at upload time. Only
+// created for files whose extracted text exceeds the chunking threshold — see
+// kbChunking.service.js. Deleted and reinserted (never appended to) on any
+// re-processing attempt, so a retried job can't leave duplicate/stale chunks.
+model KbChunk {
+  id          String                       @id @default(cuid())
+  kbFileId    String
+  workspaceId String
+  agentId     String?
+  chunkIndex  Int
+  content     String
+  // pgvector column — Prisma models it as opaque (Unsupported), so the actual
+  // `vector(1536)` type and its similarity index are declared in a hand-written
+  // migration.sql rather than diffed from this schema. 1536 dims matches
+  // Gemini's gemini-embedding-001 with output_dimensionality=1536 (also OpenAI
+  // text-embedding-3-small's default width, kept dimension-compatible in case a
+  // second provider is ever added — see embeddings.service.js).
+  embedding   Unsupported("vector(1536)")?
+  createdAt   DateTime                     @default(now())
+
+  @@index([workspaceId, agentId])
+  @@index([kbFileId])
 }
 
 model Plan {

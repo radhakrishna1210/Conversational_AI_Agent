@@ -116,7 +116,11 @@ export const env = {
   GENESYS_API_BASE_URL: optional('GENESYS_API_BASE_URL'),
 
   UPLOAD_DIR: optional('UPLOAD_DIR', 'uploads'),
-  MAX_FILE_SIZE_MB: parseInt(optional('MAX_FILE_SIZE_MB', '10'), 10),
+  // Raised from 10 to cover the 1-20MB KB file range RAG is meant for
+  // (kbChunking.service.js) — extraction/chunking/embedding all run in a
+  // background job, not inside the upload request, so a bigger file no
+  // longer risks blocking it or any concurrent live call.
+  MAX_FILE_SIZE_MB: parseInt(optional('MAX_FILE_SIZE_MB', '25'), 10),
 
   SUPER_ADMIN_EMAIL: optional('SUPER_ADMIN_EMAIL', ''),
 
