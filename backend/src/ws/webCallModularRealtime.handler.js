@@ -111,6 +111,10 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
   };
 
   const runTurn = async (history) => {
+    // Marks "the caller is judged done speaking" (client sent end-turn) — the same
+    // reference point modularMediaBridge.js uses for its preLlmMs, so the two
+    // channels are directly comparable in logs/latency.log.
+    const turnEndDetectedAt = Date.now();
     const pcm = Buffer.concat(frames);
     frames = [];
     capturing = false;
@@ -243,6 +247,8 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
           // those); text + "the audio had no voiced speech" is.
           audioHadSpeech: speech.hasSpeech,
           fillerBudget,
+          channel: 'web',
+          preLlmMs: Date.now() - turnEndDetectedAt,
           shouldAbort: () => bargeRequested,
           onEvent: (e) => {
             if (bargeRequested && e.type !== 'done') return; // caller cut in; drop reply audio
