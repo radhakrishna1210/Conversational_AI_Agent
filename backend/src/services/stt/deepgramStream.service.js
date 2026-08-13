@@ -374,12 +374,19 @@ export class DeepgramStreamSession {
         logger.warn(`Deepgram STT closed unexpectedly (${code}): ${reason?.toString?.() || 'no reason given'}`);
       }
       this.dead = true;
+      // A speech_final candidate armed just before the socket died must not
+      // survive it. Callers that reconnect on death (the phone bridge) create a
+      // FRESH session while this one is still in scope via closures — an
+      // un-cleared timer would fire onEndOfTurn() later against whatever `dg` the
+      // caller has by then, ending a turn nobody asked to end.
+      if (this._endpointTimer) { clearTimeout(this._endpointTimer); this._endpointTimer = null; }
       this._notifyFinalize();
       this._stopKeepAlive();
     });
     this.ws.on('error', (err) => {
       logger.warn(`Deepgram STT stream error: ${err.message}`);
       this.dead = true;
+      if (this._endpointTimer) { clearTimeout(this._endpointTimer); this._endpointTimer = null; }
       this._notifyFinalize();
       this._stopKeepAlive();
     });

@@ -157,6 +157,10 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
   let dg = null;
   let dgTurnSeq = 0;
   let dgLanguage;
+  // Cooldown between reconnect attempts in the 'media' handler, so a session that
+  // fails to connect at all (bad key, Deepgram outage) does not retry once per
+  // inbound frame (~50/s) — see the 'media' case below.
+  let lastDgReconnectAt = 0;
 
   /** Full conversation, owned here because there is no client to own it. */
   const history = [];
@@ -241,6 +245,11 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
     if (turnRunning || closed) return;
     turnRunning = true;
     abortTurn = false;
+    // Marks "the caller is judged done speaking" — i.e. Deepgram's endpointing+grace
+    // commit already fired to get here. Everything from here to the voiceTurnStream()
+    // call (STT harvest) is otherwise invisible in logs/latency.log, which only times
+    // from inside voiceTurnStream onward. See preLlmMs below.
+    const turnEndDetectedAt = Date.now();
 
     try {
       let userText = '';
@@ -272,6 +281,8 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
           userText,
           audioHadSpeech: true,
           fillerBudget,
+          channel: 'phone',
+          preLlmMs: Date.now() - turnEndDetectedAt,
           // Ask TTS for the carrier's own format when the provider can do it.
           ...(ttsFormat?.kind === 'native' ? { audioFormat: ttsFormat.format } : {}),
           shouldAbort: () => abortTurn || closed,
@@ -350,7 +361,17 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
       // bleed guard). Incrementing a local copy instead drifted permanently out
       // of step, so every finalizeTurn returned '' and the agent never once
       // answered the caller — the greeting played and the call went dead.
-      if (dg && !closed) dgTurnSeq = dg.beginTurn();
+      //
+      // dg.isAlive, not just truthiness: a session that died DURING this turn
+      // (LLM/TTS phase) is still a non-null reference here, and beginTurn() on a
+      // dead session silently arms a turn nothing will ever harvest. Recreate it
+      // instead — the 'media' handler's own reconnect is the other half of this
+      // (it covers a session dying while idle, which is the more common case;
+      // this covers one dying mid-turn).
+      if (!closed) {
+        if (dg && dg.isAlive) dgTurnSeq = dg.beginTurn();
+        else openDeepgram();
+      }
       // Listening has resumed, so this is the phone's `start-turn`: re-warm now,
       // while the caller is speaking, rather than serially after they stop. The
       // agent and KB caches are on a 5-minute TTL, which any real conversation
@@ -486,12 +507,28 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
       }
 
       case 'media': {
-        if (!dg || !msg.media?.payload) break;
+        if (!msg.media?.payload) break;
+
+        // A dead/missing session used to mean silence for the rest of the call —
+        // openDeepgram() was only ever called once, from 'start'. This is the path
+        // that recovers the common case (the socket dies while just LISTENING, no
+        // turn in flight, so nothing else would ever notice). Cooldown guards
+        // against a reconnect attempt on every single frame (~50/s) when Deepgram
+        // itself is unreachable or the key is bad.
+        if (!closed && (!dg || !dg.isAlive)) {
+          const now = Date.now();
+          if (now - lastDgReconnectAt > 1000) {
+            lastDgReconnectAt = now;
+            logger.warn(`${carrier.label}: Deepgram session missing or dead mid-call — reconnecting`);
+            openDeepgram();
+          }
+        }
+        if (!dg) break;
         const frame = Buffer.from(msg.media.payload, 'base64');
 
         // Always feed STT — including while the agent speaks, so the words a
         // caller says over the top are not lost when the barge lands.
-        try { dg.send(frame); } catch { /* session died; next turn recreates */ }
+        try { dg.send(frame); } catch { /* session died; next attempt recreates */ }
 
         const rms = frameRms(frame);
 
