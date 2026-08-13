@@ -18,6 +18,7 @@ import { handleTwilioMediaModularUpgrade } from './ws/twilioMediaModular.handler
 import { handleExotelMediaUpgrade } from './ws/exotelMediaRealtime.handler.js';
 import { handlePlivoMediaUpgrade } from './ws/plivoMediaRealtime.handler.js';
 import { handlePlivoMediaModularUpgrade } from './ws/plivoMediaModular.handler.js';
+import { resumeStuckKbJobs } from './services/kbChunking.service.js';
 
 mkdirSync(env.UPLOAD_DIR, { recursive: true });
 
@@ -66,6 +67,12 @@ if (campaignWorker) {
 
 const integrationScheduler = startIntegrationScheduler();
 const voiceSyncScheduler = startVoiceSyncScheduler();
+
+// KB files chunk+embed in the background (kbChunking.service.js), not inside
+// the upload request — so a process crash/deploy mid-job can leave a file
+// stuck in 'pending'/'processing' forever with nothing to notice. One sweep
+// on boot picks those back up.
+resumeStuckKbJobs().catch((err) => logger.warn(`KB stuck-job sweep failed: ${err.message}`));
 
 // Plain http.Server wrapping the Express app — needed so WebSocket upgrade
 // requests (xAI Conversational Agent: Web Call + Twilio Media Streams) can be
