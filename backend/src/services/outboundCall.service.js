@@ -106,11 +106,40 @@ export function resolveCallMode(agent) {
 /**
  * True when the carrier's credentials + a usable caller ID are present.
  *
+ * PREFER `telephonyStatusForNumber` when you have a caller ID. This one checks
+ * whichever carrier `providerId` names, defaulting to the platform default —
+ * which is NOT necessarily the carrier that number will actually dial through.
+ *
  * @param {string} [fromNumber]  caller ID being dialled from
  * @param {string} [providerId]  carrier to check; defaults to the configured one
  */
 export function telephonyStatus(fromNumber, providerId) {
   return resolveProvider(providerId).status(fromNumber);
+}
+
+/**
+ * Readiness of the carrier that THIS caller ID will really dial through.
+ *
+ * placeOutboundCall routes per number (see resolveProviderIdForNumber), so any
+ * pre-flight that skips that lookup is asking the wrong carrier whether the
+ * call can be placed. The campaign runner did exactly that, and the two ways it
+ * gets the answer wrong are both silent:
+ *
+ *   • a Plivo caller ID on a box with Twilio configured passes the check, the
+ *     campaign starts, and then every single dial fails on Plivo credentials —
+ *     10,000 recipients marked failed one per second, with the real reason
+ *     buried in per-row failureReason instead of stopping the campaign;
+ *   • the mirror image — a Twilio caller ID where only Plivo is configured —
+ *     fails the campaign before it starts, quoting a carrier nobody chose.
+ *
+ * Async because the routing lives in a `VoiceNumber` row. Worth the round trip:
+ * it is one query per campaign, not per call.
+ *
+ * @param {string} [fromNumber]
+ * @returns {Promise<{ready: boolean, error?: string}>}
+ */
+export async function telephonyStatusForNumber(fromNumber) {
+  return resolveProvider(await resolveProviderIdForNumber(fromNumber)).status(fromNumber);
 }
 
 /**
