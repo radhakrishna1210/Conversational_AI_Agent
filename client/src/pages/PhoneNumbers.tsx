@@ -12,11 +12,25 @@ import { RzCard, RzEmpty, RzPill, RzSkeleton, RzStat } from '@/components/rz';
  * what an outbound call can actually dial from.
  */
 
+/**
+ * `source` is open-ended on purpose: the backend returns the carrier id
+ * lower-cased for anything routed through VoiceNumber ('plivo', 'exotel'), and
+ * new carriers must not need a client change to appear at all. Only 'own' —
+ * a number the user verified rather than one the platform holds — is treated
+ * specially.
+ */
 interface NumberOpt {
   phoneNumber: string;
   label: string;
-  source: 'twilio' | 'own';
+  source: 'twilio' | 'own' | string;
 }
+
+/** Badge text per source. Unknown carriers fall back to their own name. */
+const sourceLabel = (source: string) => {
+  if (source === 'own') return 'Verified';
+  if (source === 'twilio') return 'Platform';
+  return source.charAt(0).toUpperCase() + source.slice(1);
+};
 
 /** E.164 dialling code → flag, for the countries the platform sells in. */
 const FLAGS: Record<string, string> = {
@@ -126,9 +140,7 @@ export default function PhoneNumbers() {
                   <div className="rz-sub" style={{ fontSize: 12.5 }}>{n.label || '—'}</div>
                   <div className="rz-mono-xs">label</div>
                 </div>
-                {n.source === 'twilio'
-                  ? <RzPill tone="info">Platform</RzPill>
-                  : <RzPill tone="ok">Verified</RzPill>}
+                <RzPill tone={n.source === 'own' ? 'ok' : 'info'}>{sourceLabel(n.source)}</RzPill>
               </div>
             ))}
           </div>

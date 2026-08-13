@@ -7,7 +7,8 @@ import { whapi } from '../lib/whapi';
 // shown on screen; once verified it becomes the call's From number.
 // "Learn more" opens the Airtel verified-business-calling guide (anti-spam).
 
-interface NumberOpt { phoneNumber: string; label: string; source: 'twilio' | 'own' }
+// Open-ended: carriers routed through VoiceNumber report their own id.
+interface NumberOpt { phoneNumber: string; label: string; source: 'twilio' | 'own' | string }
 
 export default function CallerNumberPicker({ value, onChange }: { value: string; onChange: (from: string) => void }) {
   const [mode, setMode] = useState<'list' | 'own'>('list');

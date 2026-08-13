@@ -12,6 +12,7 @@
 // GET /config/airtel-verified-calling-guide).
 
 import logger from '../lib/logger.js';
+import prisma from '../config/prisma.js';
 
 const twilioReady = () => Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN);
 const tw = (path, opts = {}) => {
@@ -26,10 +27,56 @@ const notConfigured = (res) => res.status(503).json({
   error: 'Phone calling is not configured (TWILIO_ACCOUNT_SID / TWILIO_AUTH_TOKEN missing in backend/.env).',
 });
 
+/**
+ * Numbers assigned to this workspace on a NON-Twilio carrier.
+ *
+ * `VoiceNumber` is the routing table: `outboundCall.service#resolveProviderIdForNumber`
+ * matches the caller ID against `phoneNumber` and dials on that row's
+ * `provider`. So a row here is exactly the set of numbers that will actually
+ * route somewhere other than the default carrier — which makes it the right
+ * thing to offer in the picker, and means listing anything else would offer
+ * numbers that silently dial out on Twilio instead.
+ *
+ * Twilio rows are excluded because the live Twilio API below already returns
+ * them, and a number in both places would appear twice.
+ */
+const assignedCarrierNumbers = async (workspaceId) => {
+  if (!workspaceId) return [];
+  try {
+    const rows = await prisma.voiceNumber.findMany({
+      where: { workspaceId, status: 'ACTIVE', provider: { not: 'TWILIO' } },
+      select: { phoneNumber: true, provider: true },
+      orderBy: { assignedAt: 'desc' },
+      take: 50,
+    });
+    return rows.map((r) => ({
+      phoneNumber: r.phoneNumber,
+      label: r.provider,
+      source: r.provider.toLowerCase(),
+    }));
+  } catch (e) {
+    // A carrier list that partly fails should still show what it can. This
+    // table did not exist before the compliance migration, so an older database
+    // must not turn the whole picker into an error.
+    logger.warn(`Could not read assigned carrier numbers: ${e.message}`);
+    return [];
+  }
+};
+
 // GET /workspaces/:workspaceId/caller-numbers
 // → { owned: [...], verified: [...] } for the "select from list" option.
-export const listCallerNumbers = async (_req, res) => {
-  if (!twilioReady()) return notConfigured(res);
+export const listCallerNumbers = async (req, res) => {
+  const carrierNumbers = await assignedCarrierNumbers(req.params.workspaceId);
+
+  // Twilio missing is no longer fatal. An India-only deployment routes through
+  // Plivo or Exotel and may hold no Twilio credentials at all; 503-ing here
+  // would hide every number it does own behind a message about a carrier it
+  // does not use.
+  if (!twilioReady()) {
+    if (carrierNumbers.length) return res.json({ owned: carrierNumbers, verified: [] });
+    return notConfigured(res);
+  }
+
   try {
     const [ownedRes, verifiedRes] = await Promise.all([
       tw('/IncomingPhoneNumbers.json?PageSize=50'),
@@ -38,11 +85,17 @@ export const listCallerNumbers = async (_req, res) => {
     const owned = ownedRes.ok ? (await ownedRes.json()).incoming_phone_numbers ?? [] : [];
     const verified = verifiedRes.ok ? (await verifiedRes.json()).outgoing_caller_ids ?? [] : [];
     res.json({
-      owned: owned.map((n) => ({ phoneNumber: n.phone_number, label: n.friendly_name, source: 'twilio' })),
+      owned: [
+        ...owned.map((n) => ({ phoneNumber: n.phone_number, label: n.friendly_name, source: 'twilio' })),
+        ...carrierNumbers,
+      ],
       verified: verified.map((n) => ({ phoneNumber: n.phone_number, label: n.friendly_name, source: 'own' })),
     });
   } catch (err) {
     logger.error('listCallerNumbers failed', err);
+    // Same reasoning as the unconfigured branch: Twilio being unreachable must
+    // not take the India numbers off the list.
+    if (carrierNumbers.length) return res.json({ owned: carrierNumbers, verified: [] });
     res.status(502).json({ error: `Could not load numbers from Twilio: ${err.message}` });
   }
 };

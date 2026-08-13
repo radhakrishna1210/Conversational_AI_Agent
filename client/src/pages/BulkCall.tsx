@@ -25,7 +25,9 @@ type Agent = {
   name: string;
 };
 
-type NumberOpt = { phoneNumber: string; label: string; source: 'twilio' | 'own' };
+// `source` is open-ended: carriers routed through VoiceNumber report their own
+// id ('plivo', 'exotel'), so a new carrier appears here without a client change.
+type NumberOpt = { phoneNumber: string; label: string; source: 'twilio' | 'own' | string };
 
 // What the selected agent's calls will actually be. A modular agent has no
 // telephony bridge, so its phone calls play the welcome message and hang up —
@@ -670,7 +672,9 @@ export default function BulkCall() {
                         <span style={{ color: 'var(--tx)', fontSize: '13px' }}>
                           {n.phoneNumber}
                           <span style={{ color: 'var(--tx-2)' }}>
-                            {' '}— {n.label} {n.source === 'own' ? '(your number ✓)' : '(platform)'}
+                            {' '}— {n.label} {n.source === 'own'
+                              ? '(your number ✓)'
+                              : n.source === 'twilio' ? '(platform)' : `(${n.source})`}
                           </span>
                         </span>
                       </label>
