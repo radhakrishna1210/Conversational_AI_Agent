@@ -16,10 +16,12 @@ import { env } from '../../config/env.js';
 import logger from '../../lib/logger.js';
 import { twilioProvider } from './twilio.provider.js';
 import { exotelProvider } from './exotel.provider.js';
+import { plivoProvider } from './plivo.provider.js';
 
 const PROVIDERS = new Map([
   [twilioProvider.id, twilioProvider],
   [exotelProvider.id, exotelProvider],
+  [plivoProvider.id, plivoProvider],
 ]);
 
 /** Provider ids that are actually wired up right now. */
@@ -47,4 +49,4 @@ export function resolveProvider(providerId) {
   return twilioProvider;
 }
 
-export { twilioProvider, exotelProvider };
+export { twilioProvider, exotelProvider, plivoProvider };

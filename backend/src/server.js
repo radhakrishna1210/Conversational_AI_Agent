@@ -16,6 +16,7 @@ import { handleWebCallModularUpgrade } from './ws/webCallModularRealtime.handler
 import { handleTwilioMediaUpgrade } from './ws/twilioMediaRealtime.handler.js';
 import { handleTwilioMediaModularUpgrade } from './ws/twilioMediaModular.handler.js';
 import { handleExotelMediaUpgrade } from './ws/exotelMediaRealtime.handler.js';
+import { handlePlivoMediaUpgrade } from './ws/plivoMediaRealtime.handler.js';
 
 mkdirSync(env.UPLOAD_DIR, { recursive: true });
 
@@ -74,6 +75,7 @@ const webCallWss = new WebSocketServer({ noServer: true });
 const modularWebCallWss = new WebSocketServer({ noServer: true });
 const twilioMediaWss = new WebSocketServer({ noServer: true });
 const exotelMediaWss = new WebSocketServer({ noServer: true });
+const plivoMediaWss = new WebSocketServer({ noServer: true });
 
 // /api/v1/workspaces/:workspaceId/agents/:agentId/xai-call  (bundled engine)
 const WEB_CALL_UPGRADE_PATH = /^\/api\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/xai-call$/;
@@ -83,6 +85,8 @@ const MODULAR_WEB_CALL_UPGRADE_PATH = /^\/api\/v1\/workspaces\/([^/]+)\/agents\/
 const TWILIO_MEDIA_UPGRADE_PATH = /^\/api\/v1\/twilio-media\/([^/]+)\/([^/]+)$/;
 // /api/v1/exotel-media/:workspaceId/:agentId?sample-rate=…&callLogId=…
 const EXOTEL_MEDIA_UPGRADE_PATH = /^\/api\/v1\/exotel-media\/([^/]+)\/([^/]+)$/;
+// /api/v1/plivo-media/:workspaceId/:agentId?callLogId=…
+const PLIVO_MEDIA_UPGRADE_PATH = /^\/api\/v1\/plivo-media\/([^/]+)\/([^/]+)$/;
 // Exotel accepts exactly these; anything else on the URL is ignored by Exotel,
 // so accepting it here would leave the two ends disagreeing about the rate.
 const EXOTEL_SAMPLE_RATES = new Set([8000, 16000, 24000]);
@@ -185,6 +189,27 @@ httpServer.on('upgrade', (req, socket, head) => {
         workspaceId,
         agentId,
         sampleRate,
+        callLogId: url.searchParams.get('callLogId'),
+      });
+    });
+    return;
+  }
+
+  const plivoMatch = pathname.match(PLIVO_MEDIA_UPGRADE_PATH);
+  if (plivoMatch) {
+    const [, workspaceId, agentId] = plivoMatch;
+    // Bundled-only, like Exotel and for the same reason: plivo.provider.js sets
+    // supportsModularEngine=false, so outboundCall.service refuses modular
+    // agents before dialling and nothing modular can arrive here.
+    //
+    // No sample-rate parameter either — Plivo's rate is fixed by the
+    // `contentType` on the <Stream> element the answer URL emitted, so reading
+    // it off the query string here would create a second source of truth for a
+    // value both ends have already agreed on.
+    plivoMediaWss.handleUpgrade(req, socket, head, (ws) => {
+      handlePlivoMediaUpgrade(ws, {
+        workspaceId,
+        agentId,
         callLogId: url.searchParams.get('callLogId'),
       });
     });

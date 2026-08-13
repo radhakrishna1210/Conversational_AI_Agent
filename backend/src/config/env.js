@@ -155,9 +155,21 @@ export const env = {
   PLIVO_AUTH_TOKEN: optional('PLIVO_AUTH_TOKEN', ''),
   // Default Plivo voice application attached to rented numbers.
   PLIVO_VOICE_APP_ID: optional('PLIVO_VOICE_APP_ID', ''),
+  // Caller ID for calls routed to Plivo that have no VoiceNumber row of their
+  // own. Must be a number this account (or subaccount) actually holds.
+  PLIVO_FROM_NUMBER: optional('PLIVO_FROM_NUMBER', ''),
   // Plivo fetches call XML from a URL rather than accepting it inline the way
-  // Twilio does, so the greeting path needs a real HTTP endpoint (phase 5).
+  // Twilio does, so both the conversation and greeting paths need a real HTTP
+  // endpoint: controllers/plivo.controller.js. Leave BLANK to derive it from
+  // PUBLIC_BACKEND_WS_URL, which is the same server — see
+  // telephony/plivo.provider.js#resolveAnswerUrlBase.
   PLIVO_ANSWER_URL: optional('PLIVO_ANSWER_URL', ''),
+  // Escape hatch for V3 signature validation on the answer/hangup callbacks.
+  // Signatures are computed over the URL byte-for-byte, so one proxy rewriting
+  // a trailing slash rejects every genuine call — with the unhelpful symptom
+  // that the callee hears silence. Set to 'true' ONLY to confirm that is the
+  // cause; the rejection log prints the exact string that was signed.
+  PLIVO_SKIP_SIGNATURE_CHECK: optional('PLIVO_SKIP_SIGNATURE_CHECK', ''),
   // Public URL Plivo posts compliance-application status changes to. Must match
   // byte-for-byte what is registered with Plivo — the V3 signature is computed
   // over this exact string, so a trailing slash difference fails validation.

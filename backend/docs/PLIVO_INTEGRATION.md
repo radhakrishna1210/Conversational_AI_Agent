@@ -413,7 +413,7 @@ the database. A leaked subaccount token is direct spend on our parent account.
 backend/src/services/telephony/     ← ✅ SHIPPED (phase 1)
   provider.interface.js      contract + shared xmlSafe
   twilio.provider.js         extracted from outboundCall.service.js as-is
-  plivo.provider.js          new — NOT YET WRITTEN
+  plivo.provider.js          ✅ answer_url delivery, JSON call create, Stream XML
   index.js                   resolveProvider(); registry, falls back not throws
 
 backend/src/services/plivo/     ← ✅ SHIPPED (phase 2, partial)
@@ -428,9 +428,36 @@ backend/src/services/branding/
 
 backend/src/controllers/plivoWebhook.controller.js
                              compliance status callbacks (signature-validated)
-backend/src/ws/plivoMediaRealtime.handler.js
+                                                                       (phase 3)
+backend/src/controllers/plivo.controller.js   ← ✅ SHIPPED (phase 5)
+                             answer_url (the call document) + hangup callback
+backend/src/ws/plivoMediaRealtime.handler.js  ← ✅ SHIPPED (phase 5)
                              Plivo sibling of the Twilio media bridge
 ```
+
+### Phase 5 — what the wire protocol actually turned out to be
+
+Verified against Plivo's protocol reference, not inferred from the Twilio
+bridge. Five differences, every one of them a silent failure if copied wrong:
+
+| | Twilio | Plivo |
+|---|---|---|
+| Play audio | `{event:'media', streamSid, media:{payload}}` | `{event:'playAudio', media:{contentType, sampleRate, payload}}` |
+| Barge-in flush | `{event:'clear', streamSid}` | `{event:'clearAudio', streamId}` |
+| Stream id field | `start.streamSid` | `start.streamId` |
+| Per-call data | `start.customParameters` | **none** — rides on the socket URL |
+| End of call | sends a `stop` event | **never sends `stop`** |
+
+The last row is the dangerous one. A bridge modelled on the Twilio handler's
+`case 'stop'` works perfectly and never settles a single call — every log stays
+`IN_PROGRESS` and every `billingStatus` stays `PENDING`. Here the socket closing
+is the only end-of-call signal, and for greeting-only calls (no socket at all)
+it is the `hangup_url` callback.
+
+`contentType` and `sampleRate` go on **every** outbound frame, not just the
+first, and must match the `contentType` on the `<Stream>` element that opened
+the socket — which is why both constants live in `plivo.provider.js` and are
+imported by the handler rather than written out twice.
 
 `assignNumber()`, `setHeaderStatus()`, `releaseNumber()` and
 `assertComplianceReady()` are reused unchanged. The Plivo services **call** the
@@ -562,12 +589,12 @@ rate card. Confirm the exact India streaming rate on the first invoice.
 
 | Phase | Work | Blocked by |
 |---|---|---|
-| 0 | ~~Answer items 1 and 3~~ ✅ done; **India-region org + our KYC still open** | Plivo |
+| 0 | ✅ **Done.** Items 1 and 3 answered; India-region org KYC-verified as a **reseller** (2026-08-13) | — |
 | 1 | ✅ **Done.** Provider abstraction; Twilio extracted behind it, unchanged | — |
 | 2 | ✅ **Code done.** `plivo/client.js`, subaccount CRUD + model + migration. **Unverified against live Plivo** — no account yet | Phase 1 |
 | 3 | Compliance API wiring + webhook, mapped onto existing statuses | Phase 2 |
 | 4 | Number search/rent/assign into subaccount | Phase 3 |
-| 5 | `plivo.provider.js` + `plivoMediaRealtime.handler.js`; greeting path first | Phase 1, item 3 |
+| 5 | ✅ **Code done.** `plivo.provider.js`, answer/hangup endpoints, `plivoMediaRealtime.handler.js`. **Unverified against a live call** | — |
 | 6 | `BrandProfile` + Truecaller enrolment | independent |
 | 7 | Usage reconciliation | Phase 4 |
 

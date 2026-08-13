@@ -34,6 +34,7 @@ import contactFormRoutes from './contactForm.routes.js';
 import appointmentRoutes from './appointment.routes.js';
 import reportIssueRoutes from './reportIssue.routes.js';
 import exotelRoutes from './exotel.routes.js';
+import plivoRoutes from './plivo.routes.js';
 
 import { getHealth as getGeminiHealth, getMetrics as getGeminiMetrics } from '../controllers/gemini.controller.js';
 import { getHealth as getOpenAIHealth, getMetrics as getOpenAIMetrics } from '../controllers/openai.controller.js';
@@ -58,6 +59,10 @@ router.use('/integrations', integrationsPublicRoutes);
 // Exotel's own callbacks (per-call stream URL + terminal call status). Public
 // because a carrier cannot authenticate; see exotel.routes.js.
 router.use('/exotel', exotelRoutes);
+// Plivo's answer URL (the call document, fetched at pickup) and hangup
+// callback. Public because a carrier cannot authenticate; the V3 request
+// signature is what protects them. See plivo.routes.js.
+router.use('/plivo', plivoRoutes);
 // The only pricing this deployment publishes: one wallet rate per minute.
 router.get('/config/wallet-rate', platform.getWalletRatePublic);
 
