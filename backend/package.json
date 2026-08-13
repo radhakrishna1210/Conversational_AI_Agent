@@ -23,6 +23,7 @@
     "test": "node --test \"src/services/**/__tests__/*.test.js\"",
     "test:voice": "node --test \"src/services/voice/__tests__/*.test.js\"",
     "test:stt": "node --test \"src/services/stt/__tests__/*.test.js\"",
+    "test:ws": "node --test \"src/ws/__tests__/*.test.js\"",
     "test:billing": "node --env-file=.env --test \"src/services/billing/__tests__/*.test.js\"",
     "db:clean-test-data": "node --env-file=.env scripts/clean-test-data.js"
   },

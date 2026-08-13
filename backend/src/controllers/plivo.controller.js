@@ -32,8 +32,6 @@ import {
 import { getRenderedWelcome } from '../services/agentRuntime.service.js';
 import { createCallFinalizer } from '../ws/callFinalizer.js';
 
-const BUNDLED_ENGINES = new Set(['xai', 'elevenlabs']);
-
 /**
  * The exact URL Plivo signed.
  *
@@ -157,16 +155,12 @@ export async function answer(req, res) {
   }
 
   // ── conversation ──
-  let engine = '';
-  try { engine = JSON.parse(agent.settings || '{}').voiceEngine || ''; } catch { /* default */ }
-  if (!BUNDLED_ENGINES.has(engine)) {
-    // outboundCall.service refuses this before dialling (supportsModularEngine
-    // is false), so reaching it means the agent's engine changed between the
-    // dial and the answer. Refuse loudly rather than opening a socket that the
-    // bridge will immediately close.
-    return failXml(res, 409, `agent ${agentId} is on engine "${engine}", which has no Plivo bridge`);
-  }
-
+  //
+  // No engine check here. Both bridges exist — bundled (plivoMediaRealtime) and
+  // modular (plivoMediaModular) — and server.js picks between them per call by
+  // re-reading the agent's engine at upgrade time. Refusing a "non-bundled"
+  // engine here, as this did while only the bundled bridge existed, would now
+  // reject every knowledge-base agent.
   if (!env.PUBLIC_BACKEND_WS_URL) {
     return failXml(res, 500, 'PUBLIC_BACKEND_WS_URL is not set, so there is no media bridge address');
   }
