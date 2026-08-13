@@ -232,3 +232,26 @@ export function supportsTelephony(provider) {
 export function telephonyOutputFormat(provider) {
   return TELEPHONY_TTS[String(provider || '').toLowerCase()] || null;
 }
+
+/**
+ * Can an audio segment go on the wire as-is?
+ *
+ * `segmentFormat` is the format the runtime ASKED TTS for when it produced the
+ * segment (voiceTurnStream's `format` field on audio-start) — not a sniffed
+ * magic number and not a provider's Content-Type header, either of which can
+ * disagree with the bytes.
+ *
+ * On a `native` bridge the answer must be exact: those bytes are forwarded to
+ * the carrier untouched, so anything else is played AS G.711 rather than
+ * converted to it. That is not a quality issue, it is static on a live call —
+ * the pre-synthesized ack clip was cached without a format for exactly as long
+ * as nobody checked, and every phone reply opened with a burst of noise. A
+ * `pcm` bridge resamples, so it is not this function's business.
+ *
+ * @param {string|null|undefined} segmentFormat
+ * @param {{kind:string, format:string}|null} ttsFormat
+ */
+export function playableWithFormat(segmentFormat, ttsFormat) {
+  if (ttsFormat?.kind !== 'native') return true;
+  return (segmentFormat ?? null) === ttsFormat.format;
+}

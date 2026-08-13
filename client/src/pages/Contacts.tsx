@@ -96,10 +96,15 @@ export default function Contacts() {
 
   // Modals
   const [importOpen, setImportOpen] = useState(false);
+  // A CSV can be aimed straight at one cluster from its card, which saves
+  // picking it out of a dropdown that already knows the answer.
+  const [importInto, setImportInto] = useState<Cluster | null>(null);
   const [newClusterOpen, setNewClusterOpen] = useState(false);
   const [renaming, setRenaming] = useState<Cluster | null>(null);
   const [addContactOpen, setAddContactOpen] = useState(false);
   const [addToClusterOpen, setAddToClusterOpen] = useState(false);
+  const [fillCluster, setFillCluster] = useState<Cluster | null>(null);
+  const [editing, setEditing] = useState<Contact | null>(null);
   const [importResult, setImportResult] = useState<{ cluster: Cluster; summary: ImportSummary } | null>(null);
 
   const loadClusters = useCallback(async () => {
@@ -255,6 +260,25 @@ export default function Contacts() {
     await refreshAll();
   }, 'Removed from this list. The contacts themselves were kept.');
 
+  // Taking one person off one list — the common correction, and not worth
+  // making someone tick a checkbox and find the bulk bar for.
+  const removeOneFromCluster = (contact: Contact) => run(async () => {
+    await whapi.post(`/clusters/${clusterFilter}/remove`, { contactIds: [contact.id] });
+    setSelected((prev) => { const next = new Set(prev); next.delete(contact.id); return next; });
+    await refreshAll();
+  }, `${contact.name || contact.phoneNumber} is no longer on this list.`);
+
+  const deleteOne = (contact: Contact) => {
+    if (!window.confirm(
+      `Delete ${contact.name || contact.phoneNumber}?\n\nThey are removed from every list, along with their call history.`,
+    )) return;
+    run(async () => {
+      await whapi.delete(`/contacts/${contact.id}`);
+      setSelected((prev) => { const next = new Set(prev); next.delete(contact.id); return next; });
+      await refreshAll();
+    }, 'Contact deleted.');
+  };
+
   const totalPages = Math.max(1, Math.ceil(page.total / (page.pageSize || PAGE_SIZE)));
   const activeCluster = clusters.find((c) => c.id === clusterFilter) ?? null;
 
@@ -326,17 +350,37 @@ export default function Contacts() {
               New empty cluster
             </button>
           )}
+          {/* Viewing one cluster is the closest thing this page has to a cluster
+              detail screen, so its management actions live here rather than
+              sending people back to the card they came from. */}
           {tab === 'contacts' && activeCluster && (
-            <span className="rz-tag">
-              Showing “{activeCluster.name}”
-              <button
-                onClick={() => { setClusterFilter(''); setPageNo(1); }}
-                style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', marginLeft: 6 }}
-                aria-label="Clear list filter"
-              >
-                ×
+            <>
+              <span className="rz-tag">
+                Showing “{activeCluster.name}”
+                <button
+                  onClick={() => { setClusterFilter(''); setPageNo(1); }}
+                  style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', marginLeft: 6 }}
+                  aria-label="Clear list filter"
+                >
+                  ×
+                </button>
+              </span>
+              <button className="rz-btn rz-btn-secondary rz-btn-sm" onClick={() => setFillCluster(activeCluster)}>
+                Add contacts to this list
               </button>
-            </span>
+              <button
+                className="rz-btn rz-btn-ghost rz-btn-sm"
+                onClick={() => { setImportInto(activeCluster); setImportOpen(true); }}
+              >
+                Import CSV
+              </button>
+              <button className="rz-btn rz-btn-ghost rz-btn-sm" onClick={() => setRenaming(activeCluster)}>
+                Rename
+              </button>
+              <button className="rz-btn rz-btn-ghost rz-btn-sm" disabled={busy} onClick={() => run(() => exportCluster(activeCluster))}>
+                Export
+              </button>
+            </>
           )}
         </div>
 
@@ -360,6 +404,8 @@ export default function Contacts() {
             onExport={(c) => run(() => exportCluster(c))}
             onDelete={deleteCluster}
             onImport={() => setImportOpen(true)}
+            onFill={setFillCluster}
+            onImportInto={(c) => { setImportInto(c); setImportOpen(true); }}
           />
         ) : (
           <>
@@ -417,7 +463,7 @@ export default function Contacts() {
 
             <div style={{ border: '1px solid var(--line)', borderRadius: 14, overflow: 'hidden', background: 'var(--s1)' }}>
               <div className="rz-table-wrap">
-                <table className="rz-table" style={{ minWidth: 900 }}>
+                <table className="rz-table" style={{ minWidth: 1020 }}>
                   <thead>
                     <tr>
                       <th style={{ width: 48 }}>
@@ -435,6 +481,7 @@ export default function Contacts() {
                       <th>Status</th>
                       <th>Calls</th>
                       <th>Last called</th>
+                      <th style={{ textAlign: 'right' }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -476,17 +523,59 @@ export default function Contacts() {
                         </td>
                         <td>{c.callCount}</td>
                         <td>{c.lastCalledAt ? new Date(c.lastCalledAt).toLocaleDateString() : '—'}</td>
+                        <td>
+                          <div className="rz-cluster-sm" style={{ justifyContent: 'flex-end', flexWrap: 'nowrap' }}>
+                            <button className="rz-btn rz-btn-ghost rz-btn-sm" onClick={() => setEditing(c)}>Edit</button>
+                            {clusterFilter && (
+                              <button
+                                className="rz-btn rz-btn-ghost rz-btn-sm"
+                                disabled={busy}
+                                title="Take this contact off the list you are viewing"
+                                onClick={() => removeOneFromCluster(c)}
+                              >
+                                Remove
+                              </button>
+                            )}
+                            <button
+                              className="rz-btn rz-btn-ghost rz-btn-sm"
+                              style={{ color: 'var(--err)' }}
+                              disabled={busy}
+                              onClick={() => deleteOne(c)}
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     )) : (
                       <tr>
-                        <td colSpan={7}>
+                        <td colSpan={8}>
                           <div className="rz-empty">
-                            <div className="rz-empty-title">No contacts here yet</div>
-                            <div className="rz-empty-text">
-                              {debouncedSearch || statusFilter || clusterFilter
-                                ? 'Nothing matches those filters.'
-                                : 'Import a CSV to create your first list, or add a contact by hand.'}
+                            <div className="rz-empty-title">
+                              {activeCluster && !debouncedSearch && !statusFilter
+                                ? `“${activeCluster.name}” is empty`
+                                : 'No contacts here yet'}
                             </div>
+                            <div className="rz-empty-text">
+                              {activeCluster && !debouncedSearch && !statusFilter
+                                ? 'Put contacts on this list from your address book, or import a CSV straight into it.'
+                                : debouncedSearch || statusFilter || clusterFilter
+                                  ? 'Nothing matches those filters.'
+                                  : 'Import a CSV to create your first list, or add a contact by hand.'}
+                            </div>
+                            {activeCluster && !debouncedSearch && !statusFilter && (
+                              <div className="rz-cluster-sm" style={{ marginTop: 6, justifyContent: 'center' }}>
+                                <button className="rz-btn rz-btn-primary rz-btn-sm" onClick={() => setFillCluster(activeCluster)}>
+                                  Add contacts
+                                </button>
+                                <button
+                                  className="rz-btn rz-btn-secondary rz-btn-sm"
+                                  onClick={() => { setImportInto(activeCluster); setImportOpen(true); }}
+                                >
+                                  Import CSV
+                                </button>
+                              </div>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -521,9 +610,11 @@ export default function Contacts() {
       {importOpen && (
         <ImportModal
           clusters={clusters}
-          onClose={() => setImportOpen(false)}
+          presetCluster={importInto}
+          onClose={() => { setImportOpen(false); setImportInto(null); }}
           onDone={async (result) => {
             setImportOpen(false);
+            setImportInto(null);
             setImportResult(result);
             await refreshAll();
           }}
@@ -587,13 +678,34 @@ export default function Contacts() {
           }}
         />
       )}
+
+      {fillCluster && (
+        <FillClusterModal
+          cluster={fillCluster}
+          onClose={() => setFillCluster(null)}
+          onDone={async (added) => {
+            setFillCluster(null);
+            await refreshAll();
+            setNotice(`Added ${added} contact${added === 1 ? '' : 's'} to “${fillCluster.name}”.`);
+          }}
+        />
+      )}
+
+      {editing && (
+        <EditContactModal
+          contact={editing}
+          clusters={clusters}
+          onClose={() => setEditing(null)}
+          onDone={async () => { setEditing(null); await refreshAll(); setNotice('Contact updated.'); }}
+        />
+      )}
     </div>
   );
 }
 
 /* ── Cluster grid ─────────────────────────────────────────────────────── */
 
-function ClusterGrid({ clusters, loading, onOpen, onRename, onExport, onDelete, onImport }: {
+function ClusterGrid({ clusters, loading, onOpen, onRename, onExport, onDelete, onImport, onFill, onImportInto }: {
   clusters: Cluster[];
   loading: boolean;
   onOpen: (c: Cluster) => void;
@@ -601,6 +713,8 @@ function ClusterGrid({ clusters, loading, onOpen, onRename, onExport, onDelete, 
   onExport: (c: Cluster) => void;
   onDelete: (c: Cluster) => void;
   onImport: () => void;
+  onFill: (c: Cluster) => void;
+  onImportInto: (c: Cluster) => void;
 }) {
   if (loading) {
     return (
@@ -677,6 +791,8 @@ function ClusterGrid({ clusters, loading, onOpen, onRename, onExport, onDelete, 
 
             <div className="rz-cluster-sm" style={{ marginTop: 'auto' }}>
               <button className="rz-btn rz-btn-secondary rz-btn-sm" onClick={() => onOpen(c)}>View</button>
+              <button className="rz-btn rz-btn-secondary rz-btn-sm" onClick={() => onFill(c)}>Add contacts</button>
+              <button className="rz-btn rz-btn-ghost rz-btn-sm" onClick={() => onImportInto(c)}>Import CSV</button>
               <button className="rz-btn rz-btn-ghost rz-btn-sm" onClick={() => onRename(c)}>Rename</button>
               <button className="rz-btn rz-btn-ghost rz-btn-sm" onClick={() => onExport(c)}>Export</button>
               <button className="rz-btn rz-btn-ghost rz-btn-sm" style={{ color: 'var(--err)' }} onClick={() => onDelete(c)}>
@@ -716,16 +832,17 @@ function Modal({ title, subtitle, onClose, children }: {
 
 /* ── Import ───────────────────────────────────────────────────────────── */
 
-function ImportModal({ clusters, onClose, onDone }: {
+function ImportModal({ clusters, presetCluster, onClose, onDone }: {
   clusters: Cluster[];
+  presetCluster?: Cluster | null;
   onClose: () => void;
   onDone: (result: { cluster: Cluster; summary: ImportSummary }) => void;
 }) {
   const [file, setFile] = useState<File | null>(null);
-  const [target, setTarget] = useState<'new' | 'existing'>('new');
+  const [target, setTarget] = useState<'new' | 'existing'>(presetCluster ? 'existing' : 'new');
   const [name, setName] = useState('');
   const [description, setDescription] = useState('');
-  const [clusterId, setClusterId] = useState('');
+  const [clusterId, setClusterId] = useState(presetCluster?.id ?? '');
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
@@ -756,7 +873,7 @@ function ImportModal({ clusters, onClose, onDone }: {
 
   return (
     <Modal
-      title="Import contacts"
+      title={presetCluster ? `Import into “${presetCluster.name}”` : 'Import contacts'}
       subtitle="Any CSV with a phone column. Names, emails and companies are picked up automatically; every other column is kept with the contact."
       onClose={onClose}
     >
@@ -985,6 +1102,267 @@ function AddContactModal({ clusters, onClose, onDone }: {
           <button className="rz-btn rz-btn-secondary" onClick={onClose}>Cancel</button>
           <button className="rz-btn rz-btn-primary" onClick={submit} disabled={saving}>
             {saving ? 'Adding…' : 'Add contact'}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/* ── Put existing contacts on one cluster ─────────────────────────────── */
+
+/**
+ * The other direction of membership: start from the list and pick people,
+ * rather than starting from the address book and picking lists.
+ *
+ * Searches the whole address book rather than paging it — a cluster is filled
+ * by looking for someone, not by scrolling to them.
+ */
+function FillClusterModal({ cluster, onClose, onDone }: {
+  cluster: Cluster;
+  onClose: () => void;
+  onDone: (added: number) => Promise<void>;
+}) {
+  const [search, setSearch] = useState('');
+  const [debounced, setDebounced] = useState('');
+  const [rows, setRows] = useState<Contact[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(search.trim()), 300);
+    return () => clearTimeout(id);
+  }, [search]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setLoading(true);
+      try {
+        const params = new URLSearchParams({ page: '1', pageSize: '100' });
+        if (debounced) params.set('search', debounced);
+        const res = await whapi.get<ContactPage>(`/contacts?${params.toString()}`);
+        if (!cancelled) { setRows(res.rows ?? []); setTotal(res.total ?? 0); }
+      } catch (e) {
+        if (!cancelled) setErr(errText(e, 'Could not load contacts'));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [debounced]);
+
+  const alreadyIn = (c: Contact) => c.clusters.some((cl) => cl.id === cluster.id);
+  const selectable = rows.filter((c) => !alreadyIn(c));
+
+  const toggle = (id: string) => setPicked((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id); else next.add(id);
+    return next;
+  });
+
+  const submit = async () => {
+    if (!picked.size) { setErr('Pick at least one contact'); return; }
+    setSaving(true);
+    setErr(null);
+    try {
+      await whapi.post(`/contacts/add-to-clusters`, {
+        contactIds: Array.from(picked),
+        clusterIds: [cluster.id],
+      });
+      await onDone(picked.size);
+    } catch (e) {
+      setErr(errText(e, 'Could not add those contacts'));
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal
+      title={`Add contacts to “${cluster.name}”`}
+      subtitle="Pick people already in your address book. Contacts stay on every other list they are on."
+      onClose={onClose}
+    >
+      <div className="rz-stack">
+        <input
+          className="rz-input"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search name, number, email, company…"
+          autoFocus
+        />
+
+        <div style={{ maxHeight: 280, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 10, background: 'var(--s2)' }}>
+          {loading ? (
+            <div className="rz-field-hint" style={{ padding: 14 }}>Loading…</div>
+          ) : rows.length ? rows.map((c) => {
+            const inList = alreadyIn(c);
+            return (
+              <label
+                key={c.id}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: 10, padding: '8px 10px',
+                  borderBottom: '1px solid var(--line)', cursor: inList ? 'default' : 'pointer',
+                  opacity: inList ? 0.55 : 1,
+                }}
+              >
+                <input
+                  type="checkbox"
+                  disabled={inList}
+                  checked={inList || picked.has(c.id)}
+                  onChange={() => toggle(c.id)}
+                  style={{ accentColor: 'var(--cyan)' }}
+                />
+                <span style={{ flex: 1, minWidth: 0 }}>
+                  <span style={{ color: 'var(--tx)', fontSize: 13 }}>{c.name || c.phoneNumber}</span>
+                  {c.name && <span className="rz-mono-xs" style={{ marginLeft: 8 }}>{c.phoneNumber}</span>}
+                </span>
+                {inList
+                  ? <span className="rz-mono-xs">on this list</span>
+                  : c.status !== 'ACTIVE'
+                    ? <span className={STATUS_PILL[c.status] ?? 'rz-pill rz-pill-idle'}>{STATUS_LABEL[c.status] ?? c.status}</span>
+                    : null}
+              </label>
+            );
+          }) : (
+            <div className="rz-field-hint" style={{ padding: 14 }}>
+              {debounced ? 'No contact matches that.' : 'Your address book is empty — import a CSV or add a contact first.'}
+            </div>
+          )}
+        </div>
+
+        <span className="rz-field-hint">
+          {picked.size} selected · {selectable.length} of {total.toLocaleString()} shown can be added
+          {total > rows.length ? ' — search to narrow the list' : ''}
+        </span>
+
+        {err && <div className="rz-field-error">{err}</div>}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+          <button className="rz-btn rz-btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="rz-btn rz-btn-primary" onClick={submit} disabled={saving || !picked.size}>
+            {saving ? 'Adding…' : `Add ${picked.size || ''}`.trim()}
+          </button>
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
+/* ── Edit one contact ─────────────────────────────────────────────────── */
+
+/**
+ * Everything about one person in one place, list membership included — the
+ * membership checkboxes are diffed against what they were, so ticking and
+ * unticking here is the same as adding and removing from those lists.
+ */
+function EditContactModal({ contact, clusters, onClose, onDone }: {
+  contact: Contact;
+  clusters: Cluster[];
+  onClose: () => void;
+  onDone: () => Promise<void>;
+}) {
+  const [form, setForm] = useState({
+    phoneNumber: contact.phoneNumber,
+    name: contact.name ?? '',
+    email: contact.email ?? '',
+    company: contact.company ?? '',
+    notes: contact.notes ?? '',
+    status: contact.status,
+  });
+  const initialIds = useMemo(() => contact.clusters.map((c) => c.id), [contact]);
+  const [clusterIds, setClusterIds] = useState<string[]>(initialIds);
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  const set = (k: keyof typeof form, v: string) => setForm((f) => ({ ...f, [k]: v }));
+
+  const submit = async () => {
+    if (!form.phoneNumber.trim()) { setErr('A phone number is required'); return; }
+    setSaving(true);
+    setErr(null);
+    try {
+      await whapi.patch(`/contacts/${contact.id}`, form);
+
+      const added = clusterIds.filter((id) => !initialIds.includes(id));
+      const removed = initialIds.filter((id) => !clusterIds.includes(id));
+      if (added.length) {
+        await whapi.post('/contacts/add-to-clusters', { contactIds: [contact.id], clusterIds: added });
+      }
+      for (const id of removed) {
+        await whapi.post(`/clusters/${id}/remove`, { contactIds: [contact.id] });
+      }
+      await onDone();
+    } catch (e) {
+      setErr(errText(e, 'Could not save the contact'));
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal title="Edit contact" subtitle="Details, opt-out state and the lists this person is on." onClose={onClose}>
+      <div className="rz-stack">
+        <div className="rz-field">
+          <label className="rz-field-label">Phone number</label>
+          <input className="rz-input" value={form.phoneNumber} onChange={(e) => set('phoneNumber', e.target.value)} />
+        </div>
+        <div className="rz-field">
+          <label className="rz-field-label">Name</label>
+          <input className="rz-input" value={form.name} onChange={(e) => set('name', e.target.value)} autoFocus />
+        </div>
+        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <div className="rz-field">
+            <label className="rz-field-label">Email</label>
+            <input className="rz-input" value={form.email} onChange={(e) => set('email', e.target.value)} />
+          </div>
+          <div className="rz-field">
+            <label className="rz-field-label">Company</label>
+            <input className="rz-input" value={form.company} onChange={(e) => set('company', e.target.value)} />
+          </div>
+        </div>
+        <div className="rz-field">
+          <label className="rz-field-label">Status</label>
+          <select className="rz-select" value={form.status} onChange={(e) => set('status', e.target.value)}>
+            <option value="ACTIVE">Active</option>
+            <option value="OPTED_OUT">Opted out</option>
+            <option value="INVALID">Invalid</option>
+          </select>
+          <span className="rz-field-hint">
+            Opted out and invalid contacts stay on their lists but are never dialled.
+          </span>
+        </div>
+        <div className="rz-field">
+          <label className="rz-field-label">Notes</label>
+          <input className="rz-input" value={form.notes} onChange={(e) => set('notes', e.target.value)} />
+        </div>
+
+        {clusters.length > 0 && (
+          <div className="rz-field">
+            <label className="rz-field-label">Lists</label>
+            <div style={{ maxHeight: 160, overflowY: 'auto', border: '1px solid var(--line)', borderRadius: 10, padding: 8, background: 'var(--s2)' }}>
+              {clusters.map((c) => (
+                <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 9, padding: '5px 4px', cursor: 'pointer' }}>
+                  <input
+                    type="checkbox"
+                    checked={clusterIds.includes(c.id)}
+                    onChange={() => setClusterIds((prev) => prev.includes(c.id) ? prev.filter((x) => x !== c.id) : [...prev, c.id])}
+                    style={{ accentColor: 'var(--cyan)' }}
+                  />
+                  <span style={{ color: 'var(--tx)', fontSize: 13 }}>{c.name}</span>
+                </label>
+              ))}
+            </div>
+            <span className="rz-field-hint">Unticking a list removes this contact from it — the contact itself is kept.</span>
+          </div>
+        )}
+
+        {err && <div className="rz-field-error">{err}</div>}
+        <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 10 }}>
+          <button className="rz-btn rz-btn-secondary" onClick={onClose}>Cancel</button>
+          <button className="rz-btn rz-btn-primary" onClick={submit} disabled={saving}>
+            {saving ? 'Saving…' : 'Save changes'}
           </button>
         </div>
       </div>

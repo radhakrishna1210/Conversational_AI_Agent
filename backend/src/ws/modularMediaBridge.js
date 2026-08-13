@@ -55,7 +55,7 @@
 
 import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
-import { voiceTurnStream, getRenderedWelcome } from '../services/agentRuntime.service.js';
+import { voiceTurnStream, getRenderedWelcome, warmVoiceTurn } from '../services/agentRuntime.service.js';
 import { resolveAgentVoice, streamSynthesizeVoice } from '../services/voice.service.js';
 import {
   DeepgramStreamSession,
@@ -68,6 +68,7 @@ import {
   createFrameSplitter,
   pcmToTelephonyUlaw,
   telephonyOutputFormat,
+  playableWithFormat,
   PHONE_SAMPLE_RATE,
 } from '../services/voice/telephonyAudio.js';
 import { createPlayoutWindow } from '../services/voice/playoutWindow.js';
@@ -259,6 +260,7 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
 
       let replyText = '';
       let pending = null;
+      let skippedSegment = false;
 
       await voiceTurnStream(
         workspaceId,
@@ -276,6 +278,31 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
           onEvent: (ev) => {
             switch (ev.type) {
               case 'audio-start':
+                // A segment is only playable here if it was synthesized in the
+                // format this carrier speaks. `ev.format` is what the runtime
+                // ASKED TTS for, not a sniffed or provider-reported label, so
+                // this is a statement about our own request rather than a guess.
+                //
+                // It is not hypothetical. The pre-synthesized acknowledgment
+                // clip ("Mm-hmm") was cached without a format and emitted as an
+                // ordinary segment, so an MP3 was handed to the carrier as if it
+                // were G.711 — a burst of static in front of every reply, with
+                // the real audio queued behind it in the carrier's jitter
+                // buffer. Fixed at the source (see fillerKey), and refused here
+                // too: on a live PSTN call, silence for one segment is a far
+                // cheaper failure than noise, and noise is what the caller got
+                // for as long as this went unchecked.
+                if (!playableWithFormat(ev.format, ttsFormat)) {
+                  if (!skippedSegment) {
+                    skippedSegment = true;
+                    logger.warn(
+                      `${carrier.label}: dropped an audio segment in ${ev.format || ev.contentType || 'an unknown format'} `
+                      + `— this bridge can only play ${ttsFormat?.format}`,
+                    );
+                  }
+                  pending = null;
+                  break;
+                }
                 playout.beginGenerating();
                 pending = createFrameSplitter();
                 break;
@@ -324,6 +351,14 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
       // of step, so every finalizeTurn returned '' and the agent never once
       // answered the caller — the greeting played and the call went dead.
       if (dg && !closed) dgTurnSeq = dg.beginTurn();
+      // Listening has resumed, so this is the phone's `start-turn`: re-warm now,
+      // while the caller is speaking, rather than serially after they stop. The
+      // agent and KB caches are on a 5-minute TTL, which any real conversation
+      // outlives — without this, one turn somewhere in the middle of every long
+      // call silently pays the cold cost again.
+      if (!closed) {
+        warmVoiceTurn(workspaceId, agentId, ttsFormat?.kind === 'native' ? ttsFormat.format : null);
+      }
     }
   };
 
@@ -396,6 +431,17 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
           }
 
           openDeepgram();
+
+          // Warm what the first turn will need, in this call's audio format,
+          // while the greeting is still playing.
+          //
+          // The web handler has always done this on every `start-turn`; the
+          // phone bridge never did, so a phone call paid the KB read, the voice
+          // resolution and the ack synthesis SERIALLY on its first turn — the
+          // one where the caller is deciding whether the thing is responsive.
+          // Same agent, same pipeline, measurably slower than the web call it
+          // was tested against.
+          warmVoiceTurn(workspaceId, agentId, ttsFormat.kind === 'native' ? ttsFormat.format : null);
 
           if (callLogId) {
             await prisma.agentCallLog.update({
