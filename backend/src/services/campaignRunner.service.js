@@ -15,7 +15,7 @@ import logger from '../lib/logger.js';
 import { CAMPAIGN_STATUS } from '../constants/campaignStatus.js';
 import { assertCanStartCall } from './billing/settlement.service.js';
 import { assertRotationCompliant } from './compliance/compliance.service.js';
-import { placeOutboundCall, resolveCallMode, telephonyStatus } from './outboundCall.service.js';
+import { placeOutboundCall, resolveCallMode, telephonyStatusForNumber } from './outboundCall.service.js';
 
 // Campaigns being dispatched by THIS process. Guards against the same campaign
 // being run twice concurrently (queue retry + in-process start, say), which
@@ -116,10 +116,28 @@ export async function runCampaign(campaignId, workspaceId) {
     }
 
     const rotation = callerRotation(campaign);
-    const tw = telephonyStatus(rotation[0]);
-    if (!tw.ready) {
-      await finish(campaignId, CAMPAIGN_STATUS.FAILED, tw.error);
+    if (!rotation.length) {
+      await finish(campaignId, CAMPAIGN_STATUS.FAILED, 'This campaign has no caller ID to dial from.');
       return { started: false, reason: 'telephony' };
+    }
+
+    // Ask each caller ID's OWN carrier, not the platform default.
+    //
+    // This checked `telephonyStatus(rotation[0])` with no provider, which
+    // resolves TELEPHONY_PROVIDER_DEFAULT — so a campaign dialling from a Plivo
+    // number was cleared to start by Twilio's credentials, and vice versa. The
+    // failure that produces is the worst kind: the campaign starts, every dial
+    // is refused by the carrier that was never asked, and each recipient is
+    // marked failed one per second with the reason buried in its own row.
+    //
+    // EVERY number, not just the first: a rotation can span carriers, and one
+    // unconfigured carrier in it silently fails its whole share of the calls.
+    for (const from of rotation) {
+      const tw = await telephonyStatusForNumber(from);
+      if (!tw.ready) {
+        await finish(campaignId, CAMPAIGN_STATUS.FAILED, `${from}: ${tw.error}`);
+        return { started: false, reason: 'telephony' };
+      }
     }
 
     // DLT gate. Checked before the first dial rather than per recipient: an
