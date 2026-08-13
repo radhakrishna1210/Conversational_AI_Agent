@@ -18,6 +18,8 @@ import adminRoutes from './admin.routes.js';
 import workspaceRoutes from './workspace.routes.js';
 import apiKeyRoutes from './apiKey.routes.js';
 import campaignRoutes from './campaign.routes.js';
+import contactRoutes from './contact.routes.js';
+import clusterRoutes from './cluster.routes.js';
 import complianceRoutes from './compliance.routes.js';
 import analyticsRoutes from './analytics.routes.js';
 import settingsRoutes from './settings.routes.js';
@@ -131,6 +133,10 @@ ws.use(workspaceContext);
 ws.use('/', workspaceRoutes);
 ws.use('/api-keys', apiKeyRoutes);
 ws.use('/campaigns', campaignRoutes);
+// The address book behind bulk calling: contacts, and the named lists
+// ("clusters") a campaign dials. Every campaign CSV lands here first.
+ws.use('/contacts', contactRoutes);
+ws.use('/clusters', clusterRoutes);
 // TRAI/DLT onboarding. Gates outbound calling to Indian numbers — see
 // services/compliance/.
 ws.use('/compliance', complianceRoutes);

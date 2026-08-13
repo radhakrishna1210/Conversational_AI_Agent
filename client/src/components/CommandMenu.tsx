@@ -16,6 +16,7 @@ import {
   Plug,
   Phone,
   PhoneCall,
+  Users,
   FileText,
   BarChart3,
   Settings,
@@ -95,6 +96,10 @@ export function CommandMenu({ open, setOpen }: { open: boolean, setOpen: (open: 
             <CommandItem onSelect={() => runCommand(() => navigate("/bulk_call"))}>
               <PhoneCall className="mr-2 h-4 w-4" />
               <span>Bulk Call</span>
+            </CommandItem>
+            <CommandItem onSelect={() => runCommand(() => navigate("/contacts"))}>
+              <Users className="mr-2 h-4 w-4" />
+              <span>Call Contacts</span>
             </CommandItem>
             <CommandItem onSelect={() => runCommand(() => navigate("/call_logs"))}>
               <FileText className="mr-2 h-4 w-4" />

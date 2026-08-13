@@ -19,6 +19,9 @@ router.put('/:campaignId', authorize('Member'), validate(updateCampaignSchema), 
 router.delete('/:campaignId', authorize('Member'), ctrl.deleteCampaign);
 
 router.post('/:campaignId/recipients', authorize('Member'), ctrl.addRecipients);
+// Top up a not-yet-finished campaign with contacts added to its clusters since
+// it was created. Never re-adds anyone already dialled.
+router.post('/:campaignId/sync-list', authorize('Member'), ctrl.syncCampaignList);
 
 router.post('/:campaignId/start', authorize('Member'), ctrl.startCampaign);
 router.post('/:campaignId/launch', authorize('Member'), validate(scheduleCampaignSchema), ctrl.launchCampaign);

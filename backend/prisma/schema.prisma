@@ -79,6 +79,8 @@ model Workspace {
   apiKeys             ApiKey[]
   campaigns           Campaign[]
   compliance          WorkspaceCompliance?
+  contacts            Contact[]
+  contactClusters     ContactCluster[]
   customApiConfigs    CustomApiConfig[]
   integrations        Integration[]
   integrationLogs     IntegrationLog[]
@@ -160,6 +162,10 @@ model Campaign {
   channel          String              @default("WHATSAPP")
   botId            String?
   phoneNumbers     Json?
+  // ContactCluster ids this campaign was built from. Kept as the record of what
+  // was chosen: the recipient rows are the frozen list, this is the intent, and
+  // the two differ as soon as someone adds a contact to the cluster afterwards.
+  clusterIds       Json?
   csvFileName      String?
   fromNumber       String?
   // Caller IDs rotated across calls, spreading volume to reduce spam flagging.
@@ -185,9 +191,12 @@ model Campaign {
 model CampaignRecipient {
   id            String    @id @default(cuid())
   campaignId    String
-  // Recipients come from an uploaded CSV, so phoneNumber carries the target.
-  // There is no Contact row behind it — that model went with WhatsApp.
+  // phoneNumber is the dialling truth and stays denormalised: the list a
+  // campaign dialled must not change when someone later edits or deletes the
+  // contact behind it. contactId is the (nullable) link back, used to skip
+  // opt-outs mid-flight and to credit the call to the right person.
   phoneNumber   String?
+  contactId     String?
   callLogId     String?
   attempts      Int       @default(0)
   status        String    @default("pending")
@@ -195,9 +204,88 @@ model CampaignRecipient {
   startedAt     DateTime?
   sentAt        DateTime?
   campaign      Campaign  @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contact       Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
 
   @@unique([campaignId, phoneNumber])
   @@index([campaignId, status])
+  @@index([contactId])
+}
+
+/// A person this workspace may call.
+///
+/// One row per phone number per workspace: re-importing the same list updates
+/// the existing row instead of creating a twin, so "how many people are we
+/// calling" has one honest answer no matter how many CSVs arrived.
+model Contact {
+  id           String    @id @default(cuid())
+  workspaceId  String
+  // E.164, normalised on the way in — the unique key below depends on it, so an
+  // un-normalised write would silently create a duplicate person.
+  phoneNumber  String
+  name         String?
+  email        String?
+  company      String?
+  // Every other column of the CSV it arrived on, kept verbatim. Import is the
+  // only chance to capture them; discarding them means a second upload just to
+  // personalise a later campaign.
+  attributes   Json?
+  // ACTIVE | OPTED_OUT | INVALID. Only ACTIVE contacts are ever dialled.
+  status       String    @default("ACTIVE")
+  notes        String?
+  lastCalledAt DateTime?
+  callCount    Int       @default(0)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  workspace    Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  memberships  ContactClusterMember[]
+  recipients   CampaignRecipient[]
+
+  @@unique([workspaceId, phoneNumber])
+  @@index([workspaceId, status])
+  @@index([workspaceId, createdAt])
+}
+
+/// A named list of contacts — the unit a campaign dials.
+///
+/// Every CSV uploaded while creating a campaign becomes one of these, so a list
+/// is never trapped inside the campaign that happened to introduce it: it can be
+/// renamed, added to, and re-dialled next month without a second upload.
+model ContactCluster {
+  id          String   @id @default(cuid())
+  workspaceId String
+  name        String
+  description String?
+  // MANUAL | CSV_IMPORT | CAMPAIGN_CSV — where the list came from, which is what
+  // makes an auto-created campaign list distinguishable from a curated one.
+  source      String   @default("MANUAL")
+  csvFileName String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  workspace   Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  members     ContactClusterMember[]
+
+  // Names are the handle people use to pick a list at launch time; two lists
+  // called "Diwali leads" would make that choice a guess.
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
+}
+
+/// Membership join. Many-to-many on purpose: the same person can sit in several
+/// lists without being duplicated, which is what makes cross-cluster dedupe at
+/// launch a matter of counting rows rather than reconciling people.
+model ContactClusterMember {
+  id        String   @id @default(cuid())
+  clusterId String
+  contactId String
+  addedAt   DateTime @default(now())
+
+  cluster   ContactCluster @relation(fields: [clusterId], references: [id], onDelete: Cascade)
+  contact   Contact        @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([clusterId, contactId])
+  @@index([contactId])
 }
 
 

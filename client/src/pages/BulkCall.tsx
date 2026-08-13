@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { getWorkspaceId, getToken } from '@/lib/authStorage';
 import { whapi } from '../lib/whapi';
 
@@ -8,6 +9,7 @@ type BulkCampaign = {
   botId?: string | null;
   fromNumber?: string | null;
   fromNumbers?: string[] | null;
+  clusterIds?: string[] | null;
   progress: number;
   concurrentCalls: number;
   status: string;
@@ -23,6 +25,29 @@ type BulkCampaign = {
 type Agent = {
   id: string;
   name: string;
+};
+
+// A saved contact list. Campaigns dial these, not files — a CSV uploaded below
+// is imported into one first, so it can be re-dialled next month without
+// hunting for the spreadsheet.
+type Cluster = {
+  id: string;
+  name: string;
+  contactCount: number;
+  dialableCount: number;
+};
+
+// What the chosen clusters actually add up to once overlapping lists are
+// deduped and opt-outs are removed. Shown before launch, because "12,000 rows"
+// and "9,140 people we may legally call" are different numbers.
+type ClusterPreview = {
+  clusters: number;
+  rows: number;
+  unique: number;
+  duplicates: number;
+  dialable: number;
+  optedOut: number;
+  invalid: number;
 };
 
 // `source` is open-ended: carriers routed through VoiceNumber report their own
@@ -91,6 +116,14 @@ export default function BulkCall() {
     file: null as File | null,
   });
 
+  // Where this campaign's numbers come from. Both paths end at a cluster; the
+  // CSV path just creates one on the way through.
+  const [listSource, setListSource] = useState<'clusters' | 'csv'>('clusters');
+  const [clusters, setClusters] = useState<Cluster[]>([]);
+  const [selectedClusters, setSelectedClusters] = useState<string[]>([]);
+  const [preview, setPreview] = useState<ClusterPreview | null>(null);
+  const [clusterName, setClusterName] = useState('');
+
   // Caller IDs to rotate across the campaign's calls.
   const [callerNumbers, setCallerNumbers] = useState<NumberOpt[]>([]);
   const [callerError, setCallerError] = useState<string | null>(null);
@@ -114,6 +147,13 @@ export default function BulkCall() {
     }, {});
   }, [agents]);
 
+  const clusterMap = useMemo(() => {
+    return clusters.reduce<Record<string, string>>((acc, cluster) => {
+      acc[cluster.id] = cluster.name;
+      return acc;
+    }, {});
+  }, [clusters]);
+
   useEffect(() => {
     // Shared recovery: reads local/session storage and falls back to decoding
     // the JWT, so the page loads even when localStorage was cleared or blocked.
@@ -136,13 +176,17 @@ export default function BulkCall() {
           setLoading(false);
           return;
         }
-        const [campaignsRes, agentsRes] = await Promise.all([
+        const [campaignsRes, agentsRes, clustersRes] = await Promise.all([
           whapi.get<BulkCampaign[]>('/campaigns'),
           whapi.get<Agent[]>('/agents'),
+          // Loaded up front, not just for the modal: the table names the list
+          // each campaign is dialling.
+          whapi.get<Cluster[]>('/clusters').catch(() => [] as Cluster[]),
         ]);
 
         setCampaigns(campaignsRes ?? []);
         setAgents(Array.isArray(agentsRes) ? agentsRes : []);
+        setClusters(Array.isArray(clustersRes) ? clustersRes : []);
       } catch (err) {
         console.error(err);
         setError(err instanceof Error ? err.message : 'Failed to load campaigns');
@@ -186,7 +230,25 @@ export default function BulkCall() {
         setCallerError(null);
       })
       .catch((e) => setCallerError(e instanceof Error ? e.message : 'Failed to load numbers'));
+
+    // Counts move as contacts are imported or opted out elsewhere, so re-read
+    // them each time the modal opens rather than trusting the page load.
+    whapi.get<Cluster[]>('/clusters')
+      .then((r) => setClusters(Array.isArray(r) ? r : []))
+      .catch(() => {});
   }, [showModal]);
+
+  // What the selection adds up to, deduped across clusters and with opt-outs
+  // removed. Asked of the server because only it knows the overlap.
+  useEffect(() => {
+    if (!selectedClusters.length) { setPreview(null); return; }
+    const params = new URLSearchParams({ clusterIds: JSON.stringify(selectedClusters) });
+    let cancelled = false;
+    whapi.get<ClusterPreview>(`/clusters/preview?${params.toString()}`)
+      .then((r) => { if (!cancelled) setPreview(r); })
+      .catch(() => { if (!cancelled) setPreview(null); });
+    return () => { cancelled = true; };
+  }, [selectedClusters]);
 
   // Ask the backend what the chosen agent can actually do on a phone call.
   useEffect(() => {
@@ -243,6 +305,10 @@ export default function BulkCall() {
   const greetingOnly = modePreview?.mode === 'greeting';
   const needsAck = greetingOnly && !ackGreetingOnly;
 
+  const toggleCluster = (id: string) => {
+    setSelectedClusters((prev) => (prev.includes(id) ? prev.filter((c) => c !== id) : [...prev, id]));
+  };
+
   const handleCreateCampaign = async () => {
     if (!form.campaignName.trim()) {
       setError('Campaign name is required');
@@ -252,8 +318,16 @@ export default function BulkCall() {
       setError('Select a voice agent — the campaign needs one to place calls');
       return;
     }
-    if (!form.file) {
-      setError('CSV file is required');
+    if (listSource === 'clusters' && !selectedClusters.length) {
+      setError('Pick at least one contact cluster to dial');
+      return;
+    }
+    if (listSource === 'clusters' && preview && preview.dialable === 0) {
+      setError('Those clusters have no dialable contacts — everyone on them has opted out or has an invalid number');
+      return;
+    }
+    if (listSource === 'csv' && !form.file) {
+      setError('Choose a CSV file, or switch to picking a saved cluster');
       return;
     }
     if (needsAck) {
@@ -270,15 +344,27 @@ export default function BulkCall() {
       payload.append('botId', form.botId);
       payload.append('concurrentCalls', String(form.concurrentCalls));
       payload.append('fromNumbers', JSON.stringify(selectedFrom));
-      payload.append('file', form.file);
+      if (listSource === 'csv' && form.file) {
+        payload.append('file', form.file);
+        // The uploaded file becomes a saved cluster under this name, so the
+        // list outlives the campaign.
+        payload.append('clusterName', clusterName.trim() || form.campaignName.trim());
+      } else {
+        payload.append('clusterIds', JSON.stringify(selectedClusters));
+      }
 
       await whapi.postForm<BulkCampaign>('/campaigns/bulk', payload);
       setShowModal(false);
       setForm({ campaignName: '', botId: '', concurrentCalls: 1, file: null });
       setSelectedFrom([]);
+      setSelectedClusters([]);
+      setClusterName('');
+      setPreview(null);
+      setListSource('clusters');
       setModePreview(null);
       setAckGreetingOnly(false);
       await refreshCampaigns();
+      await whapi.get<Cluster[]>('/clusters').then((r) => setClusters(Array.isArray(r) ? r : [])).catch(() => {});
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Unable to create campaign');
     } finally {
@@ -292,7 +378,7 @@ export default function BulkCall() {
 
   // Start/Pause/Cancel act per campaign so one failure (e.g. no balance) reports
   // itself instead of being swallowed by Promise.all rejecting on the first.
-  const runAction = async (targets: BulkCampaign[], action: 'start' | 'pause' | 'cancel') => {
+  const runAction = async (targets: BulkCampaign[], action: 'start' | 'pause' | 'cancel' | 'sync-list') => {
     setError(null);
     const failures: string[] = [];
     for (const c of targets) {
@@ -311,6 +397,15 @@ export default function BulkCall() {
 
   const handleStartSelected = () => runAction(startable, 'start');
   const handlePauseSelected = () => runAction(pausable, 'pause');
+
+  // A campaign's recipients are a snapshot taken at creation. Contacts added to
+  // its clusters afterwards are not dialled unless they are pulled in — made an
+  // explicit action rather than a silent one, so a running list never grows
+  // under someone's feet.
+  const syncable = selectedCampaigns.filter(
+    (c) => STARTABLE.has(c.status) && (c.clusterIds?.length ?? 0) > 0,
+  );
+  const handleSyncSelected = () => runAction(syncable, 'sync-list');
 
   const handleCancelSelected = async () => {
     const running = selectedCampaigns.filter((c) => c.status === 'RUNNING' || c.status === 'PAUSED');
@@ -447,6 +542,16 @@ export default function BulkCall() {
               Pause
             </button>
           )}
+          {syncable.length > 0 && (
+            <button
+              className="rz-btn rz-btn-secondary rz-btn-sm"
+              onClick={handleSyncSelected}
+              disabled={Boolean(busyId)}
+              title="Add contacts that joined this campaign's clusters since it was created. Numbers already dialled are never repeated."
+            >
+              Sync list
+            </button>
+          )}
           {selectedCampaigns.some((c) => c.status === 'RUNNING' || c.status === 'PAUSED') && (
             <button className="rz-btn rz-btn-secondary rz-btn-sm" onClick={handleCancelSelected} disabled={Boolean(busyId)}>
               Cancel
@@ -475,6 +580,7 @@ export default function BulkCall() {
                 </th>
                 <th style={thStyle}>Name</th>
                 <th style={thStyle}>Status</th>
+                <th style={thStyle}>List</th>
                 <th style={thStyle}>Bot</th>
                 <th style={thStyle}>From Number</th>
                 <th style={thStyle}>Progress</th>
@@ -515,6 +621,23 @@ export default function BulkCall() {
                           {campaign.status.charAt(0) + campaign.status.slice(1).toLowerCase()}
                         </span>
                       </td>
+                      <td style={tdStyle}>
+                        {(() => {
+                          const ids = Array.isArray(campaign.clusterIds) ? campaign.clusterIds : [];
+                          // A deleted cluster leaves its id behind; the campaign
+                          // still has its own frozen recipient list, so fall
+                          // back to the CSV name rather than showing nothing.
+                          const names = ids.map((id) => clusterMap[id]).filter(Boolean);
+                          if (names.length) {
+                            return (
+                              <Link to="/contacts" style={{ color: 'var(--cyan-fg)' }}>
+                                {names[0]}{names.length > 1 ? ` +${names.length - 1}` : ''}
+                              </Link>
+                            );
+                          }
+                          return campaign.csvFileName || '—';
+                        })()}
+                      </td>
                       <td style={tdStyle}>{campaign.botId ? botMap[campaign.botId] ?? campaign.botId : '—'}</td>
                       <td style={tdStyle}>
                         {(campaign.fromNumbers?.length ?? 0) > 1
@@ -544,7 +667,7 @@ export default function BulkCall() {
                 })
               ) : (
                 <tr>
-                  <td colSpan={9} style={{ padding: '56px 20px' }}>
+                  <td colSpan={10} style={{ padding: '56px 20px' }}>
                     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: '4px' }}>
                       <svg width="42" height="42" viewBox="0 0 24 24" fill="none" stroke="var(--tx-2)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: '12px' }}>
                         <polyline points="22 12 16 12 14 15 10 15 8 12 2 12" />
@@ -574,7 +697,7 @@ export default function BulkCall() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
               <div>
                 <h2 style={{ margin: 0, fontSize: '22px', fontWeight: 700 }}>Create New Bulk Call Campaign</h2>
-                <p style={{ margin: '8px 0 0', color: 'var(--tx-2)', fontSize: '13px' }}>Upload a CSV, choose a voice agent, and configure concurrent calls.</p>
+                <p style={{ margin: '8px 0 0', color: 'var(--tx-2)', fontSize: '13px' }}>Pick a saved contact cluster (or upload a CSV, which becomes one), choose a voice agent, and configure concurrent calls.</p>
               </div>
               <button style={{ background: 'none', border: 'none', color: 'var(--tx-2)', cursor: 'pointer', fontSize: '24px' }} onClick={() => setShowModal(false)}>
                 ×
@@ -688,15 +811,110 @@ export default function BulkCall() {
                 </div>
               </div>
 
-              <label style={{ display: 'grid', gap: '8px', color: 'var(--tx-2)', fontSize: '13px' }}>
-                Upload CSV File
-                <input
-                  type="file"
-                  accept=".csv,text/csv"
-                  onChange={(event) => handleCreateChange('file', event.target.files?.[0] ?? null)}
-                  style={{ width: '100%', color: 'var(--tx)' }}
-                />
-              </label>
+              {/* Who to call. A saved cluster is the normal path; a CSV is the
+                  first-time path, and it becomes a cluster on the way in so the
+                  second campaign never needs the file again. */}
+              <div style={{ display: 'grid', gap: '10px', color: 'var(--tx-2)', fontSize: '13px' }}>
+                Who to call
+                <div className="rz-tabs" style={{ alignSelf: 'flex-start' }}>
+                  <button
+                    type="button"
+                    className={`rz-tab ${listSource === 'clusters' ? 'is-active' : ''}`}
+                    onClick={() => setListSource('clusters')}
+                  >
+                    Saved clusters
+                  </button>
+                  <button
+                    type="button"
+                    className={`rz-tab ${listSource === 'csv' ? 'is-active' : ''}`}
+                    onClick={() => setListSource('csv')}
+                  >
+                    Upload a CSV
+                  </button>
+                </div>
+
+                {listSource === 'clusters' ? (
+                  <>
+                    {clusters.length === 0 ? (
+                      <div style={{ fontSize: '12.5px', lineHeight: 1.6 }}>
+                        No clusters yet.{' '}
+                        <Link to="/contacts" style={{ color: 'var(--cyan-fg)' }}>Build one in Call Contacts</Link>
+                        {' '}— or upload a CSV here and it will become your first.
+                      </div>
+                    ) : (
+                      <div style={{
+                        maxHeight: '150px',
+                        overflowY: 'auto',
+                        border: '1px solid var(--line)',
+                        borderRadius: '10px',
+                        padding: '8px',
+                        background: 'var(--s2)',
+                      }}>
+                        {clusters.map((c) => (
+                          <label key={c.id} style={{ display: 'flex', alignItems: 'center', gap: '9px', padding: '5px 4px', cursor: 'pointer' }}>
+                            <input
+                              type="checkbox"
+                              checked={selectedClusters.includes(c.id)}
+                              onChange={() => toggleCluster(c.id)}
+                              style={{ accentColor: 'var(--cyan)' }}
+                            />
+                            <span style={{ color: 'var(--tx)', fontSize: '13px' }}>
+                              {c.name}
+                              <span style={{ color: 'var(--tx-2)' }}>
+                                {' '}— {c.dialableCount.toLocaleString()} dialable
+                                {c.contactCount !== c.dialableCount && ` of ${c.contactCount.toLocaleString()}`}
+                              </span>
+                            </span>
+                          </label>
+                        ))}
+                      </div>
+                    )}
+
+                    {preview && (
+                      <div style={{
+                        padding: '11px 13px',
+                        borderRadius: '10px',
+                        fontSize: '12.5px',
+                        lineHeight: 1.6,
+                        background: 'var(--s2)',
+                        border: '1px solid var(--line-2)',
+                      }}>
+                        <strong style={{ color: 'var(--tx)' }}>
+                          {preview.dialable.toLocaleString()} {preview.dialable === 1 ? 'person' : 'people'} will be called
+                        </strong>
+                        <div style={{ color: 'var(--tx-3)', marginTop: '4px' }}>
+                          {preview.unique.toLocaleString()} unique across {preview.clusters} cluster{preview.clusters === 1 ? '' : 's'}
+                          {preview.duplicates > 0 && ` · ${preview.duplicates.toLocaleString()} overlap removed`}
+                          {preview.optedOut > 0 && ` · ${preview.optedOut.toLocaleString()} opted out`}
+                          {preview.invalid > 0 && ` · ${preview.invalid.toLocaleString()} invalid`}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <input
+                      type="file"
+                      accept=".csv,text/csv"
+                      onChange={(event) => handleCreateChange('file', event.target.files?.[0] ?? null)}
+                      style={{ width: '100%', color: 'var(--tx)' }}
+                    />
+                    <label style={{ display: 'grid', gap: '6px' }}>
+                      Save this list as
+                      <input
+                        value={clusterName}
+                        onChange={(event) => setClusterName(event.target.value)}
+                        placeholder={form.campaignName.trim() || 'Cluster name'}
+                        style={{ width: '100%', padding: '12px 14px', borderRadius: '12px', border: '1px solid var(--line)', background: 'var(--s2)', color: 'var(--tx)' }}
+                      />
+                      <span style={{ fontSize: '11.5px', color: 'var(--tx-3)' }}>
+                        The upload is saved as a cluster you can rename, top up and re-dial later.
+                        Numbers already in your contacts are updated, not duplicated.
+                      </span>
+                    </label>
+                  </>
+                )}
+              </div>
 
               <label style={{ display: 'grid', gap: '8px', color: 'var(--tx-2)', fontSize: '13px' }}>
                 Concurrent Calls

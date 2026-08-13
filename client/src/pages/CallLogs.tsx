@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { format, parseISO } from 'date-fns';
-import { whapi } from '../lib/whapi';
+import { whapi, getAuth } from '../lib/whapi';
 import { RzEmpty, RzPill, RzSearch, RzSkeleton, type Tone } from '@/components/rz';
 
 /**
@@ -106,6 +106,31 @@ export default function CallLogs() {
   }, [calls, selectedId]);
 
   const selected = useMemo(() => calls.find(c => c.id === selectedId) ?? null, [calls, selectedId]);
+
+  // Recordings stream from an authenticated route, and <audio src> cannot carry
+  // a bearer token — so fetch it with one and play the blob instead. Same
+  // approach the agent's Recent Calls panel uses.
+  const [recordingSrc, setRecordingSrc] = useState<string | null>(null);
+  useEffect(() => {
+    setRecordingSrc(null);
+    const url = selected?.recordingUrl;
+    if (!url) return;
+    let objectUrl: string | null = null;
+    let cancelled = false;
+    const { token } = getAuth();
+    fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+      .then(r => (r.ok ? r.blob() : Promise.reject(new Error('recording unavailable'))))
+      .then(blob => {
+        if (cancelled) return;
+        objectUrl = URL.createObjectURL(blob);
+        setRecordingSrc(objectUrl);
+      })
+      .catch(() => { if (!cancelled) setRecordingSrc(null); });
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [selected?.id, selected?.recordingUrl]);
 
   const exportCsv = () => {
     const head = ['Started', 'Agent', 'From', 'To', 'Direction', 'Status', 'Duration', 'Cost', 'Sentiment', 'Outcome'];
@@ -220,8 +245,11 @@ export default function CallLogs() {
                       <div className="rz-h3">{selected.assistant}</div>
                       <RzPill tone={statusTone(selected.status)}>{selected.outcome || selected.status}</RzPill>
                     </div>
+                    {/* No caller ID is recorded against a call yet, so there is
+                        no "from" to show — naming the channel is more useful
+                        than printing an empty arrow. */}
                     <div className="rz-mono" style={{ marginTop: 4 }}>
-                      {selected.from} → {selected.to} ·{' '}
+                      {selected.direction === 'WEB' ? 'Browser call' : `Outbound → ${selected.to ?? '—'}`} ·{' '}
                       {selected.startedAt ? format(parseISO(selected.startedAt), 'MMM dd, yyyy · HH:mm') : '—'}
                     </div>
                   </div>
@@ -230,17 +258,21 @@ export default function CallLogs() {
                 {/* Player. Native controls — a custom transport would be a
                     second, worse audio element for no gain here. */}
                 <div className="rz-card" style={{ marginTop: 16, padding: 14 }}>
-                  {selected.recordingUrl ? (
+                  {!selected.recordingUrl ? (
+                    <div className="rz-mono" style={{ textAlign: 'center', padding: '10px 0' }}>
+                      No recording stored for this call
+                    </div>
+                  ) : recordingSrc ? (
                     <audio
                       ref={audioRef}
                       key={selected.id}
-                      src={selected.recordingUrl}
+                      src={recordingSrc}
                       controls
                       style={{ width: '100%' }}
                     />
                   ) : (
                     <div className="rz-mono" style={{ textAlign: 'center', padding: '10px 0' }}>
-                      No recording stored for this call
+                      Loading recording…
                     </div>
                   )}
                 </div>
@@ -265,7 +297,7 @@ export default function CallLogs() {
                     {[
                       ['Direction', selected.direction?.toLowerCase()],
                       ['Duration', selected.durationFormatted],
-                      ['Cost', `$${selected.cost?.toFixed(2) ?? '0.00'}`],
+                      ['Cost', `₹${selected.cost?.toFixed(2) ?? '0.00'}`],
                       ['Status', selected.status],
                       ['Ended', selected.endedAt ? format(parseISO(selected.endedAt), 'HH:mm') : '—'],
                     ].map(([k, v]) => (
@@ -288,9 +320,9 @@ export default function CallLogs() {
                       <div className="rz-label" style={{ margin: '18px 0 8px' }}>Recording</div>
                       <a
                         className="rz-btn rz-btn-secondary rz-btn-sm rz-btn-block"
-                        href={selected.recordingUrl}
-                        target="_blank"
-                        rel="noreferrer"
+                        href={recordingSrc ?? undefined}
+                        download={`call-${selected.id}`}
+                        aria-disabled={!recordingSrc}
                       >
                         Download audio
                       </a>

@@ -8,6 +8,7 @@ import {
   Plug,
   Phone,
   PhoneCall,
+  Users,
   FileText,
   BarChart3,
   MessageCircle,
@@ -249,6 +250,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <div className={`sidebar-item ${path === '/bulk_call' ? 'active' : ''}`}>
                 <span className="sidebar-icon"><PhoneCall size={16} /></span>
                 <span className="sidebar-text">Bulk Call</span>
+              </div>
+            </Link>
+
+            <Link to="/contacts">
+              <div className={`sidebar-item ${path === '/contacts' ? 'active' : ''}`}>
+                <span className="sidebar-icon"><Users size={16} /></span>
+                <span className="sidebar-text">Call Contacts</span>
               </div>
             </Link>
 

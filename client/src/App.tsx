@@ -26,6 +26,7 @@ import SalesforcePage from './pages/Salesforce';
 import CustomApi from './pages/CustomApi';
 import Dashboard from './pages/Dashboard';
 import BulkCall from './pages/BulkCall';
+import Contacts from './pages/Contacts';
 import Vonage from "./pages/SIPTrunking";
 import CloneVoice from './pages/CloneVoice';
 import Files from './pages/Files';
@@ -234,6 +235,7 @@ function App() {
           <Route element={<DashboardLayoutWrapper />}>
             <Route path="/dashboard" element={<Dashboard />} />
             <Route path="/bulk_call" element={<BulkCall />} />
+            <Route path="/contacts" element={<Contacts />} />
             <Route path="/notifications/archive" element={<NotificationArchive />} />
             <Route path="/clone_voice" element={<CloneVoice />} />
             <Route path="/files" element={<Files />} />

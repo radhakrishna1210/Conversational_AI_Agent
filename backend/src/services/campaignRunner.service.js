@@ -184,8 +184,30 @@ export async function runCampaign(campaignId, workspaceId) {
         return { started: true, dialled };
       }
 
+      // Opt-outs are honoured mid-flight, not just at list build time. Someone
+      // who says "stop calling me" on call 300 must not be dialled at 3,000
+      // because the recipient rows were frozen an hour earlier. One query per
+      // batch, not per call.
+      const linked = batch.map((r) => r.contactId).filter(Boolean);
+      const blocked = new Set(
+        linked.length
+          ? (await prisma.contact.findMany({
+            where: { id: { in: linked }, NOT: { status: 'ACTIVE' } },
+            select: { id: true },
+          })).map((c) => c.id)
+          : [],
+      );
+
       for (const recipient of batch) {
         if (control.stop) break;
+
+        if (recipient.contactId && blocked.has(recipient.contactId)) {
+          await prisma.campaignRecipient.update({
+            where: { id: recipient.id },
+            data: { status: 'skipped', failureReason: 'contact_not_callable' },
+          }).catch(() => {});
+          continue;
+        }
 
         // The plan gate is the real pacer: it refuses while the workspace is at
         // its concurrent-call ceiling, so the campaign naturally runs at the
@@ -234,8 +256,19 @@ export async function runCampaign(campaignId, workspaceId) {
             : { status: 'failed', failureReason: (result.error || 'Call failed').slice(0, 500) },
         }).catch((e) => logger.warn(`Campaign ${campaignId}: could not update recipient: ${e.message}`));
 
-        if (result.ok) dialled += 1;
-        else logger.warn({ campaignId, to: recipient.phoneNumber }, `Campaign call failed: ${result.error}`);
+        if (result.ok) {
+          dialled += 1;
+          // Contact-level call history. Cheap, and it is what makes "when did we
+          // last bother this person" answerable without scanning every campaign.
+          if (recipient.contactId) {
+            await prisma.contact.update({
+              where: { id: recipient.contactId },
+              data: { lastCalledAt: new Date(), callCount: { increment: 1 } },
+            }).catch(() => {});
+          }
+        } else {
+          logger.warn({ campaignId, to: recipient.phoneNumber }, `Campaign call failed: ${result.error}`);
+        }
 
         await sleep(DIAL_SPACING_MS);
       }

@@ -4,6 +4,7 @@ import { CAMPAIGN_STATUS } from '../constants/campaignStatus.js';
 import { enqueueCampaign } from '../queues/campaign.queue.js';
 import { runCampaign, requestStop } from './campaignRunner.service.js';
 import { resolveCallMode } from './outboundCall.service.js';
+import { resolveClusterContacts } from './contact.service.js';
 
 export const listCampaigns = (workspaceId) =>
   prisma.campaign.findMany({
@@ -19,35 +20,109 @@ export const getCampaign = (workspaceId, campaignId) =>
 export const createCampaign = (workspaceId, data) =>
   prisma.campaign.create({ data: { ...data, workspaceId, status: CAMPAIGN_STATUS.DRAFT } });
 
+const RECIPIENT_CHUNK = 500;
+
 /**
- * Create a VOICE campaign from an uploaded CSV.
+ * Create a VOICE campaign from one or more contact clusters.
  *
- * The numbers are also written out as CampaignRecipient rows: that is what makes
- * the dispatcher resumable and idempotent (unique on campaignId+phoneNumber), so
- * a crash or restart mid-campaign can never re-dial someone who was already
- * called. `phoneNumbers` is kept on the campaign as the original upload record.
+ * A campaign never reads a CSV directly any more: an upload is imported into a
+ * cluster first (see contact.service) and the campaign is built from that. This
+ * is what makes a list survive the campaign that introduced it, and it is why
+ * opt-outs work — they live on the contact, so a person who said "stop calling
+ * me" is absent from every future campaign built from any list they are on.
+ *
+ * The resolved contacts are written out as CampaignRecipient rows, which is what
+ * makes the dispatcher resumable and idempotent (unique on campaignId +
+ * phoneNumber): a crash or restart mid-campaign can never re-dial someone who
+ * was already called. Those rows are a *snapshot* — later edits to the cluster
+ * do not silently change a campaign that is already running.
  */
 export const createBulkCampaign = async (workspaceId, data) => {
-  const { phoneNumbers = [], ...rest } = data;
+  const { clusterIds = [], ...rest } = data;
+  const contacts = await resolveClusterContacts(workspaceId, clusterIds);
+  if (!contacts.length) {
+    throw Object.assign(
+      new Error('The selected list has no dialable contacts. Contacts that opted out or failed validation are never dialled.'),
+      { statusCode: 400 },
+    );
+  }
+
   const campaign = await prisma.campaign.create({
     data: {
       ...rest,
-      phoneNumbers,
+      clusterIds,
+      // The dialled list, kept on the campaign as its own record so the
+      // campaign reads correctly even if a cluster is deleted later.
+      phoneNumbers: contacts.map((c) => c.phoneNumber),
       workspaceId,
       channel: 'VOICE',
       status: CAMPAIGN_STATUS.DRAFT,
       progress: 0,
-      totalContacts: phoneNumbers.length,
+      totalContacts: contacts.length,
     },
   });
 
-  if (phoneNumbers.length) {
+  for (let i = 0; i < contacts.length; i += RECIPIENT_CHUNK) {
     await prisma.campaignRecipient.createMany({
-      data: phoneNumbers.map((phoneNumber) => ({ campaignId: campaign.id, phoneNumber })),
+      data: contacts.slice(i, i + RECIPIENT_CHUNK).map((c) => ({
+        campaignId: campaign.id,
+        phoneNumber: c.phoneNumber,
+        contactId: c.id,
+      })),
       skipDuplicates: true,
     });
   }
   return campaign;
+};
+
+/**
+ * Pull in contacts added to this campaign's clusters since it was created.
+ *
+ * Recipients are a snapshot, which is right for a campaign in flight and wrong
+ * for the common case of "I forgot 200 numbers". This makes topping up an
+ * explicit action rather than an invisible one. Already-dialled recipients are
+ * untouched — skipDuplicates on (campaignId, phoneNumber) guarantees it.
+ */
+const SYNCABLE = new Set([
+  CAMPAIGN_STATUS.DRAFT,
+  CAMPAIGN_STATUS.SCHEDULED,
+  CAMPAIGN_STATUS.PAUSED,
+  CAMPAIGN_STATUS.FAILED,
+]);
+
+export const syncCampaignList = async (workspaceId, campaignId) => {
+  const campaign = await prisma.campaign.findFirstOrThrow({ where: { id: campaignId, workspaceId } });
+  if (!SYNCABLE.has(campaign.status)) {
+    throw Object.assign(
+      new Error(`A ${campaign.status.toLowerCase()} campaign cannot take on new numbers — pause it first`),
+      { statusCode: 409 },
+    );
+  }
+  const clusterIds = Array.isArray(campaign.clusterIds) ? campaign.clusterIds : [];
+  if (!clusterIds.length) {
+    throw Object.assign(new Error('This campaign was not built from a cluster, so there is nothing to sync'), { statusCode: 400 });
+  }
+
+  const contacts = await resolveClusterContacts(workspaceId, clusterIds);
+  let added = 0;
+  for (let i = 0; i < contacts.length; i += RECIPIENT_CHUNK) {
+    const { count } = await prisma.campaignRecipient.createMany({
+      data: contacts.slice(i, i + RECIPIENT_CHUNK).map((c) => ({
+        campaignId,
+        phoneNumber: c.phoneNumber,
+        contactId: c.id,
+      })),
+      skipDuplicates: true,
+    });
+    added += count;
+  }
+
+  const total = await prisma.campaignRecipient.count({ where: { campaignId } });
+  const updated = await prisma.campaign.update({
+    where: { id: campaignId },
+    data: { totalContacts: total },
+  });
+  return { ...updated, added };
 };
 
 export const updateCampaign = (workspaceId, campaignId, data) =>
