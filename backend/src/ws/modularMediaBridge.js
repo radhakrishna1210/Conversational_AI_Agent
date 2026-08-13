@@ -70,6 +70,7 @@ import {
   telephonyOutputFormat,
   PHONE_SAMPLE_RATE,
 } from '../services/voice/telephonyAudio.js';
+import { createPlayoutWindow } from '../services/voice/playoutWindow.js';
 import { createCallFinalizer } from './callFinalizer.js';
 
 const safeJson = (str, fallback) => {
@@ -103,6 +104,16 @@ const safeJson = (str, fallback) => {
  *   3. a grace window after the agent starts speaking. Handsets and speakerphones
  *      echo our own audio back up the inbound leg, and its onset is the loudest
  *      part — without this the agent reliably barges itself.
+ *
+ * ── The detector is only armed while the caller can actually hear us ─────────
+ *
+ * All three are downstream of one question — IS THE CALLER HEARING US RIGHT NOW
+ * — which a browser answers for itself and a phone bridge has to infer. Getting
+ * it wrong disabled phone barge-in ENTIRELY while web calls kept interrupting
+ * fine, in two ways: a flag that meant "TTS is running" (audio is shipped ~5x
+ * faster than it plays, so it was false for most of every reply), and an echo
+ * grace re-armed by each of voiceTurnStream's per-SENTENCE audio-start events.
+ * Both now live in services/voice/playoutWindow.js, which carries the detail.
  */
 const BARGE_RMS_MIN = Number(process.env.PHONE_BARGE_RMS) || 2500;
 /** Speech must exceed the measured noise floor by this factor. */
@@ -153,21 +164,24 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
   const startedAt = Date.now();
 
   // Turn state
-  let speaking = false;       // agent audio is being sent right now
   let turnRunning = false;    // a turn is generating (LLM/TTS in flight)
   let bargeCount = 0;
   let abortTurn = false;
-  /** When the current stretch of agent audio began — drives the echo grace. */
-  let speakingSince = 0;
   /** This line's measured noise floor, learned while the agent is quiet. */
   let noiseFloor = 0;
   let noiseSamples = 0;
 
-  /** Mark the agent as speaking, restarting the echo grace window. */
-  const beginSpeaking = () => { speaking = true; speakingSince = Date.now(); };
+  /**
+   * Whether the CALLER is hearing us, and for how long — the arming condition
+   * for the whole barge detector, and deliberately not the same thing as "TTS
+   * is running". See the header, and playoutWindow.js for the full reasoning.
+   */
+  const playout = createPlayoutWindow();
 
   const sendFrame = (frame) => {
-    if (ws.readyState === ws.OPEN && streamId) carrier.sendAudio(ws, streamId, frame);
+    if (ws.readyState !== ws.OPEN || !streamId) return;
+    carrier.sendAudio(ws, streamId, frame);
+    playout.noteFrame();
   };
 
   /** Drop the carrier's buffered playback — the caller has interrupted. */
@@ -199,7 +213,7 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
   /** Speak a fixed line (the welcome message) without running a full turn. */
   const speakLine = async (text) => {
     if (!text || !voice || closed) return;
-    beginSpeaking();
+    playout.beginGenerating();
     try {
       const { stream, contentType } = await streamSynthesizeVoice(voice, text, {
         fast: true,
@@ -212,7 +226,9 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
     } catch (err) {
       logger.warn(`Phone greeting synthesis failed: ${err.message}`);
     } finally {
-      speaking = false;
+      // Generation is over; the playout window keeps the barge detector armed
+      // for as long as the carrier is still playing the greeting out.
+      playout.endGenerating();
     }
   };
 
@@ -260,7 +276,7 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
           onEvent: (ev) => {
             switch (ev.type) {
               case 'audio-start':
-                beginSpeaking();
+                playout.beginGenerating();
                 pending = createFrameSplitter();
                 break;
               case 'audio-chunk': {
@@ -297,7 +313,7 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
     } catch (err) {
       logger.warn(`Modular phone turn failed: ${err.message}`);
     } finally {
-      speaking = false;
+      playout.endGenerating();
       turnRunning = false;
       // Arm the next turn only if the call is still up.
       //
@@ -338,6 +354,7 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
   const cleanup = (status) => {
     closed = true;
     abortTurn = true;
+    playout.stop();
     try { dg?.close(); } catch { /* already gone */ }
     dg = null;
     if (status) finalizeCallLog(callLogId, status, { transcript, startedAt });
@@ -432,7 +449,7 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
 
         const rms = frameRms(frame);
 
-        if (!speaking) {
+        if (!playout.isSpeaking()) {
           // Learn this line's floor while the agent is quiet. Anything at or
           // below the current estimate is treated as noise; a caller speaking
           // during their own turn is far above it and must not drag the floor
@@ -449,7 +466,7 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
 
         // Echo grace: a handset feeds our own audio back up the inbound leg,
         // and its onset is the loudest part of it.
-        if (Date.now() - speakingSince < BARGE_GRACE_MS) {
+        if (playout.speakingForMs() < BARGE_GRACE_MS) {
           bargeCount = 0;
           break;
         }
@@ -460,13 +477,24 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
           if (bargeCount >= BARGE_FRAMES) {
             bargeCount = 0;
             abortTurn = true;
-            speaking = false;
+            // How much buffered speech the caller just cut off. Read before
+            // stop() zeroes it: a barge that lands with ~0ms left is the
+            // detector catching the caller's ANSWER at the tail of the reply
+            // rather than a real interruption, and the two are indistinguishable
+            // in the log without this.
+            const cutMs = playout.remainingMs();
+            playout.stop();
             clearPlayback();
             // Logged because a barge that should not have happened is otherwise
             // indistinguishable from the agent simply going quiet — which is
             // exactly how the false-positive bug hid.
             logger.info(
-              { rms: Math.round(rms), threshold: Math.round(threshold), noiseFloor: Math.round(noiseFloor) },
+              {
+                rms: Math.round(rms),
+                threshold: Math.round(threshold),
+                noiseFloor: Math.round(noiseFloor),
+                cutMs: Math.round(cutMs),
+              },
               'Phone barge-in: caller interrupted',
             );
           }
