@@ -17,6 +17,7 @@ import { handleTwilioMediaUpgrade } from './ws/twilioMediaRealtime.handler.js';
 import { handleTwilioMediaModularUpgrade } from './ws/twilioMediaModular.handler.js';
 import { handleExotelMediaUpgrade } from './ws/exotelMediaRealtime.handler.js';
 import { handlePlivoMediaUpgrade } from './ws/plivoMediaRealtime.handler.js';
+import { handlePlivoMediaModularUpgrade } from './ws/plivoMediaModular.handler.js';
 
 mkdirSync(env.UPLOAD_DIR, { recursive: true });
 
@@ -198,19 +199,26 @@ httpServer.on('upgrade', (req, socket, head) => {
   const plivoMatch = pathname.match(PLIVO_MEDIA_UPGRADE_PATH);
   if (plivoMatch) {
     const [, workspaceId, agentId] = plivoMatch;
-    // Bundled-only, like Exotel and for the same reason: plivo.provider.js sets
-    // supportsModularEngine=false, so outboundCall.service refuses modular
-    // agents before dialling and nothing modular can arrive here.
+    const callLogId = url.searchParams.get('callLogId');
+
+    // Two bridges behind one path, chosen per call by the agent's engine —
+    // exactly as the Twilio path does, and for the same reason: switching an
+    // agent's engine then takes effect on the next dial with no config change.
     //
-    // No sample-rate parameter either — Plivo's rate is fixed by the
-    // `contentType` on the <Stream> element the answer URL emitted, so reading
-    // it off the query string here would create a second source of truth for a
-    // value both ends have already agreed on.
-    plivoMediaWss.handleUpgrade(req, socket, head, (ws) => {
-      handlePlivoMediaUpgrade(ws, {
-        workspaceId,
-        agentId,
-        callLogId: url.searchParams.get('callLogId'),
+    // The lookup MUST finish before handleUpgrade, never inside it. See the
+    // long comment on the Twilio branch above: a carrier sends `start` the
+    // instant it sees the 101, and anything arriving before the bridge attaches
+    // its listener is dropped, producing a silent call with the log stuck at
+    // INITIATED.
+    //
+    // No sample-rate parameter here, unlike Exotel — Plivo's rate is fixed by
+    // the `contentType` on the <Stream> element the answer URL emitted, so
+    // reading it off the query string would be a second source of truth for a
+    // value both ends already agreed on.
+    resolveBundledEngine(workspaceId, agentId).then((bundled) => {
+      plivoMediaWss.handleUpgrade(req, socket, head, (ws) => {
+        if (bundled) handlePlivoMediaUpgrade(ws, { workspaceId, agentId, callLogId });
+        else handlePlivoMediaModularUpgrade(ws, { workspaceId, agentId, callLogId });
       });
     });
     return;

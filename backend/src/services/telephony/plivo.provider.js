@@ -99,11 +99,12 @@ export const plivoProvider = {
   // text. The greeting path is a real answer-URL response, not a dashboard flow.
   supportsGreetingMode: true,
 
-  // Only the bundled-engine bridge exists so far (phase 5). The modular
-  // STT→LLM→TTS bridge is mu-law-native and Plivo streams mu-law, so a modular
-  // sibling is a small job — but until ws/plivoMediaModular.handler.js exists,
-  // saying `true` here would route modular agents into a socket nothing serves.
-  supportsModularEngine: false,
+  // Both bridges exist: ws/plivoMediaRealtime.handler.js for the bundled
+  // engines and ws/plivoMediaModular.handler.js for the STT→LLM→TTS pipeline.
+  // The modular one needs DEEPGRAM_API_KEY and a TTS provider that can emit a
+  // telephony format; those are checked per call inside the bridge rather than
+  // here, because they are agent-level facts, not carrier-level ones.
+  supportsModularEngine: true,
 
   credentials() {
     const authId = process.env.PLIVO_AUTH_ID;

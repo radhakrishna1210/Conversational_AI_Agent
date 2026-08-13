@@ -432,8 +432,40 @@ backend/src/controllers/plivoWebhook.controller.js
 backend/src/controllers/plivo.controller.js   ← ✅ SHIPPED (phase 5)
                              answer_url (the call document) + hangup callback
 backend/src/ws/plivoMediaRealtime.handler.js  ← ✅ SHIPPED (phase 5)
-                             Plivo sibling of the Twilio media bridge
+                             bundled-engine bridge (xAI / ElevenLabs)
+backend/src/ws/modularMediaBridge.js          ← ✅ SHIPPED (phase 5)
+                             the shared STT→LLM→TTS bridge body
+backend/src/ws/plivoMediaModular.handler.js   ← ✅ SHIPPED (phase 5)
+backend/src/ws/twilioMediaModular.handler.js  ← now a thin carrier adapter
 ```
+
+### The modular bridge is shared, not copied
+
+`twilioMediaModular.handler.js` was 470 lines of turn detection, conversation
+state, barge-in tuning and audio pumping — none of it carrier-specific except
+four things. Rather than a second copy (which is how the `callFinalizer`
+duplication happened), the body moved to `ws/modularMediaBridge.js` and each
+carrier supplies an adapter:
+
+| adapter member | Twilio | Plivo |
+|---|---|---|
+| `readStart` | `start.streamSid`, `start.customParameters.callLogId` | `start.streamId`, **no** callLogId (it is on the socket URL) |
+| `sendAudio` | `{event:'media', streamSid, media:{payload}}` | `{event:'playAudio', media:{contentType, sampleRate, payload}}` |
+| `clearAudio` | `{event:'clear', streamSid}` | `{event:'clearAudio', streamId}` |
+| `label` | `modular phone call` | `Plivo modular phone call` |
+
+The barge-in constants are the reason this had to be shared: the thresholds are
+adaptive to the measured line noise floor and were tuned against live PSTN calls
+after a false-positive bug that cut every greeting off at "Hello". A divergent
+copy would reintroduce that on one carrier only.
+
+Plivo needs **no pacer**, unlike Exotel — it takes mu-law 8 kHz, which is what
+`telephonyAudio.js`'s frame splitter already emits at 20ms. `plivoMediaModular`
+therefore has no timing code at all.
+
+`server.js` picks bundled vs modular per call by re-reading the agent's engine
+at upgrade time, the same way the Twilio path does, so switching an agent's
+engine takes effect on the next dial with no config change.
 
 ### Phase 5 — what the wire protocol actually turned out to be
 
@@ -594,7 +626,7 @@ rate card. Confirm the exact India streaming rate on the first invoice.
 | 2 | ✅ **Code done.** `plivo/client.js`, subaccount CRUD + model + migration. **Unverified against live Plivo** — no account yet | Phase 1 |
 | 3 | Compliance API wiring + webhook, mapped onto existing statuses | Phase 2 |
 | 4 | Number search/rent/assign into subaccount | Phase 3 |
-| 5 | ✅ **Code done.** `plivo.provider.js`, answer/hangup endpoints, `plivoMediaRealtime.handler.js`. **Unverified against a live call** | — |
+| 5 | ✅ **Code done.** `plivo.provider.js`, answer/hangup endpoints, and BOTH bridges — bundled (`plivoMediaRealtime`) and modular (`plivoMediaModular`). **Unverified against a live call** | — |
 | 6 | `BrandProfile` + Truecaller enrolment | independent |
 | 7 | Usage reconciliation | Phase 4 |
 
