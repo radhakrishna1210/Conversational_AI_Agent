@@ -62,6 +62,7 @@ import {
   isDeepgramConfigured,
   toDeepgramLanguage,
 } from '../services/stt/deepgramStream.service.js';
+import { analyzeSpeech, classifyCallerAffect } from '../services/stt/speechGate.js';
 import { createFillerBudget } from '../services/voice/disfluency.js';
 import {
   decodeUlaw,
@@ -72,6 +73,7 @@ import {
   PHONE_SAMPLE_RATE,
 } from '../services/voice/telephonyAudio.js';
 import { createPlayoutWindow } from '../services/voice/playoutWindow.js';
+import { encodeWav } from '../services/voice/callRecorder.js';
 import { createRecordingTap } from './callRecordingTap.js';
 import { createCallFinalizer } from './callFinalizer.js';
 
@@ -127,9 +129,22 @@ const BARGE_GRACE_MS = Number(process.env.PHONE_BARGE_GRACE_MS) || 500;
 /** Weight of each new quiet frame in the running noise-floor estimate. */
 const NOISE_EMA_ALPHA = 0.05;
 
-/** RMS of a decoded mu-law frame. */
-function frameRms(ulawBuf) {
-  const pcm = decodeUlaw(ulawBuf);
+/**
+ * Longest stretch of caller audio kept for the affect analysis below, matching
+ * the web client's own MAX_SEGMENT_MS. At 8kHz/16-bit that is 320KB per call in
+ * the worst case, and only for a call where the caller talks for 20s straight
+ * without Deepgram ever calling the turn.
+ */
+const MAX_TURN_AUDIO_MS = 20_000;
+const MAX_TURN_AUDIO_SAMPLES = (MAX_TURN_AUDIO_MS / 1000) * PHONE_SAMPLE_RATE;
+
+/** Shortest segment that could contain a word — below this there is no turn to
+ *  run, and no point paying a batch-STT round trip to discover that. Same
+ *  threshold the web bridge uses. */
+const MIN_TURN_AUDIO_MS = 400;
+
+/** RMS of one already-decoded frame. */
+function pcmRms(pcm) {
   if (!pcm.length) return 0;
   let sum = 0;
   for (let i = 0; i < pcm.length; i++) sum += pcm[i] * pcm[i];
@@ -176,6 +191,52 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
   /** This line's measured noise floor, learned while the agent is quiet. */
   let noiseFloor = 0;
   let noiseSamples = 0;
+
+  /**
+   * The caller's own audio for the turn now being captured, decoded to PCM16 —
+   * the phone's equivalent of the browser's `frames` buffer.
+   *
+   * Two consumers, both of which the web bridge has always had and this one
+   * had neither of:
+   *
+   *  1. analyzeSpeech() + classifyCallerAffect(). `affect` is not cosmetic — it
+   *     appends a "Caller state" block to the system prompt, shifts the
+   *     speaking rate, and suppresses the hesitation ack for a rushed or
+   *     agitated caller. Omitting it meant the SAME agent ran on a different
+   *     prompt depending on whether it was reached by phone or by browser.
+   *  2. the batch-STT fallback, for the turns where the stream produced nothing.
+   *
+   * Kept as Int16Array frames rather than Buffers because that is what
+   * decodeUlaw() already returns and what encodeWav() already consumes, so
+   * neither consumer needs a per-frame conversion.
+   *
+   * Only filled while the caller can actually be the one talking — never during
+   * the agent's playout (that would analyse our own echo) and never mid-turn.
+   * Bounded, and drained by every runTurn(), so a call cannot accumulate audio.
+   */
+  let turnPcmChunks = [];
+  let turnPcmSamples = 0;
+
+  const captureTurnAudio = (pcm) => {
+    turnPcmChunks.push(pcm);
+    turnPcmSamples += pcm.length;
+    // Drop from the front rather than refusing new audio: on an over-long
+    // segment the words that decide the turn are the RECENT ones.
+    while (turnPcmSamples > MAX_TURN_AUDIO_SAMPLES && turnPcmChunks.length > 1) {
+      turnPcmSamples -= turnPcmChunks.shift().length;
+    }
+  };
+
+  /** Snapshot + reset, so an early return still clears the buffer for the next turn. */
+  const takeTurnAudio = () => {
+    if (!turnPcmChunks.length) return null;
+    const out = new Int16Array(turnPcmSamples);
+    let offset = 0;
+    for (const chunk of turnPcmChunks) { out.set(chunk, offset); offset += chunk.length; }
+    turnPcmChunks = [];
+    turnPcmSamples = 0;
+    return out;
+  };
 
   /**
    * Whether the CALLER is hearing us, and for how long — the arming condition
@@ -255,22 +316,91 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
     // call (STT harvest) is otherwise invisible in logs/latency.log, which only times
     // from inside voiceTurnStream onward. See preLlmMs below.
     const turnEndDetectedAt = Date.now();
+    // Drained here, not after the silence gate below: every path out of this
+    // function must leave an empty buffer, or a discarded turn's audio would be
+    // analysed as part of the next one.
+    const turnPcm = takeTurnAudio();
 
     try {
+      // Was Deepgram listening to THIS turn with an open socket the whole time?
+      // Read before finalizeTurn, which can mark the session dead. This is the
+      // difference between "the stream heard silence" and "there was no stream",
+      // and the entire fallback below turns on it.
+      const dgListened = Boolean(dg?.isConnected);
       let userText = '';
       try {
         userText = await dg.finalizeTurn(1200, dgTurnSeq);
       } catch { /* nothing usable this turn */ }
       if (!dg?.isAlive) dg = null;
 
-      // Silence gate. Without a client-side VAD to discard noise-only segments,
-      // an empty transcript here is common (line noise, a cough, the caller
-      // breathing). Running a turn on it makes the agent answer a phantom
-      // sentence, which on a phone call sounds like it is talking to itself.
-      if (!userText.trim()) return;
+      // Same shared implementation the web bridge calls, so the two channels
+      // cannot drift apart in how they read a caller. With no captured audio (a
+      // barged turn, or a reply that landed before any frame was buffered)
+      // analyzeSpeech returns hasSpeech:false and classifyCallerAffect returns
+      // null — i.e. exactly the behaviour this bridge had before, not a guess.
+      const speech = analyzeSpeech(
+        turnPcm ? Buffer.from(turnPcm.buffer, turnPcm.byteOffset, turnPcm.byteLength) : null,
+        PHONE_SAMPLE_RATE,
+      );
+      const audioMs = turnPcm ? (turnPcm.length / PHONE_SAMPLE_RATE) * 1000 : 0;
 
-      transcript.push({ role: 'user', content: userText });
-      history.push({ role: 'user', content: userText });
+      // ── Silence gate, and the batch-STT fallback behind it ────────────────
+      //
+      // An empty transcript here has two completely different causes, and this
+      // bridge used to treat them the same — `return` — which is why a phone
+      // caller sometimes got no answer at all while the same words on a web
+      // call were answered fine.
+      //
+      //   THE CALLER SAID NOTHING. Line noise, a cough, breathing. Discarding
+      //   is right: answering it makes the agent talk to itself. Three
+      //   independent ways to know, any one sufficient — Deepgram had an open
+      //   socket for the whole segment and returned no words (it heard the
+      //   audio live; if it found no speech there was none), the segment is too
+      //   short to contain a word, or acoustic analysis of the PCM finds no
+      //   voiced speech.
+      //
+      //   THE STREAM WAS NOT LISTENING. No session, one that died mid-call, or
+      //   a TLS handshake still in flight — the exact failures the 'media'
+      //   handler's reconnect exists to paper over. The caller DID speak and
+      //   nothing transcribed it, so the agent simply went quiet and the caller
+      //   repeated themselves. The web bridge has always covered this by
+      //   handing its buffered WAV to voiceTurnStream and letting batch STT
+      //   run; the phone passed `null` audio and had nothing to fall back to.
+      //
+      // The distinguishing signal is `dgListened`. Note that it is FALSE on
+      // exactly the path that needs the fallback, which is why the acoustic
+      // check has to be able to stand on its own here.
+      let batchWav = null;
+      if (!userText.trim()) {
+        if (dgListened || audioMs < MIN_TURN_AUDIO_MS || !speech.hasSpeech) {
+          logger.info(
+            `${carrier.label}: discarding silent ${Math.round(audioMs)}ms turn `
+            + `(dgListened=${dgListened} voicedMs=${speech.voicedMs} `
+            + `contrast=${speech.contrast.toFixed(2)} peak=${speech.peakRms.toFixed(4)})`,
+          );
+          return;
+        }
+        // Real speech, no stream to transcribe it. Costs a round trip (both
+        // batch providers cap at 4.5s) — spent only on turns that would
+        // otherwise have been answered with silence.
+        batchWav = encodeWav(turnPcm, PHONE_SAMPLE_RATE);
+        logger.warn(
+          `${carrier.label}: no streaming transcript for a ${(audioMs / 1000).toFixed(1)}s turn `
+          + `with voiced speech (lang=${dgLanguage ?? 'default'}) — falling back to batch STT`,
+        );
+      }
+
+      // Known only on the streaming path; on the batch path the transcript does
+      // not exist until the runtime has run STT, so the caller's turn joins the
+      // history from the 'transcript' event below instead.
+      if (userText) {
+        transcript.push({ role: 'user', content: userText });
+        history.push({ role: 'user', content: userText });
+      }
+
+      // Empty on the batch path (the classifier needs words), which is exactly
+      // how the web bridge behaves when its own stream came back empty.
+      const affect = classifyCallerAffect(speech, userText);
 
       let replyText = '';
       let pending = null;
@@ -279,12 +409,17 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
       await voiceTurnStream(
         workspaceId,
         agentId,
-        null,
-        null,
-        history.slice(0, -1),
+        batchWav,
+        batchWav ? 'audio/wav' : null,
+        // A COPY, in both cases. voiceTurnStream reads this array again after
+        // it emits 'transcript' (to build its message list), and the batch path
+        // pushes the caller's turn into `history` from inside that very event —
+        // handing it the live array would make the user turn appear twice.
+        userText ? history.slice(0, -1) : history.slice(),
         {
           userText,
-          audioHadSpeech: true,
+          audioHadSpeech: speech.hasSpeech,
+          affect,
           fillerBudget,
           channel: 'phone',
           preLlmMs: Date.now() - turnEndDetectedAt,
@@ -293,6 +428,18 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
           shouldAbort: () => abortTurn || closed,
           onEvent: (ev) => {
             switch (ev.type) {
+              case 'transcript':
+                // Batch path only. The runtime applies its own gates to a batch
+                // transcript (echo trimming, the STT-hallucination filter) and
+                // emits '' when it rejects one, so anything arriving here is
+                // already something the caller actually said.
+                if (!userText && ev.userText) {
+                  userText = ev.userText;
+                  transcript.push({ role: 'user', content: userText });
+                  history.push({ role: 'user', content: userText });
+                  logger.info(`${carrier.label}: batch STT recovered "${userText}"`);
+                }
+                break;
               case 'audio-start':
                 // A segment is only playable here if it was synthesized in the
                 // format this carrier speaks. `ev.format` is what the runtime
@@ -388,8 +535,31 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
     }
   };
 
+  /**
+   * Which language to tell Deepgram the caller speaks — resolved exactly as the
+   * web bridge resolves it (webCallModularRealtime.handler.js): the agent's
+   * explicit STT language, else the first language configured on the agent.
+   *
+   * This used to read `agent.transcription` as the fallback, and that column
+   * does not hold a language. It holds an STT PROVIDER name, defaulting to
+   * "Azure" (see the same field's use as `preferredProvider` in
+   * agentRuntime.service.js), so toDeepgramLanguage() had nothing to match and
+   * returned undefined on every call that had not set sttLanguage explicitly.
+   * Deepgram then defaulted to English.
+   *
+   * The effect was not a slightly worse transcript, it was a different
+   * conversation: a Hindi agent's callers were transcribed as English on the
+   * phone — garbled or empty — while the SAME agent transcribed them correctly
+   * on a web call, so the LLM was answering a question the caller never asked.
+   */
+  const resolveDgLanguage = () => {
+    let langs = [];
+    try { langs = JSON.parse(agent?.languages || '[]'); } catch { /* not JSON; no configured list */ }
+    return toDeepgramLanguage(settings.sttLanguage) || toDeepgramLanguage(langs[0]);
+  };
+
   const openDeepgram = () => {
-    dgLanguage = toDeepgramLanguage(settings.sttLanguage || agent?.transcription);
+    dgLanguage = resolveDgLanguage();
     dg = new DeepgramStreamSession({
       // The carrier's own wire format — no transcoding in either direction.
       encoding: 'mulaw',
@@ -415,6 +585,8 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
   const cleanup = (status) => {
     closed = true;
     abortTurn = true;
+    turnPcmChunks = [];
+    turnPcmSamples = 0;
     playout.stop();
     try { dg?.close(); } catch { /* already gone */ }
     dg = null;
@@ -538,7 +710,15 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
         // caller says over the top are not lost when the barge lands.
         try { dg.send(frame); } catch { /* session died; next attempt recreates */ }
 
-        const rms = frameRms(frame);
+        // Decoded once and used twice — the barge detector's energy reading and
+        // the turn buffer feeding analyzeSpeech() want the same samples.
+        const pcm = decodeUlaw(frame);
+        const rms = pcmRms(pcm);
+
+        // Capture only while the caller is the one who could be talking: not
+        // during our own playout (that is echo, not the caller) and not while a
+        // turn is already generating.
+        if (!turnRunning && !playout.isSpeaking()) captureTurnAudio(pcm);
 
         if (!playout.isSpeaking()) {
           // Learn this line's floor while the agent is quiet. Anything at or
