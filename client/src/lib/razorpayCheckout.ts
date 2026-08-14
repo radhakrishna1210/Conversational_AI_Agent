@@ -15,24 +15,74 @@ declare global {
 
 let loader: Promise<void> | null = null;
 
-/** Inject the Checkout script once; concurrent callers share one load. */
+/**
+ * Nothing about loading a 100KB script should take this long. The timeout is
+ * not really about slow networks — it is the guarantee that this promise ALWAYS
+ * settles, because the caller disables the Pay button until it does and a
+ * promise that never settles leaves that button reading "Opening payment…"
+ * forever, with no error and nothing to retry.
+ */
+const LOAD_TIMEOUT_MS = 15_000;
+
+/**
+ * Inject the Checkout script once; concurrent callers share one load.
+ *
+ * WHY THIS IS NOT A THREE-LINE SCRIPT LOADER
+ * ------------------------------------------
+ * The previous version, on finding an existing <script> for this src, attached
+ * load/error listeners to it and waited. Those events had ALREADY fired — a DOM
+ * event does not replay for a listener that arrives late — so the promise never
+ * settled. That turned the ordinary "first attempt failed, user clicks again"
+ * path into a permanent hang: attempt one reported an error honestly, and every
+ * attempt after it spun forever on the dead element attempt one left behind.
+ *
+ * So a previous attempt's element is REMOVED rather than adopted. Reaching this
+ * point means no load is in flight (an in-flight one is held in `loader` and
+ * returned above), so there is nothing to interrupt.
+ */
 export function loadRazorpay(): Promise<void> {
   if (window.Razorpay) return Promise.resolve();
   if (loader) return loader;
+
   loader = new Promise<void>((resolve, reject) => {
-    const existing = document.querySelector<HTMLScriptElement>(`script[src="${SCRIPT_SRC}"]`);
-    if (existing) {
-      existing.addEventListener('load', () => resolve());
-      existing.addEventListener('error', () => reject(new Error('Could not load the payment form')));
-      return;
-    }
+    // Whatever is there is finished and failed, or `window.Razorpay` would exist.
+    document.querySelector<HTMLScriptElement>(`script[src="${SCRIPT_SRC}"]`)?.remove();
+
     const script = document.createElement('script');
+    let settled = false;
+    const fail = (message: string) => {
+      if (settled) return;
+      settled = true;
+      loader = null;  // a retry must re-inject, not wait on this dead element
+      reject(new Error(message));
+    };
+
+    const timer = setTimeout(
+      () => fail('The payment form is taking too long to load. Check your connection and try again.'),
+      LOAD_TIMEOUT_MS,
+    );
+
     script.src = SCRIPT_SRC;
     script.async = true;
-    script.onload = () => resolve();
+    script.onload = () => {
+      clearTimeout(timer);
+      if (settled) return;
+      // Loaded but the global is missing: the response was not the script we
+      // asked for (a captive portal, a proxy error page). Treating that as
+      // success just moves the failure to `new window.Razorpay(...)`.
+      if (!window.Razorpay) {
+        fail('The payment form loaded incorrectly. Please reload the page and try again.');
+        return;
+      }
+      settled = true;
+      resolve();
+    };
     script.onerror = () => {
-      loader = null; // allow a retry after a transient network failure
-      reject(new Error('Could not load the payment form. Check your connection and try again.'));
+      clearTimeout(timer);
+      // Also how a Content-Security-Policy block surfaces — which is what made
+      // this fail on the deployed site while working on every dev machine, where
+      // the Vite dev server sends no CSP at all. See RAZORPAY_CSP in app.js.
+      fail('Could not load the payment form. An ad blocker, browser extension, or network restriction may be blocking checkout.razorpay.com.');
     };
     document.body.appendChild(script);
   });

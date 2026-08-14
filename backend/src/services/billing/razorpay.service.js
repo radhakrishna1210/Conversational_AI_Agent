@@ -39,6 +39,62 @@ import logger from '../../lib/logger.js';
 
 const API_BASE = 'https://api.razorpay.com/v1';
 
+/**
+ * Every call here is made while a user waits on a spinner, so none of them may
+ * hang. `fetch` has NO default timeout: if the host cannot reach
+ * api.razorpay.com — an egress firewall, a black-holing proxy, DNS that resolves
+ * but never connects — the socket sits open and the HTTP request that triggered
+ * it never responds. The browser then shows a button stuck mid-action with no
+ * error, which is indistinguishable from a frontend bug and sends you looking in
+ * the wrong place entirely.
+ */
+const RAZORPAY_TIMEOUT_MS = Number(process.env.RAZORPAY_TIMEOUT_MS) || 15_000;
+
+/**
+ * One fetch to Razorpay: bounded, and with network failures turned into
+ * something a human can act on.
+ *
+ * @returns {Promise<any>} the parsed body
+ */
+async function rzFetch(path, { method = 'GET', body, label } = {}) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), RAZORPAY_TIMEOUT_MS);
+
+  let res;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers: {
+        Authorization: authHeader(),
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    // An abort is OUR timeout, not a Razorpay error, and saying so is the
+    // difference between "check your card details" and "check the server's
+    // outbound network".
+    if (err.name === 'AbortError') {
+      logger.error({ label, path, timeoutMs: RAZORPAY_TIMEOUT_MS }, 'Razorpay request timed out');
+      throw new Error(
+        `Could not reach Razorpay (timed out after ${RAZORPAY_TIMEOUT_MS / 1000}s). `
+        + 'The payment provider is unreachable from this server.',
+      );
+    }
+    logger.error({ label, path, err: err.message }, 'Razorpay request failed at the network level');
+    throw new Error(`Could not reach Razorpay: ${err.message}`);
+  } finally {
+    clearTimeout(timer);
+  }
+
+  const parsed = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(`Razorpay ${label} failed: ${parsed?.error?.description || `HTTP ${res.status}`}`);
+  }
+  return parsed;
+}
+
 export const isRazorpayConfigured = () =>
   Boolean(process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET);
 
@@ -81,35 +137,22 @@ export async function createOrder({ amountCents, currency = 'INR', receipt, note
   if (!Number.isFinite(amount) || amount <= 0) {
     throw new Error('amountCents must be a positive integer');
   }
-  const res = await fetch(`${API_BASE}/orders`, {
+  return rzFetch('/orders', {
     method: 'POST',
-    headers: { Authorization: authHeader(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+    label: 'createOrder',
+    body: {
       amount, currency, receipt,
       // Echoed back on the webhook, which is how a payment is tied to the
       // workspace that initiated it without trusting anything client-side.
       notes,
       payment_capture: 1,
-    }),
+    },
   });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const msg = body?.error?.description || `HTTP ${res.status}`;
-    throw new Error(`Razorpay createOrder failed: ${msg}`);
-  }
-  return body;
 }
 
 /** Fetch a payment — used to re-verify server-side before crediting. */
 export async function fetchPayment(paymentId) {
-  const res = await fetch(`${API_BASE}/payments/${encodeURIComponent(paymentId)}`, {
-    headers: { Authorization: authHeader() },
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(`Razorpay fetchPayment failed: ${body?.error?.description || res.status}`);
-  }
-  return body;
+  return rzFetch(`/payments/${encodeURIComponent(paymentId)}`, { label: 'fetchPayment' });
 }
 
 /**
@@ -159,18 +202,15 @@ export const getMode = () =>
  * @param {{ name: string, amountCents: number, currency?: string, period?: string, interval?: number }} p
  */
 export async function createPlan({ name, amountCents, currency = 'INR', period = 'monthly', interval = 1, notes = {} }) {
-  const res = await fetch(`${API_BASE}/plans`, {
+  return rzFetch('/plans', {
     method: 'POST',
-    headers: { Authorization: authHeader(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+    label: 'createPlan',
+    body: {
       period, interval,
       item: { name, amount: Math.trunc(amountCents), currency },
       notes,
-    }),
+    },
   });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`Razorpay createPlan failed: ${body?.error?.description || res.status}`);
-  return body;
 }
 
 /**
@@ -182,42 +222,29 @@ export async function createPlan({ name, amountCents, currency = 'INR', period =
  * than an open-ended claim on the customer's card.
  */
 export async function createSubscription({ planId, totalCount = 120, notes = {}, customerNotify = true, startAt }) {
-  const res = await fetch(`${API_BASE}/subscriptions`, {
+  return rzFetch('/subscriptions', {
     method: 'POST',
-    headers: { Authorization: authHeader(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({
+    label: 'createSubscription',
+    body: {
       plan_id: planId,
       total_count: totalCount,
       quantity: 1,
       customer_notify: customerNotify ? 1 : 0,
       ...(startAt ? { start_at: Math.floor(new Date(startAt).getTime() / 1000) } : {}),
       notes,
-    }),
+    },
   });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`Razorpay createSubscription failed: ${body?.error?.description || res.status}`);
-  return body;
 }
 
 /** Read back a mirrored plan — used to detect that the local price has changed
  *  since the mirror was made. Razorpay plans are immutable, so a stale mirror
  *  silently keeps charging the old price. */
 export async function fetchPlan(planId) {
-  const res = await fetch(`${API_BASE}/plans/${encodeURIComponent(planId)}`, {
-    headers: { Authorization: authHeader() },
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`Razorpay fetchPlan failed: ${body?.error?.description || res.status}`);
-  return body;
+  return rzFetch(`/plans/${encodeURIComponent(planId)}`, { label: 'fetchPlan' });
 }
 
 export async function fetchSubscription(subscriptionId) {
-  const res = await fetch(`${API_BASE}/subscriptions/${encodeURIComponent(subscriptionId)}`, {
-    headers: { Authorization: authHeader() },
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`Razorpay fetchSubscription failed: ${body?.error?.description || res.status}`);
-  return body;
+  return rzFetch(`/subscriptions/${encodeURIComponent(subscriptionId)}`, { label: 'fetchSubscription' });
 }
 
 /**
@@ -238,14 +265,11 @@ export function verifySubscriptionSignature({ subscriptionId, paymentId, signatu
 /** Subscription lifecycle. Optional: plan changes are handled in-app against
  *  the wallet, so these are only needed for gateway-managed auto-renewal. */
 export async function cancelSubscription(subscriptionId, { atCycleEnd = true } = {}) {
-  const res = await fetch(`${API_BASE}/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`, {
+  return rzFetch(`/subscriptions/${encodeURIComponent(subscriptionId)}/cancel`, {
     method: 'POST',
-    headers: { Authorization: authHeader(), 'Content-Type': 'application/json' },
-    body: JSON.stringify({ cancel_at_cycle_end: atCycleEnd ? 1 : 0 }),
+    label: 'cancelSubscription',
+    body: { cancel_at_cycle_end: atCycleEnd ? 1 : 0 },
   });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(`Razorpay cancelSubscription failed: ${body?.error?.description || res.status}`);
-  return body;
 }
 
 export const __testing = { safeCompare, hmacHex };

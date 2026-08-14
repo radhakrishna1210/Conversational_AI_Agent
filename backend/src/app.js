@@ -7,6 +7,7 @@ import { fileURLToPath } from 'url';
 import 'express-async-errors';
 
 import { env } from './config/env.js';
+import { cspDirectives } from './config/csp.js';
 import routes from './routes/index.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import logger from './lib/logger.js';
@@ -27,38 +28,24 @@ app.use(cors({
 }));
 
 // In production this process also serves the built SPA (see the static handler
-// below), so helmet's default Content-Security-Policy applies to the app itself.
-// The default `default-src 'self'` blocks things the client genuinely needs, and
-// each exception below is load-bearing — do not "tighten" one without checking
-// the page it belongs to:
-//   - Google Fonts stylesheet + font files          (client/index.html:25-29)
-//   - 'unsafe-inline' script: the pre-paint theme script (client/index.html:37)
-//     that prevents a light-mode user seeing a dark flash. Swap for a hash if
-//     that script is ever made static.
-//   - 'unsafe-inline' style: Tailwind and framer-motion set inline styles.
-//   - blob:/data: media + worker: TTS audio is played back from Blob URLs.
-//   - ws:/wss: connect: the voice web-call sockets (modularCallSocket.ts).
-//   - Calendly: the PopupModal iframe on the Contact page (Contact.tsx:2).
+// below), so this Content-Security-Policy governs the real page. Every directive
+// and the reasoning behind it lives in config/csp.js, which exists so the policy
+// can be asserted in a test — a missing entry here is invisible in development,
+// where Vite serves the SPA with no CSP at all.
 app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      scriptSrc: ["'self'", "'unsafe-inline'", 'https://assets.calendly.com'],
-      styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com', 'https://assets.calendly.com'],
-      fontSrc: ["'self'", 'https://fonts.gstatic.com', 'data:'],
-      imgSrc: ["'self'", 'data:', 'blob:', 'https:'],
-      mediaSrc: ["'self'", 'data:', 'blob:'],
-      workerSrc: ["'self'", 'blob:'],
-      connectSrc: ["'self'", 'ws:', 'wss:', 'https:'],
-      frameSrc: ["'self'", 'https://calendly.com', 'https://assets.calendly.com'],
-      objectSrc: ["'none'"],
-      upgradeInsecureRequests: env.NODE_ENV === 'production' ? [] : null,
-    },
-  },
+  contentSecurityPolicy: { directives: cspDirectives() },
   // The SPA loads cross-origin fonts and Calendly's iframe; COEP would reject
   // both. It is already off by default in helmet 7 — stated here so a future
   // helmet upgrade turning it on is an obvious diff rather than a mystery.
   crossOriginEmbedderPolicy: false,
+  // helmet's default is `same-origin`, which severs `window.opener` for any
+  // cross-origin popup. Razorpay Checkout is an iframe in the normal case, but
+  // some bank and 3-D Secure flows finish in a popup that has to call back into
+  // this page — under the default it simply cannot, and the payment appears to
+  // hang at the final step. `same-origin-allow-popups` keeps the isolation that
+  // matters (nothing can reach INTO this page) while letting a popup we opened
+  // report back.
+  crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
 }));
 
 // Raw body for Meta webhook HMAC verification
