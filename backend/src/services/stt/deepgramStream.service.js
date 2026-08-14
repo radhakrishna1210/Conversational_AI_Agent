@@ -177,6 +177,24 @@ export function looksUnfinished(text) {
 }
 
 /**
+ * Deepgram's VAD silence timeout, in ms — the ONE place the default lives.
+ *
+ * It had been copy-pasted into four call sites that had already drifted apart
+ * (600ms in the web handler and in maxEndpointCommitMs, 500ms in the phone
+ * bridge), so the same agent committed end-of-turn at a different moment
+ * depending on which transport the caller reached it through, and the client's
+ * RMS backstop was derived from a number the phone path did not actually use.
+ *
+ * The default is deliberately short. It is not the whole wait: committing is
+ * gated behind a grace window that ANY further speech cancels (see
+ * endpointGraceMs / unfinishedGraceMs below), so this value sets how fast a
+ * finished sentence turns around, not how easily a pausing caller gets cut off.
+ */
+export function defaultEndpointingMs() {
+  return Number(process.env.DEEPGRAM_ENDPOINTING_MS) || 300;
+}
+
+/**
  * Worst-case real silence before this session commits an end of turn:
  * Deepgram's VAD timeout plus the longest grace window (the mid-thought one).
  *
@@ -194,7 +212,7 @@ export function looksUnfinished(text) {
 export function maxEndpointCommitMs(endpointingMs) {
   const endpointing = Number.isFinite(endpointingMs) && endpointingMs > 0
     ? endpointingMs
-    : (Number(process.env.DEEPGRAM_ENDPOINTING_MS) || 600);
+    : defaultEndpointingMs();
   const unfinishedGrace = Number(process.env.DEEPGRAM_UNFINISHED_GRACE_MS) || 1100;
   return endpointing + unfinishedGrace;
 }
