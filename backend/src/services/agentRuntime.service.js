@@ -44,6 +44,15 @@ const AGENT_TTL_MS = 5 * 60_000;
 const KB_TTL_MS = 5 * 60_000;
 const agentCache = new Map(); // `${workspaceId}:${agentId}` -> { agent, at }
 const kbCache = new Map();    // `${workspaceId}:${agentId}` -> { value, at }
+// Does this agent have ANY chunked+embedded KB file (i.e. is RAG live for it)?
+// Same reasoning as the two caches above, and it matters more here than
+// anywhere else: this is a boolean that changes only when a file finishes
+// chunking, but it was being re-asked of the remote DB on EVERY voice turn.
+// A Supabase round-trip from the app server measures ~0.75-1.4s, and the turn
+// blocks on it before the LLM call can start (see _prepareConverse), so an
+// agent with no chunked files at all — every agent today — paid a full second
+// of dead air per turn for a query that always answered "no".
+const kbChunkCache = new Map(); // `${workspaceId}:${agentId}` -> { has, at }
 
 async function loadAgent(workspaceId, agentId) {
   const key = `${workspaceId}:${agentId}`;
@@ -62,7 +71,24 @@ async function loadAgent(workspaceId, agentId) {
 export function invalidateAgentRuntimeCaches(workspaceId, agentId) {
   agentCache.delete(`${workspaceId}:${agentId}`);
   kbCache.delete(`${workspaceId}:${agentId}`);
+  kbChunkCache.delete(`${workspaceId}:${agentId}`);
   welcomeCache.delete(agentId);
+}
+
+/**
+ * Cached form of hasKbChunks(). Whether retrieval is available for an agent
+ * changes only when a KB file finishes chunking or is deleted — both of which
+ * already call invalidateKbCaches() — so it does not belong on the per-turn
+ * critical path. See the kbChunkCache declaration for why this one is worth a
+ * cache of its own.
+ */
+async function agentHasKbChunks(workspaceId, agentId) {
+  const key = `${workspaceId}:${agentId}`;
+  const hit = kbChunkCache.get(key);
+  if (hit && Date.now() - hit.at < KB_TTL_MS) return hit.has;
+  const has = await hasKbChunks(workspaceId, agentId);
+  kbChunkCache.set(key, { has, at: Date.now() });
+  return has;
 }
 
 /**
@@ -82,12 +108,16 @@ export function invalidateAgentRuntimeCaches(workspaceId, agentId) {
 export function invalidateKbCaches(workspaceId, agentId = null) {
   if (agentId) {
     kbCache.delete(`${workspaceId}:${agentId}`);
+    kbChunkCache.delete(`${workspaceId}:${agentId}`);
     welcomeCache.delete(agentId);
     return;
   }
   const prefix = `${workspaceId}:`;
   for (const key of kbCache.keys()) {
     if (key.startsWith(prefix)) kbCache.delete(key);
+  }
+  for (const key of kbChunkCache.keys()) {
+    if (key.startsWith(prefix)) kbChunkCache.delete(key);
   }
   // Keyed by agentId alone, so a workspace-wide change cannot target entries
   // precisely. It is a small cache rebuilt on demand — clearing it is cheap.
@@ -724,12 +754,15 @@ async function _prepareConverse(workspaceId, agentId, messages, { voiceMode = fa
   // Kick off RAG retrieval (if this agent has any chunked files at all) as
   // early as possible — concurrently with the flat-text KB fetch and LLM
   // provider resolution below — so its cost isn't purely additive on top of
-  // theirs. hasKbChunks() is a cheap indexed existence check; the actual
-  // similarity search (an embedding call + a vector query) only runs when it
-  // says yes. Never lets a retrieval failure fail the turn — falls through to
+  // theirs. The existence check is indexed AND cached per agent — it is only a
+  // cheap check once it stops being a remote round-trip per turn, which is the
+  // whole point of agentHasKbChunks(). The actual similarity search (an
+  // embedding call + a vector query) only runs when it says yes, so an agent
+  // with no chunked files now reaches the LLM without touching the DB at all.
+  // Never lets a retrieval failure fail the turn — falls through to
   // whatever the flat-text kbText path already provides.
   const ragStartedAt = performance.now();
-  const ragPromise = hasKbChunks(workspaceId, agentId)
+  const ragPromise = agentHasKbChunks(workspaceId, agentId)
     .then((has) => (has ? retrieveKbChunks(workspaceId, agentId, last.content) : []))
     .catch((err) => {
       logger.warn(`KB retrieval failed, continuing without it: ${err.message}`);
@@ -983,6 +1016,9 @@ export function warmVoiceTurn(workspaceId, agentId, audioFormat = null) {
     if (!agent) return;
     const settings = safeJson(agent.settings, {});
     getAgentKbText(workspaceId, agentId).catch(() => {});
+    // Same reason the KB text is warmed here: otherwise turn 1 pays the remote
+    // round-trip for it, and turn 1 is the one the caller judges the agent on.
+    agentHasKbChunks(workspaceId, agentId).catch(() => {});
     const voice = await resolveAgentVoice(agent.voice).catch(() => null);
     // Warmed for every agent, not just ones with the Filler Words toggle on:
     // the ack that uses these clips is no longer gated on that toggle, and a
