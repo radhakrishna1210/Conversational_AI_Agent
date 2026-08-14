@@ -14,12 +14,13 @@ const HAS_DB = Boolean(process.env.DATABASE_URL);
 
 let prisma; let settleCall; let assertCanStartCall; let assertCanCreateAgent;
 let applyWalletTransaction; let getBalance; let auditWallet; let TX_TYPES;
-let getWalletRate;
+let getWalletRate; let finalizeAbandonedCall;
 if (HAS_DB) {
   ({ default: prisma } = await import('../../../config/prisma.js'));
   ({ settleCall, assertCanStartCall, assertCanCreateAgent } = await import('../settlement.service.js'));
   ({ applyWalletTransaction, getBalance, auditWallet, TX_TYPES } = await import('../wallet.service.js'));
   ({ getWalletRate } = await import('../walletRate.js'));
+  ({ finalizeAbandonedCall } = await import('../../../ws/callFinalizer.js'));
 }
 
 const created = { workspaces: [], plans: [] };
@@ -97,18 +98,31 @@ test.after(async () => {
 
 test('a completed call is charged at the platform wallet rate', { skip: !HAS_DB }, async () => {
   const s = await scenario();
-  const call = await makeCall(s, { durationSec: 150 }); // 3 billed minutes
+  const call = await makeCall(s, { durationSec: 150 }); // 2.5 billed minutes
   const r = await settleCall(call.id);
+  const expected = Math.round(2.5 * RATE_PAISE);
 
   assert.equal(r.billed, true);
-  assert.equal(r.minutes, 3);
-  assert.equal(r.amountCents, 3 * RATE_PAISE);
-  assert.equal((await getBalance(s.workspaceId)).balanceCents, 100_000 - 3 * RATE_PAISE);
+  assert.equal(r.minutes, 2.5);
+  assert.equal(r.amountCents, expected);
+  assert.equal((await getBalance(s.workspaceId)).balanceCents, 100_000 - expected);
 
   const row = await prisma.agentCallLog.findUnique({ where: { id: call.id } });
   assert.equal(row.billingStatus, 'BILLED');
-  assert.equal(row.billedCents, 3 * RATE_PAISE);
+  assert.equal(row.billedCents, expected);
   assert.equal(row.ratePerMinuteCents, RATE_PAISE, 'rate is snapshotted onto the call');
+  assert.equal((await auditWallet(s.workspaceId)).balanced, true);
+});
+
+test('one extra second is charged as a second, not as a whole minute', { skip: !HAS_DB }, async () => {
+  // The overcharge this billing model exists to prevent: a 61-second call used
+  // to settle as two full minutes.
+  const s = await scenario();
+  const call = await makeCall(s, { durationSec: 61 });
+  const r = await settleCall(call.id);
+
+  assert.equal(r.amountCents, Math.round((61 / 60) * RATE_PAISE));
+  assert.ok(r.amountCents < 2 * RATE_PAISE, 'must not round up to two minutes');
   assert.equal((await auditWallet(s.workspaceId)).balanced, true);
 });
 
@@ -191,6 +205,77 @@ test('every billed minute hits the wallet, even with a subscription row present'
   assert.equal(sub.minutesUsed, 0, 'the allowance is not touched either');
 });
 
+// ── Closed-tab backstop ─────────────────────────────────────────────────────
+
+/** A call still in progress: no endedAt, exactly as the browser leaves it. */
+async function liveCall({ workspaceId, agentId }, { startedAt = new Date(Date.now() - 90_000) } = {}) {
+  return prisma.agentCallLog.create({
+    data: { workspaceId, agentId, type: 'WEB_CALL', status: 'IN_PROGRESS', startedAt, durationSec: 0 },
+  });
+}
+
+test('a call the browser never ended is finalized and billed server-side', { skip: !HAS_DB }, async () => {
+  // The closed tab: served, logged, and — before the backstop — never charged,
+  // because only the browser's terminal PATCH ever triggered settlement.
+  const s = await scenario();
+  const call = await liveCall(s);
+  const endedAt = new Date();
+
+  const finalized = await finalizeAbandonedCall(call.id, { ...s, endedAt });
+  assert.equal(finalized, true);
+
+  const row = await prisma.agentCallLog.findUnique({ where: { id: call.id } });
+  assert.equal(row.status, 'COMPLETED');
+  assert.ok(row.endedAt, 'the call must be closed out, not left in progress');
+  assert.equal(row.billingStatus, 'BILLED');
+  assert.ok(row.durationSec >= 89 && row.durationSec <= 91, `duration was ${row.durationSec}`);
+  assert.ok(row.billedCents > 0, 'the minutes served must actually be charged');
+  assert.equal((await auditWallet(s.workspaceId)).balanced, true);
+});
+
+test('the backstop bills the call, not the grace period before it runs', { skip: !HAS_DB }, async () => {
+  // It fires ~30s after the socket closed. Charging to the moment it RAN would
+  // add that half-minute of silence to every abandoned call's bill.
+  const s = await scenario();
+  const call = await liveCall(s, { startedAt: new Date(Date.now() - 120_000) });
+  const mediaStoppedAt = new Date(Date.now() - 30_000);
+
+  await finalizeAbandonedCall(call.id, { ...s, endedAt: mediaStoppedAt });
+
+  const row = await prisma.agentCallLog.findUnique({ where: { id: call.id } });
+  assert.ok(row.durationSec >= 89 && row.durationSec <= 91, `duration was ${row.durationSec}`);
+});
+
+test('the backstop stands down when the browser ended the call itself', { skip: !HAS_DB }, async () => {
+  // The normal path. The browser's own finalization carries the recording and
+  // the final transcript, so it must win — and the post-call webhook, Sheets row
+  // and email must fire exactly once.
+  const s = await scenario();
+  const call = await makeCall(s, { durationSec: 60 }); // makeCall sets endedAt
+
+  assert.equal(await finalizeAbandonedCall(call.id, { ...s }), false);
+});
+
+test('two backstops on one call finalize it once', { skip: !HAS_DB }, async () => {
+  // endedAt is the claim, and it is a conditional UPDATE precisely so a retry or
+  // a duplicated close event cannot deliver the post-call payload twice.
+  const s = await scenario();
+  const call = await liveCall(s);
+
+  const results = await Promise.all([
+    finalizeAbandonedCall(call.id, { ...s }),
+    finalizeAbandonedCall(call.id, { ...s }),
+  ]);
+  assert.equal(results.filter(Boolean).length, 1);
+  assert.equal((await auditWallet(s.workspaceId)).balanced, true);
+});
+
+test('the backstop is inert without a call log', { skip: !HAS_DB }, async () => {
+  const s = await scenario();
+  assert.equal(await finalizeAbandonedCall(null, { ...s }), false);
+  assert.equal(await finalizeAbandonedCall('does-not-exist', { ...s }), false);
+});
+
 // ── Pre-call gate ───────────────────────────────────────────────────────────
 
 test('a funded workspace may start a call', { skip: !HAS_DB }, async () => {
@@ -206,11 +291,32 @@ test('an empty wallet blocks new calls with a clear reason', { skip: !HAS_DB }, 
   assert.match(g.message, /empty|balance/i, 'must explain WHY, not fail silently');
 });
 
-test('a balance below one minute blocks rather than cutting off mid-call', { skip: !HAS_DB }, async () => {
-  const s = await scenario({ balanceCents: 10 }); // below one minute at any sane rate
+test('a balance too small for a usable call blocks rather than cutting off mid-greeting', { skip: !HAS_DB }, async () => {
+  const s = await scenario({ balanceCents: 10 }); // a few paise: seconds, at best
   const g = await assertCanStartCall(s.workspaceId);
   assert.equal(g.allowed, false);
   assert.equal(g.code, 'INSUFFICIENT_BALANCE');
+  assert.equal(g.maxSeconds, 0);
+});
+
+test('the gate returns a spend budget the balance can actually cover', { skip: !HAS_DB }, async () => {
+  // The half of the gate that was missing: passing it used to mean a call could
+  // run for any length, so one minute of balance paid for a thirty-minute call
+  // and the wallet settled negative.
+  const s = await scenario({ balanceCents: 2 * RATE_PAISE }); // two minutes' worth
+  const g = await assertCanStartCall(s.workspaceId);
+
+  assert.equal(g.allowed, true);
+  assert.ok(Number.isFinite(g.maxSeconds), 'a funded call must still have a deadline');
+  assert.equal(g.maxSeconds, 120);
+
+  // Settling a call that runs exactly to the budget must not overdraw.
+  const call = await makeCall(s, { durationSec: g.maxSeconds });
+  await settleCall(call.id);
+  assert.ok(
+    (await getBalance(s.workspaceId)).balanceCents >= 0,
+    'a call held to its budget must never end in the negative',
+  );
 });
 
 test('concurrent calls are NOT limited', { skip: !HAS_DB }, async () => {

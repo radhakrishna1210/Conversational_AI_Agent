@@ -1642,6 +1642,14 @@ export default function EditAgent() {
         break;
       case 'error':
         if (call.active && event.message !== 'Call ended') setWebCallError(event.message);
+        // The SERVER hung up — the wallet ran out mid-call, or the socket
+        // dropped. Tear the call down on this side too. Leaving it "active"
+        // held the mic open against a dead socket and, worse, never sent the
+        // terminal PATCH, so the minutes just served were never billed and the
+        // call sat in Recent Calls as permanently in progress.
+        if (call.active && (event.code === 'INSUFFICIENT_BALANCE' || event.message === 'Call ended')) {
+          handleEndWebCall();
+        }
         break;
     }
   };
@@ -2069,6 +2077,10 @@ export default function EditAgent() {
           // The call IS recorded either way; this only reports that it went past
           // a plan limit, so the user learns about it without losing history.
           if (r?.limit) toast.warning(r.limit.message);
+          // Tell the socket which row this call belongs to, so the server can
+          // close the call out and bill it if this tab is closed mid-call. See
+          // attachCallLog.
+          if (call.logId && call.socketMode) modularCallSocket.attachCallLog(call.logId);
           if (call.logId && call.history.length) {
             whapi.patch(`/agents/${agentId}/calls/${call.logId}`, { transcript: call.history }).catch(() => {});
           }
@@ -2094,6 +2106,14 @@ export default function EditAgent() {
         await playAgentAudio(welcomeSpeech.current.audioBase64, welcomeSpeech.current.contentType);
       }
 
+      // `lastSpeechAt` was stamped when the call object was created, before
+      // mic permission, welcome TTS fetch and playback all ran. On a long
+      // greeting or a slow TTS round trip that alone can exceed
+      // `maxSilenceBeforeHangup`, so the very first VAD tick below saw a
+      // silence window that started before the caller could possibly have
+      // spoken and hung up the call the instant the greeting finished.
+      // Listening starts now, so the silence clock has to start now too.
+      call.lastSpeechAt = Date.now();
       if (call.active) startListeningSegmentSocket();
     } catch (err: any) {
       setWebCallError(

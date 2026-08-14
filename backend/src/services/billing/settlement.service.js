@@ -30,15 +30,23 @@
  * ----------------------------
  * The minutes were already served — refusing to record them would lose the
  * revenue AND hide the usage. So settlement uses `allowNegative` and lets the
- * balance go negative. Preventing unpaid usage is the PRE-CALL gate's job
- * (assertCanStartCall), which runs before anyone is talking. Blocking at
- * settlement would be both too late and destructive.
+ * balance go negative. Blocking here would be both too late and destructive.
+ *
+ * That makes a negative balance a symptom of something upstream failing, and it
+ * takes TWO things upstream to prevent it, not one:
+ *
+ *   - assertCanStartCall() refuses a call nobody can pay for, before anyone is
+ *     talking;
+ *   - its `maxSeconds` budget hangs the call up when the balance runs out.
+ *
+ * The gate alone was never enough: it only ever asked "can you afford to
+ * start?", so one minute of balance bought a call of any length.
  */
 
 import prisma from '../../config/prisma.js';
 import logger from '../../lib/logger.js';
 import { applyWalletTransaction, getOrCreateWallet, TX_TYPES } from './wallet.service.js';
-import { calculateCallCharge, formatMinor, billableMinutes, resolveCallRate } from './money.js';
+import { calculateCallCharge, formatMinor, billableMinutes, resolveCallRate, affordableSeconds } from './money.js';
 import { getWalletRate } from './walletRate.js';
 
 /** Call types that consume voice minutes. CHAT is text — never billed. */
@@ -121,16 +129,18 @@ export async function settleCall(callLogId, { actualCostMicroUsd = null } = {}) 
       return { billed: false, reason: 'zero-duration' };
     }
 
-    // Every billed minute hits the wallet. There are no plans, so there is no
+    // Every billed second hits the wallet. There are no plans, so there is no
     // included-minutes allowance to draw down first — the workspace's balance is
     // the only thing that pays for a call.
-    const chargeableMinutes = minutes;
-
+    //
     // One ₹/min for everybody, set in Super Admin → Wallet Rate. The same figure
-    // the public landing page quotes.
+    // the public landing page quotes, charged pro-rata for the seconds actually
+    // talked. Costed straight from `durationSec`: the previous version round
+    // tripped through `billableMinutes(...) * 60` to rebuild a duration it
+    // already had, which was harmless only while the increment was a whole
+    // minute and is a second, silent rounding step at any finer granularity.
     const walletRate = await getWalletRate();
-    const { ratePerMinuteCents, fxRate } = resolveCallRate(walletRate);
-    const amountCents = calculateCallCharge(chargeableMinutes * 60, walletRate).amountCents;
+    const { ratePerMinuteCents, fxRate, amountCents } = calculateCallCharge(durationSec, walletRate);
 
     // Claim before charging. If the process dies between claim and ledger
     // write the call ends up BILLED with no charge — under-billing one call,
@@ -164,7 +174,9 @@ export async function settleCall(callLogId, { actualCostMicroUsd = null } = {}) 
       type: TX_TYPES.USAGE,
       // Guard 2. Stable and derived from the call, so any replay collides.
       idempotencyKey: `call:${callLogId}`,
-      note: `${call.type} ${minutes} min @ ${formatMinor(ratePerMinuteCents)}/min`,
+      // Seconds, not the fractional minute figure — "1.0166666666 min" is not a
+      // line item anyone can read on their own statement.
+      note: `${call.type} ${durationSec}s @ ${formatMinor(ratePerMinuteCents)}/min`,
       metadata: {
         callLogId, agentId: call.agentId, type: call.type,
         durationSec, billedMinutes: minutes, ratePerMinuteCents,
@@ -197,17 +209,43 @@ export async function settleCall(callLogId, { actualCostMicroUsd = null } = {}) 
 }
 
 /**
- * PRE-CALL GATE. Decides whether a call may start, BEFORE anyone is talking.
+ * The shortest call worth starting, in seconds.
+ *
+ * Starting a call with two paise left just cuts the caller off mid-greeting,
+ * which is a worse experience than a clear refusal. This used to demand a FULL
+ * MINUTE of headroom, which made sense when a minute was the smallest thing that
+ * could be billed; under per-second billing it strands a workspace that has real
+ * money left and can genuinely afford to talk.
+ */
+const MIN_CALL_SECONDS = Number(process.env.MIN_CALL_SECONDS) || 15;
+
+/**
+ * Nothing sane runs longer than this, whatever the balance says. Purely a
+ * backstop against a wildly funded workspace parking a socket open forever.
+ */
+const MAX_CALL_SECONDS = Number(process.env.MAX_CALL_SECONDS) || 4 * 60 * 60;
+
+/**
+ * PRE-CALL GATE. Decides whether a call may start, BEFORE anyone is talking,
+ * and — just as importantly — HOW LONG it may run.
  *
  * This is where unpaid usage is actually prevented. Every reason returns a
  * `code` the transport can surface verbatim, because "the call just didn't
  * work" is the failure mode this is meant to eliminate — a blocked call must
  * say why.
  *
- * @returns {Promise<{ allowed: boolean, code?: string, message?: string }>}
+ * `maxSeconds` is the other half of the job, and the half that was missing. A
+ * pass here only ever meant "you can afford to START", so a workspace with one
+ * minute of balance could hold a thirty-minute call and settle it into a deep
+ * negative balance — the wallet was a doorman, not a budget. Transports are
+ * expected to hang up at `maxSeconds`; see the budget timers in the web and
+ * phone bridges.
+ *
+ * @returns {Promise<{ allowed: boolean, code?: string, message?: string,
+ *   maxSeconds?: number, availableCents?: number, ratePerMinuteCents?: number }>}
  */
 export async function assertCanStartCall(workspaceId, { type = 'WEB_CALL' } = {}) {
-  if (!BILLABLE_TYPES.has(type)) return { allowed: true };
+  if (!BILLABLE_TYPES.has(type)) return { allowed: true, maxSeconds: Infinity };
 
   /*
    * Balance is the ONLY gate.
@@ -222,9 +260,8 @@ export async function assertCanStartCall(workspaceId, { type = 'WEB_CALL' } = {}
    * ever bites, the ceiling belongs in Super Admin as one platform-wide number,
    * not back on a per-customer plan.
    *
-   * Require headroom for at least one billing increment: starting a call with a
-   * few paise left just cuts the caller off mid-sentence, which is worse than a
-   * clear refusal up front.
+   * Require headroom for at least MIN_CALL_SECONDS of talk time, and hand back
+   * how many seconds the remaining balance actually buys.
    */
   const wallet = await getOrCreateWallet(workspaceId);
   // The same rate the call will actually settle at, so the pre-call check and
@@ -232,31 +269,44 @@ export async function assertCanStartCall(workspaceId, { type = 'WEB_CALL' } = {}
   const { ratePerMinuteCents } = resolveCallRate(await getWalletRate());
 
   const available = wallet.balanceCents + wallet.overdraftLimitCents;
-  if (available < ratePerMinuteCents) {
+  const affordable = affordableSeconds(available, ratePerMinuteCents);
+  if (affordable < MIN_CALL_SECONDS) {
     return {
       allowed: false,
       code: 'INSUFFICIENT_BALANCE',
+      maxSeconds: 0,
+      availableCents: available,
+      ratePerMinuteCents,
       message: available <= 0
         ? 'Your wallet balance is empty. Add funds to place calls.'
-        : `Your balance (${formatMinor(wallet.balanceCents)}) is below the ${formatMinor(ratePerMinuteCents)} needed for one minute. Add funds to continue.`,
+        : `Your balance (${formatMinor(wallet.balanceCents)}) buys less than ${MIN_CALL_SECONDS} seconds at ${formatMinor(ratePerMinuteCents)}/min. Add funds to continue.`,
     };
   }
 
   /*
-   * Retire calls stuck IN_PROGRESS. A WEB_CALL is only moved off IN_PROGRESS by
-   * the BROWSER (the `ended: true` PATCH in cleanupWebCall), so a closed tab, a
-   * crash or a dropped network leaves the row in progress forever and it shows
-   * as perpetually live in Recent Calls. Nothing can genuinely still be running
-   * past the cutoff. Deliberately NOT charged — the real duration is unknown,
-   * and charging a guess is worse than not charging — but closed out as SKIPPED
-   * so it does not linger as a PENDING bill that nothing will ever resolve.
+   * Retire calls stuck IN_PROGRESS. Nothing can genuinely still be running past
+   * the cutoff. Deliberately NOT charged — the real duration is unknown, and
+   * charging a guess is worse than not charging — but closed out as SKIPPED so
+   * it does not linger as a PENDING bill that nothing will ever resolve.
+   *
+   * This used to be the ONLY thing that ever ended an abandoned web call, which
+   * made every closed tab a free call. The socket now closes the call out itself
+   * (ws/callFinalizer.js finalizeAbandonedCall), where the duration IS known and
+   * the call is billed properly. What is left here is the genuine residue: a
+   * call whose log id never reached the socket, or one whose server restarted
+   * inside the backstop's grace window.
    *
    * This used to be a side effect of counting calls for the concurrency limit.
    * The limit is gone; the reaping still has to happen, so it is explicit now.
    */
   reapAbandonedCalls(workspaceId, new Date(Date.now() - STALE_CALL_MS));
 
-  return { allowed: true };
+  return {
+    allowed: true,
+    maxSeconds: Math.min(affordable, MAX_CALL_SECONDS),
+    availableCents: available,
+    ratePerMinuteCents,
+  };
 }
 
 /**

@@ -22,6 +22,7 @@
  * Protocol (all client->server control frames are JSON text; audio is binary):
  *   client: { type: 'auth', token }
  *   server: { type: 'ready' }                       (or closes on auth failure)
+ *   client: { type: 'call-log', callLogId }         the Recent Calls row it opened
  *   client: { type: 'start-turn', sampleRate }      begin a listening segment
  *   client: <binary PCM16 mono frames>              caller audio for this turn
  *   client: { type: 'end-turn', history }           VAD detected end of speech
@@ -36,11 +37,30 @@ import logger from '../lib/logger.js';
 import { verifyAccessToken } from '../lib/jwt.js';
 import prisma from '../config/prisma.js';
 import { voiceTurnStream, warmVoiceTurn } from '../services/agentRuntime.service.js';
-import { DeepgramStreamSession, isDeepgramConfigured, toDeepgramLanguage, maxEndpointCommitMs } from '../services/stt/deepgramStream.service.js';
+import { DeepgramStreamSession, isDeepgramConfigured, toDeepgramLanguage, maxEndpointCommitMs, defaultEndpointingMs } from '../services/stt/deepgramStream.service.js';
 import { analyzeSpeech, classifyCallerAffect, isEchoOfAgent } from '../services/stt/speechGate.js';
 import { createFillerBudget } from '../services/voice/disfluency.js';
+import { openCallBudget } from '../services/billing/callBudget.js';
+import { finalizeAbandonedCall } from './callFinalizer.js';
+import { startHeartbeat } from './socketHeartbeat.js';
 
 const AUTH_TIMEOUT_MS = 10_000;
+
+/**
+ * How long the browser gets to finalize its own call before the server does it
+ * instead.
+ *
+ * The client is the PREFERRED finalizer: its terminal PATCH carries the final
+ * transcript, and it uploads the call recording first — on a long call that
+ * upload is seconds of work, and racing it would finalize the call while its
+ * audio was still in flight. So this waits, and in the overwhelmingly common
+ * case does nothing at all because the PATCH already landed.
+ */
+const CLIENT_FINALIZE_GRACE_MS = Number(process.env.WEB_CALL_FINALIZE_GRACE_MS) || 30_000;
+
+/** Close code for a call refused or ended on balance. Distinct from a transport
+ *  failure so the client can say "add funds" rather than "connection lost". */
+const CLOSE_INSUFFICIENT_BALANCE = 4009;
 
 const safeJson = (str, fallback) => {
   try {
@@ -91,6 +111,13 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
   // bound to it so a flush that resolves after the next turn has started can
   // neither steal that turn's words nor donate the previous turn's (BUG-001).
   let dgTurnSeq = 0;
+  // How much talk time the wallet actually paid for. Armed once the gate passes.
+  let budget = null;
+  // The Recent Calls row for this call. The BROWSER creates it (this transport
+  // does not own the call log) and tells us the id, so that if the browser then
+  // vanishes we can still close the call out and bill it. Null until it arrives,
+  // and it may never arrive if the client's POST failed.
+  let callLogId = null;
   const useDeepgram = isDeepgramConfigured();
   // Hesitation budget for the WHOLE call. It lives here rather than inside the
   // turn because the rule it enforces — roughly one filler every few turns, the
@@ -102,6 +129,11 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
   const authTimer = setTimeout(() => {
     if (!authenticated) ws.close(4001, 'Auth timeout');
   }, AUTH_TIMEOUT_MS);
+
+  // Without this, a tab that crashes or drops off the network never produces a
+  // 'close', so the call never ends as far as this process is concerned — and
+  // the closed-tab backstop in cleanup() below only runs on 'close'.
+  const stopHeartbeat = startHeartbeat(ws, { label: 'modular web call' });
 
   const send = (obj) => {
     if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj));
@@ -279,12 +311,43 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
     }
   };
 
-  const cleanup = () => {
+  const cleanup = (status = 'COMPLETED') => {
     if (closed) return;
     closed = true;
     clearTimeout(authTimer);
+    stopHeartbeat();
+    budget?.stop();
     frames = [];
     if (dgSession) { dgSession.close(); dgSession = null; }
+
+    // The media has stopped, so this instant — not whenever the backstop below
+    // actually runs — is the end of the billable call.
+    const endedAt = new Date();
+    if (!callLogId) {
+      // The client never told us which row this call belongs to — its POST to
+      // /calls failed, or the call ended before that request came back. Nothing
+      // to settle against. Logged because "this call was never billed" is
+      // exactly the kind of thing that used to happen invisibly.
+      if (authenticated) {
+        logger.warn({ workspaceId, agentId }, 'Modular web call ended with no call log id — it cannot be billed');
+      }
+      return;
+    }
+
+    // Closed-tab backstop. Nothing here is awaited: the socket is already gone,
+    // there is nobody to report to, and holding the handler open would only
+    // delay teardown. finalizeAbandonedCall swallows its own failures and does
+    // nothing at all if the browser finalized the call itself, which is what
+    // normally happens.
+    const backstop = setTimeout(() => {
+      finalizeAbandonedCall(callLogId, {
+        workspaceId, agentId, endedAt, status, label: 'modular web call',
+      }).catch((err) => logger.warn(`Modular web call backstop failed: ${err.message}`));
+    }, CLIENT_FINALIZE_GRACE_MS);
+    // A pending backstop must never keep the process alive at shutdown. If the
+    // server restarts inside the grace window the call is left to the 2-hour
+    // reaper, exactly as it was before this existed.
+    backstop.unref?.();
   };
 
   ws.on('message', async (raw, isBinary) => {
@@ -322,6 +385,49 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
         dgLanguage = toDeepgramLanguage(settings.sttLanguage) || toDeepgramLanguage(langs[0]);
       }
 
+      // ── Wallet gate ─────────────────────────────────────────────────────────
+      //
+      // THE hole that let balances go negative. This transport is the default
+      // Web Call path, and it had no billing check of any kind: it authenticated
+      // and started serving turns. The only gate on the modular web path ran in
+      // createCallLog(), which deliberately only WARNS — the browser opens the
+      // mic and this socket before it POSTs there, and ignores the reply, so
+      // refusing the record stopped nothing. So a workspace at ₹0 could talk for
+      // as long as it liked, and settlement (which must never refuse minutes
+      // already served) wrote the whole thing off against an empty wallet.
+      //
+      // Checked HERE, before Deepgram/LLM/TTS exist, so a refused call costs us
+      // no provider spend either. The budget is the other half of the same job:
+      // passing the gate only means the call could START, so it also hangs up
+      // when the balance is spent. See callBudget.js.
+      const gate = await openCallBudget({
+        workspaceId,
+        type: 'WEB_CALL',
+        label: 'modular web call',
+        onWarn: (secondsLeft) => {
+          send({
+            type: 'error',
+            code: 'BALANCE_LOW',
+            message: `Your wallet balance runs out in about ${secondsLeft} seconds. Add funds to keep talking.`,
+          });
+        },
+        onExpire: () => {
+          send({
+            type: 'error',
+            code: 'INSUFFICIENT_BALANCE',
+            message: 'Your wallet balance has run out. Add funds to place more calls.',
+          });
+          ws.close(CLOSE_INSUFFICIENT_BALANCE, 'INSUFFICIENT_BALANCE');
+        },
+      });
+      budget = gate.budget;
+      if (!gate.allowed) {
+        logger.info({ workspaceId, agentId, code: gate.code }, `Modular web call blocked: ${gate.code}`);
+        send({ type: 'error', code: gate.code, message: gate.message });
+        ws.close(CLOSE_INSUFFICIENT_BALANCE, gate.code);
+        return;
+      }
+
       authenticated = true;
       clearTimeout(authTimer);
       // Tell the client whether model-based endpointing is actually available.
@@ -337,9 +443,7 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
       send({
         type: 'ready',
         sttEndpointing: useDeepgram,
-        endpointCommitMs: useDeepgram
-          ? maxEndpointCommitMs(Number(process.env.DEEPGRAM_ENDPOINTING_MS) || 600)
-          : 0,
+        endpointCommitMs: useDeepgram ? maxEndpointCommitMs(defaultEndpointingMs()) : 0,
       });
       return;
     }
@@ -389,10 +493,12 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
                 // grace window rather than trusted outright, so it no longer
                 // has to be conservative on its own — see the end-of-turn note
                 // in deepgramStream.service.js. Commit lands at
-                // endpointing + grace (600 + 400 = ~1000ms of real silence),
+                // endpointing + grace (300 + 400 = ~700ms of real silence),
                 // which is a natural turn boundary rather than a mid-sentence
-                // breath, while still beating the client's RMS backstop.
-                endpointingMs: Number(process.env.DEEPGRAM_ENDPOINTING_MS) || 600,
+                // breath, while still beating the client's RMS backstop. The
+                // value is shared with the phone bridge so the same agent does
+                // not turn around at two different speeds per transport.
+                endpointingMs: defaultEndpointingMs(),
                 // Semantic turn end: fires only once the caller is genuinely
                 // finished (confirmed speech_final, or an authoritative
                 // UtteranceEnd). Nudges the client to end the turn ahead of its
@@ -415,6 +521,10 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
       }
       case 'end-turn':
         capturing = false;
+        // The socket close from an expired budget and this frame can cross on
+        // the wire. Running the turn anyway would spend a full STT+LLM+TTS round
+        // on minutes the wallet has already run out of.
+        if (budget?.expired()) { frames = []; break; }
         await runTurn(msg.history);
         break;
       case 'cancel-turn':
@@ -438,6 +548,16 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
         // transcript IS awaited and no other turn is running concurrently.
         if (dgSession) dgSession.finalizeTurn(300, dgTurnSeq).catch(() => {});
         break;
+      case 'call-log':
+        // The browser has opened its Recent Calls row and is handing us the id
+        // purely so the call can still be closed out and billed if the browser
+        // goes away. Ignored after the first one: the id cannot change mid-call,
+        // and accepting a later one would let a stray frame redirect billing at
+        // a different call's row.
+        if (!callLogId && typeof msg.callLogId === 'string' && msg.callLogId) {
+          callLogId = msg.callLogId;
+        }
+        break;
       case 'barge':
         // Caller cut in. Stop the in-flight reply; the client has already
         // flushed its own playback locally.
@@ -451,9 +571,11 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
     }
   });
 
-  ws.on('close', cleanup);
+  // 'error' fires before 'close', so a socket that failed is recorded as FAILED
+  // — cleanup() is single-shot and the first status wins.
+  ws.on('close', () => cleanup('COMPLETED'));
   ws.on('error', (err) => {
     logger.warn(`Modular web call socket error: ${err.message}`);
-    cleanup();
+    cleanup('FAILED');
   });
 }

@@ -58,12 +58,29 @@ export const formatMinor = (minor, currency = getBillingCurrency()) => {
 };
 
 /**
- * Billable minutes for a call.
+ * Billing granularity, in seconds. PER-SECOND by default.
  *
- * Rounded UP to a whole billing increment, which is standard telephony practice
- * and — more importantly — is what the customer was quoted. The increment is
- * configurable because per-second and per-minute billing are both defensible;
- * what is NOT defensible is billing one way and quoting another.
+ * This used to default to 60, i.e. whole-minute rounding: a 61-second call was
+ * billed as two full minutes, so a customer could pay double for one extra
+ * second. That is a real overcharge, it is the single most disputed line on any
+ * voice bill, and nothing about this product's pricing (one flat ₹/min against a
+ * prepaid wallet) needs it — the rate is quoted per minute, but a minute is a
+ * unit of measure, not a minimum purchase.
+ *
+ * Still configurable, because "6-second increments" is a real telephony
+ * convention someone may want; what is NOT defensible is billing one way and
+ * quoting another.
+ */
+export const DEFAULT_BILLING_INCREMENT_SEC = 1;
+
+export const getBillingIncrementSec = () => {
+  const v = Number(process.env.BILLING_INCREMENT_SEC);
+  return Number.isFinite(v) && v > 0 ? v : DEFAULT_BILLING_INCREMENT_SEC;
+};
+
+/**
+ * Billable minutes for a call — a FRACTION of a minute under per-second billing
+ * (90 seconds is 1.5), rounded up to the configured increment.
  *
  * A zero-or-negative duration bills nothing. A call that never connected must
  * cost the customer nothing, and a negative duration means a clock problem,
@@ -72,9 +89,27 @@ export const formatMinor = (minor, currency = getBillingCurrency()) => {
 export const billableMinutes = (durationSec) => {
   const sec = Number(durationSec);
   if (!Number.isFinite(sec) || sec <= 0) return 0;
-  const incrementSec = Number(process.env.BILLING_INCREMENT_SEC) || 60;
+  const incrementSec = getBillingIncrementSec();
   const minMinutes = incrementSec / 60;
   return Math.ceil(sec / incrementSec) * minMinutes;
+};
+
+/**
+ * How many seconds of talk time `availableCents` buys at this rate — the
+ * mid-call budget that stops a wallet going negative.
+ *
+ * Floored, and floored on the INCREMENT rather than on the second, so the last
+ * increment a call is allowed to start is one it can actually pay for in full.
+ * A caller must never be able to end a call owing money.
+ */
+export const affordableSeconds = (availableCents, ratePerMinuteCents) => {
+  const cents = Number(availableCents);
+  const rate = Number(ratePerMinuteCents);
+  if (!Number.isFinite(cents) || cents <= 0) return 0;
+  if (!Number.isFinite(rate) || rate <= 0) return Infinity;
+  const incrementSec = getBillingIncrementSec();
+  const seconds = (cents / rate) * 60;
+  return Math.floor(seconds / incrementSec) * incrementSec;
 };
 
 /**
@@ -150,7 +185,15 @@ export const resolveCallRate = (plan) => {
   };
 };
 
-/** Total charge for a call, in billing minor units (always >= 0). */
+/**
+ * Total charge for a call, in billing minor units (always >= 0).
+ *
+ * `minutes` is fractional under per-second billing, so the product is rounded to
+ * a whole paisa exactly once, here. Rounding the RATE to a per-second figure
+ * first and multiplying would compound that error across every second of the
+ * call — at ₹11.52/min the per-second rate is 19.2 paise, and rounding it to 19
+ * quietly discounts a ten-minute call by ₹1.20.
+ */
 export const calculateCallCharge = (durationSec, plan) => {
   const rate = resolveCallRate(plan);
   const minutes = billableMinutes(durationSec);

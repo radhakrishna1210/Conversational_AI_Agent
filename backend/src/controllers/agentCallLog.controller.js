@@ -244,19 +244,60 @@ export const updateCallLog = async (req, res) => {
     const data = {};
     if (transcript !== undefined) data.transcript = sanitizeTranscript(transcript);
     if (STATUSES.has(status)) data.status = status;
-    // Every update refreshes the running duration so sessions that are never
-    // explicitly ended (tab closed mid-chat) still show how long they ran.
-    const endedAt = new Date();
-    data.durationSec = Math.max(0, Math.round((endedAt - row.startedAt) / 1000));
-    if (ended === true || isTerminalStatus(status)) data.endedAt = endedAt;
 
-    const updated = await prisma.agentCallLog.update({ where: { id: row.id }, data });
+    const endedAt = new Date();
+    // Every update refreshes the running duration so sessions that are never
+    // explicitly ended (tab closed mid-chat) still show how long they ran — but
+    // only WHILE the call is still open. Once it has an endedAt the duration is
+    // settled history: a later PATCH (the recording upload finishing, a retry)
+    // must not stretch it, or the customer pays for the upload as talk time.
+    if (!row.endedAt) {
+      data.durationSec = Math.max(0, Math.round((endedAt - row.startedAt) / 1000));
+    }
+
+    /*
+     * WHO GETS TO END THIS CALL
+     * -------------------------
+     * Two writers can now finalize a web call: this endpoint, and the socket's
+     * closed-tab backstop (ws/callFinalizer.js finalizeAbandonedCall). Exactly
+     * one of them must run the post-call pipeline, because Post-Call delivery is
+     * not idempotent — a second pass posts the webhook again, appends a second
+     * Google Sheets row and sends a second email for one call.
+     *
+     * `endedAt` is the claim, moved off null by a conditional UPDATE so the two
+     * writers cannot both win. Reading `row.endedAt` above and trusting it would
+     * be a read-then-write race; it is only used to decide the SHAPE of the
+     * write, never as the guard.
+     */
+    const finalizing = ended === true || isTerminalStatus(status);
+    let finalized = false;
+    let updated;
+
+    if (finalizing && !row.endedAt) {
+      const claimed = await prisma.agentCallLog.updateMany({
+        where: { id: row.id, endedAt: null },
+        data: { ...data, endedAt },
+      });
+      finalized = claimed.count === 1;
+      if (finalized) {
+        // Already know every field: the row as read, plus what was just written.
+        updated = { ...row, ...data, endedAt };
+      } else {
+        // Lost the race — the backstop finalized it in the last few
+        // milliseconds. Its duration and endedAt stand; still apply the
+        // transcript, which is the one thing this request has and it does not.
+        delete data.durationSec;
+        updated = await prisma.agentCallLog.update({ where: { id: row.id }, data });
+      }
+    } else {
+      updated = await prisma.agentCallLog.update({ where: { id: row.id }, data });
+    }
 
     // Answer as soon as the row itself is durable. Billing, extraction and
     // Post-Call delivery run after the response — see runPostCallPipeline.
     res.json({ success: true, call: toApi(updated) });
 
-    if (ended === true || isTerminalStatus(status)) {
+    if (finalized) {
       runPostCallPipeline(workspaceId, agentId, row.id).catch((err) => {
         logger.error({ workspaceId, agentId, callId: row.id, err: err.message }, 'Post-call pipeline failed');
       });

@@ -44,6 +44,7 @@ import { createRealtimeSession } from '../services/voice/realtimeEngine.factory.
 import { isModelAllowed } from '../services/platform/modelCatalog.js';
 import { createPcmStreamPacer } from '../services/voice/pcmStreamPacer.js';
 import { createCallFinalizer } from './callFinalizer.js';
+import { openCallBudget } from '../services/billing/callBudget.js';
 
 const safeJson = (str, fallback) => {
   try { return JSON.parse(str); } catch { return fallback; }
@@ -82,6 +83,8 @@ export function handleExotelMediaUpgrade(ws, { workspaceId, agentId, sampleRate,
   let pacer = null;
   let streamSid = null;
   let callLogId = urlCallLogId || null;
+  /** How much talk time the wallet paid for. Armed at `start`. */
+  let budget = null;
   const transcript = [];
   const startedAt = Date.now();
 
@@ -92,6 +95,7 @@ export function handleExotelMediaUpgrade(ws, { workspaceId, agentId, sampleRate,
     // idempotent because cleanup() is reachable from both `stop` and `close`.
     pacer?.stop();
     pacer = null;
+    budget?.stop();
     session?.close();
     if (status) finalizeCallLog(callLogId, status, { transcript, startedAt });
   };
@@ -135,6 +139,28 @@ export function handleExotelMediaUpgrade(ws, { workspaceId, agentId, sampleRate,
           if (!(await isModelAllowed('conversational', settings.voiceEngine))) {
             throw new Error('This conversational engine is no longer available on this platform');
           }
+          // Wallet gate + spend deadline, before the upstream session exists so
+          // a refused call costs no provider spend. See callBudget.js.
+          const gate = await openCallBudget({
+            workspaceId,
+            type: 'PHONE_CALL',
+            label: 'Exotel phone call',
+            onExpire: () => {
+              cleanup('COMPLETED');
+              try { ws.close(); } catch { /* already gone */ }
+            },
+          });
+          budget = gate.budget;
+          if (!gate.allowed) {
+            logger.warn(
+              { workspaceId, agentId, callLogId, code: gate.code },
+              `Exotel phone call refused: ${gate.code}`,
+            );
+            cleanup('FAILED');
+            ws.close();
+            return;
+          }
+
           if (settings.ambientSound && process.env.AMBIENCE_PHONE_ENABLED !== 'false') {
             logger.info(
               { workspaceId, agentId },

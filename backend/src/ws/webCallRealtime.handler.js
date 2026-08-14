@@ -18,7 +18,9 @@
 
 import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
-import { settleCall, assertCanStartCall } from '../services/billing/settlement.service.js';
+import { settleCall } from '../services/billing/settlement.service.js';
+import { openCallBudget } from '../services/billing/callBudget.js';
+import { startHeartbeat } from './socketHeartbeat.js';
 import { verifyAccessToken } from '../lib/jwt.js';
 import { getAgentKbText } from '../services/agentRuntime.service.js';
 import { createRealtimeSession } from '../services/voice/realtimeEngine.factory.js';
@@ -38,6 +40,7 @@ export async function handleWebCallUpgrade(ws, { workspaceId, agentId }) {
   let authenticated = false;
   let session = null;
   let callLogId = null;
+  let budget = null;
   const transcript = [];
   const startedAt = Date.now();
 
@@ -46,6 +49,11 @@ export async function handleWebCallUpgrade(ws, { workspaceId, agentId }) {
       ws.close(4001, 'Auth timeout');
     }
   }, AUTH_TIMEOUT_MS);
+
+  // A tab that crashes or drops off the network sends no close frame, so this
+  // call would otherwise stay live — engine session open, log IN_PROGRESS,
+  // never settled — until TCP eventually gave up, potentially hours later.
+  const stopHeartbeat = startHeartbeat(ws, { label: 'bundled web call' });
 
   const finalizeCallLog = async (status) => {
     if (!callLogId) return;
@@ -79,6 +87,8 @@ export async function handleWebCallUpgrade(ws, { workspaceId, agentId }) {
   const cleanup = (status = 'COMPLETED') => {
     if (teardown) return teardown;
     clearTimeout(authTimer);
+    stopHeartbeat();
+    budget?.stop();
     session?.close();
     teardown = finalizeCallLog(status);
     return teardown;
@@ -125,20 +135,44 @@ export async function handleWebCallUpgrade(ws, { workspaceId, agentId }) {
       authenticated = true;
       clearTimeout(authTimer);
 
-      // BUG-002: plan + balance gate. Runs BEFORE the upstream realtime session
-      // is created -- connecting to the provider first would incur real cost
-      // for a call we are about to refuse. The close code carries the reason so
-      // the client can explain it instead of showing a generic disconnect.
-      const gate = await assertCanStartCall(workspaceId, { type: 'WEB_CALL' });
+      // BUG-002: balance gate, and the spend deadline that goes with it. Runs
+      // BEFORE the upstream realtime session is created -- connecting to the
+      // provider first would incur real cost for a call we are about to refuse.
+      // The close code carries the reason so the client can explain it instead
+      // of showing a generic disconnect.
+      //
+      // The gate alone only ever bought the RIGHT TO START: without the deadline
+      // the budget adds, a workspace with one minute of balance could hold this
+      // socket open for half an hour and settle the lot against an empty wallet.
+      // See callBudget.js.
+      const send = (obj) => {
+        if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj));
+      };
+      const gate = await openCallBudget({
+        workspaceId,
+        type: 'WEB_CALL',
+        label: 'bundled web call',
+        onWarn: (secondsLeft) => send({
+          type: 'error',
+          code: 'BALANCE_LOW',
+          message: `Your wallet balance runs out in about ${secondsLeft} seconds. Add funds to keep talking.`,
+        }),
+        onExpire: () => {
+          send({
+            type: 'error',
+            code: 'INSUFFICIENT_BALANCE',
+            message: 'Your wallet balance has run out. Add funds to place more calls.',
+          });
+          ws.close(4009, 'INSUFFICIENT_BALANCE');
+        },
+      });
+      budget = gate.budget;
       if (!gate.allowed) {
         logger.info({ workspaceId, agentId, code: gate.code }, `Web call blocked: ${gate.code}`);
-        if (ws.readyState === ws.OPEN) {
-          ws.send(JSON.stringify({ type: 'error', code: gate.code, message: gate.message }));
-        }
+        send({ type: 'error', code: gate.code, message: gate.message });
         ws.close(4009, gate.code);
         return;
       }
-
 
       try {
         const { kbText } = await getAgentKbText(workspaceId, agentId);

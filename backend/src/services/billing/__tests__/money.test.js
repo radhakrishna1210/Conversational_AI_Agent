@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import {
   toMinorUnits, usdToBillingMinor, billableMinutes, resolveCallRate,
   calculateCallCharge, calculateProration, DEFAULT_USD_TO_INR,
+  affordableSeconds,
 } from '../money.js';
 
 // Pin the environment so tests do not depend on local .env values.
@@ -60,12 +61,23 @@ test('USD converts to paise at the configured rate', () => {
   assert.equal(usdToBillingMinor(1), 9600);
 });
 
-test('billable minutes round up to the increment', () => {
-  assert.equal(billableMinutes(1), 1);
-  assert.equal(billableMinutes(59), 1);
+test('billing is per SECOND by default, not per whole minute', () => {
+  // The regression this file exists to prevent: 61 seconds used to bill as two
+  // full minutes, so one extra second doubled the price of a call.
   assert.equal(billableMinutes(60), 1);
-  assert.equal(billableMinutes(61), 2);
-  assert.equal(billableMinutes(150), 3);
+  assert.equal(billableMinutes(61), 61 / 60);
+  assert.equal(billableMinutes(30), 0.5);
+  assert.equal(billableMinutes(1), 1 / 60);
+  assert.equal(billableMinutes(150), 2.5);
+});
+
+test('one extra second costs one extra second, not one extra minute', () => {
+  const rate = { perMinuteInr: 11.52 };  // 1152 paise/min = 19.2 paise/sec
+  const oneMinute = calculateCallCharge(60, rate).amountCents;
+  const andOneSecond = calculateCallCharge(61, rate).amountCents;
+  assert.equal(oneMinute, 1152);
+  assert.equal(andOneSecond, 1171);            // 1152 + 19.2, to the paisa
+  assert.ok(andOneSecond - oneMinute < 25, 'a second must not cost a minute');
 });
 
 test('a call that never connected is free', () => {
@@ -84,11 +96,26 @@ test('a negative duration fails closed, never a negative charge', () => {
   }
 });
 
-test('per-second billing increment is honoured when configured', () => {
-  process.env.BILLING_INCREMENT_SEC = '1';
-  assert.equal(billableMinutes(30), 0.5);
-  assert.equal(billableMinutes(90), 1.5);
+test('a coarser billing increment is honoured when configured', () => {
+  process.env.BILLING_INCREMENT_SEC = '60';
+  assert.equal(billableMinutes(61), 2);
+  process.env.BILLING_INCREMENT_SEC = '6';   // the other common convention
+  assert.equal(billableMinutes(61), 66 / 60);
   delete process.env.BILLING_INCREMENT_SEC;
+});
+
+test('affordable seconds never exceed what the balance covers', () => {
+  // ₹11.52/min = 19.2 paise/sec. ₹10 (1000 paise) buys 52.08s -> 52 whole
+  // seconds, and 52s must cost no more than the balance. Rounding the other way
+  // is exactly how a wallet ends a call in the negative.
+  const rate = 1152;
+  const seconds = affordableSeconds(1000, rate);
+  assert.equal(seconds, 52);
+  assert.ok(calculateCallCharge(seconds, { perMinuteInr: 11.52 }).amountCents <= 1000);
+
+  assert.equal(affordableSeconds(0, rate), 0);
+  assert.equal(affordableSeconds(-500, rate), 0);
+  assert.equal(affordableSeconds(10, rate), 0, 'a few paise buys nothing');
 });
 
 test('a missing plan falls back to the most expensive rate, never to free', () => {
@@ -102,10 +129,10 @@ test('a missing plan falls back to the most expensive rate, never to free', () =
 });
 
 test('call charge uses the customer rate card, and records the rate applied', () => {
-  const c = calculateCallCharge(150, { perMinuteUsd: 0.085 }); // 3 billed minutes
-  assert.equal(c.minutes, 3);
+  const c = calculateCallCharge(150, { perMinuteUsd: 0.085 }); // 2.5 billed minutes
+  assert.equal(c.minutes, 2.5);
   assert.equal(c.ratePerMinuteCents, 816);
-  assert.equal(c.amountCents, 2448);      // 3 x 816
+  assert.equal(c.amountCents, 2040);      // 2.5 x 816
   assert.equal(c.fxRate, 96);             // snapshotted for reproducibility
   assert.equal(c.perMinuteUsd, 0.085);
 });
@@ -238,8 +265,8 @@ test('the per-minute rate prefers the native INR figure', () => {
 
 test('a call is charged at the native INR rate', () => {
   const c = calculateCallCharge(150, { perMinuteInr: 7.68, perMinuteUsd: 0.08 });
-  assert.equal(c.minutes, 3);
-  assert.equal(c.amountCents, 3 * 768);
+  assert.equal(c.minutes, 2.5);
+  assert.equal(c.amountCents, 2.5 * 768);
 });
 
 test('proration works on native INR plans', () => {

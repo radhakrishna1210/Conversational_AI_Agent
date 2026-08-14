@@ -17,7 +17,10 @@
 export type XaiCallEvent =
   | { type: 'ready' }
   | { type: 'transcript'; role: 'user' | 'assistant'; text: string; done: boolean }
-  | { type: 'error'; message: string };
+  // `code` names a reason the server wants called out rather than shown as a
+  // generic failure — INSUFFICIENT_BALANCE (wallet empty or spent, the call is
+  // over) and BALANCE_LOW (a heads-up; the call is still running).
+  | { type: 'error'; code?: string; message: string };
 
 import { startAmbientSound } from './ambientSound';
 
@@ -88,6 +91,7 @@ class XaiCallSocketService {
       this.socket = socket;
 
       let settled = false;
+      let serverError: string | null = null;
 
       socket.onopen = () => {
         socket.send(JSON.stringify({ type: 'auth', token }));
@@ -122,18 +126,34 @@ class XaiCallSocketService {
             resolve();
           }
         }
+        // Why the server is about to hang up, remembered so the close handler
+        // can name it. A refusal (an empty wallet, most often) arrives as an
+        // error frame followed immediately by a close; without this the user was
+        // told the connection failed, when in fact it worked perfectly and they
+        // simply need to add funds. Only latched before `ready` or for a
+        // terminal code, so a recoverable mid-call error is not still being
+        // reported as the reason a normal hangup ended the call.
+        if (msg.type === 'error' && msg.message
+            && (!settled || msg.code === 'INSUFFICIENT_BALANCE')) {
+          serverError = msg.message;
+        }
         onEvent(msg);
       };
 
       socket.onerror = () => {
         if (!settled) {
           settled = true;
-          reject(new Error('Could not connect to the xAI Conversational Agent'));
+          reject(new Error(serverError || 'Could not connect to the xAI Conversational Agent'));
         }
       };
 
       socket.onclose = () => {
-        onEvent({ type: 'error', message: 'Call ended' });
+        if (!settled) {
+          settled = true;
+          reject(new Error(serverError || 'The call could not be started'));
+          return;
+        }
+        onEvent({ type: 'error', message: serverError || 'Call ended' });
       };
     });
   }

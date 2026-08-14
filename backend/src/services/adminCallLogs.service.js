@@ -63,7 +63,10 @@ const listDto = (r) => ({
   extractionStatus: r.extractionStatus,
   billingStatus: r.billingStatus,
   billedCents: r.billedCents,
-  billedMinutes: r.billedMinutes,
+  // Billing is per second, so this is a fraction — 61 seconds is 1.0166666…
+  // Rounded for display only; `billedCents` is the figure that was charged and
+  // is never derived from this.
+  billedMinutes: Number((Number(r.billedMinutes) || 0).toFixed(2)),
   ratePerMinuteCents: r.ratePerMinuteCents,
   // Null on every row today: settleCall() accepts this but no call site
   // supplies it. Passed through as-is so the UI can say "not measured"

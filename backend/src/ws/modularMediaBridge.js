@@ -61,6 +61,7 @@ import {
   DeepgramStreamSession,
   isDeepgramConfigured,
   toDeepgramLanguage,
+  defaultEndpointingMs,
 } from '../services/stt/deepgramStream.service.js';
 import { analyzeSpeech, classifyCallerAffect } from '../services/stt/speechGate.js';
 import { createFillerBudget } from '../services/voice/disfluency.js';
@@ -76,6 +77,7 @@ import { createPlayoutWindow } from '../services/voice/playoutWindow.js';
 import { encodeWav } from '../services/voice/callRecorder.js';
 import { createRecordingTap } from './callRecordingTap.js';
 import { createCallFinalizer } from './callFinalizer.js';
+import { openCallBudget } from '../services/billing/callBudget.js';
 
 const safeJson = (str, fallback) => {
   try { return JSON.parse(str); } catch { return fallback; }
@@ -173,6 +175,8 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
   let dg = null;
   let dgTurnSeq = 0;
   let dgLanguage;
+  /** How much talk time the wallet paid for. Armed at `start`, once gated. */
+  let budget = null;
   // Cooldown between reconnect attempts in the 'media' handler, so a session that
   // fails to connect at all (bad key, Deepgram outage) does not retry once per
   // inbound frame (~50/s) — see the 'media' case below.
@@ -565,7 +569,9 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
       encoding: 'mulaw',
       sampleRate: PHONE_SAMPLE_RATE,
       language: dgLanguage,
-      endpointingMs: Number(process.env.DEEPGRAM_ENDPOINTING_MS) || 500,
+      // Shared with the web handler — the phone path had its own 500ms default,
+      // so end-of-turn committed at a different point per transport.
+      endpointingMs: defaultEndpointingMs(),
       onEndOfTurn: () => { runTurn(); },
     });
     dg.connect();
@@ -587,6 +593,7 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
     abortTurn = true;
     turnPcmChunks = [];
     turnPcmSamples = 0;
+    budget?.stop();
     playout.stop();
     try { dg?.close(); } catch { /* already gone */ }
     dg = null;
@@ -614,6 +621,49 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
           agent = await prisma.agent.findFirst({ where: { id: agentId, workspaceId } });
           if (!agent) throw new Error('Agent not found in this workspace');
           settings = safeJson(agent.settings, {});
+
+          // ── Wallet gate ───────────────────────────────────────────────────
+          //
+          // Outbound calls are gated before dialling (agent.controller testCall,
+          // campaignRunner), but nothing gated an INBOUND one: a caller ringing
+          // a workspace's number got a full conversation whatever the balance
+          // said, and settlement — which cannot refuse minutes already served —
+          // booked it against an empty wallet.
+          //
+          // Checked before Deepgram, the voice lookup and the greeting, so a
+          // refused call spends nothing with any provider. The dial-time gate on
+          // the outbound paths is not redundant with this one: it stops us
+          // PLACING a call we cannot pay for, which is a cost this check is
+          // already too late to avoid.
+          //
+          // The budget also hangs the call up when the balance is spent, since
+          // passing a gate at pickup says nothing about a call's length.
+          // Closing the media socket is the only lever this bridge has: Twilio's
+          // <Connect><Stream> ends the call with it, while Plivo's stream
+          // carries keepCallAlive, so there the line goes quiet and the caller
+          // hangs up. Either way the agent stops costing money.
+          const gate = await openCallBudget({
+            workspaceId,
+            type: 'PHONE_CALL',
+            label: carrier.label,
+            onExpire: () => {
+              cleanup('COMPLETED');
+              try { ws.close(); } catch { /* already gone */ }
+            },
+          });
+          budget = gate.budget;
+          if (!gate.allowed) {
+            logger.warn(
+              { workspaceId, agentId, callLogId, code: gate.code },
+              `${carrier.label} refused: ${gate.code}`,
+            );
+            // FAILED, not COMPLETED: nothing was served. Duration is ~0, so
+            // settlement skips it as a zero-duration call and the caller is not
+            // charged for a call that never happened.
+            cleanup('FAILED');
+            ws.close();
+            return;
+          }
 
           if (!isDeepgramConfigured()) {
             throw new Error('Deepgram is not configured; the modular phone bridge needs streaming STT');

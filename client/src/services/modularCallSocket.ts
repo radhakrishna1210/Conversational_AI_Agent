@@ -34,7 +34,10 @@ export type ModularCallEvent =
   // client ends the current listening turn now instead of waiting for its VAD.
   | { type: 'endpoint' }
   | { type: 'done'; reply?: string | null; timings?: { sttMs: number; llmMs: number; ttsMs: number; ttfaMs: number; totalMs: number } | null }
-  | { type: 'error'; message: string };
+  // `code` is set when the server refused or ended the call for a specific
+  // reason it wants named — INSUFFICIENT_BALANCE (wallet empty or spent) and
+  // BALANCE_LOW (a heads-up, the call is still running).
+  | { type: 'error'; code?: string; message: string };
 
 class ModularCallSocketService {
   private socket: WebSocket | null = null;
@@ -56,6 +59,18 @@ class ModularCallSocketService {
       socket.binaryType = 'arraybuffer';
       this.socket = socket;
       let settled = false;
+      // Why the server is about to hang up. A refusal arrives as an error frame
+      // followed immediately by a close, and without remembering it the close
+      // handler could only offer "could not connect" — which is exactly wrong
+      // for the most common refusal, an empty wallet, where the connection was
+      // fine and the user needs to be told to add funds.
+      //
+      // Only TERMINAL reasons are latched. A per-turn failure mid-call is
+      // already shown when it happens and the call carries on, so keeping it
+      // here would make a perfectly normal hangup, minutes later, report a stale
+      // error as the reason the call ended.
+      let serverError: string | null = null;
+      const TERMINAL_CODES = ['INSUFFICIENT_BALANCE'];
 
       socket.onopen = () => socket.send(JSON.stringify({ type: 'auth', token }));
 
@@ -70,14 +85,29 @@ class ModularCallSocketService {
         try { msg = JSON.parse(event.data as string); } catch { return; }
         if (!msg) return;
         if (msg.type === 'ready' && !settled) { settled = true; resolve(); }
+        if (msg.type === 'error' && msg.message && (!settled || TERMINAL_CODES.includes(msg.code || ''))) {
+          serverError = msg.message;
+        }
         onEvent(msg);
       };
 
       socket.onerror = () => {
-        if (!settled) { settled = true; reject(new Error('Could not connect to the modular Web Call')); }
+        if (!settled) {
+          settled = true;
+          reject(new Error(serverError || 'Could not connect to the modular Web Call'));
+        }
       };
 
-      socket.onclose = () => onEvent({ type: 'error', message: 'Call ended' });
+      socket.onclose = () => {
+        // A close that beats `ready` is a refusal, not a hangup — reject with
+        // whatever the server said so the caller shows the real reason.
+        if (!settled) {
+          settled = true;
+          reject(new Error(serverError || 'The Web Call could not be started'));
+          return;
+        }
+        onEvent({ type: 'error', message: serverError || 'Call ended' });
+      };
     });
   }
 
@@ -89,6 +119,18 @@ class ModularCallSocketService {
   sendPcm(buf: ArrayBuffer) {
     if (this.socket?.readyState === WebSocket.OPEN) this.socket.send(buf);
   }
+
+  /**
+   * Hand the server the Recent Calls row this call is being logged against.
+   *
+   * The browser owns that row — it creates it, PATCHes the transcript per turn
+   * and ends it — which meant a closed tab took the end of the call with it: the
+   * call was served but never finalized and never billed. Telling the server the
+   * id lets it close the call out on its own if this page disappears. It is a
+   * backstop, not a handover: when the tab survives, the client's own terminal
+   * PATCH still wins and the server does nothing.
+   */
+  attachCallLog(callLogId: string) { this.sendJson({ type: 'call-log', callLogId }); }
 
   startTurn(sampleRate: number) { this.sendJson({ type: 'start-turn', sampleRate }); }
   endTurn(history: { role: string; content: string }[]) { this.sendJson({ type: 'end-turn', history }); }

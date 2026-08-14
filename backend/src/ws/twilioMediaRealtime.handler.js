@@ -20,6 +20,7 @@ import { createRealtimeSession } from '../services/voice/realtimeEngine.factory.
 import { isModelAllowed } from '../services/platform/modelCatalog.js';
 import { createAmbiencePump } from '../services/voice/ambiencePump.js';
 import { createCallFinalizer } from './callFinalizer.js';
+import { openCallBudget } from '../services/billing/callBudget.js';
 import { createRecordingTap } from './callRecordingTap.js';
 
 const safeJson = (str, fallback) => {
@@ -35,6 +36,8 @@ export function handleTwilioMediaUpgrade(ws, { workspaceId, agentId }) {
   let pump = null;   // ambience/pacing pump; null when ambience is off
   let streamSid = null;
   let callLogId = null;
+  /** How much talk time the wallet paid for. Armed at `start`. */
+  let budget = null;
   const transcript = [];
   const startedAt = Date.now();
 
@@ -55,6 +58,7 @@ export function handleTwilioMediaUpgrade(ws, { workspaceId, agentId }) {
     // stop() is idempotent because cleanup() is reachable more than once.
     pump?.stop();
     pump = null;
+    budget?.stop();
     session?.close();
     recording.save(callLogId);
     if (status) finalizeCallLog(callLogId, status, { transcript, startedAt });
@@ -83,6 +87,30 @@ export function handleTwilioMediaUpgrade(ws, { workspaceId, agentId }) {
           // before the upstream session (and its cost) is created.
           if (!(await isModelAllowed('conversational', settings.voiceEngine))) {
             throw new Error('This conversational engine is no longer available on this platform');
+          }
+
+          // Wallet gate + spend deadline, before the upstream session exists so
+          // a refused call costs no provider spend. Inbound calls were never
+          // gated at all, and no phone path had a deadline — see callBudget.js.
+          const gate = await openCallBudget({
+            workspaceId,
+            type: 'PHONE_CALL',
+            label: 'realtime phone call',
+            onExpire: () => {
+              cleanup('COMPLETED');
+              try { ws.close(); } catch { /* already gone */ }
+            },
+          });
+          budget = gate.budget;
+          if (!gate.allowed) {
+            logger.warn(
+              { workspaceId, agentId, callLogId, code: gate.code },
+              `Realtime phone call refused: ${gate.code}`,
+            );
+            // Nothing was served, so the ~0s duration settles as free.
+            cleanup('FAILED');
+            ws.close();
+            return;
           }
 
           const { kbText } = await getAgentKbText(workspaceId, agentId);

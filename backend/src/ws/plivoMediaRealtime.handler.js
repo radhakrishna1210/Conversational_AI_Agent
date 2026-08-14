@@ -37,6 +37,7 @@ import { isModelAllowed } from '../services/platform/modelCatalog.js';
 import { createAmbiencePump } from '../services/voice/ambiencePump.js';
 import { createCallFinalizer } from './callFinalizer.js';
 import { createRecordingTap } from './callRecordingTap.js';
+import { openCallBudget } from '../services/billing/callBudget.js';
 import { STREAM_CONTENT_TYPE, STREAM_SAMPLE_RATE } from '../services/telephony/plivo.provider.js';
 
 const safeJson = (str, fallback) => {
@@ -51,6 +52,8 @@ export function handlePlivoMediaUpgrade(ws, { workspaceId, agentId, callLogId = 
   let session = null;
   let pump = null;      // ambience/pacing pump; null when ambience is off
   let streamId = null;
+  /** How much talk time the wallet paid for. Armed at `start`. */
+  let budget = null;
   const transcript = [];
   const startedAt = Date.now();
 
@@ -65,6 +68,7 @@ export function handlePlivoMediaUpgrade(ws, { workspaceId, agentId, callLogId = 
     // First: a leaked 20ms interval would outlive the call permanently.
     pump?.stop();
     pump = null;
+    budget?.stop();
     session?.close();
     recording.save(callLogId);
     if (status) finalizeCallLog(callLogId, status, { transcript, startedAt });
@@ -112,6 +116,31 @@ export function handlePlivoMediaUpgrade(ws, { workspaceId, agentId, callLogId = 
           }
           if (!(await isModelAllowed('conversational', settings.voiceEngine))) {
             throw new Error('This conversational engine is no longer available on this platform');
+          }
+
+          // Wallet gate + spend deadline, before the upstream session exists so
+          // a refused call costs no provider spend. Note that Plivo's <Stream>
+          // carries keepCallAlive, so closing this socket silences the agent
+          // rather than dropping the line — the caller then hangs up, and no
+          // further minutes are generated either way. See callBudget.js.
+          const gate = await openCallBudget({
+            workspaceId,
+            type: 'PHONE_CALL',
+            label: 'Plivo phone call',
+            onExpire: () => {
+              cleanup('COMPLETED');
+              try { ws.close(); } catch { /* already gone */ }
+            },
+          });
+          budget = gate.budget;
+          if (!gate.allowed) {
+            logger.warn(
+              { workspaceId, agentId, callLogId, code: gate.code },
+              `Plivo phone call refused: ${gate.code}`,
+            );
+            cleanup('FAILED');
+            ws.close();
+            return;
           }
 
           const { kbText } = await getAgentKbText(workspaceId, agentId);
