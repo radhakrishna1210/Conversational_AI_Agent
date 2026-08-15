@@ -559,6 +559,15 @@ export default function EditAgent() {
     // reply audio arrives as a queue of segments, and a segment that starts
     // mid-duck has to start quiet too.
     duckLevel: number;
+    // Interval driving the short fade between two duck levels. A step change in
+    // element.volume is audible as a click, and a reply that steps up and down
+    // sounds broken rather than responsive.
+    duckRamp: number | null;
+    // Latched for the REST OF THE CALL once ducking has proven to be firing on
+    // the agent's own echo rather than on the caller (see MAX_DUCK_MS). Only
+    // gates stage 1 (duck); the stage-2 cut is untouched, so real barge-in keeps
+    // working — this trades a nicety for a stable playback level.
+    duckDisabled: boolean;
     // ── B2 modular WebSocket transport (voiceEngine === 'modular') ──
     // true once the persistent modular Web Call socket is running.
     socketMode: boolean;
@@ -593,7 +602,7 @@ export default function EditAgent() {
     // so a change to the server's grace windows cannot silently be overridden by
     // a client constant that still fires first.
     endpointCommitMs: number;
-  }>({ active: false, stream: null, audioCtx: null, analyser: null, recorder: null, vadTimer: null, player: null, history: [], mixDest: null, mixRecorder: null, mixChunks: [], logId: null, bundledEngine: false, lastSpeechAt: 0, ambientStop: null, stopPlayback: null, bargeTimer: null, duckLevel: 1, socketMode: false, micWorklet: null, capturingPcm: false, modularSession: null, modularQueue: [], modularPlaying: null, modularOutstanding: 0, modularDoneResolvers: [], pendingUserText: '', turnEpoch: 0, endTurnEarly: null, noiseFloor: 0, sttEndpointing: false, endpointCommitMs: 0 });
+  }>({ active: false, stream: null, audioCtx: null, analyser: null, recorder: null, vadTimer: null, player: null, history: [], mixDest: null, mixRecorder: null, mixChunks: [], logId: null, bundledEngine: false, lastSpeechAt: 0, ambientStop: null, stopPlayback: null, bargeTimer: null, duckLevel: 1, duckRamp: null, duckDisabled: false, socketMode: false, micWorklet: null, capturingPcm: false, modularSession: null, modularQueue: [], modularPlaying: null, modularOutstanding: 0, modularDoneResolvers: [], pendingUserText: '', turnEpoch: 0, endTurnEarly: null, noiseFloor: 0, sttEndpointing: false, endpointCommitMs: 0 });
 
   // ─── Call history logging (Recent Calls tab) ────────────────────────────────
   // Every test session — chat modal, Chat Test tab, web call, phone call — is
@@ -1439,17 +1448,43 @@ export default function EditAgent() {
    * Set the agent's playback volume across every element that could be making
    * sound right now — the segment playing, the ones queued behind it, and the
    * non-socket player. Used by barge-in stage 1 to DUCK rather than cut.
+   *
+   * The move is FADED over ~VOLUME_RAMP_MS rather than assigned in one step.
+   * `element.volume = x` is a discontinuity in the waveform: mid-word it is an
+   * audible click, and a reply that ducks and restores a few times sounds like
+   * the audio is breaking up rather than like the agent lowering its voice.
+   * `call.duckLevel` is updated to the TARGET immediately, so a segment created
+   * part-way through a fade still starts at the level we are heading for.
    */
+  const VOLUME_RAMP_MS = 120;
+  const VOLUME_RAMP_STEPS = 6;
   const setAgentVolume = (level: number) => {
     const call = callRef.current;
+    const from = call.duckLevel;
     call.duckLevel = level;
-    const apply = (el: HTMLAudioElement | null | undefined) => {
-      if (el) { try { el.volume = level; } catch { /* element already torn down */ } }
+    const apply = (v: number) => {
+      const set = (el: HTMLAudioElement | null | undefined) => {
+        if (el) { try { el.volume = v; } catch { /* element already torn down */ } }
+      };
+      set(call.player);
+      set(call.modularPlaying?.audioEl);
+      set(call.modularSession?.audioEl);
+      call.modularQueue.forEach((s) => set(s.audioEl));
     };
-    apply(call.player);
-    apply(call.modularPlaying?.audioEl);
-    apply(call.modularSession?.audioEl);
-    call.modularQueue.forEach((s) => apply(s.audioEl));
+    // A new move supersedes a fade still in progress; without this the old
+    // interval keeps writing toward the level we just changed our mind about.
+    if (call.duckRamp !== null) { clearInterval(call.duckRamp); call.duckRamp = null; }
+    if (from === level) { apply(level); return; }
+    let step = 0;
+    call.duckRamp = window.setInterval(() => {
+      step += 1;
+      if (step >= VOLUME_RAMP_STEPS) {
+        if (call.duckRamp !== null) { clearInterval(call.duckRamp); call.duckRamp = null; }
+        apply(level);
+        return;
+      }
+      apply(from + (level - from) * (step / VOLUME_RAMP_STEPS));
+    }, VOLUME_RAMP_MS / VOLUME_RAMP_STEPS);
   };
 
   // Give a queued segment its turn: start MediaSource playback, or fire the
@@ -1933,7 +1968,7 @@ export default function EditAgent() {
       // noiseFloor starts at 0 so the first listening ticks adapt straight to
       // the real room (FLOOR_DOWN converges in a few hundred ms); until then
       // the absolute SPEECH_RMS_FLOOR governs, which is the conservative end.
-      Object.assign(call, { active: true, stream, audioCtx, analyser, history: [], mixDest, mixRecorder, mixChunks, logId: null, lastSpeechAt: Date.now(), ambientStop, socketMode: true, micWorklet, capturingPcm: false, modularPlayChain: null, pendingUserText: '', turnEpoch: 0, noiseFloor: 0 });
+      Object.assign(call, { active: true, stream, audioCtx, analyser, history: [], mixDest, mixRecorder, mixChunks, logId: null, lastSpeechAt: Date.now(), ambientStop, socketMode: true, micWorklet, capturingPcm: false, modularPlayChain: null, pendingUserText: '', turnEpoch: 0, noiseFloor: 0, duckLevel: 1, duckDisabled: false });
 
       // Barge-in, in TWO STAGES: duck first, cut only if they keep going.
       //
@@ -1984,24 +2019,70 @@ export default function EditAgent() {
       // reply and just sounds inexplicably quiet — choppy traded for muffled.
       // A real interrupting caller reaches CUT_MS within a second; echo never
       // does, because the gaps between the agent's own words keep resetting the
-      // sustain counter. So a duck this long is self-evidently a false
-      // positive: undo it, and stop ducking for the rest of THIS reply.
+      // sustain counter. So a duck this long is self-evidently a false positive:
+      // undo it, and stop ducking (see FALSE_DUCKS_BEFORE_DISABLE).
       const MAX_DUCK_MS = 2400;
-      const DUCK_LEVEL = 0.25;
+      // -7dB. Was 0.25 (-12dB), which is not "quieter", it is GONE — on laptop
+      // speakers a ducked reply was reported as inaudible. The point of stage 1
+      // is to signal "I heard you" while STILL BEING UNDERSTOOD, so a duck has
+      // to stay comfortably above the room.
+      const DUCK_LEVEL = 0.45;
+      // Ducking is a feedback loop, and this is what closes it: lowering the
+      // agent's volume lowers the ECHO OF THE AGENT that the mic hears, which is
+      // the very signal the duck was triggered by. So while ducked, judge
+      // "is it quiet now?" against a threshold scaled by the same factor.
+      //
+      // Without this the ducker oscillates on its own output, which is the
+      // "volume keeps going up and down, sometimes inaudible" symptom:
+      //   duck to 25% → echo drops 12dB, now below the threshold → the gap reads
+      //   as the caller stopping → RESTORE_HOLD_MS elapses → back to 100% → echo
+      //   returns → DUCK_MS elapses → duck again … a ~1s loud/quiet cycle for
+      //   the whole reply.
+      // A real caller does not get quieter because we ducked, so their speech
+      // still clears the scaled threshold and stage 2 cuts as designed; echo
+      // does not, so it holds the duck until MAX_DUCK_MS retires it below.
+      const duckedQuietThreshold = (t: number) => t * DUCK_LEVEL;
+      // ONE false duck is enough to conclude this caller is on speakers, not
+      // headphones, and ducking then stays off for the REST OF THE CALL. Stage 2
+      // (cut) is deliberately NOT gated by this, so barge-in still works.
+      //
+      // Was 2, which allowed the level to dip twice before settling and was
+      // still reported as the voice dropping away. There is no ambiguity worth
+      // a retry here: reaching MAX_DUCK_MS means the mic held energy above the
+      // ducked threshold for 2.4 continuous seconds WITHOUT ever sustaining
+      // enough to cut. A real interrupting caller passes CUT_MS at 800ms, three
+      // times sooner — so this signature is echo, and one sample of it is proof.
+      const FALSE_DUCKS_BEFORE_DISABLE = 1;
       let bargeActiveMs = 0;
       let quietMs = 0;
       let duckedMs = 0;
-      let duckSuppressed = false;
+      let falseDucks = 0;
       call.bargeTimer = window.setInterval(() => {
         if (!call.active || !call.analyser || !call.stopPlayback) {
           if (call.duckLevel !== 1) setAgentVolume(1);
           bargeActiveMs = 0;
           quietMs = 0;
           duckedMs = 0;
-          duckSuppressed = false; // next reply starts with a clean slate
           return;
         }
         if (call.duckLevel !== 1) duckedMs += 80;
+        // Checked EVERY tick, not only on loud ones. This lived inside the
+        // `rms > threshold` branch, and so never ran in the one case it was
+        // written for: a duck sustained by echo spends its ticks in the quiet
+        // branch (the duck itself pushed the echo down), so duckedMs climbed
+        // forever and the escape hatch was unreachable dead code.
+        if (call.duckLevel !== 1 && duckedMs >= MAX_DUCK_MS) {
+          falseDucks += 1;
+          if (falseDucks >= FALSE_DUCKS_BEFORE_DISABLE) call.duckDisabled = true;
+          setAgentVolume(1);
+          duckedMs = 0;
+          quietMs = 0;
+          console.warn('[barge] duck released — sustained mic energy that never became an '
+            + 'interruption (likely echo of the agent).'
+            + (call.duckDisabled
+              ? ' Ducking is now OFF for this call; barge-in still cuts. Headphones remove this entirely.'
+              : ''));
+        }
         const buf = new Uint8Array(call.analyser.fftSize);
         call.analyser.getByteTimeDomainData(buf);
         let sum = 0;
@@ -2016,24 +2097,20 @@ export default function EditAgent() {
         // cannot train it. Still gated by the ~240ms sustain below.
         const BARGE_SNR = 5.0;
         const BARGE_RMS_FLOOR = 0.03;
-        if (rms > Math.max(BARGE_RMS_FLOOR, call.noiseFloor * BARGE_SNR)) {
+        const threshold = Math.max(BARGE_RMS_FLOOR, call.noiseFloor * BARGE_SNR);
+        // Two thresholds, and the difference is the whole fix. `threshold` is
+        // what counts as SPEECH (unscaled — echo attenuated by the duck must not
+        // accumulate toward a cut, or the agent would cut itself off). The
+        // restore test below uses the duck-scaled one, so a duck cannot
+        // manufacture the quiet that ends it.
+        if (rms > threshold) {
           bargeActiveMs += 80;
           quietMs = 0;
           // Stage 1: someone started talking. Drop back, keep speaking.
-          if (bargeActiveMs >= DUCK_MS && call.duckLevel === 1 && !duckSuppressed) {
+          if (bargeActiveMs >= DUCK_MS && call.duckLevel === 1 && !call.duckDisabled) {
             setAgentVolume(DUCK_LEVEL);
             duckedMs = 0;
             console.info('[barge] ducked', { rms: rms.toFixed(4), noiseFloor: call.noiseFloor.toFixed(4) });
-          }
-          // Ducked far too long without ever becoming a cut → not a caller.
-          // Almost always the agent's own audio leaking back into the mic.
-          if (call.duckLevel !== 1 && duckedMs >= MAX_DUCK_MS) {
-            duckSuppressed = true;
-            setAgentVolume(1);
-            duckedMs = 0;
-            console.warn('[barge] duck released and suppressed for this reply — '
-              + 'sustained mic energy that never became an interruption (likely echo of the agent). '
-              + 'Headphones remove this entirely.');
           }
           // Stage 2: still talking — this is a real interruption, not an
           // acknowledgement. Cut the reply and hand the floor over.
@@ -2056,14 +2133,23 @@ export default function EditAgent() {
             stop?.(); // cut the agent off; playback promise resolves → we listen
           }
         } else {
-          // Below threshold. This is where the pumping came from: an inter-word
-          // gap in the agent's OWN echo looks identical to the caller stopping.
-          // Only come back up after the quiet has held — see RESTORE_HOLD_MS.
-          quietMs += 80;
+          // Below the speech threshold, so nothing is accumulating toward a cut.
           bargeActiveMs = 0;
-          if (call.duckLevel !== 1 && quietMs >= RESTORE_HOLD_MS) {
-            setAgentVolume(1);
-            duckedMs = 0;
+          // Restoring is judged separately and more strictly. An inter-word gap
+          // in the agent's OWN echo looks identical to the caller stopping, and
+          // once ducked, so does the echo itself (we made it quieter). Requiring
+          // BOTH a genuinely low level (duck-scaled) and that it hold for
+          // RESTORE_HOLD_MS is what stops the level from oscillating; a caller
+          // who really stopped clears both easily.
+          if (call.duckLevel !== 1) {
+            if (rms > duckedQuietThreshold(threshold)) quietMs = 0;
+            else quietMs += 80;
+            if (quietMs >= RESTORE_HOLD_MS) {
+              setAgentVolume(1);
+              duckedMs = 0;
+            }
+          } else {
+            quietMs += 80;
           }
         }
       }, 80);
@@ -2139,6 +2225,10 @@ export default function EditAgent() {
     }
     if (call.vadTimer) { clearInterval(call.vadTimer); call.vadTimer = null; }
     if (call.bargeTimer) { clearInterval(call.bargeTimer); call.bargeTimer = null; }
+    // A fade still in flight would keep firing against torn-down elements, and
+    // leave duckLevel stranded below 1 for the NEXT call's first segment.
+    if (call.duckRamp !== null) { clearInterval(call.duckRamp); call.duckRamp = null; }
+    call.duckLevel = 1;
     call.stopPlayback = null;
     // B2 modular socket teardown (recording/ambient below still run as before).
     if (call.socketMode) {
