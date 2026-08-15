@@ -31,11 +31,30 @@ function ttsModel() {
 // calmer, softer one. This is the delivery-level control ElevenLabs exposes on
 // realtime models (v2 family has no per-utterance emotion tags — those are an
 // eleven_v3 feature, and v3 has no realtime/websocket tier).
+// `stability` is THE intonation dial, and it is inverted: HIGH stability means
+// the model repeats one prosodic contour, which is precisely the "everything in
+// a single tone" read. It was 0.4, which is still firmly in the even-delivery
+// half of the range. 0.28 lets pitch actually move across a sentence — questions
+// rise, lists step, a closing clause falls — while staying above the ~0.2 mark
+// where the v2 models start drifting in timbre between generations.
+//
+// `style` is expressiveness on top of that. 0.35 → 0.5 for the same reason.
+// It is not free: ElevenLabs notes style > 0 costs some latency, which is why it
+// is a moderate bump rather than a maximum one.
+//
+// `similarity_boost` is nudged DOWN (0.85 → 0.78). At high values the model
+// clings to the reference recording's delivery, and most stock reference clips
+// are read evenly — so a high value quietly re-flattens what stability just
+// bought. 0.78 keeps the voice identity without pinning its prosody.
+//
+// The affect variants keep their RELATIVE ordering (agitated/hesitant read
+// steadier than neutral) rather than their old absolute values, so a detected
+// caller state still changes the delivery without landing back on monotone.
 function ttsVoiceSettings(pace, affect) {
-  const settings = { stability: 0.4, similarity_boost: 0.85, style: 0.35, use_speaker_boost: true };
-  if (affect === 'agitated') { settings.stability = 0.5; settings.style = 0.3; }
-  else if (affect === 'hesitant' || affect === 'quiet') { settings.stability = 0.55; settings.style = 0.25; }
-  else if (affect === 'rushed') { settings.stability = 0.45; }
+  const settings = { stability: 0.28, similarity_boost: 0.78, style: 0.5, use_speaker_boost: true };
+  if (affect === 'agitated') { settings.stability = 0.38; settings.style = 0.42; }
+  else if (affect === 'hesitant' || affect === 'quiet') { settings.stability = 0.42; settings.style = 0.38; }
+  else if (affect === 'rushed') { settings.stability = 0.33; }
   if (Number.isFinite(pace) && pace > 0) settings.speed = Math.min(1.2, Math.max(0.7, pace));
   return settings;
 }
@@ -47,13 +66,19 @@ function ttsVoiceSettings(pace, affect) {
  * intonation. Level 4 additionally disables the text normalizer, which mangles
  * numbers and dates, so it is clamped out entirely.
  *
- * Left at 3 by default so nobody's latency budget changes without them asking.
- * Set ELEVENLABS_STREAMING_LATENCY=1 or 2 to buy back expressiveness once the
- * rest of the turn budget allows it; measure with scripts/measure-turn.js.
+ * NOW 2 BY DEFAULT, was 3. Level 3 was reported as the agent "speaking
+ * everything in a single tone", and it is the setting this file already
+ * described as flattening intonation — it buys its latency by cutting how much
+ * of the sentence the model plans prosody over, so the pitch contour that makes
+ * a sentence sound meant flattens out first. Level 2 keeps most of the latency
+ * win and restores most of the contour.
+ *
+ * Set ELEVENLABS_STREAMING_LATENCY=3 to go back to the faster/flatter read, or
+ * 1/0 for maximum warmth; measure the cost with scripts/measure-turn.js.
  */
 function streamingLatency() {
   const raw = Number(process.env.ELEVENLABS_STREAMING_LATENCY);
-  if (!Number.isFinite(raw)) return 3;
+  if (!Number.isFinite(raw)) return 2;
   return Math.min(3, Math.max(0, Math.round(raw)));
 }
 

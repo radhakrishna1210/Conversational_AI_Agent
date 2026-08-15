@@ -14,6 +14,7 @@ import {
   createFillerBudget,
   filterReplyText,
   stripSpeechMarkup,
+  __testing,
 } from '../disfluency.js';
 
 /** Feed a reply through a filter one delta at a time, as the LLM would. */
@@ -115,14 +116,18 @@ describe('mid-sentence fillers', () => {
 // ─── Pause markup ─────────────────────────────────────────────────────────────
 
 describe('break tags', () => {
+  // Asserted against the exported ceilings rather than literals. These are
+  // tuning values (they moved once already, when 700ms/2-per-reply was found to
+  // read as the audio cutting out); the invariant under test is "an over-long
+  // pause gets clamped to the ceiling", not what this month's ceiling is.
   it('clamps an over-long pause to something usable on a call', () => {
     const out = filterReplyText('Sure. <break time="3s"/> Let me check.', ssml);
-    assert.match(out, /<break time="700ms"\/>/);
+    assert.match(out, new RegExp(`<break time="${__testing.MAX_BREAK_MS}ms"/>`));
   });
 
   it('raises a too-short pause to the floor', () => {
     const out = filterReplyText('Sure. <break time="10ms"/> Let me check.', ssml);
-    assert.match(out, /<break time="120ms"\/>/);
+    assert.match(out, new RegExp(`<break time="${__testing.MIN_BREAK_MS}ms"/>`));
   });
 
   it('caps how many survive in one reply', () => {
@@ -130,7 +135,7 @@ describe('break tags', () => {
       'A <break time="300ms"/> b <break time="300ms"/> c <break time="300ms"/> d <break time="300ms"/> e.',
       ssml,
     );
-    assert.ok((out.match(/<break/g) || []).length <= 2, out);
+    assert.ok((out.match(/<break/g) || []).length <= __testing.MAX_BREAKS_PER_REPLY, out);
   });
 
   it('converts pauses to commas for a provider that cannot parse SSML', () => {

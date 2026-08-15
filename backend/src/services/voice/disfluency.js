@@ -68,15 +68,36 @@
  * comma before it leaves this module — see createReplyTextFilter({ ssmlBreaks }).
  */
 
-/** Hard ceiling on a single pause. ElevenLabs allows up to 3s; three seconds of
- *  silence on a live phone call is indistinguishable from a dropped connection,
- *  and the caller starts talking over the agent. */
-const MAX_BREAK_MS = Number(process.env.VOICE_MAX_BREAK_MS || 700);
+/**
+ * Hard ceiling on a single pause. ElevenLabs allows up to 3s; three seconds of
+ * silence on a live phone call is indistinguishable from a dropped connection,
+ * and the caller starts talking over the agent.
+ *
+ * LOWERED 700 → 400. 700ms was chosen against the "dropped call" failure mode
+ * and is safely under it, but it is well over the length of a natural
+ * thinking-pause in running speech (~200-400ms). Dropped into a 1-2 sentence
+ * reply it does not read as thought, it reads as the audio cutting out — which
+ * is exactly how it was reported ("sometimes it decreases till zero"). 400ms is
+ * long enough to hear as deliberate and short enough never to read as a fault.
+ */
+const MAX_BREAK_MS = Number(process.env.VOICE_MAX_BREAK_MS || 400);
 const MIN_BREAK_MS = 120;
 
-/** Pauses allowed per reply. Replies are 1-2 sentences in voice mode, so two
- *  pauses is already at the edge of "thoughtful" and three is "struggling". */
-const MAX_BREAKS_PER_REPLY = Number(process.env.VOICE_MAX_BREAKS_PER_REPLY || 2);
+/**
+ * Pauses allowed per reply.
+ *
+ * LOWERED 2 → 1. The comment below was right that two is "already at the edge",
+ * and the edge is the wrong place to sit: voice replies are 1-2 sentences, so
+ * two pauses means a break roughly every clause, landing wherever the model
+ * happened to write one rather than where the sentence wants one. The result is
+ * silence scattered through the reply instead of one considered beat.
+ *
+ * One is also what makes the pause MEAN something. The opener path spends this
+ * single break deliberately — right after "Alright," / "Hmm," where a person
+ * actually pauses — and once it is spent, every other break in the reply is
+ * converted back to a comma rather than becoming more dead air.
+ */
+const MAX_BREAKS_PER_REPLY = Number(process.env.VOICE_MAX_BREAKS_PER_REPLY || 1);
 
 /**
  * How much of the reply to hold before deciding on the opening filler.
