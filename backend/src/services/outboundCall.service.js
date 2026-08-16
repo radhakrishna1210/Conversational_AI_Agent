@@ -23,6 +23,7 @@ import prisma from '../config/prisma.js';
 import { env } from '../config/env.js';
 import logger from '../lib/logger.js';
 import { resolveProvider } from './telephony/index.js';
+import { acquireSlot } from './telephony/concurrency.js';
 import { xmlSafe } from './telephony/provider.interface.js';
 import { isDeepgramConfigured } from './stt/deepgramStream.service.js';
 import { supportsTelephony } from './voice/telephonyAudio.js';
@@ -325,6 +326,16 @@ export async function placeOutboundCall({
         error: result.error,
       };
     }
+
+    // The carrier has accepted the dial, so a leg now exists and counts against
+    // the account's concurrency ceiling from this moment — ringing included,
+    // which on an unanswered bulk dial is most of the holding time.
+    //
+    // Released by ws/callFinalizer.js for streamed calls, and by the carrier's
+    // hangup callback for greeting-only ones, which have no socket to finalize.
+    // NOT released here: the greeting is still being spoken when this returns.
+    // The stale sweep in concurrency.js is the backstop if a release is missed.
+    acquireSlot({ workspaceId, callLogId: logId });
 
     // Nothing else will update a greeting-only log — the media bridge finalizes
     // the streamed ones.

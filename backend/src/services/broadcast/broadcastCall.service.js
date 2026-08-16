@@ -13,6 +13,7 @@
 
 import logger from '../../lib/logger.js';
 import { resolveProvider } from '../telephony/index.js';
+import { acquireSlot } from '../telephony/concurrency.js';
 import { resolveProviderIdForNumber } from '../outboundCall.service.js';
 import { publicHttpBase } from '../../lib/publicUrl.js';
 import { publicAudioUrl } from './broadcastRecording.service.js';
@@ -86,12 +87,15 @@ export async function broadcastReadiness(fromNumber) {
  * @param {object} p
  * @param {object} p.recording   BroadcastRecording row
  * @param {string} p.recipientId BroadcastRecipient id — the identity the carrier hands back
+ * @param {string} [p.workspaceId] whose concurrency share this leg draws on
  * @param {string} p.toNumber
  * @param {string} p.fromNumber
  * @param {number} [p.repeat]    times the recording is played on one answered call
  * @returns {Promise<{ok: boolean, callId?: string, provider: string, error?: string, status?: number}>}
  */
-export async function placeBroadcastCall({ recording, recipientId, toNumber, fromNumber, repeat = 1 }) {
+export async function placeBroadcastCall({
+  recording, recipientId, toNumber, fromNumber, repeat = 1, workspaceId = null,
+}) {
   const provider = resolveProvider(await resolveProviderIdForNumber(fromNumber));
 
   if (provider.supportsBroadcast === false || typeof provider.buildBroadcastDoc !== 'function') {
@@ -141,6 +145,14 @@ export async function placeBroadcastCall({ recording, recipientId, toNumber, fro
       );
       return { ok: false, provider: provider.id, status: result.status ?? 502, error: result.error };
     }
+
+    // A broadcast leg counts against the carrier's concurrency ceiling exactly
+    // like a conversational one — the carrier does not care that nobody is
+    // listening at our end. Keyed on the recipient id because a broadcast has no
+    // AgentCallLog at all, and released by the same hangup callback that settles
+    // it. Without this a broadcast and a campaign running together would each
+    // believe they had the whole pool.
+    acquireSlot({ workspaceId, callLogId: recipientId });
 
     // Queued, not answered. The outcome arrives on the carrier's callback — this
     // return says only that the carrier accepted the request.

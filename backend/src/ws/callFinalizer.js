@@ -24,6 +24,7 @@
 import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
 import { settleCall } from '../services/billing/settlement.service.js';
+import { releaseSlot } from '../services/telephony/concurrency.js';
 import { extractAndStoreCallVariables } from '../services/postCallExtraction.service.js';
 import { deliverPostCall } from '../controllers/agentCallLog.controller.js';
 
@@ -41,6 +42,12 @@ export function createCallFinalizer({ workspaceId, agentId, label }) {
   return async function finalizeCallLog(callLogId, status, { transcript = [], startedAt }) {
     if (!callLogId || finalized) return;
     finalized = true;
+
+    // Give the carrier concurrency slot back FIRST, before any of the awaits
+    // below. Settlement, post-call extraction and webhook delivery can take
+    // seconds, and holding a slot through them would make a campaign's
+    // effective ceiling a function of how slow the customer's webhook is.
+    releaseSlot(callLogId);
 
     try {
       await prisma.agentCallLog.update({

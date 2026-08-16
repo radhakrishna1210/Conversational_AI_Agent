@@ -17,6 +17,7 @@ import logger from '../lib/logger.js';
 import * as broadcastService from '../services/broadcast/broadcast.service.js';
 import * as recordingService from '../services/broadcast/broadcastRecording.service.js';
 import { settleBroadcastCall, currentBroadcastRate } from '../services/broadcast/broadcastSettlement.service.js';
+import { releaseSlot } from '../services/telephony/concurrency.js';
 import { verifyToken } from '../services/broadcast/signedToken.js';
 import { syncProgress } from '../services/broadcast/broadcastRunner.service.js';
 
@@ -218,6 +219,11 @@ export const twilioStatus = async (req, res) => {
 
   const status = String(req.body?.CallStatus ?? '').toLowerCase();
   const duration = Number(req.body?.CallDuration ?? 0);
+
+  // The leg is down — hand the carrier concurrency slot back before settling,
+  // so a dialer waiting on the pool sees it immediately. Mirrors the Plivo
+  // hangup path; see telephony/concurrency.js.
+  releaseSlot(recipientId);
 
   await settleBroadcastCall(recipientId, {
     durationSec: duration,

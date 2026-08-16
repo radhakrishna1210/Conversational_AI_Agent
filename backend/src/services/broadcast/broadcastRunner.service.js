@@ -29,6 +29,7 @@ import { BROADCAST_STATUS } from '../../constants/broadcastStatus.js';
 import { assertRotationCompliant } from '../compliance/compliance.service.js';
 import { placeBroadcastCall, broadcastReadiness } from './broadcastCall.service.js';
 import { assertCanDial, quotePerCall } from './broadcastSettlement.service.js';
+import { checkConcurrency, releaseSlot } from '../telephony/concurrency.js';
 
 /** Broadcasts being dispatched by THIS process — guards against double dialling. */
 const active = new Map(); // broadcastId -> { stop: boolean }
@@ -54,6 +55,9 @@ const BATCH_SIZE = Number(process.env.BROADCAST_BATCH_SIZE || 50);
  * restart — and the row is closed unbilled rather than left claiming to be live.
  */
 const STALLED_DIAL_MS = Number(process.env.BROADCAST_STALLED_DIAL_MS || 15 * 60 * 1000);
+
+/** How long to wait when the carrier's concurrent-call pool is full. */
+const CONCURRENCY_WAIT_MS = Number(process.env.BROADCAST_CONCURRENCY_WAIT_MS || 15_000);
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -82,6 +86,16 @@ export function callerRotation(broadcast) {
  */
 export async function reapStalledDials(broadcastId) {
   const cutoff = new Date(Date.now() - STALLED_DIAL_MS);
+
+  // Read the ids before the update, so the concurrency slots these dials are
+  // still holding can be handed back. concurrency.js has its own much longer
+  // sweep, but at 15 minutes this one fires first, and a stalled dial holding a
+  // slot for another 50 minutes is a slot a live campaign cannot use.
+  const stalled = await prisma.broadcastRecipient.findMany({
+    where: { broadcastId, status: 'calling', startedAt: { lt: cutoff } },
+    select: { id: true },
+  }).catch(() => []);
+
   const { count } = await prisma.broadcastRecipient.updateMany({
     where: { broadcastId, status: 'calling', startedAt: { lt: cutoff } },
     data: {
@@ -91,6 +105,9 @@ export async function reapStalledDials(broadcastId) {
       endedAt: new Date(),
     },
   });
+
+  for (const row of stalled) releaseSlot(row.id);
+
   if (count > 0) {
     logger.warn({ broadcastId, count }, 'Closed broadcast dials whose carrier callback never arrived');
   }
@@ -294,6 +311,26 @@ export async function runBroadcast(broadcastId, workspaceId) {
           continue;
         }
 
+        // Wait out a full carrier pool rather than pausing the send.
+        //
+        // Unlike the wallet below, this is transient and self-clearing: the
+        // slots belong to calls that are ending on their own. Pausing a
+        // broadcast because a campaign happened to be mid-flight would need a
+        // human to restart it, for a condition that resolves in seconds.
+        let slot = await checkConcurrency(workspaceId);
+        while (!slot.allowed && !control.stop) {
+          await sleep(CONCURRENCY_WAIT_MS);
+          const still = await prisma.broadcast.findUnique({
+            where: { id: broadcastId }, select: { status: true },
+          });
+          if (!still || still.status === BROADCAST_STATUS.CANCELLED || still.status === BROADCAST_STATUS.PAUSED) {
+            await syncProgress(broadcastId);
+            return { started: true, dialled };
+          }
+          slot = await checkConcurrency(workspaceId);
+        }
+        if (control.stop) break;
+
         // The wallet is the only thing that bounds a broadcast. Running out is
         // not going to fix itself by waiting, so pause rather than burn through
         // the remaining recipients marking them all failed.
@@ -318,6 +355,7 @@ export async function runBroadcast(broadcastId, workspaceId) {
           toNumber: recipient.phoneNumber,
           fromNumber: from,
           repeat: broadcast.repeatCount,
+          workspaceId,
         });
 
         if (result.ok) {

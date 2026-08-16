@@ -48,6 +48,7 @@ import logger from '../../lib/logger.js';
 import { applyWalletTransaction, getOrCreateWallet, TX_TYPES } from './wallet.service.js';
 import { calculateCallCharge, formatMinor, billableMinutes, resolveCallRate, affordableSeconds } from './money.js';
 import { getWalletRate } from './walletRate.js';
+import { checkConcurrency } from '../telephony/concurrency.js';
 
 /** Call types that consume voice minutes. CHAT is text — never billed. */
 const BILLABLE_TYPES = new Set(['WEB_CALL', 'PHONE_CALL']);
@@ -248,18 +249,35 @@ export async function assertCanStartCall(workspaceId, { type = 'WEB_CALL' } = {}
   if (!BILLABLE_TYPES.has(type)) return { allowed: true, maxSeconds: Infinity };
 
   /*
-   * Balance is the ONLY gate.
+   * Two gates: the wallet, and the carrier's concurrency ceiling.
    *
-   * This used to also enforce a per-plan concurrency ceiling and refuse calls on
-   * a cancelled subscription. Both are gone with plans: the product bills a
-   * single ₹/min against a prepaid wallet, so a workspace's own balance is what
-   * bounds its usage — there is no tier to exceed and nothing to renew.
+   * This used to enforce a PER-PLAN concurrency ceiling and refuse calls on a
+   * cancelled subscription. Both are gone with plans: the product bills a single
+   * ₹/min against a prepaid wallet, so a workspace's own balance is what bounds
+   * its usage — there is no tier to exceed and nothing to renew.
    *
-   * Concurrency is deliberately unbounded. The wallet caps the spend, so the
-   * remaining exposure is provider rate limits rather than unpaid usage; if that
-   * ever bites, the ceiling belongs in Super Admin as one platform-wide number,
-   * not back on a per-customer plan.
+   * Concurrency came back for a different reason than it left, in the shape this
+   * comment predicted: "the ceiling belongs in Super Admin as one platform-wide
+   * number, not back on a per-customer plan". It is not about unpaid usage — the
+   * wallet still handles that — it is that Plivo hard-fails calls past the
+   * account ceiling with 5030 and does not queue them. Unbounded here means the
+   * carrier does the bounding, by rejecting whichever call happens to be next,
+   * possibly a different customer's. See telephony/concurrency.js.
    *
+   * Checked BEFORE the wallet: a full pool is transient and the campaign runner
+   * waits it out, whereas an empty wallet is terminal and pauses the campaign.
+   * Reporting the terminal one first would pause a campaign that was merely busy.
+   *
+   * PHONE_CALL only. A web call is a browser WebSocket to our own server and
+   * never touches a carrier leg, so counting it against a PSTN ceiling would
+   * refuse browser calls to protect a resource they do not consume.
+   */
+  if (type === 'PHONE_CALL') {
+    const slot = await checkConcurrency(workspaceId);
+    if (!slot.allowed) return { allowed: false, code: slot.code, message: slot.message, maxSeconds: 0 };
+  }
+
+  /*
    * Require headroom for at least MIN_CALL_SECONDS of talk time, and hand back
    * how many seconds the remaining balance actually buys.
    */

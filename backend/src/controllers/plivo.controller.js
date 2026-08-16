@@ -35,6 +35,7 @@ import {
   publicAudioUrl,
 } from '../services/broadcast/broadcastRecording.service.js';
 import { settleBroadcastCall } from '../services/broadcast/broadcastSettlement.service.js';
+import { releaseSlot } from '../services/telephony/concurrency.js';
 import { syncProgress } from '../services/broadcast/broadcastRunner.service.js';
 import { getRenderedWelcome } from '../services/agentRuntime.service.js';
 import { createCallFinalizer } from '../ws/callFinalizer.js';
@@ -233,6 +234,10 @@ export async function hangup(req, res) {
   // answered/no-answer outcome and the charge both come from.
   const broadcastRecipientId = field(req, 'broadcastRecipientId') || null;
   if (broadcastRecipientId) {
+    // The leg is down: give the concurrency slot back before settling, so a
+    // waiting dialer sees the free slot immediately rather than after the
+    // wallet write. Keyed on the recipient id — a broadcast has no call log.
+    releaseSlot(broadcastRecipientId);
     try {
       await settleBroadcastCall(broadcastRecipientId, {
         durationSec: seconds,
