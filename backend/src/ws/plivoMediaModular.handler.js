@@ -8,10 +8,17 @@
  * https://www.plivo.com/docs/voice-agents/audio-streaming/concepts/audio-streaming-reference
  *
  * Plivo streams mu-law 8 kHz, which is exactly what the shared bridge already
- * speaks in both directions, so there is no transcode and no pacer here — the
- * frame splitter in telephonyAudio.js already emits the 20ms frames Plivo
- * expects. (Exotel needs a pacer because it takes PCM16 in 320-byte multiples
- * and hangs up on a burst; Plivo does not.)
+ * speaks in both directions, so there is no transcode here.
+ *
+ * THERE IS A PACER, THOUGH — `pacedOutbound` below. An earlier version of this
+ * comment said there was not, reasoning that the frame splitter in
+ * telephonyAudio.js already emits the 20ms frames Plivo expects and that only
+ * Exotel needs a clock because only Exotel hangs up on a burst. That conflated
+ * frame SIZE with frame CADENCE: the splitter sizes frames correctly but the
+ * bridge then sent them as fast as TTS produced them. Plivo consumes at a fixed
+ * 20ms cadence and, per their support, "perceived latency grows proportionally
+ * to how deep the buffer gets" — it accepts the burst and plays progressively
+ * further behind instead of failing. See services/voice/ulawPacer.js.
  *
  * Three differences from Twilio, all of them silent failures if got wrong:
  *
@@ -34,6 +41,9 @@ import { STREAM_CONTENT_TYPE, STREAM_SAMPLE_RATE } from '../services/telephony/p
 /** Exported for the adapter tests; the bridge takes it via `carrier`. */
 export const plivoCarrier = {
   label: 'Plivo modular phone call',
+
+  /** Plivo penalises a burst with latency rather than failing it. See header. */
+  pacedOutbound: true,
 
   readStart: (msg) => ({
     streamId: msg.start?.streamId || msg.streamId || null,

@@ -74,6 +74,7 @@ import {
   PHONE_SAMPLE_RATE,
 } from '../services/voice/telephonyAudio.js';
 import { createPlayoutWindow } from '../services/voice/playoutWindow.js';
+import { createUlawPacer } from '../services/voice/ulawPacer.js';
 import { encodeWav } from '../services/voice/callRecorder.js';
 import { createRecordingTap } from './callRecordingTap.js';
 import { createCallFinalizer } from './callFinalizer.js';
@@ -172,6 +173,12 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
   let callLogId = initialCallLogId;
   let closed = false;
 
+  /**
+   * Realtime clock on the outbound leg, for carriers that penalise a burst.
+   * Null for carriers that absorb one (Twilio), so their hot path is unchanged.
+   */
+  let pacer = null;
+
   let dg = null;
   let dgTurnSeq = 0;
   let dgLanguage;
@@ -252,15 +259,40 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
   /** Both legs of the call, mixed to one WAV at hangup. See callRecordingTap.js. */
   const recording = createRecordingTap({ label: carrier.label, startedAt });
 
-  const sendFrame = (frame) => {
+  /**
+   * One frame onto the wire, right now.
+   *
+   * playout.noteFrame() and the recording tap both live here rather than at the
+   * queueing end, so that with a pacer in front they still describe what the
+   * caller actually heard and when — the barge detector's arming window is
+   * derived from this, and it would be wrong by the whole queue depth otherwise.
+   */
+  const sendFrameNow = (frame) => {
     if (ws.readyState !== ws.OPEN || !streamId) return;
     carrier.sendAudio(ws, streamId, frame);
     playout.noteFrame();
     recording.outbound(frame);
   };
 
-  /** Drop the carrier's buffered playback — the caller has interrupted. */
+  /**
+   * Where synthesized audio goes. With a paced carrier this is the queue, not
+   * the socket — see carrier.pacedOutbound and ws/ulawPacer.js.
+   */
+  const sendFrame = (frame) => {
+    if (pacer) pacer.push(frame);
+    else sendFrameNow(frame);
+  };
+
+  /**
+   * Drop buffered playback — the caller has interrupted.
+   *
+   * Our own queue first, for the reason ulawPacer.flush() documents: the
+   * carrier's clear only drops what the CARRIER holds, and anything still
+   * queued here would go out immediately after and resurrect the interrupted
+   * sentence. Without a pacer there is no queue and this is a no-op.
+   */
   const clearPlayback = () => {
+    pacer?.flush();
     if (ws.readyState === ws.OPEN && streamId) carrier.clearAudio(ws, streamId);
   };
 
@@ -591,6 +623,9 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
   const cleanup = (status) => {
     closed = true;
     abortTurn = true;
+    // First: a leaked 20ms interval would outlive the call permanently.
+    pacer?.stop();
+    pacer = null;
     turnPcmChunks = [];
     turnPcmSamples = 0;
     budget?.stop();
@@ -612,6 +647,16 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
       case 'start': {
         const started = carrier.readStart(msg) || {};
         streamId = started.streamId ?? null;
+
+        // Started here rather than at construction: sendFrameNow needs streamId,
+        // which does not exist until this event.
+        if (carrier.pacedOutbound) {
+          pacer = createUlawPacer({
+            send: sendFrameNow,
+            onError: (err) => logger.warn(`${carrier.label}: outbound pacer: ${err.message}`),
+          });
+          pacer.start();
+        }
         // Only override when the carrier actually supplies one: Plivo has no
         // per-call parameters on `start`, so its id arrives on the socket URL
         // and must survive this.

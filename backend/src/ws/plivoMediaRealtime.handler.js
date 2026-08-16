@@ -35,6 +35,7 @@ import { getAgentKbText } from '../services/agentRuntime.service.js';
 import { createRealtimeSession } from '../services/voice/realtimeEngine.factory.js';
 import { isModelAllowed } from '../services/platform/modelCatalog.js';
 import { createAmbiencePump } from '../services/voice/ambiencePump.js';
+import { createUlawPacer } from '../services/voice/ulawPacer.js';
 import { createCallFinalizer } from './callFinalizer.js';
 import { createRecordingTap } from './callRecordingTap.js';
 import { openCallBudget } from '../services/billing/callBudget.js';
@@ -50,7 +51,7 @@ const safeJson = (str, fallback) => {
 
 export function handlePlivoMediaUpgrade(ws, { workspaceId, agentId, callLogId = null }) {
   let session = null;
-  let pump = null;      // ambience/pacing pump; null when ambience is off
+  let pump = null;      // realtime outbound clock: ambience pump, else bare pacer
   let streamId = null;
   /** How much talk time the wallet paid for. Armed at `start`. */
   let budget = null;
@@ -148,6 +149,14 @@ export function handlePlivoMediaUpgrade(ws, { workspaceId, agentId, callLogId = 
             agent, kbText, audioFormat: 'g711_ulaw',
           });
 
+          // There is ALWAYS a clock on this leg now. Ambience gives us one as a
+          // side effect of mixing a bed, but it is built only when a real preset
+          // is selected — so an agent without ambience used to hand the engine's
+          // output straight to the socket, and a realtime engine emits a whole
+          // sentence far faster than realtime. Plivo consumes at a fixed 20ms
+          // cadence and answers a burst with growing playback latency rather
+          // than an error, so that path was silently slow. The bare pacer is the
+          // same clock without the mixing. Interfaces are identical by design.
           if (process.env.AMBIENCE_PHONE_ENABLED !== 'false') {
             pump = createAmbiencePump({
               presetName: settings.ambientSound,
@@ -155,11 +164,14 @@ export function handlePlivoMediaUpgrade(ws, { workspaceId, agentId, callLogId = 
               onError: (err) => logger.warn(`Ambience pump: ${err.message}`),
             });
           }
+          pump ??= createUlawPacer({
+            send: sendFrame,
+            onError: (err) => logger.warn(`Plivo outbound pacer: ${err.message}`),
+          });
 
-          // Branch ONCE here, never per frame.
-          session.on('audio', pump
-            ? (buf) => pump.push(buf)
-            : (buf) => sendFrame(buf));
+          // Optional-chained: cleanup() nulls `pump`, and the engine can emit
+          // one more frame after the socket has gone.
+          session.on('audio', (buf) => pump?.push(buf));
           session.on('transcript', (t) => {
             if (t.done) transcript.push({ role: t.role, content: t.text });
           });
