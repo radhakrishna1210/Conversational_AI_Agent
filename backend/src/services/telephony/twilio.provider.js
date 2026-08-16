@@ -8,7 +8,7 @@
 // Twilio is the non-India carrier. It stays the default; India routes to Plivo
 // by number, not by flag day. See `backend/docs/PLIVO_INTEGRATION.md` §9.
 
-import { xmlSafe } from './provider.interface.js';
+import { xmlSafe, xmlUrl } from './provider.interface.js';
 
 const API_ROOT = 'https://api.twilio.com/2010-04-01';
 
@@ -65,9 +65,42 @@ export const twilioProvider = {
     return `<Response><Say voice="Polly.Aditi">${xmlSafe(greeting)}</Say>${closing}</Response>`;
   },
 
-  async placeCall({ credentials, to, from, document }) {
+  supportsBroadcast: true,
+
+  /**
+   * One-way broadcast: play a hosted file, then hang up.
+   *
+   * `loop` rather than repeating the verb, so the file is fetched once and
+   * replayed from Twilio's own cache — repeating <Play> re-fetches our server
+   * per repetition on every single call in the campaign.
+   *
+   * No <Gather>, no <Record>, nothing after the audio. A one-way broadcast that
+   * accidentally waits for input holds the line open and bills the silence.
+   */
+  buildBroadcastDoc({ audioUrl, repeat = 1 }) {
+    const loop = Math.min(Math.max(Number(repeat) || 1, 1), 5);
+    return `<Response><Play loop="${loop}">${xmlUrl(audioUrl)}</Play></Response>`;
+  },
+
+  async placeCall({ credentials, to, from, document, context = {} }) {
     const { accountSid, authToken } = credentials;
     const basic = Buffer.from(`${accountSid}:${authToken}`).toString('base64');
+
+    const params = { To: to, From: from, Twiml: document };
+
+    // A conversational call learns its own outcome from the media socket, and a
+    // greeting-only one from the log the caller already updates. A broadcast has
+    // neither — no socket is ever opened — so the completed-call webhook is the
+    // ONLY place its duration (and therefore its charge) can come from. Twilio
+    // ignores these params when nobody asks for them.
+    if (context.statusCallbackUrl) {
+      params.StatusCallback = context.statusCallbackUrl;
+      params.StatusCallbackEvent = 'completed';
+      params.StatusCallbackMethod = 'POST';
+    }
+    // Ring for this long before giving up. Left to Twilio's 60s default a
+    // broadcast spends real money holding open dials nobody is going to answer.
+    if (context.ringTimeoutSec) params.Timeout = String(context.ringTimeoutSec);
 
     const response = await fetch(`${API_ROOT}/Accounts/${accountSid}/Calls.json`, {
       method: 'POST',
@@ -75,7 +108,7 @@ export const twilioProvider = {
         Authorization: `Basic ${basic}`,
         'Content-Type': 'application/x-www-form-urlencoded',
       },
-      body: new URLSearchParams({ To: to, From: from, Twiml: document }),
+      body: new URLSearchParams(params),
     });
 
     const text = await response.text();

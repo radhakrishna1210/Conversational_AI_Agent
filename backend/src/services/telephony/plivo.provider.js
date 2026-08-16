@@ -34,7 +34,7 @@
 // Call identifier: Plivo calls it `call_uuid`, normalized to `callId` here so
 // the outer service keeps exposing `callSid` unchanged.
 
-import { xmlSafe } from './provider.interface.js';
+import { xmlSafe, xmlUrl } from './provider.interface.js';
 
 const API_HOST = 'https://api.plivo.com';
 
@@ -194,6 +194,31 @@ export const plivoProvider = {
     return `${base}?${params.toString()}`;
   },
 
+  supportsBroadcast: true,
+
+  /**
+   * One-way broadcast, as an answer URL like everything else here.
+   *
+   * The audio URL does NOT travel on this query string. It is a signed public
+   * URL of our own, and re-emitting a URL that arrived from outside into XML a
+   * carrier will dial is the one thing this endpoint must never do (the same
+   * reasoning as buildConversationDoc's streamUrl). The answer endpoint looks
+   * the recording up by id and mints the signed URL itself.
+   */
+  buildBroadcastDoc({ recordingId, repeat = 1 }) {
+    const base = resolveAnswerUrlBase();
+    if (!base) {
+      throw new Error(
+        'Plivo needs a public answer URL, which requires PLIVO_ANSWER_URL or PUBLIC_BACKEND_WS_URL '
+        + 'to be set.',
+      );
+    }
+    const params = new URLSearchParams({ mode: 'broadcast', recordingId: String(recordingId) });
+    const loop = Math.min(Math.max(Number(repeat) || 1, 1), 5);
+    if (loop > 1) params.set('repeat', String(loop));
+    return `${base}?${params.toString()}`;
+  },
+
   async placeCall({ credentials, to, from, document, context = {} }) {
     const { authId, authToken } = credentials;
     const basic = Buffer.from(`${authId}:${authToken}`).toString('base64');
@@ -205,6 +230,14 @@ export const plivoProvider = {
     if (context.workspaceId) answerUrl.searchParams.set('workspaceId', context.workspaceId);
     if (context.agentId) answerUrl.searchParams.set('agentId', context.agentId);
     if (context.callLogId) answerUrl.searchParams.set('callLogId', context.callLogId);
+    // Whatever else the caller needs back on the callbacks. A broadcast has no
+    // agent and no call log — its identity is a BroadcastRecipient row — and
+    // this is the only channel Plivo offers for carrying it.
+    for (const [key, value] of Object.entries(context.query ?? {})) {
+      if (value !== undefined && value !== null && value !== '') {
+        answerUrl.searchParams.set(key, String(value));
+      }
+    }
 
     // JSON, not form-encoded — this is the other half of the Twilio difference
     // recorded in PLIVO_INTEGRATION.md §5.
@@ -214,6 +247,11 @@ export const plivoProvider = {
       answer_url: answerUrl.toString(),
       answer_method: 'POST',
     };
+
+    // Stop ringing numbers nobody is going to pick up. Plivo's own default is
+    // 120s, which on a broadcast of 10,000 dials is a lot of time spent holding
+    // channels open for people who are not there.
+    if (context.ringTimeoutSec) body.ring_timeout = String(context.ringTimeoutSec);
 
     // The hangup callback carries the same per-call identity, because for a
     // GREETING-ONLY call it is the only end-of-call signal that exists: no media
@@ -312,6 +350,25 @@ export const buildGreetingXml = ({ greeting, closingLine, language = 'en-IN', vo
     + '<Response>'
     + say(greeting)
     + closing
+    + '</Response>';
+};
+
+/**
+ * The one-way broadcast document: play the file, then hang up.
+ *
+ * No `keepCallAlive`, no <GetInput>, nothing after the audio — for the same
+ * reason the greeting document has none. Once the message has played there is
+ * nothing left to do, and a line held open past that point bills the client for
+ * silence on every answered call in the broadcast.
+ *
+ * `loop` replays from Plivo's cache rather than re-fetching our audio endpoint
+ * once per repetition per call.
+ */
+export const buildPlayXml = ({ audioUrl, repeat = 1 }) => {
+  const loop = Math.min(Math.max(Number(repeat) || 1, 1), 5);
+  return '<?xml version="1.0" encoding="UTF-8"?>'
+    + '<Response>'
+    + `<Play loop="${loop}">${xmlUrl(audioUrl)}</Play>`
     + '</Response>';
 };
 

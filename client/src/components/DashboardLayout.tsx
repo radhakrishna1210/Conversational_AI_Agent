@@ -8,6 +8,7 @@ import {
   Plug,
   Phone,
   PhoneCall,
+  Radio,
   Users,
   FileText,
   BarChart3,
@@ -250,6 +251,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <div className={`sidebar-item ${path === '/bulk_call' ? 'active' : ''}`}>
                 <span className="sidebar-icon"><PhoneCall size={16} /></span>
                 <span className="sidebar-text">Bulk Call</span>
+              </div>
+            </Link>
+
+            {/*
+              Directly under Bulk Call because they are the same job with a
+              different payload — same contact lists, same caller IDs, and the
+              only difference is whether the person who picks up can talk back.
+            */}
+            <Link to="/broadcast">
+              <div className={`sidebar-item ${path === '/broadcast' ? 'active' : ''}`}>
+                <span className="sidebar-icon"><Radio size={16} /></span>
+                <span className="sidebar-text">Voice Broadcast</span>
+                <span className="badge-new">New</span>
               </div>
             </Link>
 

@@ -100,6 +100,13 @@ export const exotelProvider = {
   // The modular STT→LLM→TTS bridge is µ-law-native; Exotel streams PCM16 and
   // has only the bundled-engine bridge (ws/exotelMediaRealtime.handler.js).
   supportsModularEngine: false,
+  // Same root cause as supportsGreetingMode: there is no per-call document to
+  // put a <Play> in. Exotel can broadcast, but only through a Greeting/Voicebot
+  // applet configured in its dashboard against a file uploaded there — which
+  // means the audio a broadcast plays would not be the recording the customer
+  // chose in this product. Refusing is the honest answer; route broadcasts from
+  // a Plivo or Twilio caller ID.
+  supportsBroadcast: false,
 
   credentials() {
     const apiKey = process.env.EXOTEL_API_KEY;

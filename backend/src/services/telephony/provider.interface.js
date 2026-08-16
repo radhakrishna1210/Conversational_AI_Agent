@@ -63,6 +63,12 @@
  * @property {'inline'|'answer_url'|'app_id'|'stream_url'} deliverDocument how the carrier learns what to do
  * @property {boolean} [supportsGreetingMode]                false when per-call speech text is impossible
  * @property {boolean} [supportsModularEngine]               false when only the bundled-engine bridge exists
+ * @property {boolean} [supportsBroadcast]                   false when the carrier cannot play a hosted audio file
+ * @property {(p: {audioUrl: string, repeat: number, recipientId?: string}) => string} [buildBroadcastDoc]
+ *           One-way call: play this audio file and hang up. Same 'document'
+ *           convention as the other two builders — markup for Twilio, a URL for
+ *           Plivo. No media socket is ever opened, which is exactly why a
+ *           broadcast costs the carrier minute and nothing else.
  * @property {() => ProviderCredentials|null} credentials
  * @property {() => string} defaultFrom                      env-configured fallback caller ID
  * @property {(fromNumber?: string) => ReadyResult} status
@@ -82,3 +88,20 @@
  * aloud, and "&amp;" is not a word.
  */
 export const xmlSafe = (s) => String(s ?? '').replace(/[<>&]/g, ' ').slice(0, 800);
+
+/**
+ * Escape a URL for XML text content.
+ *
+ * NOT `xmlSafe`: that replaces `&` with a space because it is escaping speech,
+ * where "&amp;" is not a word. A URL is the opposite case — a query string with
+ * two parameters contains an `&` that has to survive as `&amp;` or the carrier
+ * fetches a truncated address and plays nothing. Only a genuine URL is ever
+ * passed here (ours, built server-side), so scheme validation belongs at the
+ * point the URL is minted, not here.
+ */
+export const xmlUrl = (s) =>
+  String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');

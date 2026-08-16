@@ -58,6 +58,13 @@ app.use('/api/v1/integrations/webhooks', express.raw({ type: 'application/json' 
 // express.json so that parser never sees this route.
 app.use('/api/v1/billing/razorpay/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json({ limit: env.JSON_BODY_LIMIT }));
+// Form-encoded bodies. EVERY carrier callback in this system posts this way —
+// Plivo's answer/hangup, Twilio's status webhooks, Exotel's status — and without
+// this parser `req.body` is `{}` for all of them. That is not a cosmetic gap:
+// Plivo's V3 signature is computed over the posted parameters, so an unparsed
+// body makes a genuine callback fail verification, and the call duration those
+// callbacks carry is the only place a broadcast's charge can come from.
+app.use(express.urlencoded({ extended: false, limit: env.JSON_BODY_LIMIT }));
 
 app.use((req, _res, next) => {
   logger.debug({ method: req.method, url: req.url }, 'Incoming request');

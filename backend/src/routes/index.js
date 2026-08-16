@@ -10,6 +10,7 @@ import * as platform from '../controllers/platform.controller.js';
 import * as billing from '../controllers/billing.controller.js';
 import * as kbCtrl from '../controllers/kbFile.controller.js';
 import * as callerCtrl from '../controllers/callerNumber.controller.js';
+import * as broadcastCtrl from '../controllers/broadcast.controller.js';
 import * as modelCatalog from '../controllers/modelCatalog.controller.js';
 import { readFileSync } from 'fs';
 
@@ -18,6 +19,8 @@ import adminRoutes from './admin.routes.js';
 import workspaceRoutes from './workspace.routes.js';
 import apiKeyRoutes from './apiKey.routes.js';
 import campaignRoutes from './campaign.routes.js';
+import broadcastRoutes from './broadcast.routes.js';
+import broadcastRecordingRoutes from './broadcastRecording.routes.js';
 import contactRoutes from './contact.routes.js';
 import clusterRoutes from './cluster.routes.js';
 import complianceRoutes from './compliance.routes.js';
@@ -67,6 +70,16 @@ router.use('/exotel', exotelRoutes);
 router.use('/plivo', plivoRoutes);
 // The only pricing this deployment publishes: one wallet rate per minute.
 router.get('/config/wallet-rate', platform.getWalletRatePublic);
+
+// ── Broadcast, carrier-facing ────────────────────────────────────────────────
+// The audio a carrier fetches when a broadcast call is answered, and the
+// completed-call webhook Twilio posts when it ends. Public because a carrier
+// cannot hold a session; both are authorised by an HMAC token in the URL, and
+// the status endpoint is the only place a broadcast's duration — and therefore
+// its charge — comes from. Plivo's equivalents ride on its existing
+// /plivo/answer and /plivo/hangup endpoints, which are signature-verified.
+router.get('/broadcast-audio/:recordingId', broadcastCtrl.publicAudio);
+router.post('/broadcast/twilio/status', broadcastCtrl.twilioStatus);
 
 // Razorpay webhook. NOT authenticated by session on purpose: Razorpay cannot
 // hold a token. The X-Razorpay-Signature HMAC over the raw body is the
@@ -133,6 +146,11 @@ ws.use(workspaceContext);
 ws.use('/', workspaceRoutes);
 ws.use('/api-keys', apiKeyRoutes);
 ws.use('/campaigns', campaignRoutes);
+// One-way voice broadcast: a recording played to the same clusters and contacts
+// bulk calling dials. Separate router because it shares the address book and
+// nothing else — no agent, no conversation, no media stream.
+ws.use('/broadcasts', broadcastRoutes);
+ws.use('/broadcast-recordings', broadcastRecordingRoutes);
 // The address book behind bulk calling: contacts, and the named lists
 // ("clusters") a campaign dials. Every campaign CSV lands here first.
 ws.use('/contacts', contactRoutes);

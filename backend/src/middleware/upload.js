@@ -24,6 +24,34 @@ export const uploadCsv = multer({
   limits: { fileSize: env.MAX_FILE_SIZE_MB * 1024 * 1024 },
 }).single('file');
 
+/**
+ * Broadcast audio. Only what a phone line can actually play.
+ *
+ * Filtered by extension as well as MIME because browsers disagree about WAV
+ * ('audio/wav', 'audio/x-wav', 'audio/wave', and Windows sometimes nothing at
+ * all), and refusing a perfectly playable file over a header is a support ticket
+ * with no upside. The real format check happens in the recording service, which
+ * reads the bytes.
+ */
+const AUDIO_MIME_TYPES = new Set([
+  'audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/wave', 'audio/x-wav', 'audio/vnd.wave',
+]);
+
+const audioFilter = (req, file, cb) => {
+  const named = /\.(mp3|wav)$/i.test(file.originalname || '');
+  if (AUDIO_MIME_TYPES.has(String(file.mimetype).toLowerCase()) || named) {
+    cb(null, true);
+  } else {
+    cb(new Error('Upload an MP3 or WAV file — those are the only formats a phone line can play'), false);
+  }
+};
+
+export const uploadAudio = multer({
+  storage,
+  fileFilter: audioFilter,
+  limits: { fileSize: env.MAX_FILE_SIZE_MB * 1024 * 1024 },
+}).single('file');
+
 const DOCUMENT_MIME_TYPES = new Set([
   'application/pdf',
   'image/jpeg',

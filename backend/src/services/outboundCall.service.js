@@ -157,7 +157,7 @@ export async function telephonyStatusForNumber(fromNumber) {
  * Unknown numbers fall back silently — most deployments have no VoiceNumber
  * rows at all, and every one of those is a Twilio call that must keep working.
  */
-async function resolveProviderIdForNumber(fromNumber) {
+export async function resolveProviderIdForNumber(fromNumber) {
   if (!fromNumber) return undefined;
   try {
     const row = await prisma.voiceNumber.findUnique({

@@ -11,6 +11,7 @@ import { SSE_KEEPALIVE_INTERVAL_MS, SHUTDOWN_GRACE_PERIOD_MS } from './constants
 import { createCampaignWorker } from './workers/campaign.worker.js';
 import { startIntegrationScheduler } from './services/integrationScheduler.service.js';
 import { startVoiceSyncScheduler } from './services/voice/voice.startup.js';
+import { sweepDueBroadcasts } from './services/broadcast/broadcast.service.js';
 import { handleWebCallUpgrade } from './ws/webCallRealtime.handler.js';
 import { handleWebCallModularUpgrade } from './ws/webCallModularRealtime.handler.js';
 import { handleTwilioMediaUpgrade } from './ws/twilioMediaRealtime.handler.js';
@@ -78,6 +79,14 @@ const recordingRetention = startRecordingRetention();
 // stuck in 'pending'/'processing' forever with nothing to notice. One sweep
 // on boot picks those back up.
 resumeStuckKbJobs().catch((err) => logger.warn(`KB stuck-job sweep failed: ${err.message}`));
+
+// Scheduled broadcasts are armed with in-process timers, so a deploy between
+// "schedule for 9am" and 9am would silently drop the send. This re-arms the
+// pending ones and starts anything that came due while the process was down —
+// without it, "scheduled" quietly means "scheduled unless we ship tonight".
+sweepDueBroadcasts()
+  .then((n) => { if (n) logger.info({ scheduled: n }, 'Re-armed scheduled broadcasts'); })
+  .catch((err) => logger.warn(`Scheduled-broadcast sweep failed: ${err.message}`));
 
 // Plain http.Server wrapping the Express app — needed so WebSocket upgrade
 // requests (xAI Conversational Agent: Web Call + Twilio Media Streams) can be

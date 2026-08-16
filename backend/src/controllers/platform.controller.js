@@ -7,6 +7,7 @@ import { sendMail, isMailerConfigured } from '../lib/mailer.js';
 import { appendCallRow } from '../services/googleSheets.service.js';
 import { createEvent, resolveAppointmentStart } from '../services/googleCalendar.service.js';
 import { getWalletRate, setWalletRate, WALLET_RATE_PLAN } from '../services/billing/walletRate.js';
+import { getBroadcastRate, setBroadcastRate } from '../services/billing/broadcastRate.js';
 
 /*
  * The plan catalogue used to live here: a DEFAULT_PLANS seed, ensurePlansSeeded,
@@ -48,6 +49,28 @@ export const adminGetWalletRate = async (_req, res) => {
 export const adminSetWalletRate = async (req, res) => {
   try {
     const rate = await setWalletRate(req.body?.perMinuteInr);
+    res.json({ perMinuteInr: rate.perMinuteInr });
+  } catch (err) {
+    res.status(err.status ?? 500).json({ error: err.message ?? 'Failed to save the rate' });
+  }
+};
+
+// ─── BROADCAST RATE ──────────────────────────────────────────────────────────
+// The second (and only other) price this platform sets. A one-way broadcast
+// costs us a carrier minute and nothing else — no STT, no LLM, no per-call TTS —
+// so charging it at the conversational rate prices it out of a market that is
+// bought on price. See services/billing/broadcastRate.js.
+
+/** GET /admin/broadcast-rate */
+export const adminGetBroadcastRate = async (_req, res) => {
+  const rate = await getBroadcastRate();
+  res.json({ perMinuteInr: rate.perMinuteInr });
+};
+
+/** PUT /admin/broadcast-rate */
+export const adminSetBroadcastRate = async (req, res) => {
+  try {
+    const rate = await setBroadcastRate(req.body?.perMinuteInr);
     res.json({ perMinuteInr: rate.perMinuteInr });
   } catch (err) {
     res.status(err.status ?? 500).json({ error: err.message ?? 'Failed to save the rate' });

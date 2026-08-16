@@ -38,21 +38,21 @@ model Voice {
 }
 
 model User {
-  id                    String            @id @default(cuid())
-  email                 String            @unique
-  passwordHash          String?
-  googleId              String?           @unique
-  name                  String
-  avatarUrl             String?
-  banned                Boolean           @default(false)
-  bannedAt              DateTime?
-  bannedReason          String?
-  planName              String            @default("Free")
-  createdAt             DateTime          @default(now())
-  updatedAt             DateTime          @updatedAt
-  mobile                String?           @unique
-  refreshTokens         RefreshToken[]
-  memberships           WorkspaceMember[]
+  id            String            @id @default(cuid())
+  email         String            @unique
+  passwordHash  String?
+  googleId      String?           @unique
+  name          String
+  avatarUrl     String?
+  banned        Boolean           @default(false)
+  bannedAt      DateTime?
+  bannedReason  String?
+  planName      String            @default("Free")
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+  mobile        String?           @unique
+  refreshTokens RefreshToken[]
+  memberships   WorkspaceMember[]
 }
 
 // The 20260809140000_remove_whatsapp migration tore WhatsApp out of the
@@ -77,6 +77,8 @@ model Workspace {
   updatedAt           DateTime             @updatedAt
   agents              Agent[]
   apiKeys             ApiKey[]
+  broadcasts          Broadcast[]
+  broadcastRecordings BroadcastRecording[]
   campaigns           Campaign[]
   compliance          WorkspaceCompliance?
   contacts            Contact[]
@@ -137,7 +139,6 @@ model WorkspaceInvite {
   @@unique([workspaceId, email])
 }
 
-
 model ApiKey {
   id          String    @id @default(cuid())
   workspaceId String
@@ -151,41 +152,38 @@ model ApiKey {
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
-
-
-
 model Campaign {
-  id               String              @id @default(cuid())
-  workspaceId      String
-  name             String
+  id              String              @id @default(cuid())
+  workspaceId     String
+  name            String
   // 'WHATSAPP' (template broadcast) or 'VOICE' (bulk calls).
-  channel          String              @default("WHATSAPP")
-  botId            String?
-  phoneNumbers     Json?
+  channel         String              @default("WHATSAPP")
+  botId           String?
+  phoneNumbers    Json?
   // ContactCluster ids this campaign was built from. Kept as the record of what
   // was chosen: the recipient rows are the frozen list, this is the intent, and
   // the two differ as soon as someone adds a contact to the cluster afterwards.
-  clusterIds       Json?
-  csvFileName      String?
-  fromNumber       String?
+  clusterIds      Json?
+  csvFileName     String?
+  fromNumber      String?
   // Caller IDs rotated across calls, spreading volume to reduce spam flagging.
-  fromNumbers      Json?
+  fromNumbers     Json?
   // 'conversation' | 'greeting' — resolved from the agent's engine at launch.
-  callMode         String?
-  lastError        String?
-  progress         Int                 @default(0)
-  concurrentCalls  Int                 @default(1)
-  status           String              @default("DRAFT")
-  scheduledAt      DateTime?
-  launchedAt       DateTime?
-  completedAt      DateTime?
-  totalContacts    Int                 @default(0)
-  sent             Int                 @default(0)
-  failed           Int                 @default(0)
-  createdAt        DateTime            @default(now())
-  updatedAt        DateTime            @updatedAt
-  workspace        Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  recipients       CampaignRecipient[]
+  callMode        String?
+  lastError       String?
+  progress        Int                 @default(0)
+  concurrentCalls Int                 @default(1)
+  status          String              @default("DRAFT")
+  scheduledAt     DateTime?
+  launchedAt      DateTime?
+  completedAt     DateTime?
+  totalContacts   Int                 @default(0)
+  sent            Int                 @default(0)
+  failed          Int                 @default(0)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  workspace       Workspace           @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  recipients      CampaignRecipient[]
 }
 
 model CampaignRecipient {
@@ -237,9 +235,10 @@ model Contact {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  workspace    Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  memberships  ContactClusterMember[]
-  recipients   CampaignRecipient[]
+  workspace           Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  memberships         ContactClusterMember[]
+  recipients          CampaignRecipient[]
+  broadcastRecipients BroadcastRecipient[]
 
   @@unique([workspaceId, phoneNumber])
   @@index([workspaceId, status])
@@ -263,8 +262,8 @@ model ContactCluster {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  workspace   Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  members     ContactClusterMember[]
+  workspace Workspace              @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  members   ContactClusterMember[]
 
   // Names are the handle people use to pick a list at launch time; two lists
   // called "Diwali leads" would make that choice a guess.
@@ -281,16 +280,140 @@ model ContactClusterMember {
   contactId String
   addedAt   DateTime @default(now())
 
-  cluster   ContactCluster @relation(fields: [clusterId], references: [id], onDelete: Cascade)
-  contact   Contact        @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  cluster ContactCluster @relation(fields: [clusterId], references: [id], onDelete: Cascade)
+  contact Contact        @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
   @@unique([clusterId, contactId])
   @@index([contactId])
 }
 
+/// ─── Voice broadcast (one-way) ───────────────────────────────────────────────
+///
+/// A broadcast dials the SAME contacts and clusters a bulk campaign dials, and
+/// then does the one thing a campaign cannot: it plays a fixed recording and
+/// hangs up. No agent, no speech-to-text, no LLM, no per-turn text-to-speech —
+/// which is why it exists as its own table set rather than as another
+/// `Campaign.channel`. Everything a campaign carries (botId, callMode, the
+/// two-way telephony gates) is meaningless here, and everything a broadcast
+/// carries (the audio asset, per-recipient answered/duration/charge) has nowhere
+/// to live there.
 
+/// One piece of audio, reusable across broadcasts.
+///
+/// Two ways in, one shape out: an uploaded MP3/WAV, or text synthesised once
+/// through the same TTS provider the agents use. Synthesised once, deliberately
+/// — a broadcast's whole cost advantage is that no speech is generated per call.
+model BroadcastRecording {
+  id            String   @id @default(cuid())
+  workspaceId   String
+  name          String
+  // UPLOAD | TTS — where the bytes came from. TTS rows keep `scriptText` and
+  // `voiceId` so the same message can be re-rendered in another voice later.
+  source        String   @default("UPLOAD")
+  // Filename inside UPLOAD_DIR/broadcast-recordings. Never a full path: the
+  // directory moves between environments, the file name does not.
+  storedPath    String
+  mimeType      String   @default("audio/mpeg")
+  sizeBytes     Int      @default(0)
+  // Whole seconds, rounded UP. This is the number every cost estimate and the
+  // carrier's own billing increment are computed from, so rounding down would
+  // under-quote every broadcast.
+  durationSec   Int      @default(0)
+  scriptText    String?
+  voiceId       String?
+  // READY | FAILED. A TTS render that fails leaves a row so the operator sees
+  // why, instead of a recording that silently never appears.
+  status        String   @default("READY")
+  failureReason String?
+  createdById   String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
+  workspace  Workspace   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  broadcasts Broadcast[]
 
+  @@index([workspaceId, createdAt])
+}
+
+/// One send: this recording, to these lists, from these caller IDs.
+model Broadcast {
+  id              String    @id @default(cuid())
+  workspaceId     String
+  name            String
+  recordingId     String
+  // The clusters chosen, kept as the record of intent. The recipient rows are
+  // the frozen list — the two diverge the moment someone edits a cluster, which
+  // is what `sync-list` exists to reconcile.
+  clusterIds      Json?
+  // Caller IDs rotated across the dials, spreading volume so one number does not
+  // absorb the whole day's spam scoring.
+  fromNumbers     Json?
+  fromNumber      String?
+  // How many times the recording is played on one answered call. 2 is common for
+  // short messages; the carrier bills the extra seconds, so it is priced.
+  repeatCount     Int       @default(1)
+  status          String    @default("DRAFT")
+  scheduledAt     DateTime?
+  launchedAt      DateTime?
+  completedAt     DateTime?
+  lastError       String?
+  progress        Int       @default(0)
+  totalRecipients Int       @default(0)
+  // Answered is the number that matters commercially: an unanswered dial costs
+  // nothing with the carrier and is never charged to the client.
+  answered        Int       @default(0)
+  failed          Int       @default(0)
+  // Running total of what this broadcast has actually taken off the wallet, in
+  // minor units. Derived from the recipient rows, never incremented blindly.
+  spentCents      Int       @default(0)
+  createdById     String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  workspace  Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  recording  BroadcastRecording   @relation(fields: [recordingId], references: [id])
+  recipients BroadcastRecipient[]
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, status])
+}
+
+/// One dial. The unit of progress, of resumability, and of billing.
+model BroadcastRecipient {
+  id                 String    @id @default(cuid())
+  broadcastId        String
+  // Denormalised for the same reason CampaignRecipient denormalises it: the list
+  // a broadcast dialled must not change when someone later edits or deletes the
+  // contact behind it.
+  phoneNumber        String
+  contactId          String?
+  // pending | calling | answered | no_answer | failed | skipped
+  status             String    @default("pending")
+  attempts           Int       @default(0)
+  // The carrier's own call id (Twilio CallSid / Plivo call_uuid), which is how
+  // the asynchronous status callback finds this row again.
+  providerCallId     String?
+  provider           String?
+  fromNumber         String?
+  durationSec        Int       @default(0)
+  failureReason      String?
+  startedAt          DateTime?
+  answeredAt         DateTime?
+  endedAt            DateTime?
+  // PENDING | BILLED | SKIPPED. Same compare-and-set guard AgentCallLog uses:
+  // a carrier callback that fires twice must not charge twice.
+  billingStatus      String    @default("PENDING")
+  billedCents        Int       @default(0)
+  ratePerMinuteCents Int?
+
+  broadcast Broadcast @relation(fields: [broadcastId], references: [id], onDelete: Cascade)
+  contact   Contact?  @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  @@unique([broadcastId, phoneNumber])
+  @@index([broadcastId, status])
+  @@index([contactId])
+  @@index([providerCallId])
+}
 
 model WorkspaceSettings {
   id                  String    @id @default(cuid())
@@ -307,57 +430,56 @@ model WorkspaceSettings {
 }
 
 model Invoice {
-  id          String    @id @default(cuid())
-  workspaceId String
-  planName    String
-  amountCents Int
-  currency    String    @default("INR")
-  status      String    @default("Paid")
-  invoiceDate DateTime
-  pdfUrl      String?
-  createdAt   DateTime  @default(now())
+  id             String    @id @default(cuid())
+  workspaceId    String
+  planName       String
+  amountCents    Int
+  currency       String    @default("INR")
+  status         String    @default("Paid")
+  invoiceDate    DateTime
+  pdfUrl         String?
+  createdAt      DateTime  @default(now())
   // Human-facing sequential document number (INV-2026-000123). Unique so a
   // retried generation cannot mint two documents for the same payment.
-  number      String?   @unique
+  number         String?   @unique
   // topup | subscription
-  type        String    @default("topup")
-  subtotalCents Int     @default(0)
-  taxCents      Int     @default(0)
+  type           String    @default("topup")
+  subtotalCents  Int       @default(0)
+  taxCents       Int       @default(0)
   // The payment this invoice documents. Unique: one invoice per payment, which
   // is what makes generation safe to retry.
-  paymentOrderId String? @unique
-  periodStart DateTime?
-  periodEnd   DateTime?
-  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  paymentOrderId String?   @unique
+  periodStart    DateTime?
+  periodEnd      DateTime?
+  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, invoiceDate])
 }
 
-
 model Agent {
-  id                   String    @id @default(cuid())
+  id                   String            @id @default(cuid())
   workspaceId          String
   name                 String
   welcomeMessage       String
   aiModel              String
   voice                String
-  transcription        String    @default("Azure")
-  languages            String    @default("[]")
-  flowItems            String?   @default("{}")
-  maxDuration          Int       @default(30)
-  silenceTimeout       Int       @default(5)
-  dynamicEnabled       Boolean   @default(true)
-  interruptibleEnabled Boolean   @default(true)
-  createdAt            DateTime  @default(now())
-  updatedAt            DateTime  @updatedAt
-  settings             String    @default("{}")
+  transcription        String            @default("Azure")
+  languages            String            @default("[]")
+  flowItems            String?           @default("{}")
+  maxDuration          Int               @default(30)
+  silenceTimeout       Int               @default(5)
+  dynamicEnabled       Boolean           @default(true)
+  interruptibleEnabled Boolean           @default(true)
+  createdAt            DateTime          @default(now())
+  updatedAt            DateTime          @updatedAt
+  settings             String            @default("{}")
   // The DLT-approved voice template this agent's opening is registered under.
   // Required for Indian outbound: a template is only meaningful if the words
   // actually spoken match it, so the greeting is pinned to the approved body
   // rather than generated. Null for web calls and non-India traffic.
   dltTemplateId        String?
   dltTemplate          DltVoiceTemplate? @relation(fields: [dltTemplateId], references: [id], onDelete: SetNull)
-  workspace            Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace            Workspace         @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([dltTemplateId])
 }
@@ -366,36 +488,36 @@ model Agent {
 // Every test session is logged: text chats (CHAT), browser voice calls
 // (WEB_CALL, with a full-call recording) and phone test calls (PHONE_CALL).
 model AgentCallLog {
-  id            String    @id @default(cuid())
-  workspaceId   String
-  agentId       String
-  type          String    @default("CHAT") // CHAT | WEB_CALL | PHONE_CALL
-  status        String    @default("COMPLETED") // IN_PROGRESS | COMPLETED | INITIATED | FAILED
-  transcript    String    @default("[]") // JSON [{ role, content }]
-  durationSec   Int       @default(0)
-  recordingPath String?
-  recordingMime String?
-  phoneNumber   String?
-  extractedData String    @default("{}") // JSON: configured variables, values, evidence, model metadata
-  extractionStatus String @default("PENDING") // PENDING | PROCESSING | COMPLETED | SKIPPED | FAILED
-  extractionError String?
-  extractedAt   DateTime?
-  startedAt     DateTime  @default(now())
-  endedAt       DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  id               String    @id @default(cuid())
+  workspaceId      String
+  agentId          String
+  type             String    @default("CHAT") // CHAT | WEB_CALL | PHONE_CALL
+  status           String    @default("COMPLETED") // IN_PROGRESS | COMPLETED | INITIATED | FAILED
+  transcript       String    @default("[]") // JSON [{ role, content }]
+  durationSec      Int       @default(0)
+  recordingPath    String?
+  recordingMime    String?
+  phoneNumber      String?
+  extractedData    String    @default("{}") // JSON: configured variables, values, evidence, model metadata
+  extractionStatus String    @default("PENDING") // PENDING | PROCESSING | COMPLETED | SKIPPED | FAILED
+  extractionError  String?
+  extractedAt      DateTime?
+  startedAt        DateTime  @default(now())
+  endedAt          DateTime?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
 
   // ── Billing (BUG-002) ──────────────────────────────────────────────────────
   // PENDING | BILLED | SKIPPED | FAILED. Guards against double-charging: all
   // three call-end paths converge on settleCall(), which only charges a call
   // still in PENDING.
-  billingStatus String   @default("PENDING")
-  billedCents   Int      @default(0)
-  billedAt      DateTime?
+  billingStatus      String    @default("PENDING")
+  billedCents        Int       @default(0)
+  billedAt           DateTime?
   // The customer-facing rate actually applied, snapshotted so a later plan or
   // FX change cannot retroactively alter what this call cost.
   ratePerMinuteCents Int?
-  billedMinutes Float    @default(0)
+  billedMinutes      Float     @default(0)
   // Measured provider COGS in micro-USD (millionths), RECORDED not charged —
   // the customer pays the rate card. This is what makes per-call margin
   // reportable instead of guessed.
@@ -694,35 +816,35 @@ model KbChunk {
 }
 
 model Plan {
-  id              String   @id @default(cuid())
-  name            String   @unique
-  priceUsd        Float
-  perMinuteUsd    Float
+  id                 String         @id @default(cuid())
+  name               String         @unique
+  priceUsd           Float
+  perMinuteUsd       Float
   // INR is the price of record for this deployment. Nullable so a plan created
   // before this existed still works: money.js falls back to priceUsd x FX.
   // Keeping a real INR price (rather than deriving it) means a change to
   // FX_USD_TO_INR cannot silently reprice the product, and lets an admin set
   // round price points instead of 8,544.
-  priceInr        Float?
-  perMinuteInr    Float?
+  priceInr           Float?
+  perMinuteInr       Float?
   // Mirrored Razorpay plan ids, kept per MODE. Test and live are separate
   // datasets — a plan created with rzp_test_ keys does not exist in live mode,
   // so one shared column would carry a test id into production and fail there.
   razorpayPlanIdTest String?
   razorpayPlanIdLive String?
-  includedMinutes Int
-  kbStorageMb     Int      @default(100)
+  includedMinutes    Int
+  kbStorageMb        Int            @default(100)
   // Enforceable limits. `features` is a marketing string list ("3 agents") and
   // was never machine-readable, so nothing could actually be gated on it.
   // These are the numbers assertCanStartCall() and agent creation check.
-  maxAgents          Int   @default(1)
-  maxConcurrentCalls Int   @default(1)
-  features        String
-  active          Boolean  @default(true)
-  sortOrder       Int      @default(0)
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
-  subscriptions   Subscription[]
+  maxAgents          Int            @default(1)
+  maxConcurrentCalls Int            @default(1)
+  features           String
+  active             Boolean        @default(true)
+  sortOrder          Int            @default(0)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+  subscriptions      Subscription[]
 }
 
 // Prepaid balance for one workspace, held in MINOR UNITS of `currency`
@@ -730,56 +852,56 @@ model Plan {
 // applyWalletTransaction() in services/billing.service.js so that the balance
 // and the ledger can never disagree.
 model Wallet {
-  id           String              @id @default(cuid())
-  workspaceId  String              @unique
-  balanceCents Int                 @default(0)
+  id                   String              @id @default(cuid())
+  workspaceId          String              @unique
+  balanceCents         Int                 @default(0)
   // INR because that is what Razorpay settles in. Plans are catalogued in USD
   // and converted at charge time with the FX rate recorded on the transaction,
   // so a historical charge stays reproducible even after the rate moves.
-  currency     String              @default("INR")
+  currency             String              @default("INR")
   // How far below zero this wallet may go before new calls are blocked.
   // 0 = hard stop at zero (the default). Non-zero lets an enterprise account
   // run on invoice terms without being cut off mid-conversation.
-  overdraftLimitCents Int          @default(0)
+  overdraftLimitCents  Int                 @default(0)
   // Set when a low-balance warning was last sent, so the notifier does not
   // re-send on every single call once the balance is low.
   lowBalanceNotifiedAt DateTime?
-  updatedAt    DateTime            @updatedAt
-  transactions WalletTransaction[]
+  updatedAt            DateTime            @updatedAt
+  transactions         WalletTransaction[]
 }
 
 // Append-only ledger. One row per balance mutation, and the ONLY audit record
 // of money movement — nothing else is authoritative.
 model WalletTransaction {
-  id          String   @id @default(cuid())
-  walletId    String
+  id                String   @id @default(cuid())
+  walletId          String
   // Signed: positive credits (top-up, refund, admin), negative debits (usage,
   // subscription). Summing this column for a wallet must always equal its
   // balanceCents; that invariant is asserted in the billing tests.
-  amountCents Int
+  amountCents       Int
   // Balance immediately AFTER this row was applied. Lets an auditor verify the
   // running balance without replaying the whole ledger, and makes an
   // out-of-order or lost write visible instead of silent.
-  balanceAfterCents Int   @default(0)
-  currency    String   @default("INR")
+  balanceAfterCents Int      @default(0)
+  currency          String   @default("INR")
   // topup | usage | admin_credit | refund | subscription | adjustment
-  type        String
+  type              String
   // THE double-charge guard. A retried Razorpay webhook, a double-fired
   // call-end event, or a client PATCH replay all carry the same key, and the
   // unique constraint makes the second write fail instead of charging twice.
   // Nullable because ad-hoc admin adjustments have no natural key, and
   // Postgres permits many NULLs under a UNIQUE index.
-  idempotencyKey String? @unique
-  note        String?
+  idempotencyKey    String?  @unique
+  note              String?
   // JSON: callLogId, durationSec, rate applied, provider ids — whatever is
   // needed to explain this line item back to a customer.
-  metadata    String   @default("{}")
+  metadata          String   @default("{}")
   // FX rate used when converting a USD-denominated plan rate into the wallet's
   // currency. Recorded per row so an old charge can be re-derived exactly.
-  fxRateUsdToInr Float?
-  createdById String?
-  createdAt   DateTime @default(now())
-  wallet      Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
+  fxRateUsdToInr    Float?
+  createdById       String?
+  createdAt         DateTime @default(now())
+  wallet            Wallet   @relation(fields: [walletId], references: [id], onDelete: Cascade)
 
   @@index([walletId, createdAt])
   @@index([type, createdAt])
@@ -789,35 +911,35 @@ model WalletTransaction {
 // Workspace.planName (a display string) because enforcement and renewal need
 // real period boundaries and usage counters, not a label.
 model Subscription {
-  id                 String    @id @default(cuid())
-  workspaceId        String    @unique
-  planId             String
-  planName           String
+  id                     String    @id @default(cuid())
+  workspaceId            String    @unique
+  planId                 String
+  planName               String
   // active | past_due | cancelled | expired
-  status             String    @default("active")
-  billingPeriod      String    @default("monthly") // monthly | yearly
-  currentPeriodStart DateTime
-  currentPeriodEnd   DateTime
+  status                 String    @default("active")
+  billingPeriod          String    @default("monthly") // monthly | yearly
+  currentPeriodStart     DateTime
+  currentPeriodEnd       DateTime
   // Downgrades and cancellations take effect at the period boundary, not
   // immediately — the customer already paid for this period.
-  cancelAtPeriodEnd  Boolean   @default(false)
-  pendingPlanId      String?
-  cancelledAt        DateTime?
+  cancelAtPeriodEnd      Boolean   @default(false)
+  pendingPlanId          String?
+  cancelledAt            DateTime?
   // Included minutes for the CURRENT period, reset on renewal. Usage beyond
   // this draws down the wallet.
-  minutesIncluded    Int       @default(0)
-  minutesUsed        Float     @default(0)
-  razorpaySubscriptionId String? @unique
+  minutesIncluded        Int       @default(0)
+  minutesUsed            Float     @default(0)
+  razorpaySubscriptionId String?   @unique
   // Renews itself on a saved card. False = the period simply lapses, which is
   // the pre-existing wallet-funded behaviour.
-  autoRenew          Boolean   @default(false)
+  autoRenew              Boolean   @default(false)
   // Last gateway charge applied, so a replayed subscription.charged webhook for
   // an already-processed cycle is recognisable.
-  lastChargeId       String?
-  createdAt          DateTime  @default(now())
-  updatedAt          DateTime  @updatedAt
-  workspace          Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  plan               Plan      @relation(fields: [planId], references: [id])
+  lastChargeId           String?
+  createdAt              DateTime  @default(now())
+  updatedAt              DateTime  @updatedAt
+  workspace              Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  plan                   Plan      @relation(fields: [planId], references: [id])
 
   @@index([status, currentPeriodEnd])
   @@index([autoRenew, status])
@@ -927,15 +1049,15 @@ model AuditLog {
 // see src/constants/compliance.js for the permitted values of every field.
 
 model WorkspaceCompliance {
-  id          String    @id @default(cuid())
-  workspaceId String    @unique
+  id              String  @id @default(cuid())
+  workspaceId     String  @unique
   // PROMOTIONAL | TRANSACTIONAL. Declared before a number is bought because it
   // decides the series, and the series cannot be changed afterwards without
   // releasing the number.
-  useCase     String?
+  useCase         String?
   // Legal entity as it appears on the registration documents. Must match the
   // brand name registered on DLT, or the header registration is rejected.
-  entityName  String?
+  entityName      String?
   legalEntityType String?
 
   // Our reseller compliance application to the carrier, filed per end customer.
@@ -947,17 +1069,17 @@ model WorkspaceCompliance {
 
   // The client's DLT Principal Entity registration. peOperator is derived from
   // the first three digits of the PE ID.
-  peId           String?
-  peOperator     String?
-  peStatus       String    @default("NOT_STARTED")
-  peVerifiedAt   DateTime?
+  peId         String?
+  peOperator   String?
+  peStatus     String    @default("NOT_STARTED")
+  peVerifiedAt DateTime?
 
   // PE-TM chain binding: the client declares our telemarketer (aggregator) ID
   // in their DLT portal. Without it the PE ID and our infrastructure are
   // unlinked and the traffic is unregistered however valid the PE is.
-  tmId             String?
-  tmBindingStatus  String    @default("NOT_BOUND")
-  tmBoundAt        DateTime?
+  tmId            String?
+  tmBindingStatus String    @default("NOT_BOUND")
+  tmBoundAt       DateTime?
 
   // Set when a violation is found. Independent of the checklist: a workspace
   // that satisfies every requirement can still be stopped.
@@ -965,12 +1087,12 @@ model WorkspaceCompliance {
   suspendedReason String?
   suspendedAt     DateTime?
 
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  workspace   Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  documents   ComplianceDocument[]
-  templates   DltVoiceTemplate[]
+  workspace Workspace            @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  documents ComplianceDocument[]
+  templates DltVoiceTemplate[]
 }
 
 model ComplianceDocument {
@@ -990,7 +1112,7 @@ model ComplianceDocument {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 
-  compliance   WorkspaceCompliance @relation(fields: [complianceId], references: [id], onDelete: Cascade)
+  compliance WorkspaceCompliance @relation(fields: [complianceId], references: [id], onDelete: Cascade)
 
   // One live document per kind; re-uploading replaces rather than accumulates.
   @@unique([complianceId, kind])
@@ -998,22 +1120,22 @@ model ComplianceDocument {
 }
 
 model DltVoiceTemplate {
-  id            String    @id @default(cuid())
-  complianceId  String
+  id              String    @id @default(cuid())
+  complianceId    String
   // The template ID issued by the DLT portal. Null while still a local draft.
-  dltTemplateId String?
-  name          String
+  dltTemplateId   String?
+  name            String
   // The approved script. The agent's opening must match this — a free-form LLM
   // greeting is what makes a registered template meaningless.
-  body          String
-  status        String    @default("DRAFT")
+  body            String
+  status          String    @default("DRAFT")
   rejectionReason String?
-  approvedAt    DateTime?
-  createdAt     DateTime  @default(now())
-  updatedAt     DateTime  @updatedAt
+  approvedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 
-  compliance    WorkspaceCompliance @relation(fields: [complianceId], references: [id], onDelete: Cascade)
-  agents        Agent[]
+  compliance WorkspaceCompliance @relation(fields: [complianceId], references: [id], onDelete: Cascade)
+  agents     Agent[]
 
   @@index([complianceId, status])
 }
@@ -1023,48 +1145,48 @@ model DltVoiceTemplate {
 // account. Never expose a Plivo balance to a client; the wallet is the only
 // thing they see. See backend/docs/PLIVO_INTEGRATION.md §2.
 model PlivoSubaccount {
-  id             String    @id @default(cuid())
-  workspaceId    String    @unique
-  authId         String    @unique
+  id           String   @id @default(cuid())
+  workspaceId  String   @unique
+  authId       String   @unique
   // Plivo returns the subaccount auth_token EXACTLY ONCE, in the creation
   // response, and it is never retrievable from the API again. Encrypted at rest
   // because it authenticates real, billable spend against our parent account.
-  authTokenEnc   String
-  name           String
-  enabled        Boolean   @default(true)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  authTokenEnc String
+  name         String
+  enabled      Boolean  @default(true)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
 
-  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
 model VoiceNumber {
-  id             String    @id @default(cuid())
-  workspaceId    String
-  phoneNumber    String    @unique
+  id                    String    @id @default(cuid())
+  workspaceId           String
+  phoneNumber           String    @unique
   // PLIVO | EXOTEL | TWILIO
-  provider       String
-  providerNumberId String?
+  provider              String
+  providerNumberId      String?
   // Per-workspace carrier subaccount, so one client's calling behaviour cannot
   // degrade the caller-ID reputation of another client's numbers.
-  subaccountId   String?
+  subaccountId          String?
   // PROMOTIONAL_140 | TRANSACTIONAL_LANDLINE | BFSI_1600 | MOBILE | UNKNOWN.
   // Recorded from what the carrier sold us — 140 and 1600 are the only series
   // decidable from the digits, landline and mobile ranges overlap.
-  series         String    @default("UNKNOWN")
-  headerStatus   String    @default("NOT_REGISTERED")
+  series                String    @default("UNKNOWN")
+  headerStatus          String    @default("NOT_REGISTERED")
   headerRejectionReason String?
-  headerRegisteredAt DateTime?
-  status         String    @default("ACTIVE")
-  assignedAt     DateTime  @default(now())
-  releasedAt     DateTime?
+  headerRegisteredAt    DateTime?
+  status                String    @default("ACTIVE")
+  assignedAt            DateTime  @default(now())
+  releasedAt            DateTime?
   // Rolling reputation guard. A number's answer rate collapsing is the earliest
   // signal that carriers have started filtering it.
-  dailyDialCap   Int       @default(200)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  dailyDialCap          Int       @default(200)
+  createdAt             DateTime  @default(now())
+  updatedAt             DateTime  @updatedAt
 
-  workspace      Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, status])
 }

@@ -63,6 +63,11 @@ router.get('/appointments', authenticate, isAdmin, listAppointments);
 // The platform wallet rate — what every call is charged, per minute.
 router.get('/wallet-rate', authenticate, isAdmin, platform.adminGetWalletRate);
 router.put('/wallet-rate', authenticate, isAdmin, platform.adminSetWalletRate);
+// The platform broadcast rate — what a one-way recorded call is charged, per
+// minute. Separate from the wallet rate because it costs us a carrier minute
+// and nothing else; see services/billing/broadcastRate.js.
+router.get('/broadcast-rate', authenticate, isAdmin, platform.adminGetBroadcastRate);
+router.put('/broadcast-rate', authenticate, isAdmin, platform.adminSetBroadcastRate);
 
 router.post('/wallets/credit', authenticate, isAdmin, billing.adminCreditWallet);
 // Ledger-vs-balance reconciliation. Surfaces any balance mutated outside

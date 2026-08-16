@@ -27,8 +27,15 @@ import {
   plivoProvider,
   buildStreamXml,
   buildGreetingXml,
+  buildPlayXml,
   resolveAnswerUrlBase,
 } from '../services/telephony/plivo.provider.js';
+import {
+  getRecordingUnscoped,
+  publicAudioUrl,
+} from '../services/broadcast/broadcastRecording.service.js';
+import { settleBroadcastCall } from '../services/broadcast/broadcastSettlement.service.js';
+import { syncProgress } from '../services/broadcast/broadcastRunner.service.js';
 import { getRenderedWelcome } from '../services/agentRuntime.service.js';
 import { createCallFinalizer } from '../ws/callFinalizer.js';
 
@@ -128,6 +135,31 @@ export async function answer(req, res) {
   const mode = field(req, 'mode') || 'conversation';
   const callUuid = field(req, 'CallUUID');
 
+  // ── broadcast ──
+  //
+  // Handled before the agent lookup because a broadcast HAS no agent: it plays a
+  // recording and hangs up. The audio URL is minted here rather than carried on
+  // the query string, for the same reason the stream URL is — a public,
+  // unauthenticated endpoint must never emit an address that arrived from
+  // outside into XML a carrier will fetch.
+  if (mode === 'broadcast') {
+    const recordingId = field(req, 'recordingId');
+    if (!recordingId) return failXml(res, 400, `broadcast answer with no recordingId (CallUUID ${callUuid})`);
+
+    const recording = await getRecordingUnscoped(recordingId);
+    if (!recording) return failXml(res, 404, `broadcast recording ${recordingId} not found`);
+
+    let audioUrl;
+    try {
+      audioUrl = publicAudioUrl(recordingId);
+    } catch (err) {
+      return failXml(res, 503, `broadcast audio URL could not be built: ${err.message}`);
+    }
+
+    logger.info({ recordingId, callUuid }, 'Plivo answered a one-way broadcast call');
+    return xml(res, buildPlayXml({ audioUrl, repeat: Number(field(req, 'repeat')) || 1 }));
+  }
+
   if (!workspaceId || !agentId) {
     return failXml(res, 400, `answer called without workspaceId/agentId (CallUUID ${callUuid})`);
   }
@@ -191,14 +223,44 @@ export async function hangup(req, res) {
   // a carrier webhook that retries, and everything below is best effort.
   res.json({ ok: true });
 
+  const callState = String(field(req, 'CallStatus', 'call_state')).toLowerCase();
+  const seconds = Number(field(req, 'Duration') || 0);
+
+  // ── broadcast ──
+  //
+  // For a one-way call this callback is the ONLY end-of-call signal there is: no
+  // media socket is ever opened, and no AgentCallLog exists. It is where the
+  // answered/no-answer outcome and the charge both come from.
+  const broadcastRecipientId = field(req, 'broadcastRecipientId') || null;
+  if (broadcastRecipientId) {
+    try {
+      await settleBroadcastCall(broadcastRecipientId, {
+        durationSec: seconds,
+        answered: ANSWERED_STATES.has(callState) && seconds > 0,
+        failureReason: ANSWERED_STATES.has(callState) ? null : (callState || 'unknown'),
+        providerCallId: field(req, 'CallUUID') || null,
+      });
+      const recipient = await prisma.broadcastRecipient.findUnique({
+        where: { id: broadcastRecipientId },
+        select: { broadcastId: true },
+      });
+      // Keep the broadcast's counters moving as outcomes land, rather than only
+      // when the dispatcher next comes round — otherwise a finished send whose
+      // last calls are still resolving sits at 98% indefinitely.
+      if (recipient) await syncProgress(recipient.broadcastId).catch(() => {});
+    } catch (e) {
+      logger.warn(`Plivo hangup could not settle broadcast recipient ${broadcastRecipientId}: ${e.message}`);
+    }
+    return;
+  }
+
   const callLogId = field(req, 'callLogId') || null;
   if (!callLogId) return;
 
   const workspaceId = field(req, 'workspaceId');
   const agentId = field(req, 'agentId');
-  const callState = field(req, 'CallStatus', 'call_state').toLowerCase();
   const hangupCause = field(req, 'HangupCauseName', 'hangup_cause_name');
-  const duration = Number(field(req, 'Duration') || 0);
+  const duration = seconds;
 
   try {
     const log = await prisma.agentCallLog.findUnique({
