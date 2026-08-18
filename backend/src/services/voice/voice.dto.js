@@ -323,12 +323,21 @@ export function fromFishAudioVoice(raw, { preferLanguages = [] } = {}) {
   // Fish voices are frequently MULTILINGUAL (e.g. ["es","pt","en","hi"]) but the
   // Voice table has one indexed `language` column, and that column is what the
   // picker filters on. Taking langs[0] blindly filed a voice that speaks Hindi
-  // under "Spanish", so a Hindi agent could never find it. Prefer whichever of
-  // this deployment's languages the voice supports (in preference order); the
-  // full list is always kept in metadata.
-  const primary = preferLanguages
-    .map((p) => String(p).trim().toLowerCase())
-    .find((p) => langs.some((l) => l.toLowerCase() === p || l.toLowerCase().startsWith(`${p}-`)))
+  // under "Spanish", so a Hindi agent could never find it. The full list is
+  // always kept in metadata.
+  //
+  // The voice's OWN first language wins whenever this deployment serves it:
+  // Fish lists a model's languages primary-first, so a Hindi voice tagged
+  // ["hi","en"] IS a Hindi voice. Consulting our preference order first instead
+  // filed EVERY multilingual voice under whichever of ours ranked highest — with
+  // FISH_VOICE_LANGUAGES=en,hi that labelled the entire catalogue "English" and
+  // left the picker's language filter offering English and nothing else.
+  // Only when we don't serve the voice's own primary does preference order
+  // decide, which is what keeps a Spanish-primary Hindi speaker reachable.
+  const prefs = preferLanguages.map((p) => String(p).trim().toLowerCase());
+  const speaks = (p) => langs.some((l) => l.toLowerCase() === p || l.toLowerCase().startsWith(`${p}-`));
+  const ownPrimary = typeof langs[0] === 'string' ? langs[0].toLowerCase().split(/[-_]/)[0] : null;
+  const primary = (ownPrimary && prefs.includes(ownPrimary) ? langs[0] : prefs.find(speaks))
     ?? langs[0];
   const tags = Array.isArray(raw.tags) ? raw.tags.map(String) : [];
   // Fish has no dedicated gender field on a model; when absent, a conventional

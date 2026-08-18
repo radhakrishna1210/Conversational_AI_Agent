@@ -22,7 +22,7 @@ const DEFAULT_PREVIEW_TEXT =
  * List voices with optional provider name filter and pagination.
  * @param {{ page?: number, limit?: number, provider?: string }} opts
  */
-export const listVoices = async ({ page = 1, limit = 20, provider, gender, language, allowedProviders } = {}) => {
+export const listVoices = async ({ page = 1, limit = 20, provider, gender, language, q, allowedProviders } = {}) => {
   const skip = (page - 1) * limit;
   const where = {
     // Hide un-cloned samples from the agent voice picker: a sample_only voice
@@ -41,6 +41,21 @@ export const listVoices = async ({ page = 1, limit = 20, provider, gender, langu
   // and an exact match would silently drop them from the picker.
   if (gender) where.gender = { equals: gender, mode: 'insensitive' };
   if (language) where.language = { equals: language, mode: 'insensitive' };
+  // Text search runs HERE, not in the client. The picker used to filter the 20
+  // rows of the page it had already fetched, so searching a 200-voice catalogue
+  // only ever looked at whichever page you happened to be on — a name on page 6
+  // simply did not exist as far as the search box was concerned.
+  if (q && String(q).trim()) {
+    const term = String(q).trim();
+    where.AND = [...(where.AND ?? []), {
+      OR: [
+        { name: { contains: term, mode: 'insensitive' } },
+        { language: { contains: term, mode: 'insensitive' } },
+        { accent: { contains: term, mode: 'insensitive' } },
+        { category: { contains: term, mode: 'insensitive' } },
+      ],
+    }];
+  }
 
 
   const [total, voices] = await Promise.all([
@@ -66,6 +81,82 @@ export const getVoice = async (id) =>
     where: { id },
     include: { provider: { select: { name: true } } },
   });
+
+// ─── Provider library (not-yet-synced voices) ─────────────────────────────────
+
+/** Providers whose remote library can be searched live, by display name. */
+const SEARCHABLE = { FishAudio: fishAudioProvider, Sarvam: sarvamProvider };
+
+/**
+ * Search a provider's own library by name and mark which hits we already hold.
+ *
+ * This is the escape from the sync's ceiling: Fish caps any listing query at
+ * 1000 results, so a voice ranked below that is unreachable no matter how high
+ * FISH_VOICE_LIMIT goes — but it is still findable by title. Hits already in the
+ * Voice table come back with their local `id` so the picker can preview and
+ * select them directly; the rest carry `id: null` until imported.
+ *
+ * @param {{ provider: string, q: string, limit?: number }} opts
+ */
+export const searchProviderLibrary = async ({ provider, q, limit = 30 }) => {
+  const module = SEARCHABLE[provider];
+  if (!module) throw Object.assign(new Error(`Provider ${provider} has no searchable library`), { status: 400 });
+  if (!module.hasCredentials()) throw Object.assign(new Error(`${provider} is not configured`), { status: 503 });
+
+  const dtos = await module.searchVoices(q, { limit });
+  if (!dtos.length) return [];
+
+  const existing = await prisma.voice.findMany({
+    where: {
+      provider: { name: provider },
+      providerVoiceId: { in: dtos.map((d) => d.providerVoiceId) },
+    },
+    select: { id: true, providerVoiceId: true },
+  });
+  const localId = new Map(existing.map((v) => [v.providerVoiceId, v.id]));
+
+  return dtos.map((d) => ({ ...d, provider, id: localId.get(d.providerVoiceId) ?? null }));
+};
+
+/**
+ * Persist one library voice so it can be previewed and assigned to an agent.
+ *
+ * Everything downstream — preview, PUT /agents/:id/voice — keys off the local
+ * Voice row, so a search hit has to become a row before it is usable. Idempotent:
+ * importing the same voice twice refreshes it instead of duplicating.
+ *
+ * @param {{ provider: string, providerVoiceId: string }} opts
+ */
+export const importProviderVoice = async ({ provider, providerVoiceId }) => {
+  const module = SEARCHABLE[provider];
+  if (!module) throw Object.assign(new Error(`Provider ${provider} has no searchable library`), { status: 400 });
+
+  const dto = await module.getVoiceById(providerVoiceId);
+  if (!dto) throw Object.assign(new Error('Voice not found in the provider library'), { status: 404 });
+
+  const providerRow = await prisma.voiceProvider.upsert({
+    where: { name: provider },
+    create: { name: provider, isActive: true },
+    update: {},
+    select: { id: true },
+  });
+
+  const fields = {
+    name: dto.name,
+    language: dto.language || null,
+    accent: dto.accent || null,
+    gender: dto.gender || null,
+    category: dto.category || null,
+    metadata: dto.metadata || null,
+  };
+
+  return prisma.voice.upsert({
+    where: { providerId_providerVoiceId: { providerId: providerRow.id, providerVoiceId } },
+    create: { providerId: providerRow.id, providerVoiceId, ...fields },
+    update: fields,
+    include: { provider: { select: { name: true } } },
+  });
+};
 
 // ─── Provider health ──────────────────────────────────────────────────────────
 

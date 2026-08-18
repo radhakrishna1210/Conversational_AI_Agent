@@ -54,46 +54,47 @@ export async function syncProvider(providerName) {
   try {
     const dtos = await module.getVoices();
 
-    for (const dto of dtos) {
-      const existing = await prisma.voice.findUnique({
+    // ONE query for what already exists, instead of a findUnique per voice: the
+    // loop below used to fire 2 sequential round-trips per voice purely to tell
+    // added from updated, which is ~1s each against a remote Postgres. That was
+    // survivable at 60 voices and is not at several hundred — the sync request
+    // times out long before the catalogue lands.
+    const existingIds = new Set(
+      (await prisma.voice.findMany({
+        where: { providerId: providerRow.id },
+        select: { providerVoiceId: true },
+      })).map((v) => v.providerVoiceId),
+    );
+
+    const fields = (dto) => ({
+      name: dto.name,
+      language: dto.language || null,
+      accent: dto.accent || null,
+      gender: dto.gender || null,
+      category: dto.category || null,
+      metadata: dto.metadata || null,
+    });
+
+    // Write in bounded batches: fully parallel would open a connection per voice
+    // and exhaust the pool, fully sequential is the round-trip problem above.
+    const BATCH = 20;
+    for (let i = 0; i < dtos.length; i += BATCH) {
+      const batch = dtos.slice(i, i + BATCH);
+      // eslint-disable-next-line no-await-in-loop -- bounded concurrency is the point
+      await Promise.all(batch.map((dto) => prisma.voice.upsert({
         where: {
           providerId_providerVoiceId: {
             providerId: providerRow.id,
             providerVoiceId: dto.providerVoiceId,
           },
         },
-        select: { id: true },
-      });
-
-      await prisma.voice.upsert({
-        where: {
-          providerId_providerVoiceId: {
-            providerId: providerRow.id,
-            providerVoiceId: dto.providerVoiceId,
-          },
-        },
-        create: {
-          providerId: providerRow.id,
-          providerVoiceId: dto.providerVoiceId,
-          name: dto.name,
-          language: dto.language || null,
-          accent: dto.accent || null,
-          gender: dto.gender || null,
-          category: dto.category || null,
-          metadata: dto.metadata || null,
-        },
-        update: {
-          name: dto.name,
-          language: dto.language || null,
-          accent: dto.accent || null,
-          gender: dto.gender || null,
-          category: dto.category || null,
-          metadata: dto.metadata || null,
-        },
-      });
-
-      if (existing) updated++;
-      else added++;
+        create: { providerId: providerRow.id, providerVoiceId: dto.providerVoiceId, ...fields(dto) },
+        update: fields(dto),
+      })));
+      for (const dto of batch) {
+        if (existingIds.has(dto.providerVoiceId)) updated++;
+        else added++;
+      }
     }
 
     // Update lastSyncedAt

@@ -315,3 +315,21 @@ describe('fromFishAudioVoice', () => {
     assert.equal(meta.trainMode, 'fast');
   });
 });
+
+describe('fromFishAudioVoice language filing', () => {
+  it("files a multilingual voice under its OWN primary when we serve it", () => {
+    const v = fromFishAudioVoice(
+      { _id: 'x', title: 'Bunty', languages: ['hi', 'en'] },
+      { preferLanguages: ['en', 'hi'] },
+    );
+    assert.equal(v.language, 'Hindi');
+  });
+
+  it('falls back to our preference order when the voice\u2019s primary is one we do not serve', () => {
+    const v = fromFishAudioVoice(
+      { _id: 'y', title: 'Skeeper', languages: ['es', 'pt', 'en', 'hi'] },
+      { preferLanguages: ['en', 'hi'] },
+    );
+    assert.equal(v.language, 'English');
+  });
+});

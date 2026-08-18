@@ -18,6 +18,11 @@ router.delete('/cloned/:id', cloneCtrl.deleteClonedVoice);
 // ─── Voice sync (manual trigger) ──────────────────────────────────────────────
 router.post('/sync', voiceCtrl.sync);
 
+// ─── Provider library search + import ─────────────────────────────────────────
+// Both MUST stay above '/:id' or Express matches "library" as a voice id.
+router.get('/library', voiceCtrl.searchLibrary);
+router.post('/library/import', voiceCtrl.importLibraryVoice);
+
 // ─── Voice listing and detail ─────────────────────────────────────────────────
 router.get('/', voiceCtrl.list);
 router.get('/:id', voiceCtrl.get);
