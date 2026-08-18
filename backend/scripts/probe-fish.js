@@ -25,7 +25,7 @@ import WebSocket from 'ws';
 const KEY = process.env.FISH_API_KEY;
 const SAVE = process.argv.includes('--save');
 const OUT_DIR = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', 'tmp', 'fish-probe');
-const MODELS = ['s2.1-pro', 's2-pro', 's1'];
+const MODELS = ['s2.1-pro-free', 's2.1-pro', 's2-pro', 's1'];
 const SENTENCE = 'Sure, I can help you with that right away.';
 
 if (!KEY) {

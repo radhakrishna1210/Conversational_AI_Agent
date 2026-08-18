@@ -50,7 +50,13 @@ function ttsModel() {
  * it to s2.1-pro once the probe script confirms the WS endpoint accepts it.
  */
 function wsModel() {
-  return process.env.FISH_TTS_WS_MODEL || 's2-pro';
+  if (process.env.FISH_TTS_WS_MODEL) return process.env.FISH_TTS_WS_MODEL;
+  // Mirror a free-tier HTTP model rather than silently falling back to the paid
+  // s2-pro default: setting FISH_TTS_MODEL alone would otherwise leave the WS
+  // path pointed at an id this key cannot pay for (402 on every turn).
+  // canStreamTokens() reads this and disables token streaming for -free ids.
+  if (/-free$/.test(ttsModel())) return ttsModel();
+  return 's2-pro';
 }
 
 export const hasCredentials = () => Boolean(process.env.FISH_API_KEY);
@@ -117,6 +123,24 @@ function applyEmotionTag(text, affect) {
 }
 
 /**
+ * Valid sample rate for the configured container.
+ *
+ * Fish REJECTS the rate outright (400 "Invalid sample rate N for format X")
+ * rather than resampling, and the accepted set differs per format — measured
+ * against the live API on 2026-08-18:
+ *   mp3   32000 | 44100      (24000 rejected)
+ *   opus  48000 only         (24000 and 32000 both rejected)
+ * The old hardcoded 24000 therefore 400'd on every fast/streaming request,
+ * independently of billing — the 402 masked it until the free tier was enabled.
+ */
+const fishFormat = () => process.env.FISH_TTS_FORMAT || 'mp3';
+
+function fishSampleRate(format, fast) {
+  if (format === 'opus') return 48000;          // the only rate opus accepts
+  return fast ? 32000 : 44100;                  // mp3/wav: lowest valid, then full
+}
+
+/**
  * Shared request body for both HTTP paths.
  * `fast` (live calls) trades fidelity for latency; previews keep full quality.
  */
@@ -125,9 +149,9 @@ function ttsBody(voiceId, text, opts = {}) {
   return {
     text: applyEmotionTag(text, opts.affect),
     reference_id: voiceId,
-    format: process.env.FISH_TTS_FORMAT || 'mp3',
+    format: fishFormat(),
     mp3_bitrate: fast ? 64 : 128,
-    sample_rate: fast ? 24000 : 44100,
+    sample_rate: fishSampleRate(fishFormat(), fast),
     // "balanced" is Fish's low-latency mode (~300ms TTFA per their docs);
     // "normal" is steadier and used for previews where latency is invisible.
     latency: fast ? 'balanced' : 'normal',
@@ -277,9 +301,18 @@ const loadMsgpack = async () => {
   return _msgpackModule;
 };
 
-/** Can this provider stream LLM tokens straight into synthesis right now? */
+/**
+ * Can this provider stream LLM tokens straight into synthesis right now?
+ *
+ * The free tier is HTTP-only: /v1/tts/live accepts the handshake with a
+ * `-free` model and then never emits an audio frame — it hangs until the
+ * timeout instead of returning 402 like the paid ids do (measured 2026-08-18).
+ * Silence with no error is worse than a hard failure, so gate the WS path off
+ * entirely and let the runtime fall back to the HTTP `split` path, which the
+ * free tier does serve.
+ */
 export function canStreamTokens() {
-  return hasCredentials() && msgpackAvailable();
+  return hasCredentials() && msgpackAvailable() && !/-free$/.test(wsModel());
 }
 
 /**
@@ -354,9 +387,9 @@ export class FishAudioTtsStream extends EventEmitter {
         request: {
           text: '',                       // text arrives via 'text' events
           reference_id: this.voiceId,
-          format: process.env.FISH_TTS_FORMAT || 'mp3',
+          format: fishFormat(),
           mp3_bitrate: 64,
-          sample_rate: 24000,
+          sample_rate: fishSampleRate(fishFormat(), true),
           latency: 'balanced',
           chunk_length: Number(process.env.FISH_CHUNK_LENGTH) || 150,
           prosody: fishProsody(this.pace),
