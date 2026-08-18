@@ -69,6 +69,7 @@ import {
   decodeUlaw,
   createFrameSplitter,
   pcmToTelephonyUlaw,
+  createPcmUlawConverter,
   telephonyOutputFormat,
   playableWithFormat,
   PHONE_SAMPLE_RATE,
@@ -297,19 +298,38 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
   };
 
   /**
+   * What to ask TTS for, in this carrier's terms.
+   *
+   * Asked for on BOTH kinds, not just `native`. A `pcm` bridge that stays silent
+   * about the format gets the provider's default — MP3 for Fish — and hands it
+   * to a PCM converter, which is noise on the line rather than an error. The
+   * difference between the kinds is only whether the bytes still need
+   * converting, not whether we have to state what we want.
+   */
+  const ttsFormatOpts = () => (ttsFormat
+    ? {
+      audioFormat: ttsFormat.format,
+      ...(ttsFormat.kind === 'pcm' && ttsFormat.rate ? { sampleRate: ttsFormat.rate } : {}),
+    }
+    : {});
+
+  /**
    * Push one synthesized audio stream to the carrier as 20ms mu-law frames.
    * `contentType` decides whether bytes are already mu-law (the native case) or
    * PCM that still needs converting.
    */
   const pumpAudio = async (stream, contentType, isUlaw) => {
     const splitter = createFrameSplitter();
+    // Stateful, because HTTP chunks split wherever they like: an odd-length
+    // chunk leaves half a 16-bit sample, and converting each chunk on its own
+    // byte-shifts everything after it into white noise.
+    const pcm = isUlaw ? null : createPcmUlawConverter(ttsFormat?.rate || 24000);
     for await (const chunk of stream) {
       if (abortTurn || closed) break;
       const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       if (!buf.length) continue;
-      const ulaw = isUlaw
-        ? buf
-        : pcmToTelephonyUlaw(buf, ttsFormat?.rate || 24000);
+      const ulaw = isUlaw ? buf : pcm.push(buf);
+      if (!ulaw.length) continue;
       for (const frame of splitter.push(ulaw)) sendFrame(frame);
     }
     if (abortTurn || closed) { splitter.reset(); return; }
@@ -325,7 +345,7 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
       const { stream, contentType } = await streamSynthesizeVoice(voice, text, {
         fast: true,
         pace: Number(settings.speakingRate) || 1.05,
-        ...(ttsFormat?.kind === 'native' ? { audioFormat: ttsFormat.format } : {}),
+        ...ttsFormatOpts(),
       });
       await pumpAudio(stream, contentType, ttsFormat?.kind === 'native');
       transcript.push({ role: 'assistant', content: text });
@@ -440,6 +460,7 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
 
       let replyText = '';
       let pending = null;
+      let pendingPcm = null;   // PCM->mu-law carry for the segment being played
       let skippedSegment = false;
 
       await voiceTurnStream(
@@ -459,8 +480,8 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
           fillerBudget,
           channel: 'phone',
           preLlmMs: Date.now() - turnEndDetectedAt,
-          // Ask TTS for the carrier's own format when the provider can do it.
-          ...(ttsFormat?.kind === 'native' ? { audioFormat: ttsFormat.format } : {}),
+          // Ask TTS for the carrier's own format — see ttsFormatOpts().
+          ...ttsFormatOpts(),
           shouldAbort: () => abortTurn || closed,
           onEvent: (ev) => {
             switch (ev.type) {
@@ -500,17 +521,22 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
                     );
                   }
                   pending = null;
+                  pendingPcm = null;
                   break;
                 }
                 playout.beginGenerating();
                 pending = createFrameSplitter();
+                // Per SEGMENT, not per call: each segment is its own PCM stream,
+                // so a half sample must not survive into the next one.
+                pendingPcm = ttsFormat?.kind === 'native'
+                  ? null
+                  : createPcmUlawConverter(ttsFormat?.rate || 24000);
                 break;
               case 'audio-chunk': {
                 if (abortTurn || closed || !pending) break;
                 const buf = Buffer.from(ev.data, 'base64');
-                const ulaw = ttsFormat?.kind === 'native'
-                  ? buf
-                  : pcmToTelephonyUlaw(buf, ttsFormat?.rate || 24000);
+                const ulaw = pendingPcm ? pendingPcm.push(buf) : buf;
+                if (!ulaw.length) break;
                 for (const frame of pending.push(ulaw)) sendFrame(frame);
                 break;
               }
@@ -520,6 +546,7 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
                   if (tail) sendFrame(tail);
                 }
                 pending = null;
+                pendingPcm = null;
                 break;
               }
               case 'done':
@@ -566,7 +593,7 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
       // outlives — without this, one turn somewhere in the middle of every long
       // call silently pays the cold cost again.
       if (!closed) {
-        warmVoiceTurn(workspaceId, agentId, ttsFormat?.kind === 'native' ? ttsFormat.format : null);
+        warmVoiceTurn(workspaceId, agentId, ttsFormat?.format ?? null);
       }
     }
   };
@@ -735,7 +762,7 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
           // one where the caller is deciding whether the thing is responsive.
           // Same agent, same pipeline, measurably slower than the web call it
           // was tested against.
-          warmVoiceTurn(workspaceId, agentId, ttsFormat.kind === 'native' ? ttsFormat.format : null);
+          warmVoiceTurn(workspaceId, agentId, ttsFormat.format);
 
           if (callLogId) {
             await prisma.agentCallLog.update({

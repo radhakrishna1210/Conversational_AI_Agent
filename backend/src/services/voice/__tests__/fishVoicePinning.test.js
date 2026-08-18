@@ -7,7 +7,7 @@
  */
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { getVoices, searchVoices, getVoiceById } from '../providers/fishaudio.provider.js';
+import { getVoices, searchVoices, getVoiceById, streamVoice } from '../providers/fishaudio.provider.js';
 
 const realFetch = globalThis.fetch;
 const ok = (body) => ({ ok: true, status: 200, json: async () => body, text: async () => '' });
@@ -151,5 +151,46 @@ describe('Fish Audio library search', () => {
   it('returns null rather than throwing when an id is not in the library', async () => {
     stubFetch([['/model/nope', { ok: false, status: 404, text: async () => '', json: async () => ({}) }]]);
     assert.equal(await getVoiceById('nope'), null);
+  });
+});
+
+describe('Fish Audio telephony output', () => {
+  const saved = { ...process.env };
+  let sent;
+  beforeEach(() => {
+    process.env.FISH_API_KEY = 'test-key';
+    delete process.env.FISH_TTS_FORMAT;
+    sent = [];
+    globalThis.fetch = async (_url, init) => {
+      sent.push(JSON.parse(init.body));
+      return {
+        ok: true, status: 200,
+        headers: { get: () => 'application/octet-stream' },
+        body: (async function* () { yield Buffer.alloc(4); })(),
+      };
+    };
+  });
+  afterEach(() => { process.env = { ...saved }; globalThis.fetch = realFetch; });
+
+  it('asks for raw PCM at the carrier rate when the bridge requests it', async () => {
+    const { contentType } = await streamVoice('v1', 'hello', {
+      fast: true, audioFormat: 'pcm', sampleRate: 8000,
+    });
+    assert.equal(sent[0].format, 'pcm');
+    assert.equal(sent[0].sample_rate, 8000, 'the line rate must survive to the API');
+    // Fish answers a PCM request with application/octet-stream; trusting that
+    // header would make the bridge treat 8kHz PCM as MP3.
+    assert.equal(contentType, 'audio/l16');
+  });
+
+  it('still defaults to MP3 when no format is requested', async () => {
+    await streamVoice('v1', 'hello', { fast: true });
+    assert.equal(sent[0].format, 'mp3');
+    assert.equal(sent[0].sample_rate, 32000, 'mp3 rejects 8000 — the default must not follow it');
+  });
+
+  it('honours an explicit rate only for raw PCM', async () => {
+    await streamVoice('v1', 'hello', { fast: true, audioFormat: 'mp3', sampleRate: 8000 });
+    assert.equal(sent[0].sample_rate, 32000, 'Fish 400s on mp3 at 8000');
   });
 });
