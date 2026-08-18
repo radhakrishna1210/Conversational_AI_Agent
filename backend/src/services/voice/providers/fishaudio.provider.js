@@ -157,10 +157,25 @@ const fishFormat = (override) => override || process.env.FISH_TTS_FORMAT || 'mp3
  */
 const RAW_PCM_FORMATS = new Set(['pcm']);
 
+/**
+ * Rate for raw PCM when the caller names none.
+ *
+ * 8000 rather than the MP3 default, and this is load-bearing. Raw PCM is only
+ * ever asked for by a telephony bridge, and that bridge converts the bytes using
+ * the rate from its OWN capability table, not from anything the response says.
+ * Answering a rateless PCM request with 32000 therefore does not sound slightly
+ * off — the samples are emitted at 8000, so the reply plays four times too slow,
+ * two octaves down, and occupies four times its real duration. That last part is
+ * what makes it more than a bad noise: the bridge's playout window stays open
+ * for the whole inflated span and gates the caller's speech out of STT, so the
+ * agent goes deaf as well as unintelligible.
+ */
+const RAW_PCM_DEFAULT_RATE = 8000;
+
 function fishSampleRate(format, fast, requested) {
   // An explicit rate wins for raw PCM: the phone bridge asks for 8000 because
   // that is the line rate, and resampling it here would be undone downstream.
-  if (requested && RAW_PCM_FORMATS.has(format)) return requested;
+  if (RAW_PCM_FORMATS.has(format)) return requested || RAW_PCM_DEFAULT_RATE;
   if (format === 'opus') return 48000;          // the only rate opus accepts
   return fast ? 32000 : 44100;                  // mp3/wav: lowest valid, then full
 }

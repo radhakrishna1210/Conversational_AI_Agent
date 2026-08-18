@@ -593,7 +593,7 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
       // outlives — without this, one turn somewhere in the middle of every long
       // call silently pays the cold cost again.
       if (!closed) {
-        warmVoiceTurn(workspaceId, agentId, ttsFormat?.format ?? null);
+        warmVoiceTurn(workspaceId, agentId, ttsFormat?.format ?? null, ttsFormat?.rate ?? null);
       }
     }
   };
@@ -762,7 +762,7 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
           // one where the caller is deciding whether the thing is responsive.
           // Same agent, same pipeline, measurably slower than the web call it
           // was tested against.
-          warmVoiceTurn(workspaceId, agentId, ttsFormat.format);
+          warmVoiceTurn(workspaceId, agentId, ttsFormat.format, ttsFormat.rate ?? null);
 
           if (callLogId) {
             await prisma.agentCallLog.update({
