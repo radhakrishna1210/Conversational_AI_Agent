@@ -10,3 +10,5 @@ dist/
 
 # Scratch output from scripts/measure-ambience.js and scripts/probe-fish.js
 tmp/
+.env.bak.*
+.env.*.bak
