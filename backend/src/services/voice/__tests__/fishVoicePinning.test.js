@@ -183,6 +183,18 @@ describe('Fish Audio telephony output', () => {
     assert.equal(contentType, 'audio/l16');
   });
 
+  it('defaults raw PCM to the line rate when the caller names none', async () => {
+    // THE BUG THIS EXISTS FOR. The runtime forwards audioFormat but used to drop
+    // the rate, so replies and ack clips came back at 32000 while the bridge
+    // emitted them at 8000: four times too slow, two octaves down, and occupying
+    // four times their real duration — which also held the playout gate open and
+    // starved STT of the caller's speech. Greetings were fine because the bridge
+    // calls TTS directly and does pass the rate, so the call sounded correct
+    // until the first reply.
+    await streamVoice('v1', 'hello', { fast: true, audioFormat: 'pcm' });
+    assert.equal(sent[0].sample_rate, 8000);
+  });
+
   it('still defaults to MP3 when no format is requested', async () => {
     await streamVoice('v1', 'hello', { fast: true });
     assert.equal(sent[0].format, 'mp3');

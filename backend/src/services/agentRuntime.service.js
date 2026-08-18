@@ -932,7 +932,11 @@ const fillerWarmInFlight = new Set();
  * shipped them to the carrier as if they were G.711. The caller heard a burst
  * of static before every reply, and the real audio queued behind it.
  */
-const fillerKey = (voice, lang, audioFormat) => `${voice.id}|${lang}|${audioFormat || 'default'}`;
+// The RATE is part of the key, not just the format. Two requests for "pcm" at
+// different rates are different audio; keying on the format alone would serve a
+// 32kHz clip to a bridge that is about to emit it at 8kHz.
+const fillerKey = (voice, lang, audioFormat, sampleRate) =>
+  `${voice.id}|${lang}|${audioFormat || 'default'}|${sampleRate || 'default'}`;
 
 /**
  * Pre-synthesize this voice's filler variants (idempotent, fire-and-forget).
@@ -940,17 +944,22 @@ const fillerKey = (voice, lang, audioFormat) => `${voice.id}|${lang}|${audioForm
  * @param {string} [audioFormat] the transport's audio format when it is not the
  *   default MP3 — the phone bridge passes its carrier format so the ack is
  *   playable over a phone line at all.
+ * @param {number} [sampleRate] the rate that format has to be produced AT. A
+ *   format alone is not enough for raw PCM: the bridge emits the bytes at its
+ *   own rate regardless, so a mismatch plays the ack at the wrong speed.
  */
-export async function warmFillers(voice, lang, pace, audioFormat = null) {
+export async function warmFillers(voice, lang, pace, audioFormat = null, sampleRate = null) {
   if (!voice) return;
-  const key = fillerKey(voice, lang, audioFormat);
+  const key = fillerKey(voice, lang, audioFormat, sampleRate);
   if (fillerCache.has(key) || fillerWarmInFlight.has(key)) return;
   fillerWarmInFlight.add(key);
   try {
     const variants = [];
     for (const text of FILLER_TEXTS[lang] || FILLER_TEXTS.en) {
       const { stream, contentType } = await streamSynthesizeVoice(voice, text, {
-        fast: true, pace, ...(audioFormat ? { audioFormat } : {}),
+        fast: true, pace,
+        ...(audioFormat ? { audioFormat } : {}),
+        ...(sampleRate ? { sampleRate } : {}),
       });
       const chunks = [];
       for await (const c of stream) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c));
@@ -966,8 +975,8 @@ export async function warmFillers(voice, lang, pace, audioFormat = null) {
 }
 
 /** Pick a filler clip at random, never the same one twice in a row. */
-function takeFiller(voice, lang, audioFormat = null) {
-  const entry = fillerCache.get(fillerKey(voice, lang, audioFormat));
+function takeFiller(voice, lang, audioFormat = null, sampleRate = null) {
+  const entry = fillerCache.get(fillerKey(voice, lang, audioFormat, sampleRate));
   if (!entry || !entry.variants.length) return null;
   if (entry.variants.length === 1) return entry.variants[0];
   let i = entry.last;
@@ -1009,8 +1018,10 @@ const fillerLangFor = (settings, agent) => {
  * @param {string} [audioFormat] the transport's TTS format. Phone bridges MUST
  *   pass theirs: warming the default MP3 clips for a call that will ask for
  *   G.711 warms the wrong cache entry, which is the same as not warming at all.
+ * @param {number} [sampleRate] the rate that format must be produced at, for the
+ *   same reason — a PCM bridge warms 8000, not the provider's default.
  */
-export function warmVoiceTurn(workspaceId, agentId, audioFormat = null) {
+export function warmVoiceTurn(workspaceId, agentId, audioFormat = null, sampleRate = null) {
   (async () => {
     const agent = await loadAgent(workspaceId, agentId);
     if (!agent) return;
@@ -1025,7 +1036,10 @@ export function warmVoiceTurn(workspaceId, agentId, audioFormat = null) {
     // cold cache means the first turn of the call — the one where the caller is
     // deciding whether this thing is responsive — silently gets no ack at all.
     if (voice && process.env.VOICE_FILLER !== 'false') {
-      warmFillers(voice, fillerLangFor(settings, agent), Number(settings.speakingRate) || 1.05, audioFormat);
+      warmFillers(
+        voice, fillerLangFor(settings, agent),
+        Number(settings.speakingRate) || 1.05, audioFormat, sampleRate,
+      );
     }
   })().catch(() => {});
 }
@@ -1240,7 +1254,7 @@ export async function voiceTurn(workspaceId, agentId, audioBuffer, mimeType, his
  * path of a live call. Everything else about the turn is identical, which is
  * the point: web and phone run the same conversation code.
  */
-export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeType, history = [], { onEvent, shouldAbort, userText: providedText, audioHadSpeech = false, affect = null, fillerBudget = null, audioFormat = null, channel = null, preLlmMs = null } = {}) {
+export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeType, history = [], { onEvent, shouldAbort, userText: providedText, audioHadSpeech = false, affect = null, fillerBudget = null, audioFormat = null, sampleRate = null, channel = null, preLlmMs = null } = {}) {
   const emit = typeof onEvent === 'function' ? onEvent : () => {};
   const aborted = typeof shouldAbort === 'function' ? shouldAbort : () => false;
   const turnStartedAt = performance.now();
@@ -1387,9 +1401,9 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
       // Same format as the reply. An ack synthesized in the default MP3 and
       // played into a call that asked for G.711 is not a slightly-wrong ack, it
       // is noise on the line — see fillerKey().
-      const f = takeFiller(voice, lang, audioFormat);
+      const f = takeFiller(voice, lang, audioFormat, sampleRate);
       // cold: warm for next turn
-      if (!f) { warmFillers(voice, lang, speakingRate, audioFormat); return; }
+      if (!f) { warmFillers(voice, lang, speakingRate, audioFormat, sampleRate); return; }
       fillerPlayed = true;
       // The caller has now heard the agent react, so the spoken reply must not
       // ALSO open with "Alright," — that is the same beat twice. Spending the
@@ -1502,7 +1516,9 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
     if (firstTtsTextAt == null) firstTtsTextAt = ttsStart;
     try {
       const { stream, contentType } = await streamSynthesizeVoice(voice, clean, {
-        fast: true, pace: speakingRate, affect, ...(audioFormat ? { audioFormat } : {}),
+        fast: true, pace: speakingRate, affect,
+        ...(audioFormat ? { audioFormat } : {}),
+        ...(sampleRate ? { sampleRate } : {}),
       });
       if (aborted()) return;
       audioStarted = true;
@@ -1531,7 +1547,9 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
     const ttsStart = performance.now();
     const ttsProvider = synthesisProviderName(voice);
     const tts = createTokenTtsStream(voice, {
-      pace: speakingRate, affect, ...(audioFormat ? { audioFormat } : {}),
+      pace: speakingRate, affect,
+      ...(audioFormat ? { audioFormat } : {}),
+      ...(sampleRate ? { sampleRate } : {}),
     });
     let wsSegmentOpen = false; // this path is ONE continuous stream = one segment
     const audioDone = new Promise((resolve) => {
