@@ -1265,7 +1265,12 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
   // a touch quicker, hesitant/quiet → a touch calmer) plus ±0.02 per-turn
   // jitter so consecutive replies don't land with machine-identical rhythm.
   const affectPace = affect === 'rushed' ? 0.05 : (affect === 'hesitant' || affect === 'quiet') ? -0.04 : 0;
-  const speakingRate = Math.min(1.2, Math.max(0.8, baseRate + affectPace + (Math.random() * 0.04 - 0.02)));
+  // Ceiling matches the UI slider's own 2.0 (EditAgent.tsx). It used to be 1.2,
+  // which silently swallowed every setting above that — the slider read 1.5x
+  // while the agent still spoke at 1.2. Each provider clamps to what IT accepts
+  // (ElevenLabs 0.7-1.2, Fish 0.5-2.0), so this stays a pass-through of intent
+  // rather than a second, stricter opinion about it.
+  const speakingRate = Math.min(2.0, Math.max(0.5, baseRate + affectPace + (Math.random() * 0.04 - 0.02)));
 
   // Resolve the voice while STT runs so per-sentence TTS starts with no lookup.
   const voicePromise = resolveAgentVoice(agent.voice).catch(() => null);

@@ -83,12 +83,18 @@ function authHeaders(model) {
  * NOTE the caller's `pace` (speakingRate in voiceTurnStream) ALREADY carries the
  * caller-affect nudge and the per-turn jitter, so affect must NOT move speed
  * again here or it is applied twice. Affect touches only the sampling knobs
- * below. Clamp is tighter than the API's 0.5-2.0 to match the ElevenLabs
- * precedent and to keep a jittered pace from ever sounding sped-up.
+ * below.
+ *
+ * Clamped to the API's own 0.5-2.0 rather than something tighter: s2.x reads
+ * SLOWER than the other providers at the same nominal rate — measured with
+ * ffprobe on 2026-08-19, a 42-word reply runs 140 wpm at speed 1.05 and a
+ * 14-word greeting only 94 wpm, against ~150 wpm for natural speech. Capping
+ * at 1.25 put the useful range out of reach, so the UI slider appeared dead
+ * above that point.
  */
 function fishProsody(pace) {
   const speed = Number.isFinite(pace) && pace > 0
-    ? Math.min(1.25, Math.max(0.8, pace))
+    ? Math.min(2.0, Math.max(0.5, pace))
     : 1.0;
   return { speed, volume: Number(process.env.FISH_TTS_VOLUME) || 0 };
 }
