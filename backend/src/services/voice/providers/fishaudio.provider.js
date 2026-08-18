@@ -37,6 +37,10 @@ const BASE_URL = 'https://api.fish.audio';
 const WS_URL = 'wss://api.fish.audio/v1/tts/live';
 // Model library lives off the root, NOT under /v1 (per the create-model docs).
 const MODEL_URL = `${BASE_URL}/model`;
+/** The listing endpoint rejects page_size > 100 outright (422), verified live. */
+const PAGE_SIZE = 100;
+/** Its result window stops at max_offset=1000, so page 11 comes back empty. */
+const MAX_PAGES = 10;
 
 /** HTTP synthesis model. s2.1-pro is Fish's recommended production model. */
 function ttsModel() {
@@ -170,17 +174,76 @@ function ttsBody(voiceId, text, opts = {}) {
 // ─── Public API ───────────────────────────────────────────────────────────────
 
 /**
+ * Hand-picked voices from the Fish Audio dashboard.
+ *
+ * Format: "id:Name:lang:gender,id2:..." — only the id is required; the rest
+ * override what the API reports (a deliberate label beats Fish's own title).
+ * The id is the model's `_id`, i.e. the last path segment of its dashboard URL.
+ *
+ * When this is set the public score-sorted sweep is SKIPPED: the point of a
+ * curated list is those voices, not those voices buried in the library's top
+ * 60. Your own models and clones (self=true) are always included on top.
+ */
+function parsePinnedVoices() {
+  return (process.env.FISH_VOICE_IDS || '')
+    .split(',')
+    .map((entry) => entry.split(':').map((s) => s?.trim()))
+    .filter(([id]) => id)
+    .map(([_id, title, language, gender]) => ({
+      _id,
+      title: title || undefined,
+      languages: language ? [language] : undefined,
+      gender: gender || undefined,
+    }));
+}
+
+/** Fetch one model by id. Throws on a non-2xx so callers can decide what to do. */
+async function fetchModel(id, key) {
+  const res = await fetch(`${MODEL_URL}/${encodeURIComponent(id)}`, {
+    headers: { Authorization: `Bearer ${key}` },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
+}
+
+/**
+ * Resolve one pinned id against the model API so the picker shows Fish's real
+ * name, languages and visibility instead of whatever was typed into the env var.
+ * Degrades to the typed fields rather than dropping the voice: a hand-picked
+ * entry must never vanish from the catalogue because a metadata lookup 404'd.
+ */
+async function fetchPinnedVoice(stub, key) {
+  try {
+    const raw = await fetchModel(stub._id, key);
+    return {
+      ...(raw && typeof raw === 'object' ? raw : {}),
+      _id: stub._id,                                   // never trust the echo
+      title: stub.title || raw?.title || stub._id,
+      languages: stub.languages || raw?.languages,
+      gender: stub.gender || raw?.gender,
+    };
+  } catch (err) {
+    logger.warn(
+      `Fish Audio pinned voice ${stub._id} lookup failed (${err.message}) — using the FISH_VOICE_IDS fields`,
+    );
+    return { ...stub, title: stub.title || stub._id, languages: stub.languages || [] };
+  }
+}
+
+/**
  * Fetch available voice models and return normalised VoiceDTOs.
  *
  * Merges the caller's OWN models (including clones) with a page of the public
- * library. Response unwrapping is defensive because this endpoint's reference
- * page is not published — see the caveat at the top of this file.
+ * library — or, when FISH_VOICE_IDS pins a curated set, with exactly those.
+ * Response unwrapping is defensive because this endpoint's reference page is
+ * not published — see the caveat at the top of this file.
  *
  * @returns {Promise<import('../voice.dto.js').VoiceDTO[]>}
  */
 export async function getVoices() {
   const key = getApiKey();
-  const limit = Number(process.env.FISH_VOICE_LIMIT) || 60;
+  const limit = Number(process.env.FISH_VOICE_LIMIT) || 200;
 
   const fetchPage = async (params) => {
     const res = await fetch(`${MODEL_URL}?${params}`, {
@@ -193,7 +256,30 @@ export async function getVoices() {
     }
     const data = await res.json();
     // Shape is unconfirmed — accept the plausible envelopes rather than assume.
-    return data?.items ?? data?.data ?? data?.models ?? (Array.isArray(data) ? data : []);
+    const items = data?.items ?? data?.data ?? data?.models ?? (Array.isArray(data) ? data : []);
+    return { items, hasMore: data?.has_more ?? items.length >= PAGE_SIZE };
+  };
+
+  /**
+   * Walk `page_number` until `want` models are collected or the API runs out.
+   *
+   * Without this the sync only ever saw ONE page: a single page_size=30 request
+   * per language, so raising FISH_VOICE_LIMIT past 100 changed nothing and the
+   * picker showed a few dozen voices out of a library of ~1000 — which is what
+   * "why aren't all my dashboard voices here?" actually was. Verified live
+   * 2026-08-19: page_size caps at 100 (422 above it) and the result window caps
+   * at max_offset=1000 per query, so 1000 per language is the real ceiling.
+   */
+  const fetchAll = async (params, want) => {
+    const out = [];
+    for (let page = 1; out.length < want && page <= MAX_PAGES; page += 1) {
+      const size = Math.min(PAGE_SIZE, want - out.length);
+      // eslint-disable-next-line no-await-in-loop -- page N+1 needs page N's has_more
+      const { items, hasMore } = await fetchPage(`${params}&page_size=${size}&page_number=${page}`);
+      out.push(...items);
+      if (!hasMore || !items.length) break;
+    }
+    return out;
   };
 
   // Pull a page PER LANGUAGE this deployment actually serves, not just the
@@ -204,28 +290,29 @@ export async function getVoices() {
     .split(',').map((l) => l.trim()).filter(Boolean);
   const perLang = Math.max(10, Math.round(limit / Math.max(1, languages.length)));
 
-  let items = [];
-  try {
-    const requests = [
-      fetchPage('self=true&page_size=100'),                       // own + clones
-      ...languages.map((l) => fetchPage(
-        `visibility=public&sort_by=score&page_size=${perLang}&language=${encodeURIComponent(l)}`,
-      )),
-    ];
-    const settled = await Promise.allSettled(requests);
-    for (const r of settled) if (r.status === 'fulfilled') items.push(...r.value);
-    // Every request failed → surface the real error, not an empty catalogue.
-    if (settled.every((r) => r.status === 'rejected')) throw settled[0].reason;
-  } catch (err) {
-    // Escape hatch for an API shape we guessed wrong: an explicit id list.
-    // Format: "id:Name:lang:gender,id2:Name2:lang2:gender2"
-    const manual = process.env.FISH_VOICE_IDS;
-    if (!manual) throw err;
-    logger.warn(`Fish Audio model listing failed (${err.message}) — using FISH_VOICE_IDS`);
-    items = manual.split(',').map((entry) => {
-      const [id, title, language, gender] = entry.split(':').map((s) => s?.trim());
-      return { _id: id, title: title || id, languages: language ? [language] : [], gender };
-    });
+  // Pinned voices go in FIRST so the dedupe below keeps their metadata when the
+  // same model also comes back from a listing page.
+  const pinned = parsePinnedVoices();
+  const items = pinned.length
+    ? await Promise.all(pinned.map((stub) => fetchPinnedVoice(stub, key)))
+    : [];
+
+  const requests = [
+    fetchAll('self=true', PAGE_SIZE * MAX_PAGES),                 // own + clones
+    // A curated FISH_VOICE_IDS replaces the public sweep (see parsePinnedVoices).
+    ...(pinned.length ? [] : languages.map((l) => fetchAll(
+      `visibility=public&sort_by=score&language=${encodeURIComponent(l)}`, perLang,
+    ))),
+  ];
+  const settled = await Promise.allSettled(requests);
+  for (const r of settled) if (r.status === 'fulfilled') items.push(...r.value);
+  if (settled.every((r) => r.status === 'rejected')) {
+    // Pinned ids are also the escape hatch for a listing shape we guessed wrong,
+    // so only surface the real error when there is nothing at all to show.
+    if (!items.length) throw settled[0].reason;
+    logger.warn(
+      `Fish Audio model listing failed (${settled[0].reason?.message}) — serving pinned FISH_VOICE_IDS only`,
+    );
   }
 
   const seen = new Set();
@@ -239,6 +326,75 @@ export async function getVoices() {
     dtos.push(fromFishAudioVoice(raw, { preferLanguages: languages }));
   }
   return dtos;
+}
+
+/**
+ * Search Fish's public library BY NAME, live.
+ *
+ * The sync can only ever hold a slice of the library: Fish caps a listing query
+ * at 1000 results, and pre-syncing thousands of voices to make one findable is
+ * the wrong trade. Searching by title hits the same endpoint with `title=` and
+ * returns matches regardless of score rank, so a voice picked off the dashboard
+ * is reachable without a sync at all.
+ *
+ * Results are NOT persisted — see importVoice() for that.
+ *
+ * @param {string} query
+ * @param {{ limit?: number, languages?: string[] }} [opts]
+ * @returns {Promise<import('../voice.dto.js').VoiceDTO[]>}
+ */
+export async function searchVoices(query, opts = {}) {
+  const key = getApiKey();
+  const q = String(query || '').trim();
+  if (!q) return [];
+  const limit = Math.min(PAGE_SIZE, Math.max(1, opts.limit || 30));
+  const preferLanguages = opts.languages
+    ?? (process.env.FISH_VOICE_LANGUAGES || 'en,hi').split(',').map((l) => l.trim()).filter(Boolean);
+
+  const params = new URLSearchParams({
+    title: q,
+    page_size: String(limit),
+    page_number: '1',
+  });
+  const res = await fetch(`${MODEL_URL}?${params}`, {
+    headers: { Authorization: `Bearer ${key}` },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Fish Audio search failed (${res.status}): ${body.slice(0, 300)}`);
+  }
+  const data = await res.json();
+  const items = data?.items ?? data?.data ?? (Array.isArray(data) ? data : []);
+
+  const seen = new Set();
+  const dtos = [];
+  for (const raw of items) {
+    const id = raw?._id || raw?.id;
+    if (!id || seen.has(id)) continue;
+    seen.add(id);
+    dtos.push(fromFishAudioVoice(raw, { preferLanguages }));
+  }
+  return dtos;
+}
+
+/**
+ * Resolve ONE library voice by its Fish model id, for importing a search hit.
+ * @param {string} providerVoiceId
+ * @returns {Promise<import('../voice.dto.js').VoiceDTO|null>}
+ */
+export async function getVoiceById(providerVoiceId) {
+  const key = getApiKey();
+  try {
+    const raw = await fetchModel(providerVoiceId, key);
+    if (!raw?._id && !raw?.id) return null;
+    const preferLanguages = (process.env.FISH_VOICE_LANGUAGES || 'en,hi')
+      .split(',').map((l) => l.trim()).filter(Boolean);
+    return fromFishAudioVoice(raw, { preferLanguages });
+  } catch (err) {
+    logger.warn(`Fish Audio model ${providerVoiceId} lookup failed (${err.message})`);
+    return null;
+  }
 }
 
 /**

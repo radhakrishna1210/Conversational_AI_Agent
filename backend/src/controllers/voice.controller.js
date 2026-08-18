@@ -5,6 +5,8 @@ import {
   getProviderStatus,
   streamVoicePreview,
   syncVoices,
+  searchProviderLibrary,
+  importProviderVoice,
   setAgentVoice,
   getAgentVoice,
 } from '../services/voice.service.js';
@@ -49,7 +51,7 @@ export const providerStatus = async (req, res) => {
 // ─── GET /api/voices ──────────────────────────────────────────────────────────
 export const list = async (req, res) => {
   try {
-    const { page = '1', limit = '20', provider, gender, language } = req.query;
+    const { page = '1', limit = '20', provider, gender, language, q } = req.query;
     const pageNum = Math.max(1, parseInt(page, 10) || 1);
     const limitNum = Math.min(100, parseInt(limit, 10) || 20);
 
@@ -59,6 +61,7 @@ export const list = async (req, res) => {
       provider: provider || undefined,
       gender: gender || undefined,
       language: language || undefined,
+      q: q || undefined,
       allowedProviders: await enabledTtsProviders(),
     });
 
@@ -71,6 +74,50 @@ export const list = async (req, res) => {
   } catch (error) {
     console.error('Error listing voices:', error);
     res.status(500).json({ error: 'Failed to list voices' });
+  }
+};
+
+// ─── GET /api/voices/library?provider=FishAudio&q=... ─────────────────────────
+// Live search of the PROVIDER's catalogue, for voices the sync never pulled.
+export const searchLibrary = async (req, res) => {
+  try {
+    const { provider, q, limit = '30' } = req.query;
+    if (!provider) return res.status(400).json({ error: 'provider is required' });
+    if (!q || !String(q).trim()) return res.json({ voices: [] });
+
+    // A disabled provider must not be searchable either, or the picker could
+    // import from a provider Super Admin has switched off.
+    const allowed = await enabledTtsProviders();
+    if (!allowed.includes(provider)) return res.status(403).json({ error: `${provider} is not enabled` });
+
+    const voices = await searchProviderLibrary({
+      provider,
+      q: String(q),
+      limit: Math.min(50, parseInt(limit, 10) || 30),
+    });
+    res.json({ voices });
+  } catch (error) {
+    console.error('Error searching voice library:', error);
+    res.status(error.status ?? 500).json({ error: error.message || 'Library search failed' });
+  }
+};
+
+// ─── POST /api/voices/library/import ──────────────────────────────────────────
+// Persist one library hit so it can be previewed and assigned. Idempotent.
+export const importLibraryVoice = async (req, res) => {
+  try {
+    const { provider, providerVoiceId } = req.body ?? {};
+    if (!provider || !providerVoiceId) {
+      return res.status(400).json({ error: 'provider and providerVoiceId are required' });
+    }
+    const allowed = await enabledTtsProviders();
+    if (!allowed.includes(provider)) return res.status(403).json({ error: `${provider} is not enabled` });
+
+    const voice = await importProviderVoice({ provider, providerVoiceId });
+    res.json({ success: true, voice: toDTO(voice) });
+  } catch (error) {
+    console.error('Error importing library voice:', error);
+    res.status(error.status ?? 500).json({ error: error.message || 'Import failed' });
   }
 };
 

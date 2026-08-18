@@ -28,6 +28,13 @@ interface Voice {
   metadata?: Record<string, unknown> | null;
 }
 
+/**
+ * A hit from the PROVIDER's own library rather than our synced table. `id` is
+ * null until it is imported — everything downstream (preview, assignment) keys
+ * off a local row, so a null id means "not usable yet".
+ */
+interface LibraryVoice extends Omit<Voice, 'id'> { id: string | null }
+
 interface ProviderHealth { healthy: boolean; latencyMs?: number; error?: string }
 interface ProviderStatus {
   google: boolean;
@@ -70,6 +77,11 @@ const LIMIT = 20;
 // list only fixes the tab ORDER.
 const PROVIDER_ORDER = ['Google', 'ElevenLabs', 'Sarvam', 'Cartesia', 'FishAudio'];
 const GENDER_OPTIONS = ['All', 'MALE', 'FEMALE', 'NEUTRAL'];
+// Providers whose remote catalogue can be searched live, so a name typed here is
+// looked up at the source and not just in our synced table. Fish because its API
+// caps any listing query at 1000 results out of a much larger library; Sarvam
+// because its roster is only discoverable at call time and grows without notice.
+const LIBRARY_SEARCHABLE = ['FishAudio', 'Sarvam'];
 const DEFAULT_PREVIEW_TEXT = 'Hello, thank you for calling. How can I assist you today?';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -169,8 +181,15 @@ export default function VoiceConfigModal({
   const [savingId, setSavingId] = useState<string | null>(null);
   const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
 
+  // Provider-library search (voices not in our table yet)
+  const [libraryVoices, setLibraryVoices] = useState<LibraryVoice[]>([]);
+  const [librarySearching, setLibrarySearching] = useState(false);
+  const [libraryError, setLibraryError] = useState<string | null>(null);
+  const [importingId, setImportingId] = useState<string | null>(null);
+
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const searchTimeout = useRef<ReturnType<typeof setTimeout>>();
+  const libraryTimeout = useRef<ReturnType<typeof setTimeout>>();
 
   // ── Load provider status ───────────────────────────────────────────
   useEffect(() => {
@@ -230,24 +249,17 @@ export default function VoiceConfigModal({
       if (activeProvider !== 'All') params.set('provider', activeProvider);
       if (genderFilter !== 'All') params.set('gender', genderFilter.toLowerCase());
       if (languageFilter !== 'All') params.set('language', languageFilter);
+      // Search server-side. Filtering the fetched page here instead meant the
+      // term was only ever matched against the 20 rows already on screen, so a
+      // voice on any other page was unfindable — and the result count and
+      // pagination disagreed with what was actually shown.
+      if (search.trim()) params.set('q', search.trim());
 
       const data: PaginatedVoices = await fetch(`${wsBase()}/voices?${params}`, {
         headers: authHeaders(),
       }).then(r => r.json());
 
-      // Client-side search filter only
-      let filtered = data.voices ?? [];
-      if (search.trim()) {
-        const q = search.toLowerCase();
-        filtered = filtered.filter(v =>
-          v.name?.toLowerCase().includes(q) ||
-          v.language?.toLowerCase().includes(q) ||
-          v.accent?.toLowerCase().includes(q) ||
-          v.category?.toLowerCase().includes(q)
-        );
-      }
-
-      setVoices(filtered);
+      setVoices(data.voices ?? []);
       setTotal(data.total ?? 0);
     } catch (err) {
       setError('Failed to load voices. Check API connection.');
@@ -266,9 +278,86 @@ export default function VoiceConfigModal({
   // Reset page on filter changes
   useEffect(() => { setPage(1); }, [activeProvider, search, genderFilter, languageFilter]);
 
-  // ── Audio preview ──────────────────────────────────────────────────
-  const handlePreview = async (voice: Voice, e: React.MouseEvent) => {
+  // ── Provider library search ────────────────────────────────────────
+  // Runs alongside the local list: the synced table is a slice of the provider's
+  // catalogue, so "not in our table" must not mean "does not exist".
+  const libraryProvider = LIBRARY_SEARCHABLE.includes(activeProvider) ? activeProvider : null;
+
+  useEffect(() => {
+    clearTimeout(libraryTimeout.current);
+    if (!libraryProvider || !search.trim()) {
+      setLibraryVoices([]);
+      setLibraryError(null);
+      setLibrarySearching(false);
+      return;
+    }
+    // Longer than the local debounce: this leaves for a third-party API.
+    libraryTimeout.current = setTimeout(async () => {
+      setLibrarySearching(true);
+      setLibraryError(null);
+      try {
+        const params = new URLSearchParams({ provider: libraryProvider, q: search.trim(), limit: '24' });
+        const res = await fetch(`${wsBase()}/voices/library?${params}`, { headers: authHeaders() });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || `Library search failed (${res.status})`);
+        setLibraryVoices(data.voices ?? []);
+      } catch (e) {
+        setLibraryVoices([]);
+        setLibraryError(e instanceof Error ? e.message : 'Library search failed');
+      } finally {
+        setLibrarySearching(false);
+      }
+    }, 500);
+    return () => clearTimeout(libraryTimeout.current);
+  }, [libraryProvider, search]);
+
+  /**
+   * Persist a library hit and hand back the real row. Preview and assignment
+   * both need a local voice id, so nothing can be done with a hit until it is
+   * imported; the import is idempotent, and the row is patched in place so a
+   * second click skips it.
+   */
+  const ensureImported = async (v: LibraryVoice): Promise<Voice | null> => {
+    if (v.id) return v as Voice;
+    setImportingId(v.providerVoiceId);
+    setLibraryError(null);
+    try {
+      const res = await fetch(`${wsBase()}/voices/library/import`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        body: JSON.stringify({ provider: v.provider, providerVoiceId: v.providerVoiceId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || `Could not add this voice (${res.status})`);
+      const voice = data.voice as Voice;
+      setLibraryVoices(prev => prev.map(x => (
+        x.providerVoiceId === v.providerVoiceId ? { ...x, id: voice.id } : x
+      )));
+      return voice;
+    } catch (e) {
+      setLibraryError(e instanceof Error ? e.message : 'Could not add this voice');
+      return null;
+    } finally {
+      setImportingId(null);
+    }
+  };
+
+  const handleLibraryPreview = async (v: LibraryVoice, e: React.MouseEvent) => {
     e.stopPropagation();
+    const voice = await ensureImported(v);
+    if (voice) void playPreview(voice);
+  };
+
+  const handleLibrarySelect = async (v: LibraryVoice, e: React.MouseEvent) => {
+    e.stopPropagation();
+    // Toggle, like the local cards: a second click on the chosen voice clears it.
+    if (v.id && selectedVoice?.id === v.id) { setSelectedVoice(null); return; }
+    const voice = await ensureImported(v);
+    if (voice) setSelectedVoice(voice);
+  };
+
+  // ── Audio preview ──────────────────────────────────────────────────
+  const playPreview = async (voice: Voice) => {
     if (playingId === voice.id) {
       audioRef.current?.pause();
       setPlayingId(null);
@@ -292,6 +381,11 @@ export default function VoiceConfigModal({
     } catch {
       setPlayingId(null);
     }
+  };
+
+  const handlePreview = (voice: Voice, e: React.MouseEvent) => {
+    e.stopPropagation();
+    void playPreview(voice);
   };
 
   // ── Save voice ─────────────────────────────────────────────────────
@@ -380,6 +474,17 @@ export default function VoiceConfigModal({
           display: inline-block; flex-shrink: 0;
         }
         .voice-filters { display: flex; gap: 10px; align-items: center; }
+        .voice-library-section {
+          margin-top: 22px; padding-top: 18px; border-top: 1px dashed var(--s3);
+        }
+        .voice-library-head {
+          display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 12px;
+        }
+        .voice-library-title { font-size: 13px; font-weight: 600; color: var(--tx); }
+        .voice-library-sub { font-size: 12px; color: var(--tx-3); }
+        .voice-tag-library {
+          background: rgba(167,139,250,0.13); color: var(--violet); border: 1px solid rgba(167,139,250,0.3);
+        }
         .voice-search-wrap {
           position: relative; flex: 1; min-width: 0;
         }
@@ -720,6 +825,97 @@ export default function VoiceConfigModal({
                     </div>
                   );
                 })}
+              </div>
+            )}
+
+            {/* Provider library results — voices the sync never pulled. Shown
+                under the local grid so the synced catalogue still leads. */}
+            {libraryProvider && search.trim() && (
+              <div className="voice-library-section">
+                <div className="voice-library-head">
+                  <span className="voice-library-title">
+                    From the {libraryProvider === 'FishAudio' ? 'Fish Audio' : libraryProvider} catalogue
+                  </span>
+                  <span className="voice-library-sub">
+                    {librarySearching
+                      ? 'Searching…'
+                      : libraryVoices.length
+                        ? `${libraryVoices.length} match${libraryVoices.length === 1 ? '' : 'es'} — not synced yet`
+                        : 'No matches in the provider library'}
+                  </span>
+                </div>
+
+                {libraryError && <div className="voice-error">⚠ {libraryError}</div>}
+
+                {librarySearching ? (
+                  <div className="voice-loading-grid">
+                    {Array.from({ length: 3 }).map((_, i) => <div key={i} className="voice-skeleton" />)}
+                  </div>
+                ) : (
+                  <div className="voice-grid">
+                    {libraryVoices.map(v => {
+                      const isSelected = !!v.id && selectedVoice?.id === v.id;
+                      const isPlaying = !!v.id && playingId === v.id;
+                      const isImporting = importingId === v.providerVoiceId;
+                      return (
+                        <div
+                          key={v.providerVoiceId}
+                          className={`voice-card ${isSelected ? 'voice-card-selected' : ''}`}
+                          onClick={e => { void handleLibrarySelect(v, e); }}
+                          id={`voice-library-card-${v.providerVoiceId}`}
+                        >
+                          <div className="voice-card-header">
+                            <div>
+                              <div className="voice-card-name">{v.name}</div>
+                              <div className="voice-card-provider">{v.provider}</div>
+                            </div>
+                            {isSelected && (
+                              <div style={{ color: 'var(--cyan-fg)', flexShrink: 0, marginTop: '2px' }}>
+                                <CheckIcon />
+                              </div>
+                            )}
+                          </div>
+
+                          <div className="voice-card-tags">
+                            <span className="voice-tag voice-tag-library">
+                              {v.id ? 'in library' : 'not added'}
+                            </span>
+                            {v.gender && (
+                              <span className="voice-tag voice-tag-gender">
+                                {genderIcon(v.gender)} {capitalize(v.gender)}
+                              </span>
+                            )}
+                            {v.language && (
+                              <span className="voice-tag" style={{ background: '#1e293b', color: '#64748b', border: '1px solid #334155' }}>
+                                {v.language}
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="voice-card-actions">
+                            <button
+                              className={`voice-btn-preview ${isPlaying ? 'voice-btn-preview-active' : ''}`}
+                              onClick={e => { void handleLibraryPreview(v, e); }}
+                              disabled={isImporting}
+                              title={v.id ? 'Play preview' : 'Adds this voice, then plays a preview'}
+                              id={`voice-library-preview-${v.providerVoiceId}`}
+                            >
+                              {isImporting ? <SpinnerIcon /> : isPlaying ? <StopIcon /> : <PlayIcon />}
+                              {isImporting ? 'Adding…' : isPlaying ? 'Stop' : 'Preview'}
+                            </button>
+                            <button
+                              className={`voice-btn-select ${isSelected ? 'voice-btn-select-active' : ''}`}
+                              onClick={e => { void handleLibrarySelect(v, e); }}
+                              disabled={isImporting}
+                            >
+                              {isSelected ? '✓ Selected' : v.id ? 'Select' : '+ Add'}
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             )}
           </div>
