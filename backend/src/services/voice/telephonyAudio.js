@@ -129,6 +129,44 @@ export function pcmToTelephonyUlaw(buf, fromRate) {
 }
 
 /**
+ * Stateful PCM16 -> mu-law converter for a live STREAM.
+ *
+ * pcmToTelephonyUlaw() converts a WHOLE buffer. Calling it per chunk is unsafe,
+ * and both failure modes produce white noise on the call rather than an error:
+ *
+ *   1. A chunk with an odd byte count leaves half a sample behind. bufferToPcm16
+ *      drops that stray byte, so the NEXT chunk starts mid-sample and every
+ *      sample from then on is byte-shifted — the rest of the utterance is noise.
+ *   2. Int16Array throws outright when a Buffer's byteOffset is odd, which is a
+ *      thing pooled Buffers and subarrays routinely produce.
+ *
+ * Carrying the stray byte into the next chunk fixes (1); copying into a fresh
+ * Buffer before the Int16Array view fixes (2).
+ *
+ * @param {number} fromRate sample rate of the PCM the provider is sending
+ */
+export function createPcmUlawConverter(fromRate) {
+  let carry = Buffer.alloc(0);
+
+  return {
+    /** @returns {Buffer} mu-law bytes for the complete samples seen so far */
+    push(chunk) {
+      if (!chunk?.length) return Buffer.alloc(0);
+      const buf = carry.length ? Buffer.concat([carry, chunk]) : chunk;
+      const usable = buf.length - (buf.length % 2);
+      // Copy the tail out: holding a subarray would keep the whole chunk alive
+      // and hand back an odd byteOffset on the next concat.
+      carry = usable === buf.length ? Buffer.alloc(0) : Buffer.from(buf.subarray(usable));
+      if (!usable) return Buffer.alloc(0);
+      return pcmToTelephonyUlaw(Buffer.from(buf.subarray(0, usable)), fromRate);
+    },
+
+    /** Drop any half sample held between utterances. */
+    reset() { carry = Buffer.alloc(0); },
+  };
+}
+
+/**
  * Accumulates mu-law bytes and hands back whole 20ms frames.
  *
  * TTS chunks arrive at arbitrary byte lengths; a carrier wants exactly 160
@@ -192,8 +230,7 @@ export function createFrameSplitter() {
  * `opts.audioFormat`. ElevenLabs does (see elevenlabs.provider.js: both
  * streamVoice and ElevenLabsTtsStream put it in the query string).
  *
- * Cartesia, Google, Sarvam and Fish Audio all hardcode MP3 today and ignore the
- * option. Listing them here would be actively dangerous rather than merely
+ * Cartesia and Google still hardcode MP3 today and ignore the option. Listing them here would be actively dangerous rather than merely
  * incomplete: the bridge would take MP3 bytes and either ship them to the
  * carrier as if they were G.711, or run them through the PCM resampler — both
  * of which put loud noise on a live call, on the path that dials thousands of
@@ -205,7 +242,6 @@ export function createFrameSplitter() {
  *
  *   cartesia  supports  { container: 'raw', encoding: 'pcm_mulaw', sample_rate: 8000 }
  *   google    supports  audioEncoding: 'MULAW' / 'LINEAR16' + sampleRateHertz
- *   fish      supports  format: 'wav' / 'pcm'
  *
  * Keys match `settings.ttsProvider` / the provider registry ids, lowercased.
  */
@@ -221,6 +257,17 @@ export const TELEPHONY_TTS = {
   // from Sarvam, and without it each of those agents was refused by the phone
   // bridge — they could hold a web call but never take a phone call.
   sarvam: { kind: 'native', format: 'mulaw' },
+  // Fish has no mu-law output, but its `pcm` format IS raw mono s16le at exactly
+  // the rate asked for — including 8000, the line rate — so the bridge's own
+  // converter can finish the job with no decode and no resample. Verified
+  // against the live API 2026-08-19: format 'pcm' + sample_rate 8000 returns
+  // headerless 16-bit PCM (the matching 'wav' request reports fmt=1, mono,
+  // 8000Hz, 16-bit).
+  //
+  // 'wav' would ALSO satisfy the bridge on paper and must not be used: only the
+  // first chunk of a WAV stream carries the RIFF header, so every later chunk
+  // would be read as headerless PCM at a guessed rate.
+  fishaudio: { kind: 'pcm', format: 'pcm', rate: 8000 },
 };
 
 /** @returns {boolean} can this TTS provider feed a carrier at all? */
@@ -252,6 +299,10 @@ export function telephonyOutputFormat(provider) {
  * @param {{kind:string, format:string}|null} ttsFormat
  */
 export function playableWithFormat(segmentFormat, ttsFormat) {
-  if (ttsFormat?.kind !== 'native') return true;
+  if (!ttsFormat) return true;
+  // Exact for BOTH kinds. This used to wave through anything on a non-native
+  // bridge, which was harmless only while no `pcm` row existed: a segment that
+  // came back as MP3 would be handed to the PCM converter and played as noise.
+  // A skipped segment is recoverable; static on a live call is not.
   return (segmentFormat ?? null) === ttsFormat.format;
 }

@@ -5,7 +5,7 @@
 // chipmunk, a short frame makes the far end stutter, and an unstripped WAV
 // header is 44 bytes of white noise before every sentence.
 
-import test from 'node:test';
+import test, { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
@@ -14,6 +14,7 @@ import {
   parseWavOrRaw,
   pcmToTelephonyUlaw,
   createFrameSplitter,
+  createPcmUlawConverter,
   supportsTelephony,
   telephonyOutputFormat,
   playableWithFormat,
@@ -197,9 +198,17 @@ test('a native bridge only plays segments synthesized in its own format', () => 
   assert.equal(playableWithFormat('mulaw', elevenlabs), false);
   assert.equal(playableWithFormat('ulaw_8000', telephonyOutputFormat('Sarvam')), false);
 
-  // A converting bridge resamples whatever it is given, so the guard is not its
-  // business — and must not silence it.
-  assert.equal(playableWithFormat(null, { kind: 'pcm', format: 'pcm_24000' }), true);
+  // A CONVERTING bridge is now held to the same rule, and this assertion flipped
+  // on purpose when Fish Audio became the first real `pcm` row. While the table
+  // held only native providers, waving anything through here was harmless. It
+  // stopped being harmless the moment a bridge existed that would take those
+  // bytes and run them through the PCM converter: MP3 reinterpreted as 16-bit
+  // PCM is white noise on the call, which is the exact failure the native half
+  // of this test was written for.
+  assert.equal(playableWithFormat(null, { kind: 'pcm', format: 'pcm_24000' }), false);
+  assert.equal(playableWithFormat('pcm_24000', { kind: 'pcm', format: 'pcm_24000' }), true);
+
+  // No format table at all (a transport that does no conversion) still opts out.
   assert.equal(playableWithFormat(null, null), true);
 });
 
@@ -209,10 +218,79 @@ test('providers that ignore opts.audioFormat are NOT advertised as capable', () 
   // bridge ships MP3 bytes as G.711 and every recipient of a campaign hears
   // noise. Adding a row here must be accompanied by a provider change — which
   // is exactly the sequence Sarvam went through above.
-  for (const p of ['Cartesia', 'Google', 'FishAudio']) {
+  //
+  // Fish Audio was on this list until 2026-08-19 and graduated off it the right
+  // way round: fishaudio.provider.js now honours opts.audioFormat (and the rate
+  // that goes with it), verified against the live API, and only then was the row
+  // added. See the 'Fish Audio on a carrier' suite below.
+  for (const p of ['Cartesia', 'Google']) {
     assert.equal(
       supportsTelephony(p), false,
       `${p} is advertised as telephony-capable — does its provider honour opts.audioFormat yet?`,
     );
   }
+});
+
+describe('Fish Audio on a carrier', () => {
+  it('is telephony-capable via raw PCM at the line rate', () => {
+    const fmt = telephonyOutputFormat('FishAudio');
+    assert.ok(fmt, 'FishAudio must resolve a telephony format');
+    assert.deepEqual(fmt, { kind: 'pcm', format: 'pcm', rate: 8000 });
+    assert.equal(supportsTelephony('fishaudio'), true, 'lookup is case-insensitive');
+  });
+
+  it('refuses a segment that came back in the wrong format on a pcm bridge', () => {
+    const fmt = telephonyOutputFormat('FishAudio');
+    // The whole point: MP3 bytes fed to the PCM converter are noise on the line.
+    assert.equal(playableWithFormat('mp3', fmt), false);
+    assert.equal(playableWithFormat(null, fmt), false);
+    assert.equal(playableWithFormat('pcm', fmt), true);
+  });
+});
+
+describe('createPcmUlawConverter', () => {
+  /** 200ms of a 300Hz tone at 8kHz — real signal, so a byte shift is obvious. */
+  const tone = () => {
+    const samples = 1600;
+    const buf = Buffer.alloc(samples * 2);
+    for (let i = 0; i < samples; i += 1) {
+      buf.writeInt16LE(Math.round(12000 * Math.sin((2 * Math.PI * 300 * i) / 8000)), i * 2);
+    }
+    return buf;
+  };
+
+  it('matches whole-buffer conversion when chunks split mid-sample', () => {
+    const pcm = tone();
+    const expected = pcmToTelephonyUlaw(pcm, 8000);
+
+    const conv = createPcmUlawConverter(8000);
+    const parts = [];
+    // 333 is odd on purpose: every chunk boundary lands inside a 16-bit sample.
+    for (let i = 0; i < pcm.length; i += 333) parts.push(conv.push(pcm.subarray(i, i + 333)));
+
+    assert.ok(Buffer.concat(parts).equals(expected), 'a carried byte must not shift the stream');
+  });
+
+  it('survives a Buffer whose byteOffset is odd', () => {
+    // Int16Array throws on an odd byteOffset; a subarray at an odd index is the
+    // ordinary way to get one out of a pooled Buffer.
+    const backing = Buffer.concat([Buffer.from([0x00]), tone()]);
+    const odd = backing.subarray(1);
+    assert.equal(odd.byteOffset % 2, 1, 'the fixture must actually be misaligned');
+    const conv = createPcmUlawConverter(8000);
+    assert.doesNotThrow(() => conv.push(odd));
+  });
+
+  it('holds a lone byte back rather than emitting a bogus sample', () => {
+    const conv = createPcmUlawConverter(8000);
+    assert.equal(conv.push(Buffer.from([0x11])).length, 0, 'half a sample is not audio');
+    assert.equal(conv.push(Buffer.from([0x22])).length, 1, 'completed by the next chunk');
+  });
+
+  it('drops the carry on reset so one segment cannot bleed into the next', () => {
+    const conv = createPcmUlawConverter(8000);
+    conv.push(Buffer.from([0x11]));
+    conv.reset();
+    assert.equal(conv.push(Buffer.from([0x22])).length, 0, 'the stale half sample is gone');
+  });
 });

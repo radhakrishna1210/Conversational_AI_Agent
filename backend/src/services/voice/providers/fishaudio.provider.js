@@ -143,9 +143,24 @@ function applyEmotionTag(text, affect) {
  * The old hardcoded 24000 therefore 400'd on every fast/streaming request,
  * independently of billing — the 402 masked it until the free tier was enabled.
  */
-const fishFormat = () => process.env.FISH_TTS_FORMAT || 'mp3';
+const fishFormat = (override) => override || process.env.FISH_TTS_FORMAT || 'mp3';
 
-function fishSampleRate(format, fast) {
+/**
+ * Formats Fish returns as decodable-free audio a phone bridge can convert.
+ * `pcm` is raw mono s16le at exactly the requested rate — verified against the
+ * live API on 2026-08-19, including 8000, which is what a carrier runs at.
+ *
+ * `wav` is NOT here on purpose even though Fish supports it: the bridge converts
+ * chunk by chunk, and only the FIRST chunk of a WAV stream carries the RIFF
+ * header. Every later chunk would be parsed as headerless PCM at the wrong
+ * assumed rate.
+ */
+const RAW_PCM_FORMATS = new Set(['pcm']);
+
+function fishSampleRate(format, fast, requested) {
+  // An explicit rate wins for raw PCM: the phone bridge asks for 8000 because
+  // that is the line rate, and resampling it here would be undone downstream.
+  if (requested && RAW_PCM_FORMATS.has(format)) return requested;
   if (format === 'opus') return 48000;          // the only rate opus accepts
   return fast ? 32000 : 44100;                  // mp3/wav: lowest valid, then full
 }
@@ -156,12 +171,17 @@ function fishSampleRate(format, fast) {
  */
 function ttsBody(voiceId, text, opts = {}) {
   const fast = Boolean(opts.fast);
+  // The CALLER's format wins when it asks for one. Ignoring opts.audioFormat is
+  // what kept Fish off the phone: the bridge would have received the env default
+  // (MP3) and fed those bytes to a PCM converter, which is static on a live call
+  // rather than a clean failure.
+  const format = fishFormat(opts.audioFormat);
   return {
     text: applyEmotionTag(text, opts.affect),
     reference_id: voiceId,
-    format: fishFormat(),
+    format,
     mp3_bitrate: fast ? 64 : 128,
-    sample_rate: fishSampleRate(fishFormat(), fast),
+    sample_rate: fishSampleRate(format, fast, opts.sampleRate),
     // "balanced" is Fish's low-latency mode (~300ms TTFA per their docs);
     // "normal" is steadier and used for previews where latency is invisible.
     latency: fast ? 'balanced' : 'normal',
@@ -436,10 +456,14 @@ export async function streamVoice(voiceId, text, opts = {}) {
     const body = await res.text();
     throw new Error(`Fish Audio streaming TTS failed (${res.status}): ${body.slice(0, 300)}`);
   }
-  return {
-    body: res.body,
-    contentType: res.headers.get('content-type') || 'audio/mpeg',
-  };
+  // Label the stream by what we ASKED for. Fish answers a raw-PCM request with
+  // application/octet-stream, and a bridge that trusts the header would treat
+  // 8kHz PCM as MP3.
+  const asked = fishFormat(opts.audioFormat);
+  const contentType = RAW_PCM_FORMATS.has(asked)
+    ? 'audio/l16'
+    : (res.headers.get('content-type') || 'audio/mpeg');
+  return { body: res.body, contentType };
 }
 
 // ─── Token streaming (WebSocket) ──────────────────────────────────────────────
@@ -497,6 +521,11 @@ export class FishAudioTtsStream extends EventEmitter {
     super();
     this.voiceId = voiceId;
     this.modelId = opts.modelId || wsModel();
+    // Same contract as the HTTP path: the caller's format wins. Without this the
+    // WS path always sent the env default, so enabling token streaming would put
+    // MP3 on a bridge expecting PCM.
+    this.audioFormat = opts.audioFormat || null;
+    this.sampleRate = opts.sampleRate || null;
     this.pace = opts.pace;
     this.affect = opts.affect ?? null;
     this.ws = null;
@@ -549,9 +578,9 @@ export class FishAudioTtsStream extends EventEmitter {
         request: {
           text: '',                       // text arrives via 'text' events
           reference_id: this.voiceId,
-          format: fishFormat(),
+          format: fishFormat(this.audioFormat),
           mp3_bitrate: 64,
-          sample_rate: fishSampleRate(fishFormat(), true),
+          sample_rate: fishSampleRate(fishFormat(this.audioFormat), true, this.sampleRate),
           latency: 'balanced',
           chunk_length: Number(process.env.FISH_CHUNK_LENGTH) || 150,
           prosody: fishProsody(this.pace),
