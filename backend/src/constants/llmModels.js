@@ -25,7 +25,16 @@ export const ALLOWED_MODELS = {
     "azure-gpt-4o",
     "azure-gpt-4o-mini",
   ],
-  gemini: ["gemini-2.5-flash", "gemini-2.5-flash-lite"],
+  // "gemini-2.5-flash-lite" stays listed so agents already configured with it
+  // keep validating; GEMINI_MODEL_MAPPING remaps it onto 3.5-flash-lite at call
+  // time, since Google now 404s the 2.5 lite endpoint.
+  gemini: [
+    "gemini-3.5-flash-lite",
+    "gemini-3.5-flash",
+    "gemini-3.1-flash-lite",
+    "gemini-2.5-flash",
+    "gemini-2.5-flash-lite",
+  ],
   custom: ["llama-3.3-70b-versatile"],
 };
 

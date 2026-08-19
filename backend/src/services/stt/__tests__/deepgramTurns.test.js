@@ -10,7 +10,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DeepgramStreamSession, looksUnfinished, maxEndpointCommitMs } from '../deepgramStream.service.js';
+import { DeepgramStreamSession, looksUnfinished, maxEndpointCommitMs, resolveDeepgramModel } from '../deepgramStream.service.js';
 
 /** Minimal stand-in for the `ws` socket the session opens. */
 function fakeSocket(session) {
@@ -463,4 +463,57 @@ test('published commit budget covers the longest grace window', () => {
     budget >= 600 + session.unfinishedGraceMs,
     `budget ${budget} must cover endpointing + unfinished grace ${session.unfinishedGraceMs}`,
   );
+});
+
+// ── Model selection ──────────────────────────────────────────────────────────
+//
+// Worth pinning because every way of getting this wrong is SILENT: a mismatched
+// model still completes the handshake and still returns transcripts, just worse
+// ones — and on the phone a worse transcript is a slower turn, not merely a
+// less accurate one (see resolveDeepgramModel).
+
+test('phone audio gets the narrowband model, browser audio does not', () => {
+  const saved = { ...process.env };
+  delete process.env.DEEPGRAM_MODEL;
+  delete process.env.DEEPGRAM_MODEL_PHONE;
+  delete process.env.DEEPGRAM_MODEL_MULTI;
+  try {
+    // A carrier bridge opens the session in the wire format the line carries.
+    assert.equal(resolveDeepgramModel('en', 'mulaw'), 'nova-2-phonecall');
+    // The browser sends PCM16 at the AudioContext's rate — wideband.
+    assert.equal(resolveDeepgramModel('en', 'linear16'), 'nova-2');
+    // Encoding defaults to linear16 in the constructor; an unset one must not
+    // accidentally select the phone model.
+    assert.equal(resolveDeepgramModel('en', undefined), 'nova-2');
+  } finally {
+    process.env = saved;
+  }
+});
+
+test('code-switching beats the phone model, because there is no phonecall variant', () => {
+  const saved = { ...process.env };
+  delete process.env.DEEPGRAM_MODEL_PHONE;
+  delete process.env.DEEPGRAM_MODEL_MULTI;
+  try {
+    // Asking for a nova-2-phonecall that code-switches would fail the
+    // handshake, so language wins over encoding — a Hindi/English phone agent
+    // keeps nova-3 rather than silently losing code-switching.
+    assert.equal(resolveDeepgramModel('multi', 'mulaw'), 'nova-3');
+  } finally {
+    process.env = saved;
+  }
+});
+
+test('each model is independently overridable from the environment', () => {
+  const saved = { ...process.env };
+  try {
+    process.env.DEEPGRAM_MODEL = 'nova-3';
+    process.env.DEEPGRAM_MODEL_PHONE = 'nova-3-phonecall';
+    process.env.DEEPGRAM_MODEL_MULTI = 'nova-3-general';
+    assert.equal(resolveDeepgramModel('en', 'linear16'), 'nova-3');
+    assert.equal(resolveDeepgramModel('en', 'mulaw'), 'nova-3-phonecall');
+    assert.equal(resolveDeepgramModel('multi', 'mulaw'), 'nova-3-general');
+  } finally {
+    process.env = saved;
+  }
 });

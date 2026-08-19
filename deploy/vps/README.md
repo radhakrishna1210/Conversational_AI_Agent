@@ -118,7 +118,7 @@ pm2 restart convai-voice-api --update-env
 `CLIENT_URL` is comma-separated and read as a CORS allowlist (`app.js:16`), so
 listing both hosts is what keeps the old page working while you re-register
 providers. `PUBLIC_BACKEND_WS_URL` is a single value and moves immediately —
-it is only ever dialled by Twilio/Exotel, which are re-pointed in step 5.
+it is only ever dialled by Twilio/Plivo, which are re-pointed in step 5.
 
 **5. Re-register every external callback.** Each of these is a separate
 dashboard, and a missed one fails *silently* rather than loudly:
@@ -127,7 +127,7 @@ dashboard, and a missed one fails *silently* rather than loudly:
 |---|---|
 | Google Cloud Console | Both redirect URIs above, on the OAuth client. Old ones can be deleted in the same edit. |
 | Twilio | Voice webhook + status callback on each number → `https://spandan.mannmate.com/api/v1/...` |
-| Exotel | Connect applet's Voicebot URL + status callback (`EXOTEL_STATUS_CALLBACK` if set explicitly) |
+| Plivo | Answer URL + hangup callback on each number → `https://spandan.mannmate.com/api/v1/plivo/...` (`PLIVO_ANSWER_URL` if set explicitly) |
 | Razorpay | Settings → Webhooks → `https://spandan.mannmate.com/api/v1/billing/razorpay/webhook`. `RAZORPAY_WEBHOOK_SECRET` is per-webhook — if you create a new one instead of editing, the secret changes and top-ups reject until `.env` matches. |
 | Meta / WhatsApp | Callback URL in the app's webhook config, if WhatsApp is live |
 

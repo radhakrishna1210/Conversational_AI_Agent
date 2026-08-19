@@ -95,7 +95,6 @@ section with the measured figure.
 | Route | Per minute | Per 30s call |
 |---|---|---|
 | **Plivo → India local** ✅ verified | **₹0.60** | ₹0.30 |
-| Exotel (indicative) | ~₹0.90 | ~₹0.45 — **but Exotel cannot broadcast, see §5** |
 | **Twilio → India mobile** ✅ verified | **₹4.76** | ₹2.38 |
 | Twilio outbound (US) | ₹1.34 | ₹0.67 |
 
@@ -221,7 +220,11 @@ New here, because the outcome is asynchronous:
 |---|---|---|
 | **Plivo** | ✅ | answer URL returns `<Play loop="n">` |
 | **Twilio** | ✅ | inline TwiML `<Play loop="n">`, `StatusCallback` for the outcome |
-| **Exotel** | ❌ | no per-call document at all. Its audio lives in a dashboard applet, so a broadcast would play whatever that flow contains — not the recording the customer chose. The wizard refuses the number and says so. |
+
+The wizard still checks caller-ID readiness before launch and refuses a number
+whose carrier cannot play a hosted file (`supportsBroadcast: false`), rather
+than discovering it on recipient 4,000. No wired carrier is in that position
+today — Exotel was, and has been removed.
 
 Both supported carriers accept **MP3 and PCM WAV only**. Browser recordings
 (WebM/Opus, MP4/AAC) are converted to 8 kHz mono WAV **in the browser** before

@@ -51,7 +51,7 @@ type ClusterPreview = {
 };
 
 // `source` is open-ended: carriers routed through VoiceNumber report their own
-// id ('plivo', 'exotel'), so a new carrier appears here without a client change.
+// id ('plivo', 'piopiy'), so a new carrier appears here without a client change.
 type NumberOpt = { phoneNumber: string; label: string; source: 'twilio' | 'own' | string };
 
 // What the selected agent's calls will actually be. A modular agent has no

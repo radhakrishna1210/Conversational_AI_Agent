@@ -15,7 +15,11 @@
 
 import logger from '../lib/logger.js';
 
-const DEFAULT_MODEL = 'llama-3.3-70b-versatile';
+// Groq decommissioned llama-3.3-70b-versatile — its id now 404s, which on a
+// live call is a failed turn rather than a slower one. gpt-oss-20b is the
+// current small/fast model on the same account; `GET /openai/v1/models` lists
+// what a key can actually reach, and scripts/measure-llm-ttft.js probes it.
+const DEFAULT_MODEL = 'openai/gpt-oss-20b';
 
 class GroqService {
   constructor() {

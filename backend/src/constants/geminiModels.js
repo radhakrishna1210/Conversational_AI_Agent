@@ -8,9 +8,69 @@
  * Maps user-facing model names to actual Gemini API model identifiers
  */
 export const GEMINI_MODEL_MAPPING = {
+  "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
+  "gemini-3.5-flash": "gemini-3.5-flash",
   'gemini-3.1-flash-lite': 'gemini-3.1-flash-lite',
   "gemini-2.5-flash": "gemini-2.5-flash",
-  "gemini-2.5-flash-lite": "gemini-2.5-flash-lite",
+  // Retired by Google ("no longer available to new users" — a 404 on every
+  // call, not a deprecation warning). Kept as a KEY so agents whose stored
+  // model is this one keep working, remapped onto its named successor.
+  "gemini-2.5-flash-lite": "gemini-3.5-flash-lite",
+};
+
+/**
+ * How each model wants to be told "do not spend time on a reasoning pass".
+ *
+ * Gemini changed the spelling of this between generations and did NOT keep the
+ * old one working: `thinkingBudget: 0` is a hard HTTP 400 INVALID_ARGUMENT on
+ * 3.5-flash-lite / 3.6-flash, while `thinkingLevel` is a 400 on 2.5-flash.
+ * Sending the wrong one does not degrade to a slower reply — it fails the turn,
+ * which on a live call is dead air. Measured against the live API, 2026-08-19:
+ *
+ *   model                  thinkingBudget:0   thinkingLevel:'low'   omitted
+ *   gemini-2.5-flash       ok, 0 thoughts     HTTP 400              190 thoughts
+ *   gemini-3.1-flash-lite  ok, 0 thoughts     ok, 152 thoughts      0 thoughts
+ *   gemini-3.5-flash-lite  HTTP 400           ok, 0 thoughts        0 thoughts
+ *   gemini-3.5-flash       ok, 0 thoughts     ok, 179 thoughts      188 thoughts
+ *   gemini-3.6-flash       HTTP 400           ok, 191 thoughts      193 thoughts
+ *
+ * The "omitted" column is why 'none' is a real answer rather than a cop-out:
+ * the -lite models already default to no reasoning pass, and asking for
+ * thinkingLevel:'low' anyway measured SLOWER than saying nothing
+ * (2.0s vs 1.05s time-to-first-token on gemini-3.5-flash-lite).
+ */
+const THINKING_OFF_STYLE = {
+  "gemini-2.5-flash": "budget",
+  "gemini-3.1-flash-lite": "budget",
+  "gemini-3.5-flash": "budget",
+  "gemini-3.5-flash-lite": "none",
+  "gemini-3.6-flash": "level",
+};
+
+/**
+ * Translate the runtime's provider-neutral `thinkingBudget` into the
+ * thinkingConfig THIS model accepts. Returns null when nothing should be sent.
+ *
+ * Only the "off" case (budget 0) is translated, because that is the only one
+ * the voice pipeline asks for. A non-zero budget is passed through as-is on
+ * models that take a budget, and dropped on models that do not — a request for
+ * MORE thinking is not worth failing a call over.
+ *
+ * @param {string} apiModel - the resolved Gemini API model name
+ * @param {number|undefined} thinkingBudget
+ * @returns {{ thinkingBudget: number } | { thinkingLevel: string } | null}
+ */
+export const thinkingConfigFor = (apiModel, thinkingBudget) => {
+  if (thinkingBudget === undefined) return null;
+  // Unknown model (a new one added to the mapping without updating the table):
+  // omitting is the only universally safe choice — every model accepts silence.
+  const style = THINKING_OFF_STYLE[apiModel] ?? "none";
+  if (thinkingBudget === 0) {
+    if (style === "budget") return { thinkingBudget: 0 };
+    if (style === "level") return { thinkingLevel: "low" };
+    return null;
+  }
+  return style === "budget" ? { thinkingBudget } : null;
 };
 
 /**
@@ -21,7 +81,7 @@ export const SUPPORTED_GEMINI_MODELS = Object.keys(GEMINI_MODEL_MAPPING);
 /**
  * Default model to use if not specified
  */
-export const DEFAULT_GEMINI_MODEL = "gemini-2.5-flash";
+export const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash-lite";
 
 /**
  * Gemini Configuration Constants

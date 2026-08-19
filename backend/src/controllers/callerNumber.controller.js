@@ -69,7 +69,7 @@ export const listCallerNumbers = async (req, res) => {
   const carrierNumbers = await assignedCarrierNumbers(req.params.workspaceId);
 
   // Twilio missing is no longer fatal. An India-only deployment routes through
-  // Plivo or Exotel and may hold no Twilio credentials at all; 503-ing here
+  // Plivo and may hold no Twilio credentials at all; 503-ing here
   // would hide every number it does own behind a message about a carrier it
   // does not use.
   if (!twilioReady()) {

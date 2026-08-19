@@ -72,7 +72,7 @@ const SAFETY_BUFFER = Math.max(0, Number(process.env.CARRIER_CONCURRENCY_BUFFER 
 
 /**
  * A slot nothing ever released. Backstop only — every normal path releases in
- * the call finalizer. Longer than the longest call any carrier permits (Exotel
+ * the call finalizer. Longer than the longest call any carrier permits (a carrier
  * caps a session at 60 minutes) so it can never reap a live call.
  */
 const STALE_SLOT_MS = Number(process.env.CARRIER_SLOT_STALE_MS || 65 * 60 * 1000);

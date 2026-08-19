@@ -175,7 +175,6 @@ Every phone call we place goes through it (`agent.controller.js:413`), so it app
 | **Plivo → India local** ✅ verified | **₹0.60 / min** | **$0.00625** | **₹0.60** |
 | Plivo → India, SIP/browser leg | ₹0.34 / min | $0.00354 | ₹0.34 |
 | Plivo **AudioStream** | **included, ₹0 extra** | $0 | ₹0 |
-| Exotel (India, indicative — not verified) | ~₹0.80–1.00 / min | ~$0.0083–0.0104 | ~₹0.90 |
 
 **Fixed costs (not per-minute — see note below):**
 
@@ -521,7 +520,7 @@ leave comfortable room.
 1. **Prompt-cache the system prompt.** It's ~16,000 of the ~25,000 tokens/call. Caching (Gemini $0.03/1M cached, OpenAI 50% off) cuts LLM cost 50–90%. **Biggest LLM-side lever.**
 2. **Use a cheap LLM in modular mode.** GPT-4o-mini / Gemini Flash-Lite / Sarvam are ~$0.0002–0.0008/min. Reserve GPT-4o / Grok-text for hard tasks only — they're 10–20× pricier.
 3. **Pick TTS by tier, not headline.** ElevenLabs Flash on a Business subscription ≈ half the PAYG rate. Cartesia mid-tier (~$25/1M) beats EL PAYG. Sarvam Bulbul for Indic.
-4. **Use local carriers for India.** Airtel/Exotel/Plivo (₹0.40–1.20/min) vs Twilio→India-mobile ($0.03–0.11/min ≈ ₹3–10). Huge.
+4. **Use local carriers for India.** Airtel/Plivo/TeleCMI (₹0.40–1.20/min) vs Twilio→India-mobile ($0.03–0.11/min ≈ ₹3–10). Huge.
 5. **Trim agent verbosity.** TTS is per-character. Shorter agent replies = directly lower TTS + LLM output cost. 450→300 chars/min saves ~33% of the TTS line.
 6. **Keep post-call analysis on Flash-Lite** where extraction is simple — $0.10/1M vs $0.30/1M, and it's already <1% of the bill.
 7. **Cap max call duration.** Runaway calls scale LLM context super-linearly (resends). A 15-min hard cap protects margin.
@@ -556,7 +555,6 @@ leave comfortable room.
 | | Twilio → India local/landline ✅ verified | $0.0699 |
 | | **Plivo → India local** ✅ verified (AudioStream free) | **$0.00625** |
 | | Plivo → India SIP/browser leg | $0.00354 |
-| | Exotel India (indicative, unverified) | ~$0.0083–0.0104 |
 | **Post-call** | Gemini 2.5 Flash analysis | $0.0003 (amortized) |
 
 ---
@@ -617,7 +615,6 @@ several **unverified assumptions that were materially wrong for India**.
 | **Plivo AudioStream** | not modelled | **included, ₹0** | Plivo's edge over Twilio is wider than assumed |
 | Plivo number rental | ❌ not modelled at all | **₹250/mo** | fixed cost with no home in our plan model |
 | Twilio number rental | not modelled | from $1.15/mo | added |
-| Exotel India | ~₹0.40–1.20 | ~₹0.80–1.00 **(still unverified)** | Exotel publishes no public rates — sales-gated |
 | Airtel IQ | listed as a carrier option | **no public rates, no public streaming docs** | cannot be modelled; see §11.3 |
 
 **Net effect — this one is material, unlike §11.1:**
@@ -644,7 +641,7 @@ unmodelled here because:
 
 - **No public per-minute rates.** Enterprise contract, volume-based, account manager only.
 - **No public documentation of bidirectional WebSocket audio streaming.** Plivo documents
-  μ-law/L16 formats and event schemas; Exotel documents AgentStream to the 320-byte chunk.
+  μ-law/L16 formats and event schemas, and TeleCMI's SDK source pins its stream envelope.
   Airtel documents neither publicly. **If Airtel IQ cannot stream bidirectionally it
   cannot run our agent at all** — this is the question to ask before any commercial one.
 - **Additional fixed cost:** DLT registration ~₹5,000 + GST one-time, 3–7 working days.
@@ -694,6 +691,5 @@ customer_price = TOTAL_per_min / (1 − target_gross_margin)
 - Twilio Voice pricing — [twilio.com/en-us/pricing](https://www.twilio.com/en-us/pricing), [Edesy guide](https://edesy.in/blog/twilio-voice-pricing-guide-2026)
 - **Twilio India voice rates + Media Streams** ✅ *verified 2026-08-06* — [twilio.com/en-us/voice/pricing/in](https://www.twilio.com/en-us/voice/pricing/in), [Voice Pricing API docs](https://www.twilio.com/docs/voice/pricing)
 - **Plivo India voice rates + AudioStream** ✅ *verified 2026-08-06* — [plivo.com/voice/pricing/in](https://www.plivo.com/voice/pricing/in/), [all-country voice pricing](https://www.plivo.com/voice/pricing/), [AudioStream docs](https://www.plivo.com/docs/voice/audio-streaming/overview)
-- Exotel — [pricing (sales-gated)](https://exotel.com/pricing/), [Voicebot Applet docs](https://support.exotel.com/support/solutions/articles/3000132302-updated-extension-guide-working-with-the-stream-and-voicebot-applet-beta-)
 - Airtel IQ — [API docs portal](https://www.airtel.in/business/b2b/airtel-iq/api-docs/), [Airtel DLT](https://dltconnect.airtel.in) · see also `docs/AIRTEL_VERIFIED_CALLING_GUIDE.md`
 - USD→INR — [exchangerates.org.uk](https://www.exchangerates.org.uk/USD-INR-spot-exchange-rates-history-2026.html)

@@ -15,27 +15,25 @@
 //       document cannot be shared even though both carry mu-law 8k underneath.
 //
 //   deliverDocument
-//       Four different answers to "how does the carrier learn what to do":
-//         'inline'     Twilio — XML passed as the `Twiml` request param.
-//         'answer_url' Plivo  — fetches XML from a URL we serve.
-//         'stream_url' Exotel (Connect Voice AI) — no document at all. The
-//                      per-call wss:// address is a dial parameter.
-//         'app_id'     Exotel (dashboard flow) — also no document. The call is
-//                      pointed at a *flow* built in Exotel's dashboard.
-//       This is why `buildConversationDoc` returns a string rather than XML
-//       specifically: for Exotel that string is a URL, not markup.
+//       Two different answers to "how does the carrier learn what to do":
+//         'inline'     Twilio, PIOPIY — the document travels in the make-call
+//                      request itself (TwiML in `Twiml`, PCMO actions in the
+//                      body).
+//         'answer_url' Plivo — fetches the document from a URL we serve at
+//                      answer time.
+//       `buildConversationDoc` returns a string rather than XML specifically,
+//       because not every carrier's document is markup.
 //
 //   placeCall's `context`
-//       Exotel cannot carry per-call data in a document it does not have, so it
-//       passes workspace/agent/log ids through Exotel's `CustomField`, which
-//       comes back on the applet request and the status callback. Twilio embeds
-//       the same data in the TwiML and ignores `context` entirely.
+//       Workspace/agent/log ids for carriers that cannot carry them in the
+//       document — Plivo rebuilds its stream URL in its own controller and
+//       needs them there. Twilio embeds the same data in the TwiML and ignores
+//       `context` entirely.
 //
 //   from / to
 //       Twilio and Plivo: `From` is the caller ID, `To` is the destination.
-//       Exotel INVERTS this — `From` is the person being dialled and `CallerId`
-//       is our number. Providers take the same (to, from) arguments and map
-//       them; nothing above this layer should know.
+//       A carrier that inverts the two maps them inside its own provider;
+//       nothing above this layer should know.
 //
 //   placeCall's return
 //       Twilio calls it `CallSid`, Plivo calls it `call_uuid`. Both normalize to
@@ -58,9 +56,9 @@
  * @property {number}  [status]        HTTP status to answer the API request with
  *
  * @typedef {object} TelephonyProvider
- * @property {string} id                                     'TWILIO' | 'PLIVO' | 'EXOTEL'
+ * @property {string} id                                     'TWILIO' | 'PLIVO'
  * @property {string} label                                  human name for logs
- * @property {'inline'|'answer_url'|'app_id'|'stream_url'} deliverDocument how the carrier learns what to do
+ * @property {'inline'|'answer_url'} deliverDocument          how the carrier learns what to do
  * @property {boolean} [supportsGreetingMode]                false when per-call speech text is impossible
  * @property {boolean} [supportsModularEngine]               false when only the bundled-engine bridge exists
  * @property {boolean} [supportsBroadcast]                   false when the carrier cannot play a hosted audio file
@@ -72,7 +70,8 @@
  * @property {() => ProviderCredentials|null} credentials
  * @property {() => string} defaultFrom                      env-configured fallback caller ID
  * @property {(fromNumber?: string) => ReadyResult} status
- * @property {(p: {baseWsUrl: string, workspaceId: string, agentId: string}) => string} mediaStreamUrl
+ * @property {(p: {baseWsUrl: string, workspaceId: string, agentId: string,
+ *                 direction?: 'INBOUND'|'OUTBOUND'|null}) => string} mediaStreamUrl
  * @property {(p: {streamUrl: string, callLogId: string|null}) => string} buildConversationDoc
  * @property {(p: {greeting: string, closingLine: string}) => string} buildGreetingDoc
  * @property {(p: {credentials: ProviderCredentials, to: string, from: string,

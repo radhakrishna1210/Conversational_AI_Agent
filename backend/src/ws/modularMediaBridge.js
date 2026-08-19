@@ -55,7 +55,7 @@
 
 import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
-import { voiceTurnStream, getRenderedWelcome, warmVoiceTurn } from '../services/agentRuntime.service.js';
+import { voiceTurnStream, getRenderedWelcome, warmVoiceTurn, loadAgent } from '../services/agentRuntime.service.js';
 import { resolveAgentVoice, streamSynthesizeVoice } from '../services/voice.service.js';
 import {
   DeepgramStreamSession,
@@ -63,7 +63,7 @@ import {
   toDeepgramLanguage,
   defaultEndpointingMs,
 } from '../services/stt/deepgramStream.service.js';
-import { analyzeSpeech, classifyCallerAffect } from '../services/stt/speechGate.js';
+import { analyzeSpeech, classifyCallerAffect, isEchoOfAgent } from '../services/stt/speechGate.js';
 import { createFillerBudget } from '../services/voice/disfluency.js';
 import {
   decodeUlaw,
@@ -147,6 +147,21 @@ const MAX_TURN_AUDIO_SAMPLES = (MAX_TURN_AUDIO_MS / 1000) * PHONE_SAMPLE_RATE;
  *  threshold the web bridge uses. */
 const MIN_TURN_AUDIO_MS = 400;
 
+/**
+ * How often to re-check whether the carrier has finished playing our reply,
+ * while deciding when to start listening again. One frame — anything coarser
+ * would hand the caller's opening syllable to the turn we just discarded.
+ */
+const ARM_POLL_MS = 20;
+
+/**
+ * Hard ceiling on that wait. playout.isSpeaking() is driven by noteFrame(), so
+ * a pacer that somehow never drains would leave the caller permanently unheard.
+ * Longer than any single reply, short enough that the call recovers rather than
+ * dying silently.
+ */
+const MAX_ARM_WAIT_MS = 20_000;
+
 /** RMS of one already-decoded frame. */
 function pcmRms(pcm) {
   if (!pcm.length) return 0;
@@ -164,7 +179,16 @@ function pcmRms(pcm) {
  *   return it from `carrier.readStart` instead.
  * @param {object} p.carrier           see the header comment
  */
-export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: initialCallLogId = null, carrier }) {
+export function runModularMediaBridge(ws, {
+  workspaceId,
+  agentId,
+  callLogId: initialCallLogId = null,
+  // 'OUTBOUND' | 'INBOUND' | null. Read off the socket URL by server.js and set
+  // only by the dialler; null means the direction of this leg is unknown here
+  // and the agent's own configured direction decides the greeting.
+  direction = null,
+  carrier,
+}) {
   let agent = null;
   let settings = {};
   let voice = null;
@@ -183,6 +207,8 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
   let dg = null;
   let dgTurnSeq = 0;
   let dgLanguage;
+  /** Pending "start listening once the line is quiet" check. See armNextTurn. */
+  let armTimer = null;
   /** How much talk time the wallet paid for. Armed at `start`, once gated. */
   let budget = null;
   // Cooldown between reconnect attempts in the 'media' handler, so a session that
@@ -268,9 +294,31 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
    * caller actually heard and when — the barge detector's arming window is
    * derived from this, and it would be wrong by the whole queue depth otherwise.
    */
+  /**
+   * When the FIRST frame of this turn's reply reached the carrier socket.
+   *
+   * Not the same thing as latency.log's `ttfaMs`, and the difference is the
+   * whole reason phone calls can feel slow while every server-side number looks
+   * healthy. `ttfaMs` stops the clock when TTS hands us a byte; this stops it
+   * when a byte is written to the carrier. Between those two points sit the
+   * frame splitter and — on a paced carrier — the outbound queue, which holds
+   * audio back to real time on purpose. If the queue is still draining the
+   * previous utterance, the new turn's first frame waits behind it, and nothing
+   * measured inside voiceTurnStream can see that.
+   *
+   * Reset per turn by runTurn(), so it always answers "this turn", never "this
+   * call".
+   */
+  let turnFirstFrameAt = null;
+
+  /** When the carrier opened the media stream, i.e. when the callee answered.
+   *  The zero point for "how long did they hear nothing before the greeting". */
+  let connectedAtMs = Date.now();
+
   const sendFrameNow = (frame) => {
     if (ws.readyState !== ws.OPEN || !streamId) return;
     carrier.sendAudio(ws, streamId, frame);
+    if (turnFirstFrameAt == null) turnFirstFrameAt = Date.now();
     playout.noteFrame();
     recording.outbound(frame);
   };
@@ -372,6 +420,7 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
     // call (STT harvest) is otherwise invisible in logs/latency.log, which only times
     // from inside voiceTurnStream onward. See preLlmMs below.
     const turnEndDetectedAt = Date.now();
+    turnFirstFrameAt = null;
     // Drained here, not after the silence gate below: every path out of this
     // function must leave an empty buffer, or a discarded turn's audio would be
     // analysed as part of the next one.
@@ -388,6 +437,31 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
         userText = await dg.finalizeTurn(1200, dgTurnSeq);
       } catch { /* nothing usable this turn */ }
       if (!dg?.isAlive) dg = null;
+
+      // ── The turn was ENTIRELY our own voice coming back ───────────────────
+      //
+      // armNextTurn keeps most echo out by not listening until the line is
+      // quiet, but it cannot cover the tail the carrier was still playing out
+      // of its own jitter buffer after our pacer drained. What survives that is
+      // a transcript which is verbatim agent speech and nothing else.
+      //
+      // The runtime's stripAgentEcho() only trims a bounded PREFIX, on the
+      // assumption there is a real request behind it; when there is not, it
+      // leaves a phantom user turn that the LLM dutifully answers — the agent
+      // talking to itself, which a caller experiences as the agent ignoring
+      // them and monologuing. webCallModularRealtime.handler.js has always
+      // discarded these; the phone bridge never did, on the transport where
+      // there is no acoustic echo cancellation to make it rare.
+      const lastAgentText = history
+        .filter((m) => m?.role === 'assistant' && typeof m.content === 'string')
+        .pop()?.content || '';
+      if (userText && isEchoOfAgent(userText, lastAgentText)) {
+        logger.info(
+          `${carrier.label}: discarding "${userText}" — echo of the agent's own `
+          + `previous reply ("${lastAgentText.slice(0, 60)}…")`,
+        );
+        return;
+      }
 
       // Same shared implementation the web bridge calls, so the two channels
       // cannot drift apart in how they read a caller. With no captured audio (a
@@ -566,35 +640,33 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
     } catch (err) {
       logger.warn(`Modular phone turn failed: ${err.message}`);
     } finally {
+      // ── The only measurement of this turn the CALLER would recognise ──────
+      //
+      // logs/latency.log times the pipeline: end-of-speech → LLM → TTS's first
+      // byte. On a phone call that is not when the caller hears anything. This
+      // is: end-of-speech → the first byte written to the carrier socket, which
+      // additionally covers the frame splitter and the outbound pacer queue.
+      //
+      // `paced` is what separates "the model was slow" from "the line was still
+      // playing the last reply": a queue that is deep when a new turn starts
+      // means every following turn is served late no matter how fast the model
+      // answers, and it is invisible everywhere else — the modular bridge
+      // computed these stats and never read them, unlike the PIOPIY bridge
+      // which logs its own at call end.
+      if (turnFirstFrameAt != null) {
+        const paced = pacer?.stats();
+        logger.info(
+          `${carrier.label}: turn wireMs=${turnFirstFrameAt - turnEndDetectedAt}`
+          + (paced ? ` pacerQueued=${paced.queuedFrames}f pacerMaxQueueMs=${paced.maxQueueMs} dropped=${paced.dropped}` : ''),
+        );
+      }
       playout.endGenerating();
       turnRunning = false;
-      // Arm the next turn only if the call is still up.
-      //
-      // The sequence number MUST come from beginTurn(), never from a counter
-      // kept here. finalizeTurn() compares the seq it is given against the
-      // session's own _turnSeq and returns '' when they differ (the cross-turn
-      // bleed guard). Incrementing a local copy instead drifted permanently out
-      // of step, so every finalizeTurn returned '' and the agent never once
-      // answered the caller — the greeting played and the call went dead.
-      //
-      // dg.isAlive, not just truthiness: a session that died DURING this turn
-      // (LLM/TTS phase) is still a non-null reference here, and beginTurn() on a
-      // dead session silently arms a turn nothing will ever harvest. Recreate it
-      // instead — the 'media' handler's own reconnect is the other half of this
-      // (it covers a session dying while idle, which is the more common case;
-      // this covers one dying mid-turn).
-      if (!closed) {
-        if (dg && dg.isAlive) dgTurnSeq = dg.beginTurn();
-        else openDeepgram();
-      }
-      // Listening has resumed, so this is the phone's `start-turn`: re-warm now,
-      // while the caller is speaking, rather than serially after they stop. The
-      // agent and KB caches are on a 5-minute TTL, which any real conversation
-      // outlives — without this, one turn somewhere in the middle of every long
-      // call silently pays the cold cost again.
-      if (!closed) {
-        warmVoiceTurn(workspaceId, agentId, ttsFormat?.format ?? null, ttsFormat?.rate ?? null);
-      }
+      // Listening resumes when the caller can be heard over us, NOT here —
+      // generation ending is not the same event as the carrier finishing
+      // playback, and treating them as one fed our own echo into the caller's
+      // next turn. See armNextTurn.
+      armNextTurn();
     }
   };
 
@@ -631,7 +703,24 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
       // Shared with the web handler — the phone path had its own 500ms default,
       // so end-of-turn committed at a different point per transport.
       endpointingMs: defaultEndpointingMs(),
-      onEndOfTurn: () => { runTurn(); },
+      // Guarded, because Deepgram is fed the inbound leg unconditionally and a
+      // phone line has no echo cancellation: our own reply comes back up it and
+      // is transcribed like any other speech, so it can commit an end of turn
+      // all by itself. Unguarded, the agent answered its own greeting.
+      //
+      // Dropping it rather than queueing it is correct: whatever closed that
+      // turn was audio arriving while we were speaking, which is either echo
+      // (worthless) or a barge — and a barge zeroes playout via the energy
+      // detector, so a real interruption sees isSpeaking() false here and
+      // passes straight through. armNextTurn() re-arms cleanly once the line is
+      // quiet, so nothing the caller actually says afterwards is lost.
+      onEndOfTurn: (reason) => {
+        if (playout.isSpeaking()) {
+          logger.info(`${carrier.label}: ignoring end of turn (${reason}) — still speaking`);
+          return;
+        }
+        runTurn();
+      },
     });
     dg.connect();
     // Same rule as in runTurn's finally: the seq is whatever the session says
@@ -641,8 +730,88 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
     dgTurnSeq = dg.beginTurn();
   };
 
+  /**
+   * Start listening for the caller's next turn — but not until they can
+   * actually be heard over us.
+   *
+   * ── WHY THIS IS NOT JUST `dg.beginTurn()` IN runTurn's finally ────────────
+   *
+   * A browser gets acoustic echo cancellation for free: getUserMedia hands the
+   * page a mic feed with the speaker's own output already subtracted. A phone
+   * line has no such thing. The handset feeds our reply straight back up the
+   * inbound leg, and the 'media' handler forwards every inbound frame to
+   * Deepgram unconditionally — deliberately, so that a caller talking OVER the
+   * agent is not lost when the barge lands.
+   *
+   * That trade is only safe if the turn boundary sits where the agent stops
+   * being audible. It did not. runTurn's finally runs when voiceTurnStream
+   * RESOLVES, i.e. when TTS has finished generating — and with a pacer holding
+   * the outbound leg to real time, generation for an 8s reply completes in ~2s.
+   * The turn was therefore armed with ~6s of our own speech still playing, and
+   * every word of it was transcribed into the caller's brand-new turn.
+   *
+   * Two costs, and the second is the one that reads as "the phone agent is
+   * slow":
+   *
+   *   1. the transcript opens with the agent's own words. stripAgentEcho() in
+   *      the runtime trims a bounded PREFIX, so long echo survives it.
+   *   2. end-of-turn never commits. deepgramStream treats ANY further
+   *      transcript — interim or final — as proof the caller is still talking
+   *      and cancels the pending speech_final candidate. Our own echo therefore
+   *      re-arms the endpointing clock frame after frame, and the turn cannot
+   *      close until the echo stops. The reply is late by however long the
+   *      agent was still audible, which no server-side timing can see.
+   *
+   * Waiting for playout to drain fixes both at the source. Echo arriving before
+   * this fires lands in the turn already finalized, and beginTurn() clears
+   * `finals` and `_tail`, so it is discarded rather than misattributed.
+   *
+   * BARGE-IN IS NOT DELAYED BY THIS. A barge calls playout.stop(), which zeroes
+   * endsAt, so isSpeaking() is already false by the time this runs and the arm
+   * is immediate.
+   */
+  const armNextTurn = (deadline = Date.now() + MAX_ARM_WAIT_MS) => {
+    if (armTimer) { clearTimeout(armTimer); armTimer = null; }
+    if (closed) return;
+
+    if (playout.isSpeaking() && Date.now() < deadline) {
+      armTimer = setTimeout(() => armNextTurn(deadline), ARM_POLL_MS);
+      // Never hold the process open for a call that is already over.
+      if (typeof armTimer.unref === 'function') armTimer.unref();
+      return;
+    }
+    if (playout.isSpeaking()) {
+      logger.warn(
+        `${carrier.label}: still playing after ${MAX_ARM_WAIT_MS}ms — listening anyway`,
+      );
+    }
+
+    // The sequence number MUST come from beginTurn(), never from a counter kept
+    // here. finalizeTurn() compares the seq it is given against the session's
+    // own _turnSeq and returns '' when they differ (the cross-turn bleed
+    // guard). Incrementing a local copy instead drifted permanently out of
+    // step, so every finalizeTurn returned '' and the agent never once answered
+    // the caller — the greeting played and the call went dead.
+    //
+    // dg.isAlive, not just truthiness: a session that died during the turn
+    // (LLM/TTS phase) is still a non-null reference here, and beginTurn() on a
+    // dead session silently arms a turn nothing will ever harvest. Recreate it
+    // instead — the 'media' handler's own reconnect is the other half of this
+    // (it covers a session dying while idle, the more common case; this covers
+    // one dying mid-turn).
+    if (dg && dg.isAlive) dgTurnSeq = dg.beginTurn();
+    else openDeepgram();
+
+    // Listening has resumed, so this is the phone's `start-turn`: re-warm now,
+    // while the caller is speaking, rather than serially after they stop. The
+    // agent and KB caches are on a 5-minute TTL, which any real conversation
+    // outlives — without this, one turn somewhere in the middle of every long
+    // call silently pays the cold cost again.
+    warmVoiceTurn(workspaceId, agentId, ttsFormat?.format ?? null, ttsFormat?.rate ?? null);
+  };
+
   // Status write + wallet settlement + post-call delivery, exactly once. Shared
-  // with the bundled and Exotel bridges — see ws/callFinalizer.js.
+  // with the bundled and PIOPIY bridges — see ws/callFinalizer.js.
   const finalizeCallLog = createCallFinalizer({
     workspaceId, agentId, label: carrier.label,
   });
@@ -657,6 +826,9 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
     turnPcmSamples = 0;
     budget?.stop();
     playout.stop();
+    // A chained setTimeout waiting on playout would otherwise keep re-arming a
+    // Deepgram session for a call that has already hung up.
+    if (armTimer) { clearTimeout(armTimer); armTimer = null; }
     try { dg?.close(); } catch { /* already gone */ }
     dg = null;
     recording.save(callLogId);
@@ -674,6 +846,10 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
       case 'start': {
         const started = carrier.readStart(msg) || {};
         streamId = started.streamId ?? null;
+        // Re-based off the `start` event rather than socket construction: the
+        // handshake is not part of what the callee waits through.
+        connectedAtMs = Date.now();
+        turnFirstFrameAt = null;
 
         // Started here rather than at construction: sendFrameNow needs streamId,
         // which does not exist until this event.
@@ -690,7 +866,52 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
         if (started.callLogId) callLogId = started.callLogId;
 
         try {
-          agent = await prisma.agent.findFirst({ where: { id: agentId, workspaceId } });
+          // ── Everything here happens while the caller is listening to silence ──
+          //
+          // A carrier opens this socket the instant the callee picks up, so every
+          // millisecond between here and the first frame of the greeting is dead
+          // air on a live line. This used to be FOUR serial remote round trips —
+          // agent row, wallet gate, voice resolution, call-log status write — and
+          // from this deployment a single Supabase round trip measures
+          // 750-1400ms, so the greeting started somewhere north of three seconds
+          // after "hello?". A web call pays none of it: the browser already has
+          // the agent loaded and fetched its welcome over HTTP before the call
+          // button was pressed. That asymmetry is a large part of why the same
+          // agent feels responsive on the web and slow on the phone, and it is
+          // paid again by EVERY call in a bulk campaign.
+          //
+          // Three changes, all about ordering rather than doing less:
+          //   1. the agent row and the wallet gate are independent — the gate
+          //      needs only the workspace — so they run together;
+          //   2. rendering the welcome needs the agent but NOT the voice, so it
+          //      overlaps the voice lookup instead of following it;
+          //   3. the IN_PROGRESS status write is fire-and-forget. Nothing here
+          //      reads it back and nothing downstream waits on it; it was
+          //      awaited only because it was written with `await`.
+          //
+          // loadAgent(), not a raw findFirst: it populates the same cache that
+          // getRenderedWelcome() and voiceTurnStream() read moments later, so
+          // this one read serves all three instead of being the first of several
+          // identical queries.
+          const [loadedAgent, gate] = await Promise.all([
+            loadAgent(workspaceId, agentId),
+            // This still gates every provider call below — it has to finish
+            // before Deepgram, the voice lookup or the greeting spend anything.
+            // Running it CONCURRENTLY with the agent read does not weaken that,
+            // it just stops the two waits being additive.
+            openCallBudget({
+              workspaceId,
+              type: 'PHONE_CALL',
+              label: carrier.label,
+              onExpire: () => {
+                cleanup('COMPLETED');
+                try { ws.close(); } catch { /* already gone */ }
+              },
+            }),
+          ]);
+
+          agent = loadedAgent;
+          budget = gate.budget;
           if (!agent) throw new Error('Agent not found in this workspace');
           settings = safeJson(agent.settings, {});
 
@@ -702,28 +923,16 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
           // said, and settlement — which cannot refuse minutes already served —
           // booked it against an empty wallet.
           //
-          // Checked before Deepgram, the voice lookup and the greeting, so a
-          // refused call spends nothing with any provider. The dial-time gate on
-          // the outbound paths is not redundant with this one: it stops us
-          // PLACING a call we cannot pay for, which is a cost this check is
-          // already too late to avoid.
+          // The dial-time gate on the outbound paths is not redundant with this
+          // one: it stops us PLACING a call we cannot pay for, which is a cost
+          // this check is already too late to avoid.
           //
           // The budget also hangs the call up when the balance is spent, since
-          // passing a gate at pickup says nothing about a call's length.
-          // Closing the media socket is the only lever this bridge has: Twilio's
+          // passing a gate at pickup says nothing about a call's length. Closing
+          // the media socket is the only lever this bridge has: Twilio's
           // <Connect><Stream> ends the call with it, while Plivo's stream
           // carries keepCallAlive, so there the line goes quiet and the caller
           // hangs up. Either way the agent stops costing money.
-          const gate = await openCallBudget({
-            workspaceId,
-            type: 'PHONE_CALL',
-            label: carrier.label,
-            onExpire: () => {
-              cleanup('COMPLETED');
-              try { ws.close(); } catch { /* already gone */ }
-            },
-          });
-          budget = gate.budget;
           if (!gate.allowed) {
             logger.warn(
               { workspaceId, agentId, callLogId, code: gate.code },
@@ -740,6 +949,33 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
           if (!isDeepgramConfigured()) {
             throw new Error('Deepgram is not configured; the modular phone bridge needs streaming STT');
           }
+
+          // Started BEFORE the voice lookup rather than after it, so the two
+          // overlap. The RENDERED welcome, not the raw field: getRenderedWelcome
+          // is what the web call speaks (the client fetches
+          // /agents/:id/welcome), and it is where the agent's configured
+          // language is applied — "a welcome stored in English must be spoken in
+          // Hindi when Hindi is the selected language". It also strips
+          // [placeholders], de-robotifies greetings that call themselves an AI,
+          // and fixes an agent that thanks the caller "for calling" on a call WE
+          // dialled — which is what `direction` is for: the agent's stored
+          // callDirection describes what it is FOR, not what is happening on
+          // this leg, and campaigns routinely dial out through agents saved as
+          // INBOUND or saved with no direction at all. Reading
+          // agent.welcomeMessage directly here meant the phone call opened in
+          // English while the web call opened in Hindi, from the same Assistant
+          // Details — the phone is a transport for this agent, not a different
+          // agent.
+          //
+          // Cached on the agent row by content hash, so this is not an LLM round
+          // trip per call. Never allowed to fail the call: an un-rendered
+          // greeting is far better than dead air on answer.
+          const welcomePending = getRenderedWelcome(workspaceId, agentId, { direction })
+            .then((r) => r?.welcome || '')
+            .catch((e) => {
+              logger.warn(`Welcome rendering failed, using the raw message: ${e.message}`);
+              return '';
+            });
 
           voice = await resolveAgentVoice(agent.voice);
           if (!voice) throw new Error('Agent has no resolvable voice');
@@ -764,8 +1000,10 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
           // was tested against.
           warmVoiceTurn(workspaceId, agentId, ttsFormat.format, ttsFormat.rate ?? null);
 
+          // Fire and forget, see (3) above: a status write the greeting waits on
+          // is a status write the CALLER waits on.
           if (callLogId) {
-            await prisma.agentCallLog.update({
+            prisma.agentCallLog.update({
               where: { id: callLogId },
               data: { status: 'IN_PROGRESS' },
             }).catch(() => {});
@@ -774,30 +1012,24 @@ export function runModularMediaBridge(ws, { workspaceId, agentId, callLogId: ini
           // Greet immediately. A carrier connects the media stream the moment
           // the callee answers, and silence on answer is what makes people hang
           // up before the agent has said anything.
-          //
-          // The RENDERED welcome, not the raw field. getRenderedWelcome is what
-          // the web call speaks (the client fetches /agents/:id/welcome), and it
-          // is where the agent's configured language is applied — "a welcome
-          // stored in English must be spoken in Hindi when Hindi is the selected
-          // language". It also strips [placeholders], de-robotifies greetings
-          // that call themselves an AI, and fixes an OUTBOUND agent that thanks
-          // the caller "for calling". Reading agent.welcomeMessage directly here
-          // meant the phone call opened in English while the web call opened in
-          // Hindi, from the same Assistant Details — the phone is a transport
-          // for this agent, not a different agent.
-          //
-          // Result is cached on the agent row by content hash, so this is not an
-          // LLM round trip per call.
-          let greeting = agent.welcomeMessage || `Hello, this is ${agent.name}.`;
-          try {
-            const rendered = await getRenderedWelcome(workspaceId, agentId);
-            if (rendered?.welcome) greeting = rendered.welcome;
-          } catch (e) {
-            // Never block the call on it — an un-translated greeting is far
-            // better than dead air on answer.
-            logger.warn(`Welcome rendering failed, using the raw message: ${e.message}`);
-          }
+          const greeting = (await welcomePending)
+            || agent.welcomeMessage
+            || `Hello, this is ${agent.name}.`;
           await speakLine(greeting);
+          // The one number that says how long the callee heard nothing. Measured
+          // to the WIRE (see turnFirstFrameAt), not to "TTS returned bytes",
+          // because on a paced carrier those differ by the queue depth.
+          if (turnFirstFrameAt != null) {
+            logger.info(
+              `${carrier.label}: greeting reached the wire ${turnFirstFrameAt - connectedAtMs}ms after answer`,
+            );
+          }
+          // openDeepgram() armed a turn BEFORE the greeting was spoken, so that
+          // turn has been collecting the greeting's own echo for as long as it
+          // played. Re-arm it once the line is quiet — the first thing the
+          // caller says must not arrive with our welcome message glued to the
+          // front of it. Same reasoning as runTurn's finally; see armNextTurn.
+          armNextTurn();
         } catch (err) {
           logger.error(`Failed to start ${carrier.label}: ${err.message}`);
           cleanup('FAILED');

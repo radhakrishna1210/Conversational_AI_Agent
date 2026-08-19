@@ -1164,7 +1164,7 @@ model VoiceNumber {
   id                    String    @id @default(cuid())
   workspaceId           String
   phoneNumber           String    @unique
-  // PLIVO | EXOTEL | TWILIO
+  // PLIVO | TWILIO
   provider              String
   providerNumberId      String?
   // Per-workspace carrier subaccount, so one client's calling behaviour cannot

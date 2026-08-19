@@ -189,61 +189,6 @@ export const env = {
   // over this exact string, so a trailing slash difference fails validation.
   PLIVO_WEBHOOK_URL: optional('PLIVO_WEBHOOK_URL', ''),
 
-  // Exotel — the second India carrier, kept alongside Plivo rather than
-  // replacing it. UL-VNO licensed with the strongest DLT operations, and a
-  // self-serve trial, so it is usually the faster route to a live Indian test.
-  // Read via process.env in services/telephony/exotel.provider.js; listed here
-  // for documentation.
-  EXOTEL_API_KEY: optional('EXOTEL_API_KEY', ''),
-  EXOTEL_API_TOKEN: optional('EXOTEL_API_TOKEN', ''),
-  EXOTEL_SID: optional('EXOTEL_SID', ''),
-  // Mumbai (api.in.exotel.com) or Singapore (api.exotel.com). Defaults to
-  // Mumbai — India requires call media to stay in-country, so Singapore is the
-  // wrong region for the traffic this carrier exists to serve.
-  EXOTEL_SUBDOMAIN: optional('EXOTEL_SUBDOMAIN', 'api.in.exotel.com'),
-  // ExoPhone (virtual number) used as the caller ID.
-  EXOTEL_CALLER_ID: optional('EXOTEL_CALLER_ID', ''),
-  // How the call is handed to our bridge. Exotel has no per-call XML either way:
-  //   stream  Connect Voice AI — the per-call wss:// URL is a dial parameter.
-  //           The default, and the only mode where we control routing end to
-  //           end. Must be enabled on the Exotel account (ask them; it is off
-  //           by default) — a first call failing with a 400/403 usually means
-  //           it is not.
-  //   app     The call is pointed at an App (flow) built in the Exotel
-  //           dashboard, whose Voicebot applet holds the stream URL. Needs
-  //           EXOTEL_APP_ID, and the applet pointed at
-  //           <PUBLIC_BACKEND_URL>/api/v1/exotel/voicebot-stream for per-agent
-  //           routing.
-  EXOTEL_DIAL_MODE: optional('EXOTEL_DIAL_MODE', 'stream'),
-  // Required in app mode only.
-  EXOTEL_APP_ID: optional('EXOTEL_APP_ID', ''),
-  // PCM16 rate on the media socket: 8000 | 16000 | 24000. 24000 matches what
-  // the bundled engines emit natively, so nothing is resampled in either
-  // direction (the PSTN leg is 8k regardless — this is about our CPU, not
-  // audio quality). Anything else falls back to 8000, Exotel's own default.
-  EXOTEL_SAMPLE_RATE: optional('EXOTEL_SAMPLE_RATE', '24000'),
-  // Outbound frame size in ms. Exotel documents ~100ms and its reference bridge
-  // ties short/blasted frames to calls dropping after ~4s, so the default is
-  // deliberately conservative; drop it to 20 for lower latency once live calls
-  // are proven stable. Any value is rounded down to a 320-byte multiple.
-  EXOTEL_FRAME_MS: optional('EXOTEL_FRAME_MS', '100'),
-  // Public URL Exotel posts terminal call events to. LEAVE UNSET unless this
-  // server's public hostname differs from PUBLIC_BACKEND_WS_URL's — it is
-  // derived from that (…/api/v1/exotel/status, with the webhook token attached),
-  // because it is the same server and a hand-typed second URL is just somewhere
-  // for a typo to hide. Getting it wrong is silent: calls that were never
-  // answered stay at INITIATED forever, since HTTP 200 from connect.json means
-  // accepted, not connected.
-  EXOTEL_STATUS_CALLBACK: optional('EXOTEL_STATUS_CALLBACK', ''),
-  // Shared secret appended as ?token=… to the two public Exotel endpoints. A
-  // carrier cannot hold a session token, so this is the only authentication
-  // available; unset means the endpoints are open.
-  EXOTEL_WEBHOOK_TOKEN: optional('EXOTEL_WEBHOOK_TOKEN', ''),
-  // Hard ceiling in seconds on a single call, sent as TimeLimit. Exotel caps
-  // sessions at 60 minutes anyway; this exists so a bridge that never tears
-  // down cannot bill indefinitely. Unset means no limit is sent.
-  EXOTEL_TIME_LIMIT_SEC: optional('EXOTEL_TIME_LIMIT_SEC', ''),
-
   // Sarvam AI LLM Configuration
   SARVAM_API_KEY: optional('SARVAM_API_KEY', ''),
   SARVAM_URL: optional('SARVAM_URL', 'https://api.sarvam.ai'),
