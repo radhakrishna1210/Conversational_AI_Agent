@@ -59,7 +59,7 @@ app.use('/api/v1/integrations/webhooks', express.raw({ type: 'application/json' 
 app.use('/api/v1/billing/razorpay/webhook', express.raw({ type: 'application/json' }));
 app.use(express.json({ limit: env.JSON_BODY_LIMIT }));
 // Form-encoded bodies. EVERY carrier callback in this system posts this way —
-// Plivo's answer/hangup, Twilio's status webhooks, Exotel's status — and without
+// Plivo's answer/hangup, Twilio's status webhooks — and without
 // this parser `req.body` is `{}` for all of them. That is not a cosmetic gap:
 // Plivo's V3 signature is computed over the posted parameters, so an unparsed
 // body makes a genuine callback fail verification, and the call duration those

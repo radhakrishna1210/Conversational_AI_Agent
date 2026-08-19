@@ -6,7 +6,7 @@
 // one such setting: PUBLIC_BACKEND_WS_URL, the websocket origin the media
 // bridges are reached on. It is the same server, so a second hand-typed URL
 // would only be somewhere for a typo to hide — the carrier-facing endpoints
-// derive from it (see exotel.provider.js and plivo.provider.js, which each did
+// derive from it (see plivo.provider.js and piopiy.provider.js, which each did
 // this inline before there was a second caller).
 //
 // PUBLIC_BACKEND_URL overrides it, for the one deployment shape where the HTTP

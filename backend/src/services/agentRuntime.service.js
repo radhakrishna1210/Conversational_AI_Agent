@@ -54,7 +54,7 @@ const kbCache = new Map();    // `${workspaceId}:${agentId}` -> { value, at }
 // of dead air per turn for a query that always answered "no".
 const kbChunkCache = new Map(); // `${workspaceId}:${agentId}` -> { has, at }
 
-async function loadAgent(workspaceId, agentId) {
+export async function loadAgent(workspaceId, agentId) {
   const key = `${workspaceId}:${agentId}`;
   const hit = agentCache.get(key);
   if (hit && Date.now() - hit.at < AGENT_TTL_MS) return hit.agent;
@@ -426,7 +426,7 @@ ${voiceMode
 export function resolveLlmForAgent(agent, { lowLatency = false } = {}) {
   const fromAgent = mapAgentModel(agent.aiModel);
   let provider = fromAgent.provider || process.env.DEFAULT_LLM_PROVIDER || 'gemini';
-  let model = fromAgent.model || process.env.DEFAULT_LLM_MODEL || 'gemini-2.5-flash';
+  let model = fromAgent.model || process.env.DEFAULT_LLM_MODEL || 'gemini-3.5-flash-lite';
 
   const hasKey = (p) =>
     p === 'openai' ? Boolean(process.env.OPENAI_API_KEY)
@@ -437,7 +437,7 @@ export function resolveLlmForAgent(agent, { lowLatency = false } = {}) {
   if (!hasKey(provider)) {
     if (process.env.GEMINI_API_KEY) {
       provider = 'gemini';
-      model = process.env.DEFAULT_LLM_MODEL || 'gemini-2.5-flash';
+      model = process.env.DEFAULT_LLM_MODEL || 'gemini-3.5-flash-lite';
     } else if (process.env.OPENAI_API_KEY) {
       provider = 'openai';
       model = 'gpt-4o-mini';
@@ -453,7 +453,29 @@ export function resolveLlmForAgent(agent, { lowLatency = false } = {}) {
 
   // Live voice turns prioritize time-to-first-token. Flash Lite uses the same
   // Gemini API contract and grounding prompt with substantially lower latency.
-  if (lowLatency && provider === 'gemini') model = 'gemini-3.1-flash-lite';
+  //
+  // WHICH Flash Lite is not a detail, and it is not a matter of picking the
+  // newest. Measured from this deployment against the live API on 2026-08-19,
+  // same agent, same 2.5k-token prompt, thinking off, 10 consecutive turns:
+  //
+  //   gemini-3.1-flash-lite   time-to-first-token  1.0s … 20.6s   (p50 ~5s)
+  //   gemini-3.5-flash-lite   time-to-first-token  1.0s …  1.2s   (p50 1.05s)
+  //   gemini-3.5-flash        time-to-first-token           ~12s
+  //   gemini-3.6-flash        time-to-first-token  4.2s … 18.3s
+  //
+  // The old choice was not slow on average so much as UNBOUNDED, and a voice
+  // call is judged on its worst turns: logs/latency.log shows the tail landing
+  // as 13-17s of dead air mid-conversation. Prompt size barely moved it (a
+  // 343-token prompt also produced an 8.9s first token), so this is capacity on
+  // Google's side, not something the prompt can be trimmed out of. The fix is
+  // to stop asking that endpoint.
+  //
+  // Overridable because the ranking above is a property of Google's serving
+  // fleet on a given day, not a law — re-measure with scripts/measure-llm-ttft.js
+  // before changing it, and set VOICE_LLM_MODEL rather than editing this line.
+  if (lowLatency && provider === 'gemini') {
+    model = process.env.VOICE_LLM_MODEL || 'gemini-3.5-flash-lite';
+  }
 
   return { llm: getLLMProviderWithFallback(provider), provider, model };
 }
@@ -462,7 +484,12 @@ export function resolveLlmForAgent(agent, { lowLatency = false } = {}) {
 
 // Rendered welcomes are cached per agent and invalidated when the agent config
 // or KB content changes, so the extra LLM call happens once, not per call.
-const welcomeCache = new Map(); // agentId -> { key, welcome }
+// `${agentId}:${effective direction}` -> { key, welcome }. Keyed by direction
+// as well as agent because the SAME agent legitimately has two greetings — one
+// for calls it places and one for calls it answers — and a single slot per
+// agent made an outbound campaign and an inbound line evict each other's
+// render on every call.
+const welcomeCache = new Map();
 
 /** Deterministic placeholder fill for when no KB (or no LLM) is available. */
 const stripPlaceholders = (text) =>
@@ -481,16 +508,92 @@ const stripPlaceholders = (text) =>
 // EditAgent.tsx (THANKS_FOR_CALLING_RE).
 const THANKS_FOR_CALLING_RE = /\bthank(?:s|\s*you)?\b[^.!?]*\bfor\s+calling\b/i;
 
-/** Remove an inbound-style "thank you for calling…" clause so a greeting no
- *  longer contradicts an OUTBOUND call the agent itself placed. Deterministic
- *  fallback for when there is no KB to ground a proper self-introduction. */
-const stripInboundThanks = (text) =>
-  text
-    .replace(/\b(?:and\s+)?thank(?:s|\s*you)?\b[^.!?]*\bfor\s+calling\b[^.!?]*[.!?]?/gi, '')
+/**
+ * Turn an inbound-style greeting into an outbound one, deterministically.
+ *
+ * This is the no-KB path: there is nothing to ground an LLM rewrite in, so the
+ * opener has to be rebuilt out of what the stored greeting already says.
+ *
+ * DELETING THE THANKS IS NOT ENOUGH, which is all this used to do. The clause
+ * that thanks the caller is usually the same clause that carries the identity:
+ *
+ *   "Thank you for calling Innovate Solutions, my name is Sarah. I'm here to
+ *    help you schedule a demo."
+ *
+ * Dropping it left "I'm here to help you schedule a demo." — no name, no
+ * company, straight into the pitch, which is exactly the opening an outbound
+ * call must not have. It is the one thing the LLM prompt for this case spells
+ * out: introduce yourself BY NAME, name the company, and only THEN give the
+ * reason for the call.
+ *
+ * So the company is recovered from the thanks clause itself — "for calling
+ * <COMPANY>" — and reused. It counts as a company only when it reads like a
+ * proper noun: "thank you for calling support" names a department, not a
+ * business, and "calling from support" would be worse than saying nothing. Any
+ * self-introduction left in the remainder is then dropped, because the rebuilt
+ * opener has already made it.
+ *
+ * English-only by construction, and that is fine — THANKS_FOR_CALLING_RE only
+ * matches English, so a Hindi or Marathi greeting never reaches here.
+ *
+ * Exported for tests: enough branches to be worth pinning, and none of them
+ * need a database.
+ *
+ * @param {string} text - the stored greeting
+ * @param {string} [persona] - the name the agent introduces itself with
+ * @returns {string}
+ */
+export const stripInboundThanks = (text, persona = '') => {
+  const tidy = (s) => s
     .replace(/\s{2,}/g, ' ')
     .replace(/\s+([,.!?])/g, '$1')
     .replace(/^[\s,.;:!?-]+/, '')
     .trim();
+
+  const THANKS_CLAUSE = /\b(?:and\s+)?thank(?:s|\s*you)?\b[^.!?]*\bfor\s+calling\b[^.!?]*[.!?]?/i;
+  const clause = text.match(THANKS_CLAUSE)?.[0] ?? '';
+  // Nothing to correct: callers only reach here on a greeting that DOES thank
+  // the caller (see directionMismatch), but as an exported helper it must not
+  // bolt an opener onto a greeting that was already fine.
+  if (!clause) return text.trim();
+  const body0 = tidy(text.replace(new RegExp(THANKS_CLAUSE.source, 'gi'), ''));
+
+  // "for calling <X>" — X is a company only if it looks like a name. Stops at
+  // the first comma so "…calling Innovate Solutions, my name is Sarah" does not
+  // swallow the introduction that follows it.
+  const named = clause.match(/\bfor\s+calling\s+([^,.!?]+)/i)?.[1]?.trim() ?? '';
+  const company = /^[A-Z][\w&'’-]*(?:\s+[\w&'’-]+){0,4}$/.test(named)
+    && !/^(?:us|support|today|back|now|in|the)$/i.test(named)
+    ? named
+    : '';
+
+  if (!persona && !company) return body0;
+
+  // The rebuilt opener says who is calling, so a second introduction left in the
+  // remainder ("my name is Sarah", "This is Priya.") is now a repeat.
+  let body = body0;
+  if (persona) {
+    const p = persona.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const INTRO = `(?:my\\s+name\\s+is|this\\s+is|i\\s*a?m)\\s+${p}\\b[\\s,.!-]*`;
+    body = tidy(body
+      .replace(new RegExp(`^\\s*(?:hi|hello|hey|namaste)?[\\s,]*${INTRO}`, 'i'), '')
+      .replace(new RegExp(INTRO, 'gi'), ''));
+  }
+
+  // The opener says hello and names the caller, so a remainder that opens with
+  // its own greeting or a dangling conjunction reads as assembled rather than
+  // written: "Hi, this is Ananya. Hello, I am…", "…BrightNest. And I am here".
+  body = tidy(body.replace(/^(?:(?:hi|hello|hey|namaste)\b|and\b)[\s,!.-]*/i, ''));
+
+  const opener = persona
+    ? `Hi, this is ${persona}${company ? ` calling from ${company}` : ''}.`
+    : `Hi, calling from ${company}.`;
+
+  if (!body) return opener;
+  // Capitalise what is now the start of its own sentence — the remainder often
+  // begins mid-sentence, since the clause and the introduction came out of it.
+  return `${opener} ${body.charAt(0).toUpperCase()}${body.slice(1)}`;
+};
 
 /**
  * Return the agent's welcome message with template placeholders like
@@ -498,7 +601,26 @@ const stripInboundThanks = (text) =>
  * chat seeds and the web call speaks — the raw stored template is never
  * shown or spoken literally.
  */
-export async function getRenderedWelcome(workspaceId, agentId) {
+/**
+ * @param {string} workspaceId
+ * @param {string} agentId
+ * @param {{ direction?: 'INBOUND'|'OUTBOUND'|null }} [opts] - the direction of
+ *   THIS call, which outranks the agent's configured `settings.callDirection`.
+ *
+ *   The stored setting describes what the agent is FOR; it does not describe
+ *   what is happening right now, and the two come apart constantly — an agent
+ *   built as a support line gets used for a follow-up campaign, an agent is
+ *   saved with no direction at all (three of the live agents have none), or a
+ *   number answers inbound for an agent configured OUTBOUND. Deciding the
+ *   greeting from the setting alone is what produced "Thank you for calling"
+ *   on calls the platform itself dialled out.
+ *
+ *   Callers that KNOW — the outbound dialler, campaign/greeting-only calls, a
+ *   media bridge whose stream URL was built by the dialler — pass it. Callers
+ *   that don't (the inbound webhook of a number that could be either, the
+ *   Assistant Details preview) pass nothing and keep the old behaviour.
+ */
+export async function getRenderedWelcome(workspaceId, agentId, { direction = null } = {}) {
   const agent = await loadAgent(workspaceId, agentId);
   if (!agent) {
     const err = new Error('Agent not found in this workspace');
@@ -524,7 +646,10 @@ export async function getRenderedWelcome(workspaceId, agentId) {
   const needsTranslation = Boolean(primaryLanguage) && !/^english/i.test(primaryLanguage);
   // INBOUND agents greet callers ("Thank you for calling…"); OUTBOUND agents
   // open the call themselves — the rewrite must never flip that style.
-  const callDirection = safeJson(agent.settings, {}).callDirection;
+  // `direction` is this call's actual direction and wins where it is known;
+  // the stored setting is the fallback for callers that cannot tell.
+  const configuredDirection = safeJson(agent.settings, {}).callDirection;
+  const callDirection = direction || configuredDirection;
   // An OUTBOUND agent whose stored greeting thanks the caller "for calling" is
   // self-contradictory — the agent placed the call. Force a rewrite (or a
   // deterministic strip) so it never speaks "thank you for calling", even when
@@ -541,7 +666,7 @@ export async function getRenderedWelcome(workspaceId, agentId) {
   // pass just hallucinates facts. Only translation still needs the LLM. An
   // OUTBOUND greeting that thanks for calling is still deterministically fixed.
   if (!kbText && !needsTranslation) {
-    const base = directionMismatch ? stripInboundThanks(raw) : raw;
+    const base = directionMismatch ? stripInboundThanks(raw, persona) : raw;
     return { welcome: stripPlaceholders(base), rendered: true };
   }
 
@@ -556,7 +681,8 @@ export async function getRenderedWelcome(workspaceId, agentId) {
   }
   const cacheKey = String(hash);
 
-  const cached = welcomeCache.get(agentId);
+  const memoKey = `${agentId}:${callDirection || ''}`;
+  const cached = welcomeCache.get(memoKey);
   if (cached && cached.key === cacheKey) return { welcome: cached.welcome, rendered: true };
 
   // Persisted in agent settings? Survives server restarts — the LLM rewrite
@@ -569,7 +695,14 @@ export async function getRenderedWelcome(workspaceId, agentId) {
 
   let welcome;
   try {
-    const { llm, model } = resolveLlmForAgent(agent);
+    // lowLatency, even though this is not a live turn. Two reasons, both
+    // measured on 2026-08-19: the default (gemini-2.5-flash) is capped at 20
+    // requests PER DAY on this project's free tier and answers 429 for the rest
+    // of the day once that is spent — which silently fell back to the raw
+    // stored greeting — and this rewrite runs while a call is connecting the
+    // first time an agent is used, where a 1s model beats a 5s one. A one-line
+    // greeting rewrite has never needed the larger model.
+    const { llm, model } = resolveLlmForAgent(agent, { lowLatency: true });
     const out = await llm.generateResponse(
       `Original greeting:\n"${raw}"${kbText ? `\n\nCompany knowledge base:\n${kbText.slice(0, 8000)}` : ''}`,
       { model, temperature: 0.1 },
@@ -596,18 +729,26 @@ export async function getRenderedWelcome(workspaceId, agentId) {
         /\[[^\]]+\]/.test(welcome) ||
         (agent.name && !nameIsPersona && welcome.toLowerCase().includes(agent.name.toLowerCase())) ||
         (directionMismatch && /\bfor\s+calling\b/i.test(welcome))) {
-      welcome = directionMismatch ? stripInboundThanks(stripPlaceholders(raw)) : stripPlaceholders(raw);
+      welcome = directionMismatch ? stripInboundThanks(stripPlaceholders(raw), persona) : stripPlaceholders(raw);
     }
   } catch {
-    welcome = directionMismatch ? stripInboundThanks(stripPlaceholders(raw)) : stripPlaceholders(raw);
+    welcome = directionMismatch ? stripInboundThanks(stripPlaceholders(raw), persona) : stripPlaceholders(raw);
   }
 
-  welcomeCache.set(agentId, { key: cacheKey, welcome });
+  welcomeCache.set(memoKey, { key: cacheKey, welcome });
 
   // Persist fire-and-forget so restarts don't pay the LLM rewrite again.
   // Re-read the row first: the 15s agent cache could hold stale settings and
   // clobber an edit the user just saved.
-  (async () => {
+  //
+  // ONLY the agent's own configured direction is persisted. There is one slot
+  // on the row, so writing a per-call override into it would make an outbound
+  // campaign and an inbound line overwrite each other's render on every single
+  // call — a DB write per call, and a persisted entry that is wrong for
+  // whichever side wrote it second. Overrides live in the in-memory map above,
+  // which has a slot per direction and is warm within one call anyway.
+  const persistable = !direction || direction === configuredDirection;
+  if (persistable) (async () => {
     const fresh = await prisma.agent.findFirst({ where: { id: agentId, workspaceId } });
     if (!fresh) return;
     const settings = safeJson(fresh.settings, {});
@@ -813,6 +954,34 @@ async function _prepareConverse(workspaceId, agentId, messages, { voiceMode = fa
 const stripForVoice = (s) =>
   s.replace(/[*_#`]+/g, '').replace(/^\s*>+\s?/gm, '').replace(/\s+/g, ' ').trim();
 
+/**
+ * Is this the provider saying "you are over your quota" rather than "your
+ * request was bad"? Matched on the wire text because the SDKs surface it
+ * differently (a GoogleGenerativeAIFetchError message, an OpenAI status, a bare
+ * fetch error) and none of them expose a stable code here.
+ */
+export const isRateLimited = (err) =>
+  /\b429\b|RESOURCE_EXHAUSTED|quota|rate limit|too many requests/i.test(err?.message || '');
+
+/**
+ * Voice models to try in order when the first one is rate limited.
+ *
+ * FREE-TIER QUOTA IS PER MODEL, which is what makes this worth doing rather
+ * than a retry. Measured 2026-08-19 in the same second:
+ * `gemini-3.5-flash-lite` answered 429
+ * `GenerateRequestsPerMinutePerProjectPerModel-FreeTier limit=15` while
+ * `gemini-3.1-flash-lite` answered 200. Retrying the SAME model just waits out
+ * the window (Google's own retryDelay was 34s — an eternity on a live call);
+ * moving to a sibling model gets an answer now and roughly doubles the
+ * requests-per-minute this project can actually serve.
+ *
+ * A live call issues one request per turn, i.e. ~6-12 per minute per call, so a
+ * single free-tier model cannot reliably carry even ONE continuous conversation
+ * at 15 RPM, and a bulk campaign at CAMPAIGN_WORKER_CONCURRENCY=2 exceeds it by
+ * construction. This softens that; it does not fix it. The fix is billing.
+ */
+const VOICE_MODEL_FALLBACKS = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
+
 export async function converse(workspaceId, agentId, messages, { voiceMode = false, affect = null } = {}) {
   const { agent, message, llm, provider, model, config, options, ragMs } =
     await _prepareConverse(workspaceId, agentId, messages, { voiceMode, affect });
@@ -832,22 +1001,48 @@ export async function converse(workspaceId, agentId, messages, { voiceMode = fal
  * provider keeps working — just without token-level streaming.
  *
  * The generator's RETURN value is `{ provider, model, ragMs }` (grab it from
- * the final `iterator.next()` result) for latency logging.
+ * the final `iterator.next()` result) for latency logging. `model` is what
+ * actually answered, which is not always what was asked for — see the
+ * rate-limit fallback below.
  * @returns {AsyncGenerator<string, { provider: string, model: string, ragMs: number }>}
  */
 export async function* converseStream(workspaceId, agentId, messages, { voiceMode = false, affect = null } = {}) {
   const { message, llm, provider, model, config, options, ragMs } =
     await _prepareConverse(workspaceId, agentId, messages, { voiceMode, affect });
 
-  if (typeof llm.generateResponseStream === 'function') {
-    yield* llm.generateResponseStream(message, config, options);
-  } else {
+  if (typeof llm.generateResponseStream !== 'function') {
     // Non-streaming provider: one buffered call, emitted as a single chunk.
     const raw = await llm.generateResponse(message, config, options);
     const reply = (typeof raw === 'object' ? raw.message : raw) || '';
     if (reply) yield reply;
+    return { provider, model, ragMs };
   }
-  return { provider, model, ragMs };
+
+  // Rate-limit fallback, voice turns only, and only BEFORE the first token.
+  // Once any text has been yielded the caller may already be speaking it, so
+  // starting a second generation would make the agent contradict itself
+  // mid-sentence — a stall is the lesser failure at that point.
+  const candidates = voiceMode && provider === 'gemini'
+    ? [model, ...VOICE_MODEL_FALLBACKS.filter((m) => m !== model)]
+    : [model];
+
+  let lastErr = null;
+  for (const candidate of candidates) {
+    let yielded = false;
+    try {
+      for await (const delta of llm.generateResponseStream(message, { ...config, model: candidate }, options)) {
+        yielded = true;
+        yield delta;
+      }
+      return { provider, model: candidate, ragMs };
+    } catch (err) {
+      lastErr = err;
+      // Mid-stream, or an error that another model would fail on too: give up.
+      if (yielded || !isRateLimited(err)) throw err;
+      logger.warn(`${candidate} is rate limited — falling back to the next voice model`);
+    }
+  }
+  throw lastErr;
 }
 
 /**
@@ -1434,7 +1629,15 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
   // <1s, Gemini <1.5s → 2.5s catches spikes early), the single-call path races
   // the WHOLE reply (healthy Gemini runs up to ~3s → needs the 4s headroom so
   // normal turns never pay a wasted retry).
-  const LLM_FIRST_TOKEN_TIMEOUT_MS = Number(process.env.VOICE_LLM_FIRST_TOKEN_TIMEOUT_MS) || 2500;
+  // When to give up waiting for the primary stream's first token and hedge with
+  // a second one. It has to sit ABOVE the normal first-token time or every turn
+  // pays for two generations, and BELOW the point where the caller decides the
+  // line is dead. 2500ms was tuned against gemini-3.1-flash-lite, whose p50
+  // first token was ~5s — i.e. the hedge fired on most turns and still could
+  // not save them. On gemini-3.5-flash-lite the whole distribution is
+  // 1.0-1.2s (see resolveLlmForAgent), so 1500ms is clear of the normal case
+  // and reacts a full second sooner when something does stall.
+  const LLM_FIRST_TOKEN_TIMEOUT_MS = Number(process.env.VOICE_LLM_FIRST_TOKEN_TIMEOUT_MS) || 1500;
   const LLM_SPIKE_TIMEOUT_MS = Number(process.env.VOICE_LLM_SPIKE_TIMEOUT_MS) || 4000;
   const withTimeout = (p, ms) => Promise.race([
     p,
@@ -1587,10 +1790,18 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
       let first;
       try {
         first = await withTimeout(iterator.next(), LLM_FIRST_TOKEN_TIMEOUT_MS);
-      } catch {
-        first = null; // first-token spike — abandon overlap, fall back to single-call
+      } catch (err) {
         iterator.return?.().catch(() => {});
         tts.close();
+        // A SPIKE and a FAILURE need opposite responses, and treating both as a
+        // spike is expensive under a rate limit. The buffered fallback below is
+        // a whole extra generation, and converse() has no model fallback — so
+        // on a 429 it re-asks the exhausted model, waits out callGeminiAPI's two
+        // blocking retries (1s then 2s), and fails anyway: ~3s of dead air to
+        // reach the same place. converseStream has already tried every sibling
+        // model by the time it throws, so there is nothing left to try.
+        if (err?.message !== 'llm-timeout') throw err;
+        first = null; // first-token spike — abandon overlap, fall back to single-call
         logger.warn(`Voice LLM slow first token (>${LLM_FIRST_TOKEN_TIMEOUT_MS}ms) — falling back to single-call`);
       }
       if (first) {
@@ -1657,9 +1868,20 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
     let iterator = converseStream(workspaceId, agentId, messages, { voiceMode: true, affect });
     let first = null;
     const primaryNext = iterator.next();
+    let timedOut = false;
     try {
       first = await withTimeout(primaryNext, LLM_FIRST_TOKEN_TIMEOUT_MS);
-    } catch {
+    } catch (err) {
+      // HEDGE ONLY ON SLOWNESS, NEVER ON A FAILURE. The hedge answers "this
+      // stream is taking too long" with a second request — which is the right
+      // answer to a slow first token and precisely the WRONG one to a rate
+      // limit, where a second request deepens the limit that caused the first
+      // to fail. Free-tier Gemini is 15 requests/minute per model, so under a
+      // bulk campaign that turns one 429 into two and compounds per turn.
+      // converseStream already handles a 429 properly, by moving to a sibling
+      // model whose quota is separate; anything it rethrows is real.
+      timedOut = err?.message === 'llm-timeout';
+      if (!timedOut) throw err;
       logger.warn(`Voice LLM slow first token (>${LLM_FIRST_TOKEN_TIMEOUT_MS}ms) — hedging with a second stream`);
       const hedge = converseStream(workspaceId, agentId, messages, { voiceMode: true, affect });
       // Each side swallows its OWN failure into null rather than rejecting, so

@@ -17,9 +17,9 @@
 //    send a document. Twilio embeds `<Parameter name="callLogId">` in the TwiML
 //    and gets it back as `start.customParameters`; Plivo's stream `start` event
 //    has no such field. The identity therefore rides on the answer URL's query
-//    string, which `placeCall` appends from `context` — the same channel Exotel
-//    uses `CustomField` for. The answer endpoint then pins it onto the wss://
-//    URL it emits, so by the time the socket opens the bridge knows the call.
+//    string, which `placeCall` appends from `context`. The answer endpoint then
+//    pins it onto the wss:// URL it emits, so by the time the socket opens the
+//    bridge knows the call.
 //
 // 3. THE MEDIA FRAME ENVELOPE DIFFERS even though the codec does not. Both
 //    carriers are base64 mu-law 8k, but Plivo plays audio with a `playAudio`
@@ -72,9 +72,8 @@ const plivoNumber = (n) => String(n ?? '').trim().replace(/^\+/, '');
 /**
  * Base URL of our answer endpoint.
  *
- * Derived from PUBLIC_BACKEND_WS_URL when PLIVO_ANSWER_URL is unset, for the
- * same reason Exotel derives its status callback: it is the same server, and
- * asking an operator to retype a URL that can only ever be
+ * Derived from PUBLIC_BACKEND_WS_URL when PLIVO_ANSWER_URL is unset: it is the
+ * same server, and asking an operator to retype a URL that can only ever be
  * `<the websocket host>/api/v1/plivo/answer` invites a typo whose only symptom
  * is that calls connect and then sit in silence.
  */
@@ -95,8 +94,8 @@ export const plivoProvider = {
   label: 'Plivo',
   deliverDocument: 'answer_url',
 
-  // Plivo has a <Speak> verb, so unlike Exotel it can say arbitrary per-call
-  // text. The greeting path is a real answer-URL response, not a dashboard flow.
+  // Plivo has a <Speak> verb, so it can say arbitrary per-call text. The
+  // greeting path is a real answer-URL response, not a dashboard flow.
   supportsGreetingMode: true,
 
   // Both bridges exist: ws/plivoMediaRealtime.handler.js for the bundled
@@ -144,8 +143,16 @@ export const plivoProvider = {
     return { ready: true, ...creds };
   },
 
-  mediaStreamUrl({ baseWsUrl, workspaceId, agentId }) {
-    return `${baseWsUrl.replace(/\/$/, '')}/api/v1/plivo-media/${workspaceId}/${agentId}`;
+  /**
+   * `direction` is the direction of THIS call, appended so the media bridge can
+   * greet correctly. Only the dialler knows it — an inbound webhook builds the
+   * same URL without it — so its ABSENCE means "unknown", never "inbound".
+   * See getRenderedWelcome() for why the agent's stored callDirection is not
+   * enough on its own.
+   */
+  mediaStreamUrl({ baseWsUrl, workspaceId, agentId, direction = null }) {
+    const url = `${baseWsUrl.replace(/\/$/, '')}/api/v1/plivo-media/${workspaceId}/${agentId}`;
+    return direction ? `${url}?direction=${encodeURIComponent(String(direction).toLowerCase())}` : url;
   },
 
   /**
@@ -230,6 +237,11 @@ export const plivoProvider = {
     if (context.workspaceId) answerUrl.searchParams.set('workspaceId', context.workspaceId);
     if (context.agentId) answerUrl.searchParams.set('agentId', context.agentId);
     if (context.callLogId) answerUrl.searchParams.set('callLogId', context.callLogId);
+    // The direction of this call, for the answer endpoint to hand on to the
+    // media bridge. Plivo is the one carrier where the bridge address is built
+    // in the controller rather than here, so without this hop the bridge would
+    // have no way to know a campaign call was dialled out.
+    if (context.direction) answerUrl.searchParams.set('direction', String(context.direction).toLowerCase());
     // Whatever else the caller needs back on the callbacks. A broadcast has no
     // agent and no call log — its identity is a BroadcastRecipient row — and
     // this is the only channel Plivo offers for carrying it.

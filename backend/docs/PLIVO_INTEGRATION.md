@@ -459,9 +459,11 @@ adaptive to the measured line noise floor and were tuned against live PSTN calls
 after a false-positive bug that cut every greeting off at "Hello". A divergent
 copy would reintroduce that on one carrier only.
 
-Plivo needs **no pacer**, unlike Exotel — it takes mu-law 8 kHz, which is what
-`telephonyAudio.js`'s frame splitter already emits at 20ms. `plivoMediaModular`
-therefore has no timing code at all.
+Plivo takes mu-law 8 kHz, which is what `telephonyAudio.js`'s frame splitter
+already emits at 20ms — so the frame SIZE needs no work here. It still needs a
+**pacer** (`services/voice/ulawPacer.js`): Plivo consumes at a fixed 20ms
+cadence, and audio pushed faster than that grows its buffer instead of failing,
+so perceived latency climbs with the depth of the queue.
 
 `server.js` picks bundled vs modular per call by re-reading the agent's engine
 at upgrade time, the same way the Twilio path does, so switching an agent's

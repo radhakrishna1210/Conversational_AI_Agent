@@ -272,19 +272,50 @@ export async function assertCanStartCall(workspaceId, { type = 'WEB_CALL' } = {}
    * never touches a carrier leg, so counting it against a PSTN ceiling would
    * refuse browser calls to protect a resource they do not consume.
    */
-  if (type === 'PHONE_CALL') {
-    const slot = await checkConcurrency(workspaceId);
-    if (!slot.allowed) return { allowed: false, code: slot.code, message: slot.message, maxSeconds: 0 };
+  /*
+   * ISSUED TOGETHER, EVALUATED IN ORDER. The three reads below are independent —
+   * the concurrency ceiling, the wallet row and the platform rate know nothing
+   * about each other — but they used to be awaited one after another, and each
+   * is a round trip to a remote Postgres that measures ~490ms from this
+   * deployment (a bare `SELECT 1` costs the same, so it is network distance, not
+   * query cost). That put ~1.5s of pure waiting in front of every phone call
+   * before the callee heard anything, and every call in a bulk campaign pays it
+   * again.
+   *
+   * Starting them together does not change WHICH failure is reported: the
+   * precedence below is unchanged, concurrency is still decided before the
+   * wallet. That ordering is load-bearing — a full pool is transient and the
+   * campaign runner waits it out, whereas an empty wallet is terminal and pauses
+   * the campaign, so reporting the terminal one first would pause a campaign
+   * that was merely busy.
+   *
+   * The only behavioural difference is that a refused call may now also have
+   * created its wallet row. That row would have been created by the next call
+   * anyway, and getOrCreateWallet is idempotent.
+   */
+  const slotPending = type === 'PHONE_CALL' ? checkConcurrency(workspaceId) : null;
+  const walletPending = getOrCreateWallet(workspaceId);
+  const ratePending = getWalletRate();
+
+  if (slotPending) {
+    const slot = await slotPending;
+    if (!slot.allowed) {
+      // Do not leave the two in-flight reads as unhandled rejections just
+      // because this path returns before awaiting them.
+      walletPending.catch(() => {});
+      ratePending.catch(() => {});
+      return { allowed: false, code: slot.code, message: slot.message, maxSeconds: 0 };
+    }
   }
 
   /*
    * Require headroom for at least MIN_CALL_SECONDS of talk time, and hand back
    * how many seconds the remaining balance actually buys.
    */
-  const wallet = await getOrCreateWallet(workspaceId);
+  const wallet = await walletPending;
   // The same rate the call will actually settle at, so the pre-call check and
   // the post-call charge can never disagree.
-  const { ratePerMinuteCents } = resolveCallRate(await getWalletRate());
+  const { ratePerMinuteCents } = resolveCallRate(await ratePending);
 
   const available = wallet.balanceCents + wallet.overdraftLimitCents;
   const affordable = affordableSeconds(available, ratePerMinuteCents);

@@ -116,7 +116,6 @@ on top of these — the per-minute rate already includes all three.*
 | **Plivo → India local** ✅ | **$0.00625** | **₹0.60** |
 | Plivo → India, SIP/browser leg ✅ | $0.00354 | ₹0.34 |
 | **Plivo AudioStream** ✅ | **$0 — included** | **₹0** |
-| Exotel (India) — *indicative, unverified* | ~$0.0083–0.0104 | ~₹0.80–1.00 |
 | Twilio inbound (US local) | $0.0085 | ₹0.82 |
 | **Twilio outbound (US)** | **$0.0140** | **₹1.34** |
 | **Twilio Media Streams** ⚠️ **NOT free — add to every Twilio call** | **$0.0040 US / $0.0044 IN** | **₹0.38 / ₹0.42** |

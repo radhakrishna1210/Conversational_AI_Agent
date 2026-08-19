@@ -34,6 +34,6 @@ export const twilioCarrier = {
   },
 };
 
-export function handleTwilioMediaModularUpgrade(ws, { workspaceId, agentId }) {
-  return runModularMediaBridge(ws, { workspaceId, agentId, carrier: twilioCarrier });
+export function handleTwilioMediaModularUpgrade(ws, { workspaceId, agentId, direction = null }) {
+  return runModularMediaBridge(ws, { workspaceId, agentId, direction, carrier: twilioCarrier });
 }

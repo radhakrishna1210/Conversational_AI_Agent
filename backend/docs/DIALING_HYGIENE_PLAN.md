@@ -563,7 +563,7 @@ Recommend (a).
 
 ### 12.2 DND data source
 No free public NDNC API exists. Choose: a commercial scrubbing vendor, a
-carrier-provided list via Plivo/Exotel, or imported-list-only with
+carrier-provided list via Plivo, or imported-list-only with
 `DND_FAIL_CLOSED=true`. **This has procurement lead time and gates Phase 3** —
 decide it early even though it builds late.
 

@@ -135,7 +135,6 @@ export const VOICE_NUMBER_STATUS = Object.freeze({
 
 export const TELEPHONY_PROVIDER = Object.freeze({
   PLIVO: 'PLIVO',
-  EXOTEL: 'EXOTEL',
   TWILIO: 'TWILIO',
 });
 

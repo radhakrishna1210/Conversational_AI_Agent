@@ -7,7 +7,7 @@
 // Contact table goes through toE164() first.
 
 // Bare 10-digit numbers have no country in them. India is the deployment's
-// market (see the Plivo/Exotel routing), so that is the assumption — overridable
+// market (see the Plivo routing), so that is the assumption — overridable
 // per install rather than hard-coded, because the assumption is the risky part.
 const DEFAULT_COUNTRY_CODE = String(process.env.DEFAULT_COUNTRY_CODE || '+91');
 

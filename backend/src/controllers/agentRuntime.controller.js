@@ -40,11 +40,19 @@ export const converse = async (req, res) => {
   }
 };
 
-// GET .../welcome — welcome message with [placeholders] resolved from the KB
+// GET .../welcome[?direction=outbound|inbound]
+//   welcome message with [placeholders] resolved from the KB.
+//
+// `direction` is optional and describes the call the caller is ABOUT to make,
+// so a web test call placed against an outbound agent hears the same opener the
+// dialler would produce. Omitted (the Assistant Details preview) it falls back
+// to the agent's configured callDirection, which is the previous behaviour.
 export const welcome = async (req, res) => {
   try {
     const { workspaceId, agentId } = req.params;
-    const out = await runtime.getRenderedWelcome(workspaceId, agentId);
+    const raw = String(req.query.direction || '').toUpperCase();
+    const direction = raw === 'OUTBOUND' || raw === 'INBOUND' ? raw : null;
+    const out = await runtime.getRenderedWelcome(workspaceId, agentId, { direction });
     res.json({ success: true, ...out });
   } catch (err) {
     sendError(res, err, 'Agent welcome rendering failed');

@@ -17,8 +17,8 @@ carriers that repeatedly present spoofed Indian CLI. An international leg with a
 foreign caller ID is not a spam-score problem — it is the signature of the fraud
 pattern the government is actively suppressing.
 
-India traffic must originate domestically: Plivo, Exotel, Ozonetel, Knowlarity,
-or a direct Airtel IQ / Tata trunk.
+India traffic must originate domestically: Plivo, PIOPIY/TeleCMI, Ozonetel,
+Knowlarity, or a direct Airtel IQ / Tata trunk.
 
 ## The two verifications
 
@@ -35,7 +35,7 @@ that. Registering a client's brand under our entity would be document fraud.
 
 ```
 Principal Entity  →  Telemarketer (Aggregator)  →  Telemarketer (Delivery)  →  Operator
-   the client              us (TM-AF)                  Plivo / Exotel
+   the client              us (TM-AF)                  Plivo
 ```
 
 The client performs **PE-TM chain binding** in their DLT portal ("PE-TM Chain" /
@@ -46,7 +46,7 @@ as unregistered however valid the PE registration is.
 > **Open question:** whether we need our own TM-AF registration or ride on the
 > carrier's. Our reading is that we need our own — we aggregate voice traffic
 > from multiple sources, which is the stated definition — and it is likely also
-> what unlocks 140-series allotment. Confirm in writing with Plivo and Exotel
+> what unlocks 140-series allotment. Confirm in writing with Plivo
 > before building client-facing copy around either answer.
 
 ## DLT portals

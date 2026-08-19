@@ -2,7 +2,7 @@
 /**
  * The end of a phone call, shared by every carrier bridge.
  *
- * Extracted when the Exotel bridge arrived and this would have become the THIRD
+ * Extracted when a third carrier bridge arrived and this would have become the THIRD
  * byte-identical copy. It is billing-critical and it is subtle in ways that are
  * invisible when you read any one copy:
  *
@@ -32,7 +32,7 @@ import { deliverPostCall } from '../controllers/agentCallLog.controller.js';
  * @param {object} p
  * @param {string} p.workspaceId
  * @param {string} p.agentId
- * @param {string} p.label       names the bridge in log lines, e.g. 'Exotel phone call'
+ * @param {string} p.label       names the bridge in log lines, e.g. 'Plivo phone call'
  * @returns {(callLogId: string|null, status: string, ctx: {transcript: Array,
  *            startedAt: number}) => Promise<void>}  safe to call repeatedly
  */

@@ -45,7 +45,7 @@ export function handleTwilioMediaUpgrade(ws, { workspaceId, agentId }) {
   // would have made phone minutes free) and runs post-call delivery, exactly
   // once. Twilio ends a call with a `stop` event followed by a socket `close`,
   // so cleanup() always runs more than once; the once-only guard lives in the
-  // finalizer. Shared with the modular and Exotel bridges.
+  // finalizer. Shared with the modular and Plivo bridges.
   const finalizeCallLog = createCallFinalizer({
     workspaceId, agentId, label: 'realtime phone call',
   });

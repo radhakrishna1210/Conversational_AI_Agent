@@ -78,7 +78,7 @@ export default function BroadcastWizard({
     return () => { cancelled = true; };
   }, [selectedClusters]);
 
-  // Whether these caller IDs can broadcast at all — Exotel, for one, cannot play
+  // Whether these caller IDs can broadcast at all — not every carrier can play
   // a hosted file. Asked before launch rather than discovered on recipient 4,000.
   useEffect(() => {
     if (!selectedFrom.length) { setReadiness(null); return; }

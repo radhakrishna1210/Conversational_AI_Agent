@@ -49,8 +49,16 @@ export const twilioProvider = {
     return { ready: true, ...creds };
   },
 
-  mediaStreamUrl({ baseWsUrl, workspaceId, agentId }) {
-    return `${baseWsUrl.replace(/\/$/, '')}/api/v1/twilio-media/${workspaceId}/${agentId}`;
+  /**
+   * `direction` is the direction of THIS call, appended so the media bridge can
+   * greet correctly. Only the dialler knows it — an inbound webhook builds the
+   * same URL without it — so its ABSENCE means "unknown", never "inbound".
+   * See getRenderedWelcome() for why the agent's stored callDirection is not
+   * enough on its own.
+   */
+  mediaStreamUrl({ baseWsUrl, workspaceId, agentId, direction = null }) {
+    const url = `${baseWsUrl.replace(/\/$/, '')}/api/v1/twilio-media/${workspaceId}/${agentId}`;
+    return direction ? `${url}?direction=${encodeURIComponent(String(direction).toLowerCase())}` : url;
   },
 
   buildConversationDoc({ streamUrl, callLogId }) {
