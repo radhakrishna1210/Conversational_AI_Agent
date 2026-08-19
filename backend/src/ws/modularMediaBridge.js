@@ -63,7 +63,7 @@ import {
   toDeepgramLanguage,
   defaultEndpointingMs,
 } from '../services/stt/deepgramStream.service.js';
-import { analyzeSpeech, classifyCallerAffect } from '../services/stt/speechGate.js';
+import { analyzeSpeech, classifyCallerAffect, isEchoOfAgent } from '../services/stt/speechGate.js';
 import { createFillerBudget } from '../services/voice/disfluency.js';
 import {
   decodeUlaw,
@@ -147,6 +147,21 @@ const MAX_TURN_AUDIO_SAMPLES = (MAX_TURN_AUDIO_MS / 1000) * PHONE_SAMPLE_RATE;
  *  threshold the web bridge uses. */
 const MIN_TURN_AUDIO_MS = 400;
 
+/**
+ * How often to re-check whether the carrier has finished playing our reply,
+ * while deciding when to start listening again. One frame — anything coarser
+ * would hand the caller's opening syllable to the turn we just discarded.
+ */
+const ARM_POLL_MS = 20;
+
+/**
+ * Hard ceiling on that wait. playout.isSpeaking() is driven by noteFrame(), so
+ * a pacer that somehow never drains would leave the caller permanently unheard.
+ * Longer than any single reply, short enough that the call recovers rather than
+ * dying silently.
+ */
+const MAX_ARM_WAIT_MS = 20_000;
+
 /** RMS of one already-decoded frame. */
 function pcmRms(pcm) {
   if (!pcm.length) return 0;
@@ -192,6 +207,8 @@ export function runModularMediaBridge(ws, {
   let dg = null;
   let dgTurnSeq = 0;
   let dgLanguage;
+  /** Pending "start listening once the line is quiet" check. See armNextTurn. */
+  let armTimer = null;
   /** How much talk time the wallet paid for. Armed at `start`, once gated. */
   let budget = null;
   // Cooldown between reconnect attempts in the 'media' handler, so a session that
@@ -421,6 +438,31 @@ export function runModularMediaBridge(ws, {
       } catch { /* nothing usable this turn */ }
       if (!dg?.isAlive) dg = null;
 
+      // ── The turn was ENTIRELY our own voice coming back ───────────────────
+      //
+      // armNextTurn keeps most echo out by not listening until the line is
+      // quiet, but it cannot cover the tail the carrier was still playing out
+      // of its own jitter buffer after our pacer drained. What survives that is
+      // a transcript which is verbatim agent speech and nothing else.
+      //
+      // The runtime's stripAgentEcho() only trims a bounded PREFIX, on the
+      // assumption there is a real request behind it; when there is not, it
+      // leaves a phantom user turn that the LLM dutifully answers — the agent
+      // talking to itself, which a caller experiences as the agent ignoring
+      // them and monologuing. webCallModularRealtime.handler.js has always
+      // discarded these; the phone bridge never did, on the transport where
+      // there is no acoustic echo cancellation to make it rare.
+      const lastAgentText = history
+        .filter((m) => m?.role === 'assistant' && typeof m.content === 'string')
+        .pop()?.content || '';
+      if (userText && isEchoOfAgent(userText, lastAgentText)) {
+        logger.info(
+          `${carrier.label}: discarding "${userText}" — echo of the agent's own `
+          + `previous reply ("${lastAgentText.slice(0, 60)}…")`,
+        );
+        return;
+      }
+
       // Same shared implementation the web bridge calls, so the two channels
       // cannot drift apart in how they read a caller. With no captured audio (a
       // barged turn, or a reply that landed before any frame was buffered)
@@ -620,33 +662,11 @@ export function runModularMediaBridge(ws, {
       }
       playout.endGenerating();
       turnRunning = false;
-      // Arm the next turn only if the call is still up.
-      //
-      // The sequence number MUST come from beginTurn(), never from a counter
-      // kept here. finalizeTurn() compares the seq it is given against the
-      // session's own _turnSeq and returns '' when they differ (the cross-turn
-      // bleed guard). Incrementing a local copy instead drifted permanently out
-      // of step, so every finalizeTurn returned '' and the agent never once
-      // answered the caller — the greeting played and the call went dead.
-      //
-      // dg.isAlive, not just truthiness: a session that died DURING this turn
-      // (LLM/TTS phase) is still a non-null reference here, and beginTurn() on a
-      // dead session silently arms a turn nothing will ever harvest. Recreate it
-      // instead — the 'media' handler's own reconnect is the other half of this
-      // (it covers a session dying while idle, which is the more common case;
-      // this covers one dying mid-turn).
-      if (!closed) {
-        if (dg && dg.isAlive) dgTurnSeq = dg.beginTurn();
-        else openDeepgram();
-      }
-      // Listening has resumed, so this is the phone's `start-turn`: re-warm now,
-      // while the caller is speaking, rather than serially after they stop. The
-      // agent and KB caches are on a 5-minute TTL, which any real conversation
-      // outlives — without this, one turn somewhere in the middle of every long
-      // call silently pays the cold cost again.
-      if (!closed) {
-        warmVoiceTurn(workspaceId, agentId, ttsFormat?.format ?? null, ttsFormat?.rate ?? null);
-      }
+      // Listening resumes when the caller can be heard over us, NOT here —
+      // generation ending is not the same event as the carrier finishing
+      // playback, and treating them as one fed our own echo into the caller's
+      // next turn. See armNextTurn.
+      armNextTurn();
     }
   };
 
@@ -683,7 +703,24 @@ export function runModularMediaBridge(ws, {
       // Shared with the web handler — the phone path had its own 500ms default,
       // so end-of-turn committed at a different point per transport.
       endpointingMs: defaultEndpointingMs(),
-      onEndOfTurn: () => { runTurn(); },
+      // Guarded, because Deepgram is fed the inbound leg unconditionally and a
+      // phone line has no echo cancellation: our own reply comes back up it and
+      // is transcribed like any other speech, so it can commit an end of turn
+      // all by itself. Unguarded, the agent answered its own greeting.
+      //
+      // Dropping it rather than queueing it is correct: whatever closed that
+      // turn was audio arriving while we were speaking, which is either echo
+      // (worthless) or a barge — and a barge zeroes playout via the energy
+      // detector, so a real interruption sees isSpeaking() false here and
+      // passes straight through. armNextTurn() re-arms cleanly once the line is
+      // quiet, so nothing the caller actually says afterwards is lost.
+      onEndOfTurn: (reason) => {
+        if (playout.isSpeaking()) {
+          logger.info(`${carrier.label}: ignoring end of turn (${reason}) — still speaking`);
+          return;
+        }
+        runTurn();
+      },
     });
     dg.connect();
     // Same rule as in runTurn's finally: the seq is whatever the session says
@@ -691,6 +728,86 @@ export function runModularMediaBridge(ws, {
     // dgSession.beginTurn()`); the phone bridge dropped the return value, which
     // is the whole reason phone calls never got a reply while web calls did.
     dgTurnSeq = dg.beginTurn();
+  };
+
+  /**
+   * Start listening for the caller's next turn — but not until they can
+   * actually be heard over us.
+   *
+   * ── WHY THIS IS NOT JUST `dg.beginTurn()` IN runTurn's finally ────────────
+   *
+   * A browser gets acoustic echo cancellation for free: getUserMedia hands the
+   * page a mic feed with the speaker's own output already subtracted. A phone
+   * line has no such thing. The handset feeds our reply straight back up the
+   * inbound leg, and the 'media' handler forwards every inbound frame to
+   * Deepgram unconditionally — deliberately, so that a caller talking OVER the
+   * agent is not lost when the barge lands.
+   *
+   * That trade is only safe if the turn boundary sits where the agent stops
+   * being audible. It did not. runTurn's finally runs when voiceTurnStream
+   * RESOLVES, i.e. when TTS has finished generating — and with a pacer holding
+   * the outbound leg to real time, generation for an 8s reply completes in ~2s.
+   * The turn was therefore armed with ~6s of our own speech still playing, and
+   * every word of it was transcribed into the caller's brand-new turn.
+   *
+   * Two costs, and the second is the one that reads as "the phone agent is
+   * slow":
+   *
+   *   1. the transcript opens with the agent's own words. stripAgentEcho() in
+   *      the runtime trims a bounded PREFIX, so long echo survives it.
+   *   2. end-of-turn never commits. deepgramStream treats ANY further
+   *      transcript — interim or final — as proof the caller is still talking
+   *      and cancels the pending speech_final candidate. Our own echo therefore
+   *      re-arms the endpointing clock frame after frame, and the turn cannot
+   *      close until the echo stops. The reply is late by however long the
+   *      agent was still audible, which no server-side timing can see.
+   *
+   * Waiting for playout to drain fixes both at the source. Echo arriving before
+   * this fires lands in the turn already finalized, and beginTurn() clears
+   * `finals` and `_tail`, so it is discarded rather than misattributed.
+   *
+   * BARGE-IN IS NOT DELAYED BY THIS. A barge calls playout.stop(), which zeroes
+   * endsAt, so isSpeaking() is already false by the time this runs and the arm
+   * is immediate.
+   */
+  const armNextTurn = (deadline = Date.now() + MAX_ARM_WAIT_MS) => {
+    if (armTimer) { clearTimeout(armTimer); armTimer = null; }
+    if (closed) return;
+
+    if (playout.isSpeaking() && Date.now() < deadline) {
+      armTimer = setTimeout(() => armNextTurn(deadline), ARM_POLL_MS);
+      // Never hold the process open for a call that is already over.
+      if (typeof armTimer.unref === 'function') armTimer.unref();
+      return;
+    }
+    if (playout.isSpeaking()) {
+      logger.warn(
+        `${carrier.label}: still playing after ${MAX_ARM_WAIT_MS}ms — listening anyway`,
+      );
+    }
+
+    // The sequence number MUST come from beginTurn(), never from a counter kept
+    // here. finalizeTurn() compares the seq it is given against the session's
+    // own _turnSeq and returns '' when they differ (the cross-turn bleed
+    // guard). Incrementing a local copy instead drifted permanently out of
+    // step, so every finalizeTurn returned '' and the agent never once answered
+    // the caller — the greeting played and the call went dead.
+    //
+    // dg.isAlive, not just truthiness: a session that died during the turn
+    // (LLM/TTS phase) is still a non-null reference here, and beginTurn() on a
+    // dead session silently arms a turn nothing will ever harvest. Recreate it
+    // instead — the 'media' handler's own reconnect is the other half of this
+    // (it covers a session dying while idle, the more common case; this covers
+    // one dying mid-turn).
+    if (dg && dg.isAlive) dgTurnSeq = dg.beginTurn();
+    else openDeepgram();
+
+    // Listening has resumed, so this is the phone's `start-turn`: re-warm now,
+    // while the caller is speaking, rather than serially after they stop. The
+    // agent and KB caches are on a 5-minute TTL, which any real conversation
+    // outlives — without this, one turn somewhere in the middle of every long
+    // call silently pays the cold cost again.
+    warmVoiceTurn(workspaceId, agentId, ttsFormat?.format ?? null, ttsFormat?.rate ?? null);
   };
 
   // Status write + wallet settlement + post-call delivery, exactly once. Shared
@@ -709,6 +826,9 @@ export function runModularMediaBridge(ws, {
     turnPcmSamples = 0;
     budget?.stop();
     playout.stop();
+    // A chained setTimeout waiting on playout would otherwise keep re-arming a
+    // Deepgram session for a call that has already hung up.
+    if (armTimer) { clearTimeout(armTimer); armTimer = null; }
     try { dg?.close(); } catch { /* already gone */ }
     dg = null;
     recording.save(callLogId);
@@ -904,6 +1024,12 @@ export function runModularMediaBridge(ws, {
               `${carrier.label}: greeting reached the wire ${turnFirstFrameAt - connectedAtMs}ms after answer`,
             );
           }
+          // openDeepgram() armed a turn BEFORE the greeting was spoken, so that
+          // turn has been collecting the greeting's own echo for as long as it
+          // played. Re-arm it once the line is quiet — the first thing the
+          // caller says must not arrive with our welcome message glued to the
+          // front of it. Same reasoning as runTurn's finally; see armNextTurn.
+          armNextTurn();
         } catch (err) {
           logger.error(`Failed to start ${carrier.label}: ${err.message}`);
           cleanup('FAILED');

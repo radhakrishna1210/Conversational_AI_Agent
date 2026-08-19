@@ -217,6 +217,51 @@ export function maxEndpointCommitMs(endpointingMs) {
   return endpointing + unfinishedGrace;
 }
 
+/**
+ * Which Deepgram model this session should open with.
+ *
+ * Exported and pure so the choice is testable without a socket — it is decided
+ * from two fields that are set at construction and never change, and getting it
+ * wrong fails SILENTLY (a wrong model still completes the handshake and still
+ * returns transcripts, just worse ones).
+ *
+ * Code-switching (`language=multi`) is a nova-3 capability. nova-2 still
+ * ACCEPTS the parameter at handshake — it just doesn't code-switch — so a
+ * wrong model here fails silently rather than loudly. Pick the model from
+ * the language instead of trusting DEEPGRAM_MODEL blindly.
+ *
+ * ── And from the ENCODING, for the same class of reason ─────────────────
+ *
+ * `mulaw` is only ever set by a carrier bridge, so it is an exact statement
+ * that this session is listening to an 8kHz G.711 phone line rather than a
+ * browser's 24kHz linear16. Deepgram ships a model trained on exactly that
+ * — narrowband, codec-damaged, one side of a call — and handing that audio
+ * to the wideband general model instead is a silent accuracy loss, not an
+ * error.
+ *
+ * IT IS A LATENCY BUG, NOT A QUALITY ONE, WHICH IS WHY IT IS FIXED HERE.
+ * A weaker transcript ends on a dangling token far more often, and
+ * looksUnfinished() answers a dangling tail by waiting out
+ * `unfinishedGraceMs` (1100ms) instead of `endpointGraceMs` (400ms). The
+ * comment on that heuristic prices it: "a wrong 'unfinished' costs the
+ * caller an extra ~700ms". Paid on the phone, per turn, on transcripts that
+ * only dangled because the model could not hear the last word — which is
+ * most of why the same agent turns around slower on a call than in a
+ * browser.
+ *
+ * Overridable, and NOT applied to `multi`: the code-switching model has no
+ * phonecall variant, and asking for one would fail the handshake.
+ *
+ * @param {string} [language] - the Deepgram language code, or 'multi'
+ * @param {string} [encoding] - the wire format the audio arrives in
+ * @returns {string}
+ */
+export function resolveDeepgramModel(language, encoding) {
+  if (language === 'multi') return process.env.DEEPGRAM_MODEL_MULTI || 'nova-3';
+  if (encoding === 'mulaw') return process.env.DEEPGRAM_MODEL_PHONE || 'nova-2-phonecall';
+  return process.env.DEEPGRAM_MODEL || 'nova-2';
+}
+
 export class DeepgramStreamSession {
   /**
    * @param {object} opts
@@ -324,13 +369,7 @@ export class DeepgramStreamSession {
     const key = process.env.DEEPGRAM_API_KEY;
     if (!key) throw new Error('DEEPGRAM_API_KEY not set');
 
-    // Code-switching (`language=multi`) is a nova-3 capability. nova-2 still
-    // ACCEPTS the parameter at handshake — it just doesn't code-switch — so a
-    // wrong model here fails silently rather than loudly. Pick the model from
-    // the language instead of trusting DEEPGRAM_MODEL blindly.
-    const model = this.language === 'multi'
-      ? (process.env.DEEPGRAM_MODEL_MULTI || 'nova-3')
-      : (process.env.DEEPGRAM_MODEL || 'nova-2');
+    const model = resolveDeepgramModel(this.language, this.encoding);
 
     const params = new URLSearchParams({
       model,
