@@ -16,7 +16,6 @@ import { handleWebCallUpgrade } from './ws/webCallRealtime.handler.js';
 import { handleWebCallModularUpgrade } from './ws/webCallModularRealtime.handler.js';
 import { handleTwilioMediaUpgrade } from './ws/twilioMediaRealtime.handler.js';
 import { handleTwilioMediaModularUpgrade } from './ws/twilioMediaModular.handler.js';
-import { handleExotelMediaUpgrade } from './ws/exotelMediaRealtime.handler.js';
 import { handlePlivoMediaUpgrade } from './ws/plivoMediaRealtime.handler.js';
 import { handlePlivoMediaModularUpgrade } from './ws/plivoMediaModular.handler.js';
 import { resumeStuckKbJobs } from './services/kbChunking.service.js';
@@ -96,7 +95,6 @@ const httpServer = http.createServer(app);
 const webCallWss = new WebSocketServer({ noServer: true });
 const modularWebCallWss = new WebSocketServer({ noServer: true });
 const twilioMediaWss = new WebSocketServer({ noServer: true });
-const exotelMediaWss = new WebSocketServer({ noServer: true });
 const plivoMediaWss = new WebSocketServer({ noServer: true });
 
 // /api/v1/workspaces/:workspaceId/agents/:agentId/xai-call  (bundled engine)
@@ -105,13 +103,8 @@ const WEB_CALL_UPGRADE_PATH = /^\/api\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\
 const MODULAR_WEB_CALL_UPGRADE_PATH = /^\/api\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/web-call$/;
 // /api/v1/twilio-media/:workspaceId/:agentId
 const TWILIO_MEDIA_UPGRADE_PATH = /^\/api\/v1\/twilio-media\/([^/]+)\/([^/]+)$/;
-// /api/v1/exotel-media/:workspaceId/:agentId?sample-rate=…&callLogId=…
-const EXOTEL_MEDIA_UPGRADE_PATH = /^\/api\/v1\/exotel-media\/([^/]+)\/([^/]+)$/;
 // /api/v1/plivo-media/:workspaceId/:agentId?callLogId=…
 const PLIVO_MEDIA_UPGRADE_PATH = /^\/api\/v1\/plivo-media\/([^/]+)\/([^/]+)$/;
-// Exotel accepts exactly these; anything else on the URL is ignored by Exotel,
-// so accepting it here would leave the two ends disagreeing about the rate.
-const EXOTEL_SAMPLE_RATES = new Set([8000, 16000, 24000]);
 
 /**
  * Does this agent run on a bundled speech-to-speech engine?
@@ -144,10 +137,18 @@ httpServer.on('upgrade', (req, socket, head) => {
     socket.destroy();
     return;
   }
-  // The query string is not decoration on the Exotel path: `sample-rate` sets
-  // the PCM rate on both directions of that socket, and `callLogId` is how a
-  // stream-mode call identifies itself.
+  // The query string is not decoration on the carrier paths: `callLogId` is how
+  // a stream-mode call identifies itself, and `direction` is read below.
   const { pathname } = url;
+
+  // Which way this call went, set by the dialler when it built the stream URL
+  // (telephony providers' mediaStreamUrl). ABSENT MEANS UNKNOWN, not inbound:
+  // an inbound webhook builds the same URL with no flag, and so does any older
+  // in-flight call, and both must keep the agent's configured behaviour rather
+  // than be told they are inbound. Only used to pick the greeting — see
+  // getRenderedWelcome().
+  const rawDirection = String(url.searchParams.get('direction') || '').toUpperCase();
+  const callDirection = rawDirection === 'OUTBOUND' || rawDirection === 'INBOUND' ? rawDirection : null;
 
   const webCallMatch = pathname.match(WEB_CALL_UPGRADE_PATH);
   if (webCallMatch) {
@@ -187,31 +188,7 @@ httpServer.on('upgrade', (req, socket, head) => {
     resolveBundledEngine(workspaceId, agentId).then((bundled) => {
       twilioMediaWss.handleUpgrade(req, socket, head, (ws) => {
         if (bundled) handleTwilioMediaUpgrade(ws, { workspaceId, agentId });
-        else handleTwilioMediaModularUpgrade(ws, { workspaceId, agentId });
-      });
-    });
-    return;
-  }
-
-  const exotelMatch = pathname.match(EXOTEL_MEDIA_UPGRADE_PATH);
-  if (exotelMatch) {
-    const [, workspaceId, agentId] = exotelMatch;
-    // No engine branch here, unlike Twilio: the modular pipeline is µ-law
-    // native and has no Exotel bridge, so outboundCall.service refuses those
-    // agents before dialling and this path is bundled-only.
-    const requested = Number(url.searchParams.get('sample-rate'));
-    const sampleRate = EXOTEL_SAMPLE_RATES.has(requested) ? requested : 8000;
-    if (requested && !EXOTEL_SAMPLE_RATES.has(requested)) {
-      // 8000 is Exotel's own default when it does not understand the parameter,
-      // so falling back to it keeps both ends agreeing rather than guessing.
-      logger.warn(`Exotel stream requested unsupported sample rate ${requested}; using 8000`);
-    }
-    exotelMediaWss.handleUpgrade(req, socket, head, (ws) => {
-      handleExotelMediaUpgrade(ws, {
-        workspaceId,
-        agentId,
-        sampleRate,
-        callLogId: url.searchParams.get('callLogId'),
+        else handleTwilioMediaModularUpgrade(ws, { workspaceId, agentId, direction: callDirection });
       });
     });
     return;
@@ -232,14 +209,14 @@ httpServer.on('upgrade', (req, socket, head) => {
     // its listener is dropped, producing a silent call with the log stuck at
     // INITIATED.
     //
-    // No sample-rate parameter here, unlike Exotel — Plivo's rate is fixed by
+    // No sample-rate parameter here — Plivo's rate is fixed by
     // the `contentType` on the <Stream> element the answer URL emitted, so
     // reading it off the query string would be a second source of truth for a
     // value both ends already agreed on.
     resolveBundledEngine(workspaceId, agentId).then((bundled) => {
       plivoMediaWss.handleUpgrade(req, socket, head, (ws) => {
         if (bundled) handlePlivoMediaUpgrade(ws, { workspaceId, agentId, callLogId });
-        else handlePlivoMediaModularUpgrade(ws, { workspaceId, agentId, callLogId });
+        else handlePlivoMediaModularUpgrade(ws, { workspaceId, agentId, callLogId, direction: callDirection });
       });
     });
     return;

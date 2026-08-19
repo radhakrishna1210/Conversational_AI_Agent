@@ -1,10 +1,10 @@
 import { test, describe, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { createPcmStreamPacer, EXOTEL_FRAME_ALIGN_BYTES } from '../pcmStreamPacer.js';
+import { createPcmStreamPacer, PCM_FRAME_ALIGN_BYTES } from '../pcmStreamPacer.js';
 
 /**
- * The pacer exists because Exotel drops streams that are blasted rather than
+ * The pacer exists because raw-PCM carrier streams drop audio that is blasted rather than
  * paced, and rejects frames that are not 320-byte multiples. Both of those
  * failures show up as a call that hangs up seconds in — nothing logs "your
  * frames were the wrong size" — so the invariants are pinned here instead.
@@ -51,10 +51,10 @@ describe('frame geometry', () => {
         advance(2000);
         pacer.stop();
 
-        assert.equal(pacer.stats().frameBytes % EXOTEL_FRAME_ALIGN_BYTES, 0);
+        assert.equal(pacer.stats().frameBytes % PCM_FRAME_ALIGN_BYTES, 0);
         assert.ok(rec.frames.length > 0, `${sampleRate}@${frameMs}ms emitted nothing`);
         for (const f of rec.frames) {
-          assert.equal(f.bytes % EXOTEL_FRAME_ALIGN_BYTES, 0,
+          assert.equal(f.bytes % PCM_FRAME_ALIGN_BYTES, 0,
             `${sampleRate}@${frameMs}ms emitted a ${f.bytes}-byte frame`);
         }
       }
@@ -70,7 +70,7 @@ describe('frame geometry', () => {
   });
 
   test('the tick derives from the frame actually emitted, not the requested ms', () => {
-    // Emitting slightly fast is not a rounding detail on Exotel: the excess
+    // Emitting slightly fast is not a rounding detail here: the excess
     // accumulates in its playout buffer as ever-growing latency.
     const pacer = createPcmStreamPacer({ sampleRate: 8000, frameMs: 33, send: () => {} });
     assert.equal(pacer.stats().frameDurationMs, 20);   // 320 bytes = 160 samples @ 8k
@@ -80,7 +80,7 @@ describe('frame geometry', () => {
 describe('pacing', () => {
   test('a burst of engine audio goes out at realtime, not all at once', () => {
     // A realtime engine emits a whole sentence in a few hundred ms. Forwarding
-    // that verbatim is exactly the burst Exotel drops.
+    // that verbatim is exactly the burst the carrier drops.
     const rec = recorder();
     const pacer = createPcmStreamPacer({ sampleRate: RATE, frameMs: 100, send: rec.send });
     pacer.start();
@@ -98,7 +98,7 @@ describe('pacing', () => {
   });
 
   test('media metadata increments monotonically from 1', () => {
-    // Exotel's reference bridge is explicit that omitting chunk / timestamp /
+    // The carrier reference bridge is explicit that omitting chunk / timestamp /
     // sequenceNumber makes Connect streams drop or end early.
     const rec = recorder();
     const pacer = createPcmStreamPacer({ sampleRate: RATE, frameMs: 100, send: rec.send });
@@ -153,7 +153,7 @@ describe('utterance tails', () => {
     pacer.stop();
 
     assert.equal(rec.frames.length, 1, 'the last syllable must not be stranded in the queue');
-    assert.equal(rec.frames[0].bytes % EXOTEL_FRAME_ALIGN_BYTES, 0);
+    assert.equal(rec.frames[0].bytes % PCM_FRAME_ALIGN_BYTES, 0);
     assert.equal(rec.frames[0].bytes, 1280, '1000 bytes padded up to the next 320 multiple');
     assert.equal(pacer.stats().padded, 1);
   });
@@ -178,7 +178,7 @@ describe('utterance tails', () => {
 
 describe('barge-in and overrun', () => {
   test('flush() drops audio the caller interrupted', () => {
-    // Exotel's own `clear` only flushes what Exotel holds; anything still
+    // A carrier's own `clear` only flushes what the carrier holds; anything still
     // queued here would go out afterwards and resurrect the sentence.
     const rec = recorder();
     const pacer = createPcmStreamPacer({ sampleRate: RATE, frameMs: 100, send: rec.send });

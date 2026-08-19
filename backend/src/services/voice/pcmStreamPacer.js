@@ -1,25 +1,26 @@
 // backend/src/services/voice/pcmStreamPacer.js
 /**
- * Paces outbound PCM16 to Exotel AgentStream at realtime, in 320-byte-aligned
- * frames carrying the sequence metadata Exotel expects.
+ * Paces outbound PCM16 to a raw-PCM carrier socket at realtime, in
+ * 320-byte-aligned frames carrying per-frame sequence metadata. PIOPIY is the
+ * only carrier on this path today.
  *
  * WHY THIS EXISTS AND THE TWILIO BRIDGE NEEDS NOTHING LIKE IT. Twilio accepts
  * whatever arrives, whenever it arrives: the bundled bridge forwards engine
- * audio verbatim and Twilio's jitter buffer absorbs the burstiness. Exotel does
- * not. Its own reference bridge (github.com/exotel/Agent-Stream,
- * integrations/agents/_shared/wss_server.py) is explicit on three points, each
- * of which is a dropped call rather than a quality nit:
+ * audio verbatim and Twilio's jitter buffer absorbs the burstiness. A raw-PCM
+ * stream socket does not. The constraints this file was written against — first
+ * from a carrier reference bridge, then confirmed on the PIOPIY path — are
+ * three, each a dropped call rather than a quality nit:
  *
  *   - frames must be multiples of 320 bytes;
  *   - a payload dumped in one message (a whole greeting) or blasted with no
  *     delay correlates with the call hanging up after ~4 seconds, and payloads
  *     over 100KB risk a timeout;
  *   - `chunk`, `timestamp` and `sequenceNumber` on the media event are load
- *     bearing — "omit them and some Connect streams drop / end early".
+ *     bearing — omit them and some streams drop or end early.
  *
  * A realtime engine emits audio far faster than realtime (a whole sentence
  * arrives in a few hundred milliseconds), so without a clock every reply would
- * be exactly the burst Exotel drops. This is that clock.
+ * be exactly the burst that gets dropped. This is that clock.
  *
  * WHY NOT REUSE ambiencePump. That one is µ-law specific end to end — 160-byte
  * frames, 0xFF silence, logarithmic mixing — and it emits continuously because
@@ -27,15 +28,15 @@
  * something to say, so an idle call costs nothing.
  */
 
-/** Exotel's frame alignment. Every emitted frame is a whole multiple of this. */
-export const EXOTEL_FRAME_ALIGN_BYTES = 320;
+/** Frame alignment. Every emitted frame is a whole multiple of this. */
+export const PCM_FRAME_ALIGN_BYTES = 320;
 
 /**
- * Exotel's own docs call ~100ms the sweet spot, and their reference bridge uses
- * it. It is the default here because the integration is not yet proven against
- * a live account and a dropped call is worse than 100ms of buffering; once real
- * calls are stable, EXOTEL_FRAME_MS=20 gives back that latency (20ms is also a
- * clean 320-byte multiple at all three supported rates).
+ * ~100ms is the documented sweet spot for these streams. It is the default
+ * here because a dropped call is worse than 100ms of buffering; once real calls
+ * on a carrier are proven stable, passing frameMs: 20 gives that latency back
+ * (20ms is also a clean 320-byte multiple at all three supported rates).
+ * Callers override per carrier — PIOPIY reads PIOPIY_FRAME_MS.
  */
 const DEFAULT_FRAME_MS = 100;
 
@@ -58,19 +59,19 @@ const MAX_CONSECUTIVE_SEND_FAILURES = 3;
  *             stop(): void, isRunning(): boolean, stats(): object }}
  */
 export function createPcmStreamPacer({ sampleRate, send, frameMs, onError }) {
-  const ms = Number(frameMs || process.env.EXOTEL_FRAME_MS || DEFAULT_FRAME_MS);
+  const ms = Number(frameMs || DEFAULT_FRAME_MS);
 
   // Round the frame DOWN to a whole 320 bytes rather than padding up to it:
   // padding would insert silence into the middle of continuous speech, once per
   // frame, for the whole call.
   const rawBytes = Math.floor((sampleRate * ms) / 1000) * 2;
   const frameBytes = Math.max(
-    EXOTEL_FRAME_ALIGN_BYTES,
-    Math.floor(rawBytes / EXOTEL_FRAME_ALIGN_BYTES) * EXOTEL_FRAME_ALIGN_BYTES,
+    PCM_FRAME_ALIGN_BYTES,
+    Math.floor(rawBytes / PCM_FRAME_ALIGN_BYTES) * PCM_FRAME_ALIGN_BYTES,
   );
   // Derive the tick from the frame we actually emit, not from the requested ms —
   // otherwise the alignment rounding above would make us emit slightly fast, and
-  // on Exotel emitting fast means an ever-growing playout delay.
+  // on a paced carrier emitting fast means an ever-growing playout delay.
   const frameDurationMs = ((frameBytes / 2) / sampleRate) * 1000;
   const maxQueueBytes = Math.ceil((MAX_QUEUE_MS / frameDurationMs)) * frameBytes;
 
@@ -125,9 +126,9 @@ export function createPcmStreamPacer({ sampleRate, send, frameMs, onError }) {
         // pad it to alignment with PCM silence (zero, unlike µ-law's 0xFF) and
         // send it. Waiting one tick first means a tail that is merely mid-stream
         // gets its rest rather than being emitted as a short frame.
-        const remainder = queue.length % EXOTEL_FRAME_ALIGN_BYTES;
+        const remainder = queue.length % PCM_FRAME_ALIGN_BYTES;
         const tail = remainder
-          ? Buffer.concat([queue, Buffer.alloc(EXOTEL_FRAME_ALIGN_BYTES - remainder)])
+          ? Buffer.concat([queue, Buffer.alloc(PCM_FRAME_ALIGN_BYTES - remainder)])
           : queue;
         queue = Buffer.alloc(0);
         if (remainder) padded += 1;
@@ -179,9 +180,9 @@ export function createPcmStreamPacer({ sampleRate, send, frameMs, onError }) {
     /**
      * Barge-in: drop audio not yet emitted.
      *
-     * Required, not cosmetic. Exotel's `clear` flushes what Exotel already
-     * holds; anything still queued here would go out afterwards and resurrect
-     * the sentence the caller just interrupted.
+     * Required, not cosmetic. A carrier's own `clear` flushes only what the
+     * carrier already holds; anything still queued here would go out afterwards
+     * and resurrect the sentence the caller just interrupted.
      */
     flush() {
       queue = Buffer.alloc(0);

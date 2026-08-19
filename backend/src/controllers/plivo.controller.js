@@ -173,12 +173,20 @@ export async function answer(req, res) {
     return failXml(res, 404, `agent ${agentId} not found in workspace ${workspaceId}`);
   }
 
+  // Set by placeCall() on calls this platform dialled; absent on an inbound
+  // leg, where "unknown" is the honest answer and the agent's own setting
+  // decides. Normalised to the casing getRenderedWelcome() expects.
+  const rawDirection = String(field(req, 'direction') || '').toUpperCase();
+  const direction = rawDirection === 'OUTBOUND' || rawDirection === 'INBOUND' ? rawDirection : null;
+
   if (mode === 'greeting') {
     // Re-rendered here rather than carried on the query string: see
     // plivo.provider.js#buildGreetingDoc for why the text does not travel.
     let welcome = agent.welcomeMessage || `Hello, this is a call from ${agent.name}.`;
     try {
-      const rendered = await getRenderedWelcome(workspaceId, agentId);
+      // A greeting-only call is one this platform dialled — there is no other
+      // way to reach this mode — so OUTBOUND even if the flag went missing.
+      const rendered = await getRenderedWelcome(workspaceId, agentId, { direction: direction || 'OUTBOUND' });
       if (rendered?.welcome) welcome = rendered.welcome;
     } catch (e) {
       logger.warn(`Plivo greeting: welcome rendering failed, using the raw field: ${e.message}`);
@@ -198,14 +206,19 @@ export async function answer(req, res) {
     return failXml(res, 500, 'PUBLIC_BACKEND_WS_URL is not set, so there is no media bridge address');
   }
 
-  let streamUrl = plivoProvider.mediaStreamUrl({
+  // The bridge learns BOTH the call log and the call's direction from the socket
+  // URL, because Plivo's `start` event carries no per-call parameters of our
+  // choosing. Built with URL/searchParams rather than string concatenation:
+  // mediaStreamUrl() may already have put a query string on it, and `+= '?…'`
+  // would then emit a second `?` and silently lose one of the two.
+  const streamUrlObj = new URL(plivoProvider.mediaStreamUrl({
     baseWsUrl: env.PUBLIC_BACKEND_WS_URL,
     workspaceId,
     agentId,
-  });
-  // The bridge learns the call log from the socket URL, because Plivo's `start`
-  // event carries no per-call parameters of our choosing.
-  if (callLogId) streamUrl += `?callLogId=${encodeURIComponent(callLogId)}`;
+    direction,
+  }));
+  if (callLogId) streamUrlObj.searchParams.set('callLogId', callLogId);
+  const streamUrl = streamUrlObj.toString();
 
   logger.info({ workspaceId, agentId, callUuid, callLogId }, 'Plivo answered a conversational call');
   return xml(res, buildStreamXml({ streamUrl }));

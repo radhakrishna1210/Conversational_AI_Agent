@@ -6,7 +6,7 @@
 // creation — changes for both at once.
 //
 // The carrier itself lives behind `services/telephony/` and is never named here:
-// India has to route through Exotel or Plivo because Twilio cannot legally carry
+// India has to route through Plivo because Twilio cannot legally carry
 // Indian domestic traffic, so this file owns the *policy* (which carrier, call
 // mode, logging, billing state) and the provider owns the *protocol*.
 //
@@ -147,7 +147,7 @@ export async function telephonyStatusForNumber(fromNumber) {
  * Which carrier owns this caller ID?
  *
  * Routing is per-number so India moves tenant by tenant: one `VoiceNumber` row
- * switches a workspace to Exotel or Plivo, and switching it back is one row
+ * switches a workspace to Plivo, and switching it back is one row
  * again. TELEPHONY_PROVIDER_DEFAULT is only for numbers we have no record of —
  * flipping *that* to reach India would reroute every call on the platform,
  * which is precisely the mistake this lookup exists to prevent.
@@ -227,10 +227,11 @@ export async function placeOutboundCall({
     };
   }
 
-  // Not every carrier can speak arbitrary per-call text either. Exotel's
-  // greeting lives in a dashboard flow, so a greeting-only call there would dial
-  // the lead and play whatever that flow happens to contain. Refuse before
-  // creating a call log or spending a carrier leg.
+  // Not every carrier can speak arbitrary per-call text either. On a carrier
+  // whose greeting lives in a dashboard flow, a greeting-only call would dial
+  // the lead and play whatever that flow happens to contain. No wired carrier
+  // is in that position today, so this guard is the contract for the next one:
+  // refuse before creating a call log or spending a carrier leg.
   if (!streamsMedia && provider.supportsGreetingMode === false) {
     return {
       ok: false,
@@ -272,6 +273,12 @@ export async function placeOutboundCall({
       baseWsUrl: env.PUBLIC_BACKEND_WS_URL,
       workspaceId,
       agentId: agent.id,
+      // This service exists to DIAL OUT. Whatever the agent is configured as,
+      // the person about to answer did not call us, so a greeting that thanks
+      // them for calling is wrong — and that is exactly what an INBOUND-marked
+      // (or direction-less) agent used for a campaign used to say. The bridge
+      // reads this back off the socket URL; see getRenderedWelcome().
+      direction: 'OUTBOUND',
     });
     document = provider.buildConversationDoc({ streamUrl, callLogId: logId });
   } else {
@@ -283,7 +290,7 @@ export async function placeOutboundCall({
     // this divergence to survive. Cached by content hash on the agent row.
     let welcomeText = agent.welcomeMessage || `Hello, this is a call from ${agent.name}.`;
     try {
-      const rendered = await getRenderedWelcome(workspaceId, agent.id);
+      const rendered = await getRenderedWelcome(workspaceId, agent.id, { direction: 'OUTBOUND' });
       if (rendered?.welcome) welcomeText = rendered.welcome;
     } catch (e) {
       logger.warn(`Welcome rendering failed for greeting-only call: ${e.message}`);
@@ -298,9 +305,13 @@ export async function placeOutboundCall({
       to: toNumber,
       from,
       document,
-      // Carriers with no per-call document (Exotel) carry these through their
-      // own metadata field instead; providers that embed them in XML ignore it.
-      context: { workspaceId, agentId: agent.id, callLogId: logId },
+      // Carriers with no per-call document carry these through their own
+      // metadata field instead; providers that embed them in XML ignore it.
+      // `direction` rides along for carriers whose bridge cannot be reached
+      // through a stream URL we build here — Plivo hands the carrier an ANSWER
+      // URL and rebuilds the stream URL in its own controller, so the flag has
+      // to survive that hop to reach the bridge.
+      context: { workspaceId, agentId: agent.id, callLogId: logId, direction: 'OUTBOUND' },
     });
 
     if (!result.ok) {

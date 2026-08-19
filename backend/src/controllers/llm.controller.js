@@ -39,12 +39,17 @@ export const mapAgentModel = (label) => {
   // Groq (LPU, ultra-low-latency) — selected explicitly as the agent's AI Model.
   // Checked before the generic "llama" rule since Groq serves Llama models.
   if (norm.includes("groq")) {
-    return { provider: "groq", model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile" };
+    // See groq.service.js: the old llama-3.3-70b id was retired and now 404s.
+    return { provider: "groq", model: process.env.GROQ_MODEL || "openai/gpt-oss-20b" };
   }
 
   // Heuristic mapping for label variants
   if (norm.includes("gemini")) {
-    return { provider: "gemini", model: norm.includes("lite") ? "gemini-2.5-flash-lite" : "gemini-2.5-flash" };
+    // Non-lite stays on 2.5-flash: 3.5-flash measured ~12s to first token from
+    // this deployment (2026-08-19), which is worse than the model it would
+    // replace. Only the lite rung moved, and only because it had to — see
+    // GEMINI_MODEL_MAPPING for why 2.5-flash-lite no longer resolves at all.
+    return { provider: "gemini", model: norm.includes("lite") ? "gemini-3.5-flash-lite" : "gemini-2.5-flash" };
   }
   if (norm.startsWith("azure")) {
     const m = ALLOWED_MODELS.azure.find((x) => norm.includes(x.replace("azure-", ""))) || "azure-gpt-4o-mini";

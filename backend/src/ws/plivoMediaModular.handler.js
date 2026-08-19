@@ -12,8 +12,8 @@
  *
  * THERE IS A PACER, THOUGH — `pacedOutbound` below. An earlier version of this
  * comment said there was not, reasoning that the frame splitter in
- * telephonyAudio.js already emits the 20ms frames Plivo expects and that only
- * Exotel needs a clock because only Exotel hangs up on a burst. That conflated
+ * telephonyAudio.js already emits the 20ms frames Plivo expects and that a clock
+ * is only needed by carriers that hang up on a burst. That conflated
  * frame SIZE with frame CADENCE: the splitter sizes frames correctly but the
  * bridge then sent them as fast as TTS produced them. Plivo consumes at a fixed
  * 20ms cadence and, per their support, "perceived latency grows proportionally
@@ -68,6 +68,6 @@ export const plivoCarrier = {
   },
 };
 
-export function handlePlivoMediaModularUpgrade(ws, { workspaceId, agentId, callLogId = null }) {
-  return runModularMediaBridge(ws, { workspaceId, agentId, callLogId, carrier: plivoCarrier });
+export function handlePlivoMediaModularUpgrade(ws, { workspaceId, agentId, callLogId = null, direction = null }) {
+  return runModularMediaBridge(ws, { workspaceId, agentId, callLogId, direction, carrier: plivoCarrier });
 }

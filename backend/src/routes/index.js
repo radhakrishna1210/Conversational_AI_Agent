@@ -38,7 +38,6 @@ import notificationRoutes from './notification.routes.js';
 import contactFormRoutes from './contactForm.routes.js';
 import appointmentRoutes from './appointment.routes.js';
 import reportIssueRoutes from './reportIssue.routes.js';
-import exotelRoutes from './exotel.routes.js';
 import plivoRoutes from './plivo.routes.js';
 
 import { getHealth as getGeminiHealth, getMetrics as getGeminiMetrics } from '../controllers/gemini.controller.js';
@@ -61,9 +60,6 @@ router.use('/report-issue', rateLimit({ windowMs: 60_000, max: 10, keyPrefix: 'i
 // They perform data mutations / paid model work and now live exclusively under
 // the authenticated workspace router below (see `ws`).
 router.use('/integrations', integrationsPublicRoutes);
-// Exotel's own callbacks (per-call stream URL + terminal call status). Public
-// because a carrier cannot authenticate; see exotel.routes.js.
-router.use('/exotel', exotelRoutes);
 // Plivo's answer URL (the call document, fetched at pickup) and hangup
 // callback. Public because a carrier cannot authenticate; the V3 request
 // signature is what protects them. See plivo.routes.js.

@@ -20,6 +20,7 @@ import {
   isValidTopP,
   isValidTopK,
   getDefaultGenerationConfig,
+  thinkingConfigFor,
   GEMINI_CONFIG,
 } from "../constants/geminiModels.js";
 
@@ -141,6 +142,13 @@ class GeminiService {
    */
   getGenerationConfig(params = {}) {
     const config = getDefaultGenerationConfig();
+    // The API model, not the UI name — the thinking table is keyed by what the
+    // request will actually carry, and the two differ for remapped models.
+    // Never throws: an unrecognised model must not fail here, because
+    // thinkingConfigFor() already treats "unknown" as "send nothing", which is
+    // the safe answer. Model validation belongs to the call path, not to this.
+    let apiModel = null;
+    try { apiModel = params.model ? getGeminiAPIModel(params.model) : null; } catch { apiModel = null; }
 
     // Override with provided parameters
     if (params.temperature !== undefined) {
@@ -155,10 +163,14 @@ class GeminiService {
     if (params.maxOutputTokens !== undefined) {
       config.maxOutputTokens = params.maxOutputTokens;
     }
-    // thinkingBudget: 0 disables Gemini 2.5's internal reasoning pass —
-    // dramatically lower latency for real-time voice turns (~3.4s → ~1.4s).
-    if (params.thinkingBudget !== undefined) {
-      config.thinkingConfig = { thinkingBudget: params.thinkingBudget };
+    // "Skip the reasoning pass" — dramatically lower latency for real-time
+    // voice turns. Routed through thinkingConfigFor() because the spelling is
+    // per-model and the wrong spelling is an HTTP 400, not a slower reply; see
+    // the measured table in constants/geminiModels.js. A null result means this
+    // model wants to be told nothing at all, so no key is set.
+    const thinking = thinkingConfigFor(apiModel, params.thinkingBudget);
+    if (thinking) {
+      config.thinkingConfig = thinking;
     }
 
     return config;
@@ -359,6 +371,7 @@ class GeminiService {
 
       // Get generation config
       const generationConfig = this.getGenerationConfig({
+        model,
         temperature,
         topP,
         topK,
@@ -455,6 +468,7 @@ class GeminiService {
 
     const contents = this.formatMessages(message, options.chatHistory || []);
     const generationConfig = this.getGenerationConfig({
+      model,
       temperature,
       maxOutputTokens: options.maxTokens,
       thinkingBudget: options.thinkingBudget,

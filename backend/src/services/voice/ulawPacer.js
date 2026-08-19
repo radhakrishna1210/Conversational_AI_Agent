@@ -5,7 +5,7 @@
  * WHY THIS EXISTS, AND WHY IT DID NOT UNTIL NOW. The Plivo bridges were built on
  * the assumption — written into plivoMediaModular.handler.js's own header — that
  * Plivo, like Twilio, absorbs whatever arrives whenever it arrives, and that only
- * Exotel needs a clock. That conflated frame SIZE with frame CADENCE. We were
+ * some carriers need a clock. That conflated frame SIZE with frame CADENCE. We were
  * emitting correctly sized 160-byte frames as fast as the TTS stream yielded
  * them, so a whole sentence left in tens of milliseconds.
  *
@@ -18,7 +18,7 @@
  *    real-time."
  *
  * That is why this is a latency fix and not a correctness one, and why it was
- * invisible for so long: Exotel DROPS a burst (loud, ~4s hangup) and Twilio
+ * invisible for so long: a raw-PCM stream carrier DROPS a burst (loud, ~4s hangup) and Twilio
  * ABSORBS one (harmless). Plivo accepts it and quietly plays further and further
  * behind, which presents as "the phone agent is slow" — indistinguishable from a
  * slow LLM without measuring, and we spent a while blaming the LLM.
@@ -32,7 +32,7 @@
  *   - pcmStreamPacer has exactly the right shape — a clock that emits only when
  *     there is something to say — but is PCM16 end to end: 320-byte alignment,
  *     zero-valued silence, and the chunk/timestamp/sequenceNumber metadata
- *     Exotel requires and Plivo has no field for.
+ *     a raw-PCM stream carrier requires and Plivo has no field for.
  *
  * So: pcmStreamPacer's shape, ambiencePump's mu-law frame. The interface is
  * deliberately identical to ambiencePump's, so plivoMediaRealtime.handler.js can

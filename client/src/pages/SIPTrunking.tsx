@@ -95,32 +95,6 @@ function RingCentralIcon() {
   );
 }
 
-function ExotelIcon() {
-  return (
-    <div
-      style={{
-        width: 42,
-        height: 42,
-        borderRadius: 10,
-        background: "#1b1b1b",
-        display: "flex",
-        alignItems: "center",
-        justifyContent: "center",
-      }}
-    >
-      <div
-        style={{
-          fontWeight: 700,
-          color: "white",
-          fontSize: 13,
-        }}
-      >
-        exo
-      </div>
-    </div>
-  );
-}
-
 /* -------------------------------------------------------------------------- */
 /*                              REUSABLE HELPERS                              */
 /* -------------------------------------------------------------------------- */
@@ -620,58 +594,6 @@ export default function Vonage() {
               </Link>
             </div>
 
-            {/* Exotel */}
-
-            <div
-              style={{
-                border: "1px solid var(--line)",
-                borderRadius: 14,
-                padding: 20,
-              }}
-            >
-              <div style={{ marginBottom: 16 }}>
-                <ExotelIcon />
-              </div>
-
-              <div
-                style={{
-                  fontSize: 15,
-                  fontWeight: 700,
-                  marginBottom: 8,
-                  color: "var(--tx)",
-                }}
-              >
-                Exotel
-              </div>
-
-              <div
-                style={{
-                  fontSize: 13,
-                  color: "var(--tx-2)",
-                  lineHeight: 1.7,
-                  marginBottom: 18,
-                }}
-              >
-                Connect Exotel SIP trunks and cloud telephony
-                services to your AI agents with ease.
-              </div>
-
-              <Link
-                to="/integrations/exotel"
-                style={{
-                  display: "inline-flex",
-                  alignItems: "center",
-                  gap: 6,
-                  textDecoration: "none",
-                  color: "#10C7A6",
-                  fontWeight: 600,
-                  fontSize: 13,
-                }}
-              >
-                Learn more
-                <ArrowRight size={14} />
-              </Link>
-            </div>
           </div>
         </div>
 

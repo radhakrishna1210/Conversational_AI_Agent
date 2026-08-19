@@ -14,7 +14,7 @@ import { RzCard, RzEmpty, RzPill, RzSkeleton, RzStat } from '@/components/rz';
 
 /**
  * `source` is open-ended on purpose: the backend returns the carrier id
- * lower-cased for anything routed through VoiceNumber ('plivo', 'exotel'), and
+ * lower-cased for anything routed through VoiceNumber ('plivo', 'piopiy'), and
  * new carriers must not need a client change to appear at all. Only 'own' —
  * a number the user verified rather than one the platform holds — is treated
  * specially.
@@ -177,7 +177,6 @@ export default function PhoneNumbers() {
             <div className="rz-stack-sm">
               {[
                 { label: 'Import from Twilio', to: '/integrations' },
-                { label: 'Import from Exotel', to: '/integrations' },
                 { label: 'Connect a SIP trunk', to: '/integrations/SIPTrunking' },
                 { label: 'Airtel verified calling', to: '/airtel-verified-calling' },
               ].map(item => (
