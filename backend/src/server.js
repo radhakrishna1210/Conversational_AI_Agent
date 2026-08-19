@@ -17,7 +17,9 @@ import { handleWebCallModularUpgrade } from './ws/webCallModularRealtime.handler
 import { handleTwilioMediaUpgrade } from './ws/twilioMediaRealtime.handler.js';
 import { handleTwilioMediaModularUpgrade } from './ws/twilioMediaModular.handler.js';
 import { handlePlivoMediaUpgrade } from './ws/plivoMediaRealtime.handler.js';
+import { handlePiopiyMediaUpgrade } from './ws/piopiyMediaRealtime.handler.js';
 import { handlePlivoMediaModularUpgrade } from './ws/plivoMediaModular.handler.js';
+import { SAMPLE_RATES, DEFAULT_SAMPLE_RATE } from './services/telephony/piopiy.provider.js';
 import { resumeStuckKbJobs } from './services/kbChunking.service.js';
 import { startRecordingRetention } from './services/recordingRetention.service.js';
 
@@ -96,6 +98,7 @@ const webCallWss = new WebSocketServer({ noServer: true });
 const modularWebCallWss = new WebSocketServer({ noServer: true });
 const twilioMediaWss = new WebSocketServer({ noServer: true });
 const plivoMediaWss = new WebSocketServer({ noServer: true });
+const piopiyMediaWss = new WebSocketServer({ noServer: true });
 
 // /api/v1/workspaces/:workspaceId/agents/:agentId/xai-call  (bundled engine)
 const WEB_CALL_UPGRADE_PATH = /^\/api\/v1\/workspaces\/([^/]+)\/agents\/([^/]+)\/xai-call$/;
@@ -105,6 +108,8 @@ const MODULAR_WEB_CALL_UPGRADE_PATH = /^\/api\/v1\/workspaces\/([^/]+)\/agents\/
 const TWILIO_MEDIA_UPGRADE_PATH = /^\/api\/v1\/twilio-media\/([^/]+)\/([^/]+)$/;
 // /api/v1/plivo-media/:workspaceId/:agentId?callLogId=…
 const PLIVO_MEDIA_UPGRADE_PATH = /^\/api\/v1\/plivo-media\/([^/]+)\/([^/]+)$/;
+// /api/v1/piopiy-media/:workspaceId/:agentId?sample-rate=8000&callLogId=…
+const PIOPIY_MEDIA_UPGRADE_PATH = /^\/api\/v1\/piopiy-media\/([^/]+)\/([^/]+)$/;
 
 /**
  * Does this agent run on a bundled speech-to-speech engine?
@@ -217,6 +222,33 @@ httpServer.on('upgrade', (req, socket, head) => {
       plivoMediaWss.handleUpgrade(req, socket, head, (ws) => {
         if (bundled) handlePlivoMediaUpgrade(ws, { workspaceId, agentId, callLogId });
         else handlePlivoMediaModularUpgrade(ws, { workspaceId, agentId, callLogId, direction: callDirection });
+      });
+    });
+    return;
+  }
+
+  const piopiyMatch = pathname.match(PIOPIY_MEDIA_UPGRADE_PATH);
+  if (piopiyMatch) {
+    const [, workspaceId, agentId] = piopiyMatch;
+
+    // No engine lookup here, unlike the Twilio and Plivo branches. PIOPIY is
+    // bundled-only — piopiy.provider declares supportsModularEngine: false and
+    // outboundCall.service refuses a modular agent before dialling — so there is
+    // exactly one bridge this path can lead to, and reading the agent row would
+    // only add a Supabase round trip to the handshake.
+    //
+    // The rate is OURS: we put it on this URL in piopiy.provider#mediaStreamUrl
+    // and PIOPIY echoes it back. Anything outside the two rates PIOPIY accepts
+    // is a URL we did not mint, so it falls back rather than being trusted.
+    const requested = Number(url.searchParams.get('sample-rate'));
+    const sampleRate = SAMPLE_RATES.has(requested) ? requested : DEFAULT_SAMPLE_RATE;
+
+    piopiyMediaWss.handleUpgrade(req, socket, head, (ws) => {
+      handlePiopiyMediaUpgrade(ws, {
+        workspaceId,
+        agentId,
+        sampleRate,
+        callLogId: url.searchParams.get('callLogId'),
       });
     });
     return;

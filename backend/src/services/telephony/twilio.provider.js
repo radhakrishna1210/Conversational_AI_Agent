@@ -63,7 +63,13 @@ export const twilioProvider = {
 
   buildConversationDoc({ streamUrl, callLogId }) {
     const param = callLogId ? `<Parameter name="callLogId" value="${callLogId}" />` : '';
-    return `<Response><Connect><Stream url="${streamUrl}">${param}</Stream></Connect></Response>`;
+    // xmlUrl on the attribute for the same reason Plivo needs it on the text
+    // node: the moment this URL carries a second query parameter it contains an
+    // `&`, and an unescaped `&` makes the TwiML unparseable — Twilio then drops
+    // the call the instant the callee answers. Twilio survives today only
+    // because `callLogId` rides in <Parameter> rather than on the URL, which is
+    // an accident of this carrier, not a property of the document.
+    return `<Response><Connect><Stream url="${xmlUrl(streamUrl)}">${param}</Stream></Connect></Response>`;
   },
 
   buildGreetingDoc({ greeting, closingLine }) {
