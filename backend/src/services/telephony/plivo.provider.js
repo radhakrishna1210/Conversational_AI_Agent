@@ -340,7 +340,13 @@ export const buildStreamXml = ({ streamUrl }) =>
   '<?xml version="1.0" encoding="UTF-8"?>'
   + '<Response>'
   + `<Stream bidirectional="true" keepCallAlive="true" contentType="${STREAM_CONTENT_TYPE};rate=${STREAM_SAMPLE_RATE}">`
-  + streamUrl
+  // xmlUrl, NOT raw: this URL carries two query parameters (`direction` and
+  // `callLogId`), so it contains an `&`, and an unescaped `&` in XML character
+  // data makes the whole document unparseable. Plivo answers the call, fails to
+  // parse the document, and hangs up — the callee hears one second of nothing.
+  // That is exactly what happened when `direction` was added: until then the URL
+  // had at most ONE parameter and was accidentally well-formed.
+  + xmlUrl(streamUrl)
   + '</Stream>'
   + '</Response>';
 

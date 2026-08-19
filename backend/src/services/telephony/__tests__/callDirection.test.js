@@ -17,7 +17,7 @@ import { test, describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { twilioProvider } from '../twilio.provider.js';
-import { plivoProvider } from '../plivo.provider.js';
+import { plivoProvider, buildStreamXml } from '../plivo.provider.js';
 import { piopiyProvider } from '../piopiy.provider.js';
 
 const BASE = 'wss://spandan.mannmate.com';
@@ -86,5 +86,62 @@ describe('plivo placeCall — direction survives the answer-URL hop', () => {
     await call({ workspaceId: 'ws1', agentId: 'ag1' });
     const answer = new URL(captured.answer_url);
     assert.equal(answer.searchParams.get('direction'), null);
+  });
+});
+
+
+/**
+ * THE COST OF THE PARAMETER ABOVE.
+ *
+ * Adding `direction` gave the media-stream URL its SECOND query parameter, and
+ * so its first `&`. Both XML carriers embed that URL in a document — Plivo as
+ * character data inside <Stream>, Twilio as a `url` attribute — where a raw `&`
+ * starts an entity reference and makes the whole document unparseable. The
+ * carrier answers the call, fails to parse what we served, and hangs up: the
+ * callee hears one second of nothing and every conversational call dies at
+ * pickup, with the call log left at INITIATED because the socket never opened.
+ *
+ * It shipped because the existing document tests all used a URL with ONE
+ * parameter, which is well-formed by accident. These use the real two-parameter
+ * URL and assert on the document rather than on the substring.
+ */
+const RAW_AMPERSAND = /&(?!amp;|lt;|gt;|quot;|apos;|#)/;
+
+describe('carrier documents survive a two-parameter stream URL', () => {
+  const streamUrl = (provider) => {
+    const url = new URL(provider.mediaStreamUrl({ ...ARGS, direction: 'OUTBOUND' }));
+    url.searchParams.set('callLogId', 'clog1');
+    return url.toString();
+  };
+
+  test('plivo: <Stream> escapes the ampersand instead of emitting it raw', () => {
+    const url = streamUrl(plivoProvider);
+    assert.ok(url.includes('&'), 'precondition: the URL under test has two parameters');
+
+    const doc = buildStreamXml({ streamUrl: url });
+    assert.ok(!RAW_AMPERSAND.test(doc), `unescaped & in the answer document: ${doc}`);
+    // Escaped, not stripped: the bridge needs every parameter back. xmlSafe()
+    // would have replaced the & with a space and truncated the URL just as
+    // effectively as leaving it raw.
+    assert.ok(doc.includes('&amp;callLogId=clog1'));
+  });
+
+  test('twilio: the Stream url attribute escapes the ampersand', () => {
+    const doc = twilioProvider.buildConversationDoc({
+      streamUrl: `${streamUrl(twilioProvider)}`,
+      callLogId: 'clog1',
+    });
+    assert.ok(!RAW_AMPERSAND.test(doc), `unescaped & in the TwiML: ${doc}`);
+  });
+
+  // PIOPIY is the one carrier with no escaping to get wrong: its document is a
+  // JSON PCMO array, so the URL is a string value and JSON.stringify owns it.
+  // Asserted rather than assumed, because "it is JSON" is only true until
+  // someone builds the document by concatenation.
+  test('piopiy: the PCMO document keeps the URL intact', () => {
+    const url = streamUrl(piopiyProvider);
+    const doc = piopiyProvider.buildConversationDoc({ streamUrl: url, callLogId: 'clog1' });
+    const json = typeof doc === 'string' ? JSON.parse(doc) : doc;
+    assert.ok(JSON.stringify(json).includes(url.replace(/&/g, '&')));
   });
 });
