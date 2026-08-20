@@ -7,7 +7,7 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { stripInboundThanks } from '../agentRuntime.service.js';
+import { stripInboundThanks, welcomeTextFor } from '../agentRuntime.service.js';
 
 describe('stripInboundThanks — rebuilding an outbound opener', () => {
   test('keeps the company that was hidden inside the thanks clause', () => {
@@ -130,5 +130,69 @@ describe('isRateLimited', () => {
   test('a missing or empty error is not a rate limit', () => {
     assert.equal(isRateLimited(null), false);
     assert.equal(isRateLimited(new Error('')), false);
+  });
+});
+
+// ── Per-direction welcome resolution ────────────────────────────────────────
+//
+// The greeting used to be produced by an LLM rewrite that was told to "keep the
+// original intent and warmth" — i.e. to paraphrase. It did, and an operator who
+// wrote a careful two-sentence opener with a consent question heard the call
+// open with something recognisably about the same topic and recognisably not
+// what they wrote. The greeting is data now, and these pin the fallback chain
+// so an agent that has never had the new fields keeps behaving exactly as it did.
+
+describe('welcomeTextFor — which greeting this call opens with', () => {
+  const agent = { name: 'Feedback Campaign', welcomeMessage: 'LEGACY' };
+
+  test('prefers the per-direction field for the direction of THIS call', () => {
+    const settings = { welcomeInbound: 'IN', welcomeOutbound: 'OUT' };
+    assert.equal(welcomeTextFor(agent, settings, 'INBOUND'), 'IN');
+    assert.equal(welcomeTextFor(agent, settings, 'OUTBOUND'), 'OUT');
+  });
+
+  test('this call direction outranks the agent\'s configured one', () => {
+    // The case that produced "thank you for calling" on a call we dialled: a
+    // campaign dialling OUTBOUND through an agent saved as INBOUND.
+    const settings = { callDirection: 'INBOUND', welcomeInbound: 'IN', welcomeOutbound: 'OUT' };
+    assert.equal(welcomeTextFor(agent, settings, 'OUTBOUND'), 'OUT');
+  });
+
+  test('unknown direction falls back to the agent\'s configured side', () => {
+    // An inbound webhook on a number that could be either passes nothing.
+    assert.equal(
+      welcomeTextFor(agent, { callDirection: 'OUTBOUND', welcomeInbound: 'IN', welcomeOutbound: 'OUT' }, null),
+      'OUT',
+    );
+    assert.equal(
+      welcomeTextFor(agent, { callDirection: 'INBOUND', welcomeInbound: 'IN', welcomeOutbound: 'OUT' }, null),
+      'IN',
+    );
+  });
+
+  test('an agent that only ever had welcomeMessage is unchanged', () => {
+    // No migration, no behaviour change: every existing agent lands here.
+    assert.equal(welcomeTextFor(agent, {}, 'INBOUND'), 'LEGACY');
+    assert.equal(welcomeTextFor(agent, {}, 'OUTBOUND'), 'LEGACY');
+    assert.equal(welcomeTextFor(agent, {}, null), 'LEGACY');
+  });
+
+  test('a blank or whitespace-only per-direction field is not a greeting', () => {
+    assert.equal(welcomeTextFor(agent, { welcomeOutbound: '' }, 'OUTBOUND'), 'LEGACY');
+    assert.equal(welcomeTextFor(agent, { welcomeOutbound: '   ' }, 'OUTBOUND'), 'LEGACY');
+  });
+
+  test('never returns empty — dead air on answer is the worst outcome', () => {
+    // The persona comes off the agent row (getPersonaName parses agent.settings),
+    // not from the settings object passed alongside it, so the fixture has to
+    // carry it the way a real row does.
+    const bare = { name: 'X', welcomeMessage: '', settings: JSON.stringify({ personaName: 'Anjali' }) };
+    assert.equal(welcomeTextFor(bare, { personaName: 'Anjali' }, 'OUTBOUND'), 'Hello, this is Anjali.');
+  });
+
+  test('the stored text is returned verbatim, not rewritten', () => {
+    // Including the consent question a paraphrase kept dropping.
+    const written = 'नमस्ते, मैं सनराइज़ हॉस्पिटल से अंजलि बोल रही हूँ। क्या अभी दो मिनट बात करने का सही समय है?';
+    assert.equal(welcomeTextFor(agent, { welcomeOutbound: written }, 'OUTBOUND'), written);
   });
 });

@@ -135,10 +135,15 @@ export default function EditAgent() {
   const [isLoading, setIsLoading] = useState(true);
 
   // Form state
-  const [welcomeMessage, setWelcomeMessage] = useState('');
+  // One greeting cannot serve both directions: "Thank you for calling Sunrise
+  // Hospital" is right when they rang us and absurd when we rang them. Until
+  // these existed the gap was papered over by asking an LLM to rewrite one into
+  // the other on every call, which is how the operator's words stopped being
+  // the words that were actually spoken. Both are now spoken verbatim by TTS.
+  const [welcomeInbound, setWelcomeInbound] = useState('');
+  const [welcomeOutbound, setWelcomeOutbound] = useState('');
   const [maxDuration, setMaxDuration] = useState(30);
   const [silenceTimeout, setSilenceTimeout] = useState(5);
-  const [dynamicEnabled, setDynamicEnabled] = useState(true);
   const [interruptibleEnabled, setInterruptibleEnabled] = useState(true);
   const [flowItems, setFlowItems] = useState<FlowItem[]>([]);
 
@@ -175,18 +180,22 @@ export default function EditAgent() {
   const [showTranscriptionModal, setShowTranscriptionModal] = useState(false);
   const [sttProvider, setSttProvider] = useState('Sarvam');
   const [sttSilenceTimeoutMs, setSttSilenceTimeoutMs] = useState(470);
-  const [sttNoiseReducer, setSttNoiseReducer] = useState(true);
-  const [sttModel, setSttModel] = useState('Saaras V3');
   const [sttLanguage, setSttLanguage] = useState('Multi');
   const [isSttProviderDropdownOpen, setIsSttProviderDropdownOpen] = useState(false);
   const [sttAdvancedSettingsOpen, setSttAdvancedSettingsOpen] = useState(false);
-  const [isSttModelDropdownOpen, setIsSttModelDropdownOpen] = useState(false);
   const [isSttLanguageDropdownOpen, setIsSttLanguageDropdownOpen] = useState(false);
   
   const [, setVoiceProvider] = useState('google'); // provider tracked for future UI filtering
   const [agentName, setAgentName] = useState('');
   // INBOUND = customers call the agent; OUTBOUND = the agent calls customers.
   const [callDirection, setCallDirection] = useState('INBOUND');
+
+  // The greeting this agent leads with, derived rather than stored: the two
+  // per-direction fields are the source of truth and `welcomeMessage` is only
+  // the legacy mirror of whichever one matches the agent's configured
+  // direction. Derived so a preview, an export or the web-call greeting can
+  // never show the value from before the operator's last keystroke.
+  const activeWelcome = callDirection === 'OUTBOUND' ? welcomeOutbound : welcomeInbound;
   const [agentNotFound, setAgentNotFound] = useState(false);
   const [postCallConfigs, setPostCallConfigs] = useState<PostCallConfig[]>([createDefaultPostCallConfig()]);
   const [testingPostCall, setTestingPostCall] = useState<Record<string, 'idle' | 'loading' | 'done' | 'error'>>({});
@@ -264,8 +273,8 @@ export default function EditAgent() {
       setCreatingSheet(null);
     }
   };
-  // Integrations tab — separate from dynamicEnabled (Details tab)
-  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  // Integrations tab toggle. (There used to be a note here distinguishing
+  // this from a "Dynamic" switch on the Details tab; that switch is gone.)
   // Recent Calls tab — per-agent interaction history (chat tests, web calls,
   // phone test calls) with transcripts and web-call recordings.
   interface CallRecord {
@@ -641,7 +650,11 @@ export default function EditAgent() {
         if (agent) {
           const savedPostCallConfigs = (agent as any).postCallConfigs;
           setAgentName(agent.name);
-          setWelcomeMessage(agent.welcomeMessage);
+          // Seeded from the legacy field when unset, so an existing agent opens
+          // showing exactly what it says today and the operator edits from
+          // there rather than starting at a blank box.
+          setWelcomeInbound((agent as any).welcomeInbound ?? agent.welcomeMessage ?? '');
+          setWelcomeOutbound((agent as any).welcomeOutbound ?? agent.welcomeMessage ?? '');
           setSelectedLanguages(((agent as any).languages ?? agent.selectedLanguages) || ['English (Indian)']);
           setVoice(agent.voice || 'Google - Aoede (female)');
           setAiModel(agent.aiModel || 'GPT-4.1-Mini');
@@ -659,7 +672,6 @@ export default function EditAgent() {
           setFillerWords((agent as any).fillerWords ?? false);
           setSpeakingRate((agent as any).speakingRate ?? 1.0);
           setAmbientSound((agent as any).ambientSound ?? 'None');
-          setDynamicEnabled(agent.dynamicEnabled ?? true);
           setInterruptibleEnabled(agent.interruptibleEnabled ?? true);
           setFlowItems((agent.flowItems as any) || getDefaultFlowItems(agent.name || ''));
           setPostCallConfigs(savedPostCallConfigs?.length
@@ -672,13 +684,10 @@ export default function EditAgent() {
           // KB URLs saved in agent settings
           setKbUrls((agent as any).kbUrls ?? []);
           // Integrations tab
-          setWebSearchEnabled((agent as any).webSearchEnabled ?? false);
           setCallDirection((agent as any).callDirection ?? 'INBOUND');
           // STT settings
           setSttProvider((agent as any).sttProvider ?? 'Sarvam');
           setSttSilenceTimeoutMs((agent as any).sttSilenceTimeoutMs ?? 470);
-          setSttNoiseReducer((agent as any).sttNoiseReducer ?? true);
-          setSttModel((agent as any).sttModel ?? 'Saaras V3');
           setSttLanguage((agent as any).sttLanguage ?? 'Multi');
           if (agent.voice?.toLowerCase().startsWith('google')) {
             setVoiceProvider('google');
@@ -714,7 +723,12 @@ export default function EditAgent() {
     setIsSaving(true);
     const agentData = {
       name: agentName,
-      welcomeMessage,
+      // The legacy single field tracks whichever direction this agent is FOR,
+      // so exports, the Recent-calls preview and any older reader keep seeing
+      // the agent's primary greeting rather than a stale copy.
+      welcomeMessage: callDirection === 'OUTBOUND' ? welcomeOutbound : welcomeInbound,
+      welcomeInbound,
+      welcomeOutbound,
       aiModel,
       voice,
       transcription,
@@ -730,7 +744,6 @@ export default function EditAgent() {
       fillerWords,
       speakingRate,
       ambientSound,
-      dynamicEnabled,
       interruptibleEnabled,
       postCallConfigs,
       kbUrls,
@@ -738,11 +751,8 @@ export default function EditAgent() {
       // STT settings
       sttProvider,
       sttSilenceTimeoutMs,
-      sttNoiseReducer,
-      sttModel,
       sttLanguage,
       // Integrations
-      webSearchEnabled,
       callDirection,
       ...overrides,
     };
@@ -841,10 +851,13 @@ export default function EditAgent() {
     setIsSaving(true);
     try {
       const agentData = {
-        name: agentName, welcomeMessage, aiModel, voice, transcription,
+        name: agentName,
+        welcomeMessage: callDirection === 'OUTBOUND' ? welcomeOutbound : welcomeInbound,
+        welcomeInbound, welcomeOutbound,
+        aiModel, voice, transcription,
         languages: selectedLanguages, flowItems, maxDuration, silenceTimeout,
         maxSilenceBeforeHangup, endCallMessage, transferNumber, transferCondition,
-        fillerWords, speakingRate, ambientSound, dynamicEnabled, interruptibleEnabled,
+        fillerWords, speakingRate, ambientSound, interruptibleEnabled,
         postCallConfigs, kbUrls, kbFiles: kbFiles.map(f => f.fileName)
       };
       await whapi.put(`/agents/${agentId}`, agentData);
@@ -1035,7 +1048,7 @@ export default function EditAgent() {
       const response = await whapi.post<{ message: string }>('/llm/generate', {
         agentId,
         message: askAIInput,
-        systemPrompt: `You are an AI assistant helping configure an AI voice agent. The agent is named "${agentName}" and its welcome message is: "${welcomeMessage}". Provide helpful, concise suggestions for improving or configuring this agent.`,
+        systemPrompt: `You are an AI assistant helping configure an AI voice agent. The agent is named "${agentName}" and its welcome message is: "${activeWelcome}". Provide helpful, concise suggestions for improving or configuring this agent.`,
         useFallback: true,
       });
       setAskAIResponse(response.message);
@@ -1900,7 +1913,7 @@ export default function EditAgent() {
       // have been made with a previously configured voice, which made the
       // welcome and the replies speak in different voices. The page-load
       // prefetch warmed the server's TTS cache, so this is normally instant.
-      let welcome = welcomeAudioRef.current?.welcome ?? welcomeMessage;
+      let welcome = welcomeAudioRef.current?.welcome ?? activeWelcome;
       const welcomeSpeech: { current: { audioBase64: string; contentType: string } | null } = { current: null };
       const welcomeFetch = (async () => {
         try {
@@ -2611,38 +2624,8 @@ export default function EditAgent() {
                   </div>
                 </div>
 
-                <div style={{ marginBottom: '24px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '12px' }}>
-                    <label style={{ fontSize: '13px', fontWeight: '500' }}>Apply Noise Reducer</label>
-                    <InfoIcon />
-                  </div>
-                  <div 
-                    style={{ 
-                      width: '40px', 
-                      height: '20px', 
-                      background: 'var(--bg-primary)', 
-                      border: sttNoiseReducer ? '2px solid var(--cyan)' : '2px solid var(--line-2)', 
-                      borderRadius: '10px', 
-                      position: 'relative', 
-                      cursor: 'pointer' 
-                    }} 
-                    onClick={() => setSttNoiseReducer(!sttNoiseReducer)}
-                  >
-                    <div 
-                      style={{ 
-                        width: '12px', 
-                        height: '12px', 
-                        background: sttNoiseReducer ? 'var(--cyan)' : 'var(--tx-3)', 
-                        borderRadius: '50%', 
-                        position: 'absolute', 
-                        top: '2px', 
-                        left: sttNoiseReducer ? '22px' : '2px', 
-                        transition: 'left 0.2s, background 0.2s' 
-                      }} 
-                    />
-                  </div>
-                </div>
-
+                {/* "Apply Noise Reducer" lived here. Nothing read
+                    sttNoiseReducer on either channel. */}
                 <div 
                   onClick={() => setSttAdvancedSettingsOpen(!sttAdvancedSettingsOpen)}
                   style={{ 
@@ -2667,31 +2650,9 @@ export default function EditAgent() {
                   {sttProvider === 'Sarvam' ? 'Sarvam AI Configuration' : `${sttProvider} Configuration`}
                 </div>
                 
-                <div style={{ marginBottom: '16px', position: 'relative' }}>
-                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '8px' }}>Model</label>
-                  <div 
-                    onClick={() => setIsSttModelDropdownOpen(!isSttModelDropdownOpen)}
-                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-primary)', border: '1px solid var(--line-2)', borderRadius: '6px', fontSize: '13px', cursor: 'pointer' }}
-                  >
-                    <span>{sttModel}</span>
-                    <span style={{ fontSize: '10px', color: 'var(--tx-2)' }}>v</span>
-                  </div>
-                  {isSttModelDropdownOpen && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--bg-primary)', border: '1px solid var(--line-2)', borderRadius: '6px', marginTop: '4px', zIndex: 10 }}>
-                      {['Saaras V3', 'Standard V2'].map(model => (
-                        <div 
-                          key={model} 
-                          onClick={() => { setSttModel(model); setIsSttModelDropdownOpen(false); }}
-                          style={{ padding: '10px 14px', cursor: 'pointer', fontSize: '13px', color: 'var(--tx)', background: sttModel === model ? 'var(--s1)' : 'transparent' }}
-                          onMouseEnter={(e) => e.currentTarget.style.background = 'var(--s1)'}
-                          onMouseLeave={(e) => e.currentTarget.style.background = sttModel === model ? 'var(--s1)' : 'transparent'}
-                        >
-                          {model}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
+                {/* An STT "Model" picker lived here. Nothing read sttModel:
+                    the model is chosen by deepgramStream.service.js from the
+                    language and encoding. Removed rather than left misleading. */}
 
                 <div style={{ marginBottom: '16px', position: 'relative' }}>
                   <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '8px' }}>Language</label>
@@ -3021,7 +2982,7 @@ export default function EditAgent() {
             readOnly
             value={JSON.stringify({
               name: agentName,
-              welcomeMessage,
+              welcomeMessage: activeWelcome,
               aiModel,
               voice,
               transcription,
@@ -3029,7 +2990,6 @@ export default function EditAgent() {
               flowItems,
               maxDuration,
               silenceTimeout,
-              dynamicEnabled,
               interruptibleEnabled,
               postCallConfigs
             }, null, 2)}
@@ -3037,11 +2997,11 @@ export default function EditAgent() {
           />
           <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
             <button
-              onClick={() => { navigator.clipboard.writeText(JSON.stringify({ name: agentName, welcomeMessage, aiModel, voice, transcription, languages: selectedLanguages, flowItems, maxDuration, silenceTimeout, dynamicEnabled, interruptibleEnabled, postCallConfigs }, null, 2)); alert('Copied to clipboard!'); }}
+              onClick={() => { navigator.clipboard.writeText(JSON.stringify({ name: agentName, welcomeMessage: activeWelcome, welcomeInbound, welcomeOutbound, aiModel, voice, transcription, languages: selectedLanguages, flowItems, maxDuration, silenceTimeout, interruptibleEnabled, postCallConfigs }, null, 2)); alert('Copied to clipboard!'); }}
               style={{ padding: '10px 20px', background: 'var(--s1)', border: '1px solid var(--line-2)', color: 'var(--tx)', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}
             >📋 Copy JSON</button>
             <button
-              onClick={() => { const blob = new Blob([JSON.stringify({ name: agentName, welcomeMessage, aiModel, voice, transcription, languages: selectedLanguages, flowItems, maxDuration, silenceTimeout, dynamicEnabled, interruptibleEnabled, postCallConfigs }, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${agentName.replace(/\s+/g, '_')}_config.json`; a.click(); URL.revokeObjectURL(url); }}
+              onClick={() => { const blob = new Blob([JSON.stringify({ name: agentName, welcomeMessage: activeWelcome, welcomeInbound, welcomeOutbound, aiModel, voice, transcription, languages: selectedLanguages, flowItems, maxDuration, silenceTimeout, interruptibleEnabled, postCallConfigs }, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${agentName.replace(/\s+/g, '_')}_config.json`; a.click(); URL.revokeObjectURL(url); }}
               style={{ padding: '10px 20px', background: 'var(--s1)', border: '1px solid var(--line-2)', color: 'var(--tx)', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}
             >⬇️ Download JSON</button>
           </div>
@@ -3138,9 +3098,12 @@ export default function EditAgent() {
                   <MessageSquareText size={17} style={{ color: 'var(--cyan-fg)' }} />
                   Welcome message
                 </h3>
+                {/* "Dynamic" used to sit beside this. It was a switch nothing
+                    anywhere read — not the browser, not the server — so it is
+                    gone rather than left on screen implying an effect.
+                    "Interruptible" is enforced on both channels now. */}
                 <div style={{ display: 'flex', gap: '20px', fontSize: '12px' }}>
                   {[
-                    { label: 'Dynamic', on: dynamicEnabled, toggle: () => setDynamicEnabled(!dynamicEnabled) },
                     { label: 'Interruptible', on: interruptibleEnabled, toggle: () => setInterruptibleEnabled(!interruptibleEnabled) },
                   ].map(({ label, on, toggle }) => (
                     <button
@@ -3188,32 +3151,75 @@ export default function EditAgent() {
                       : 'Customers call your agent — thanking them for calling is fine.'}
                   </span>
                 </div>
-                <textarea
-                  value={welcomeMessage}
-                  onChange={(e) => setWelcomeMessage(e.target.value)}
-                  style={{
-                    width: '100%',
-                    minHeight: '142px',
-                    background: 'var(--s1)',
-                    border: '1px solid var(--line)',
-                    borderRadius: '10px',
-                    padding: '14px 16px',
-                    color: 'var(--tx)',
-                    fontFamily: 'inherit',
-                    fontSize: '15px',
-                    lineHeight: '1.5',
-                    resize: 'none',
-                    outline: 'none'
-                  }}
-                  placeholder="Type your welcome message here..."
-                />
-                <div style={{ fontSize: '11px', color: 'var(--tx-3)', textAlign: 'right', marginTop: '10px' }}>{welcomeMessage.length}/600</div>
-                {callDirection === 'OUTBOUND' && THANKS_FOR_CALLING_RE.test(welcomeMessage) && (
-                  <div style={{ display: 'flex', gap: '8px', marginTop: '10px', padding: '10px 12px', background: '#2a1a0a', border: '1px solid #5a3a12', borderRadius: '8px', fontSize: '12px', color: '#ffb74d', lineHeight: 1.45 }}>
-                    <span aria-hidden>⚠️</span>
-                    <span>This is an <b>Outgoing</b> agent, but the greeting thanks the person “for calling.” On outbound calls your agent places the call, so it should open by naming who is calling and the company — e.g. “Hi, this is [name] calling from [company]” — then the reason. Calls auto-correct this, but it’s best to fix the text here, or use Ask AI to rewrite it.</span>
-                  </div>
-                )}
+                {/* Two greetings, one per direction, each spoken by TTS
+                    EXACTLY as typed. Nothing rewrites or translates them on the
+                    way to the call, so what is in these boxes is what the
+                    customer hears — write them in the language the agent
+                    speaks. The direction selector above decides which one is
+                    used when a call cannot tell us its own direction. */}
+                {([
+                  {
+                    dir: 'INBOUND' as const,
+                    label: 'Incoming — the customer called you',
+                    value: welcomeInbound,
+                    set: setWelcomeInbound,
+                    hint: 'Thanking them for calling is right here.',
+                    placeholder: 'e.g. नमस्ते, सनराइज़ हॉस्पिटल में कॉल करने के लिए धन्यवाद…',
+                  },
+                  {
+                    dir: 'OUTBOUND' as const,
+                    label: 'Outgoing — your agent called them',
+                    value: welcomeOutbound,
+                    set: setWelcomeOutbound,
+                    hint: 'Open by naming who is calling and from where, then the reason.',
+                    placeholder: 'e.g. नमस्ते, मैं सनराइज़ हॉस्पिटल से अंजलि बोल रही हूँ…',
+                  },
+                ]).map(({ dir, label, value, set, hint, placeholder }) => {
+                  const active = callDirection === dir;
+                  const thanksMismatch = dir === 'OUTBOUND' && THANKS_FOR_CALLING_RE.test(value);
+                  return (
+                    <div key={dir} style={{ marginBottom: '16px' }}>
+                      <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', marginBottom: '7px', flexWrap: 'wrap' }}>
+                        <span style={{ fontSize: '12px', fontWeight: 700, color: active ? 'var(--tx)' : 'var(--tx-2)' }}>{label}</span>
+                        {active && (
+                          <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: dir === 'OUTBOUND' ? 'var(--orange)' : 'var(--cyan-fg)' }}>
+                            This agent's default
+                          </span>
+                        )}
+                        <span style={{ fontSize: '11px', color: '#6f6f6f' }}>{hint}</span>
+                      </div>
+                      <textarea
+                        value={value}
+                        onChange={(e) => set(e.target.value)}
+                        style={{
+                          width: '100%',
+                          minHeight: '104px',
+                          background: 'var(--s1)',
+                          border: `1px solid ${active ? 'var(--line-strong, var(--line))' : 'var(--line)'}`,
+                          borderRadius: '10px',
+                          padding: '14px 16px',
+                          color: 'var(--tx)',
+                          fontFamily: 'inherit',
+                          fontSize: '15px',
+                          lineHeight: '1.5',
+                          resize: 'vertical',
+                          outline: 'none',
+                        }}
+                        placeholder={placeholder}
+                      />
+                      <div style={{ fontSize: '11px', color: 'var(--tx-3)', textAlign: 'right', marginTop: '6px' }}>{value.length}/600</div>
+                      {thanksMismatch && (
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '8px', padding: '10px 12px', background: '#2a1a0a', border: '1px solid #5a3a12', borderRadius: '8px', fontSize: '12px', color: '#ffb74d', lineHeight: 1.45 }}>
+                          <span aria-hidden>⚠️</span>
+                          <span>This is the <b>outgoing</b> greeting, but it thanks the person “for calling.” Your agent places these calls, so open by naming who is calling and the company — e.g. “Hi, this is [name] calling from [company]” — then the reason.</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+                <div style={{ fontSize: '11px', color: '#6f6f6f', lineHeight: 1.5, marginTop: '-4px' }}>
+                  Spoken exactly as written — nothing translates or rewrites these on the call, so write them in the language your agent speaks.
+                </div>
               </div>
             </div>
 
@@ -3726,50 +3732,9 @@ export default function EditAgent() {
             >
               <div style={{ fontSize: '13px', fontWeight: '700', letterSpacing: '0.02em', color: 'var(--tx)' }}>Integrations</div>
 
-              <div
-                style={{
-                  background: 'var(--s2)',
-                  border: '1px solid var(--line)',
-                  borderRadius: '12px',
-                  padding: '18px 20px'
-                }}
-              >
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap' }}>
-                  <div>
-                    <div style={{ fontSize: '16px', fontWeight: '700', color: 'var(--tx)', marginBottom: '4px' }}>Web Search</div>
-                    <div style={{ fontSize: '13px', color: 'var(--tx-3)' }}>Allow your bot to search the web for information</div>
-                  </div>
-
-                  <div
-                    onClick={() => setWebSearchEnabled(!webSearchEnabled)}
-                    style={{
-                      width: '52px',
-                      height: '30px',
-                      background: webSearchEnabled ? 'linear-gradient(90deg, #00b894, #00caa1)' : '#232323',
-                      border: webSearchEnabled ? '1px solid #00d2a8' : '1px solid var(--line-2)',
-                      borderRadius: '999px',
-                      position: 'relative',
-                      cursor: 'pointer',
-                      transition: 'all 0.25s ease',
-                      boxShadow: webSearchEnabled ? '0 0 0 3px rgba(0, 212, 168, 0.14)' : 'none',
-                      flexShrink: 0
-                    }}
-                  >
-                    <div
-                      style={{
-                        width: '24px',
-                        height: '24px',
-                        background: 'var(--s1)',
-                        borderRadius: '50%',
-                        position: 'absolute',
-                        top: '2px',
-                        left: webSearchEnabled ? '26px' : '2px',
-                        transition: 'left 0.25s ease'
-                      }}
-                    />
-                  </div>
-                </div>
-              </div>
+              {/* "Web Search" lived here. Nothing on either channel ever
+                  read webSearchEnabled — the agent has no web-search tool — so the
+                  switch is gone rather than left on screen implying one. */}
 
               <div
                 style={{
@@ -4599,7 +4564,7 @@ export default function EditAgent() {
             <ChatComponent 
               agentId={agentId ?? 'demo'}
               selectedLanguages={selectedLanguages.length > 0 ? selectedLanguages : ['English (Indian)']}
-              welcomeMessage={welcomeMessage}
+              welcomeMessage={activeWelcome}
             />
           </div>
         )}
@@ -4968,7 +4933,7 @@ export default function EditAgent() {
             
             <div style={{ flex: 1, overflowY: 'auto', padding: '20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
               <div style={{ alignSelf: 'flex-start', background: 'var(--s2)', padding: '10px 14px', borderRadius: '12px 12px 12px 0', fontSize: '13px', maxWidth: '85%' }}>
-                {welcomeMessage}
+                {activeWelcome}
               </div>
               {chatMessages.map((msg, i) => (
                 <div key={i} style={{ 

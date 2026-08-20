@@ -72,7 +72,6 @@ export function invalidateAgentRuntimeCaches(workspaceId, agentId) {
   agentCache.delete(`${workspaceId}:${agentId}`);
   kbCache.delete(`${workspaceId}:${agentId}`);
   kbChunkCache.delete(`${workspaceId}:${agentId}`);
-  welcomeCache.delete(agentId);
 }
 
 /**
@@ -109,7 +108,6 @@ export function invalidateKbCaches(workspaceId, agentId = null) {
   if (agentId) {
     kbCache.delete(`${workspaceId}:${agentId}`);
     kbChunkCache.delete(`${workspaceId}:${agentId}`);
-    welcomeCache.delete(agentId);
     return;
   }
   const prefix = `${workspaceId}:`;
@@ -119,9 +117,6 @@ export function invalidateKbCaches(workspaceId, agentId = null) {
   for (const key of kbChunkCache.keys()) {
     if (key.startsWith(prefix)) kbChunkCache.delete(key);
   }
-  // Keyed by agentId alone, so a workspace-wide change cannot target entries
-  // precisely. It is a small cache rebuilt on demand — clearing it is cheap.
-  welcomeCache.clear();
 }
 
 // ─── Persona ──────────────────────────────────────────────────────────────────
@@ -482,14 +477,12 @@ export function resolveLlmForAgent(agent, { lowLatency = false } = {}) {
 
 // ─── Welcome message rendering ────────────────────────────────────────────────
 
-// Rendered welcomes are cached per agent and invalidated when the agent config
-// or KB content changes, so the extra LLM call happens once, not per call.
-// `${agentId}:${effective direction}` -> { key, welcome }. Keyed by direction
-// as well as agent because the SAME agent legitimately has two greetings — one
-// for calls it places and one for calls it answers — and a single slot per
-// agent made an outbound campaign and an inbound line evict each other's
-// render on every call.
-const welcomeCache = new Map();
+// There is no welcome cache here any more, and its absence is the point. It
+// existed to hold the result of an LLM rewrite so the model was not asked once
+// per call; getRenderedWelcome() no longer calls a model at all, so the whole
+// thing collapses to reading two fields off a row the agent cache already
+// holds. What used to be a cache with a TTL, a content hash, a per-direction
+// key and a fire-and-forget write-back to the database is now a string lookup.
 
 /** Deterministic placeholder fill for when no KB (or no LLM) is available. */
 const stripPlaceholders = (text) =>
@@ -627,140 +620,110 @@ export async function getRenderedWelcome(workspaceId, agentId, { direction = nul
     err.statusCode = 404;
     throw err;
   }
-  const raw = agent.welcomeMessage || '';
+
+  const settings = safeJson(agent.settings, {});
   const persona = getPersonaName(agent);
-  const hasPlaceholders = /\[[^\]]+\]/.test(raw);
-  // "Hello, I am Cold Calling Leads, your AI assistant…" — greetings that speak
-  // the internal campaign name or call themselves an AI must be humanized.
-  // …but when the agent's name IS the persona ("Purva"), a greeting that says
-  // "I'm Purva" is exactly right and must not be rewritten into someone else.
-  const nameIsPersona = agentNameIsPersona(agent);
-  const soundsRobotic =
-    (agent.name && !nameIsPersona && raw.toLowerCase().includes(agent.name.toLowerCase())) ||
-    /\bAI\b|artificial intelligence|virtual assistant|\bbot\b/i.test(raw);
-  // The agent's configured language is authoritative for the whole call — a
-  // welcome stored in English must be spoken in (e.g.) Hindi when Hindi is
-  // the selected language, so it needs an LLM pass even if it isn't robotic.
-  const languages = safeJson(agent.languages, []);
-  const primaryLanguage = typeof languages[0] === 'string' ? languages[0] : '';
-  const needsTranslation = Boolean(primaryLanguage) && !/^english/i.test(primaryLanguage);
-  // INBOUND agents greet callers ("Thank you for calling…"); OUTBOUND agents
-  // open the call themselves — the rewrite must never flip that style.
-  // `direction` is this call's actual direction and wins where it is known;
-  // the stored setting is the fallback for callers that cannot tell.
-  const configuredDirection = safeJson(agent.settings, {}).callDirection;
-  const callDirection = direction || configuredDirection;
-  // An OUTBOUND agent whose stored greeting thanks the caller "for calling" is
-  // self-contradictory — the agent placed the call. Force a rewrite (or a
-  // deterministic strip) so it never speaks "thank you for calling", even when
-  // the greeting is otherwise clean (no placeholders / not robotic / English).
-  const directionMismatch =
-    callDirection === 'OUTBOUND' && THANKS_FOR_CALLING_RE.test(raw);
-  if (!hasPlaceholders && !soundsRobotic && !needsTranslation && !directionMismatch) {
-    return { welcome: raw, rendered: false };
-  }
 
-  const { kbText } = await getAgentKbText(workspaceId, agentId).catch(() => ({ kbText: '' }));
+  // `direction` is this call's actual direction and wins where it is known; the
+  // stored setting is the fallback for callers that cannot tell.
+  const callDirection = direction || settings.callDirection || null;
 
-  // Without a knowledge base there is nothing to ground a rewrite in — an LLM
-  // pass just hallucinates facts. Only translation still needs the LLM. An
-  // OUTBOUND greeting that thanks for calling is still deterministically fixed.
-  if (!kbText && !needsTranslation) {
-    const base = directionMismatch ? stripInboundThanks(raw, persona) : raw;
-    return { welcome: stripPlaceholders(base), rendered: true };
-  }
-
-  // Content-based key (NOT updatedAt-based: persisting the result below
-  // touches the row, which would otherwise invalidate its own cache entry).
-  let hash = 0;
-  // `persona` is part of the key: it decides the name the greeting speaks, so a
-  // persona change (or a rename that turns the agent name INTO the persona)
-  // must not keep serving a greeting that introduces someone else.
-  for (const ch of `${raw}|${persona}|${primaryLanguage}|${callDirection || ''}|${languageRegisterNote(primaryLanguage)}|${kbText.length}|${kbText.slice(0, 200)}`) {
-    hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-  }
-  const cacheKey = String(hash);
-
-  const memoKey = `${agentId}:${callDirection || ''}`;
-  const cached = welcomeCache.get(memoKey);
-  if (cached && cached.key === cacheKey) return { welcome: cached.welcome, rendered: true };
-
-  // Persisted in agent settings? Survives server restarts — the LLM rewrite
-  // (~2s) then never blocks opening the chat/call again.
-  const persisted = safeJson(agent.settings, {}).renderedWelcomeCache;
-  if (persisted?.key === cacheKey && persisted.welcome) {
-    welcomeCache.set(agentId, { key: cacheKey, welcome: persisted.welcome });
-    return { welcome: persisted.welcome, rendered: true };
-  }
-
-  let welcome;
-  try {
-    // lowLatency, even though this is not a live turn. Two reasons, both
-    // measured on 2026-08-19: the default (gemini-2.5-flash) is capped at 20
-    // requests PER DAY on this project's free tier and answers 429 for the rest
-    // of the day once that is spent — which silently fell back to the raw
-    // stored greeting — and this rewrite runs while a call is connecting the
-    // first time an agent is used, where a 1s model beats a 5s one. A one-line
-    // greeting rewrite has never needed the larger model.
-    const { llm, model } = resolveLlmForAgent(agent, { lowLatency: true });
-    const out = await llm.generateResponse(
-      `Original greeting:\n"${raw}"${kbText ? `\n\nCompany knowledge base:\n${kbText.slice(0, 8000)}` : ''}`,
-      { model, temperature: 0.1 },
-      {
-        systemPrompt:
-          `Rewrite this call-opening greeting so it sounds like a real human caller named ${persona}${kbText ? ' who works for the company described in the knowledge base' : ''}. Rules: introduce yourself only as ${persona}${kbText ? " from the company's real name found in the knowledge base" : ''}; ${nameIsPersona ? `you are called "${persona}" and MUST introduce yourself by that name — write it in the target script if the greeting is not in English (so the TTS voice pronounces it), but NEVER substitute a different name` : `never say "${agent.name}" (internal campaign label)`}, never say "AI", "assistant", or "bot"; replace any bracketed placeholder with the real value from the knowledge base, or drop it naturally if unknown; keep the greeting's original intent and warmth; 1-2 short spoken sentences.${callDirection === 'OUTBOUND'
-            ? ` This is an OUTBOUND call the agent is placing TO the customer — the customer did NOT call in, so open by introducing yourself BY NAME and naming the company you are calling FROM${kbText ? `, using the company's real name from the knowledge base — phrase it as "Hi, this is ${persona} calling from <that company>, …"` : `; if the original greeting names a company, phrase it as "Hi, this is ${persona} calling from <that company>, …", otherwise just introduce yourself by name and do NOT invent a company`}, then briefly give the reason for the call. NEVER say "thank you for calling" or "thanks for calling", and do NOT open with the reason before naming who is calling and from where.`
-            : callDirection === 'INBOUND'
-              ? ' This is an INBOUND call the customer placed to the company — thanking them for calling is appropriate.'
-              : ''}${needsTranslation ? ` Write the greeting ENTIRELY in ${primaryLanguage}, in its native script (e.g. Devanagari for Hindi) — it is spoken aloud by a ${primaryLanguage} text-to-speech voice.${languageRegisterNote(primaryLanguage)}` : ''} Output ONLY the final greeting text, no quotes, no explanations.`,
-        // Generous budget: Gemini 2.5's internal "thinking" tokens count
-        // against maxTokens, so a tight cap truncates the visible output.
-        maxTokens: 1000,
-        // No reasoning pass for a one-line rewrite — halves the latency.
-        thinkingBudget: 0,
-      }
-    );
-    welcome = (typeof out === 'object' ? out.message : out || '').trim().replace(/^["']|["']$/g, '');
-    // Guard against a bad LLM response: empty, truncated (no terminal
-    // punctuation / too short), brackets kept, or campaign name spoken.
-    // "।" is the Devanagari sentence terminator (danda) — without it every
-    // valid Hindi greeting would be rejected as truncated.
-    if (!welcome || welcome.length < 20 || !/[.!?।]$/.test(welcome) ||
-        /\[[^\]]+\]/.test(welcome) ||
-        (agent.name && !nameIsPersona && welcome.toLowerCase().includes(agent.name.toLowerCase())) ||
-        (directionMismatch && /\bfor\s+calling\b/i.test(welcome))) {
-      welcome = directionMismatch ? stripInboundThanks(stripPlaceholders(raw), persona) : stripPlaceholders(raw);
-    }
-  } catch {
-    welcome = directionMismatch ? stripInboundThanks(stripPlaceholders(raw), persona) : stripPlaceholders(raw);
-  }
-
-  welcomeCache.set(memoKey, { key: cacheKey, welcome });
-
-  // Persist fire-and-forget so restarts don't pay the LLM rewrite again.
-  // Re-read the row first: the 15s agent cache could hold stale settings and
-  // clobber an edit the user just saved.
+  // ── The greeting is spoken EXACTLY as it was written ────────────────────
   //
-  // ONLY the agent's own configured direction is persisted. There is one slot
-  // on the row, so writing a per-call override into it would make an outbound
-  // campaign and an inbound line overwrite each other's render on every single
-  // call — a DB write per call, and a persisted entry that is wrong for
-  // whichever side wrote it second. Overrides live in the in-memory map above,
-  // which has a slot per direction and is warm within one call anyway.
-  const persistable = !direction || direction === configuredDirection;
-  if (persistable) (async () => {
-    const fresh = await prisma.agent.findFirst({ where: { id: agentId, workspaceId } });
-    if (!fresh) return;
-    const settings = safeJson(fresh.settings, {});
-    settings.renderedWelcomeCache = { key: cacheKey, welcome };
-    await prisma.agent.update({
-      where: { id: agentId },
-      data: { settings: JSON.stringify(settings) },
-    });
-    agentCache.delete(`${workspaceId}:${agentId}`);
-  })().catch(() => {});
+  // This used to run an LLM rewrite whenever the greeting had placeholders,
+  // called itself an AI, contradicted the call's direction, or — the case that
+  // actually fired on nearly every real agent — was written in English while
+  // the agent's first configured language was not. The rewrite was told to
+  // "keep the greeting's original intent and warmth", which is an instruction
+  // to PARAPHRASE, and it did: an operator who wrote
+  //
+  //   "Hello, this is Anjali calling from Sunrise Multispeciality Hospital.
+  //    I'm calling to check how you're doing after your visit and to hear your
+  //    feedback — is this a good time to talk for two minutes?"
+  //
+  // heard the call open with a Hindi sentence that was recognisably about
+  // feedback and recognisably not what they wrote. The opening line of a call
+  // is the one sentence a business most wants to control, and the two-minute
+  // consent question — the part that makes the call legal and polite — is
+  // exactly the kind of clause a paraphrase drops.
+  //
+  // So the greeting is now DATA, not a prompt. Whatever is stored is what is
+  // spoken. Writing the Hindi is the operator's job, which is the right place
+  // for it: they know their business, and a translation they approved beats a
+  // translation generated fresh on a live call.
+  //
+  // Three things fall out of that, all wins:
+  //   - no LLM round trip while the callee is listening to silence, and no
+  //     dependence on a model's daily quota for a call to open at all;
+  //   - the text is stable, so services/voice/greetingAudio.js caches its audio
+  //     permanently instead of re-keying whenever the model phrases it
+  //     differently;
+  //   - the same words on the phone as in the browser, always.
+  //
+  // What is left is deterministic and cheap enough to run per call.
+  const raw = welcomeTextFor(agent, settings, callDirection);
 
-  return { welcome, rendered: true };
+  // [Placeholders] are stripped, not filled. There is no LLM here to look one
+  // up in the knowledge base, and speaking "[Your Company Name]" aloud is worse
+  // than speaking around it.
+  let welcome = stripPlaceholders(raw);
+
+  // Last-resort direction guard, kept because it is deterministic and because
+  // it protects the agents that have not filled in the new per-direction fields
+  // yet. An agent whose only greeting thanks the caller "for calling" is
+  // self-contradictory on a call WE placed; campaigns routinely dial out
+  // through agents saved as INBOUND or saved with no direction at all.
+  if (callDirection === 'OUTBOUND' && THANKS_FOR_CALLING_RE.test(welcome)) {
+    welcome = stripInboundThanks(welcome, persona);
+  }
+
+  welcome = String(welcome || '').trim();
+
+  // `rendered` reports whether the stored text was modified on its way out. It
+  // is no longer "an LLM was involved" — nothing here calls one.
+  return { welcome, rendered: welcome !== String(raw || '').trim() };
+}
+
+/**
+ * Which greeting this call should open with.
+ *
+ * A single welcome field cannot serve both directions. "Thank you for calling
+ * Sunrise Hospital" is right when they rang us and absurd when we rang them;
+ * "Hi, this is Anjali calling from Sunrise Hospital, is now a good time?" is
+ * the reverse. The product offers both inbound and outbound calling, so the
+ * greeting is configured per direction — and until this existed, the gap was
+ * being papered over by asking an LLM to rewrite one into the other, which is
+ * how the operator's words stopped being the words that were spoken.
+ *
+ * Resolution is a fallback chain rather than a hard requirement, so no existing
+ * agent breaks: an agent that has only ever had `welcomeMessage` keeps using it
+ * for both directions, exactly as before.
+ *
+ *   settings.welcomeOutbound / settings.welcomeInbound   ← per-direction, preferred
+ *   agent.welcomeMessage                                  ← the single legacy field
+ *   "Hello, this is <persona>."                           ← never dead air on answer
+ *
+ * Stored in `settings` rather than as new columns deliberately: nearly all
+ * agent configuration already lives there (callDirection, personaName,
+ * endCallMessage, transfer…), so this needs no migration against the live
+ * database and an older server reading a newer row simply falls back.
+ *
+ * @param {object} agent
+ * @param {object} settings   the agent's parsed settings
+ * @param {'INBOUND'|'OUTBOUND'|null} callDirection
+ */
+export function welcomeTextFor(agent, settings, callDirection) {
+  const perDirection = callDirection === 'OUTBOUND' ? settings.welcomeOutbound
+    : callDirection === 'INBOUND' ? settings.welcomeInbound
+    // Direction genuinely unknown (an inbound webhook on a number that could be
+    // either). Prefer the agent's own configured side over guessing.
+    : (settings.callDirection === 'OUTBOUND' ? settings.welcomeOutbound : settings.welcomeInbound);
+
+  const chosen = typeof perDirection === 'string' && perDirection.trim()
+    ? perDirection
+    : agent.welcomeMessage;
+
+  return String(chosen || '').trim() || `Hello, this is ${getPersonaName(agent)}.`;
 }
 
 // ─── Conversation ─────────────────────────────────────────────────────────────
