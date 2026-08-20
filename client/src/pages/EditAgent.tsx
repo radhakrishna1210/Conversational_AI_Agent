@@ -655,7 +655,11 @@ export default function EditAgent() {
           // there rather than starting at a blank box.
           setWelcomeInbound((agent as any).welcomeInbound ?? agent.welcomeMessage ?? '');
           setWelcomeOutbound((agent as any).welcomeOutbound ?? agent.welcomeMessage ?? '');
-          setSelectedLanguages(((agent as any).languages ?? agent.selectedLanguages) || ['English (Indian)']);
+          const loadedLanguages = ((agent as any).languages ?? agent.selectedLanguages) || ['English (Indian)'];
+          setSelectedLanguages(loadedLanguages);
+          // Arms the auto-translate effect above: from here on, a change of
+          // primary language is the operator's doing and worth acting on.
+          languageActedOn.current = loadedLanguages[0] || '';
           setVoice(agent.voice || 'Google - Aoede (female)');
           setAiModel(agent.aiModel || 'GPT-4.1-Mini');
           setTranscription(agent.transcription || 'Azure');
@@ -807,6 +811,107 @@ export default function EditAgent() {
   const updateFlowItem = (id: string, updates: Partial<FlowItem>) => {
     setFlowItems(flowItems.map(item => item.id === id ? { ...item, ...updates } : item));
   };
+
+  // ── Is the greeting written in the language this agent speaks? ──────────
+  //
+  // The greeting is spoken by TTS EXACTLY as stored — nothing translates it on
+  // the call any more, because the thing that used to (an LLM rewrite told to
+  // "keep the original intent") paraphrased the operator's words instead of
+  // translating them, on a live line, while the callee listened to silence.
+  //
+  // Translation therefore belongs HERE, in the editor, where the operator can
+  // read the result and fix it before a single customer hears it. All this has
+  // to do is notice a mismatch and offer to fix it.
+  //
+  // Detection is by SCRIPT, not by a model. A Hindi TTS voice handed Latin text
+  // either spells it out or reads it with an English phoneme set; the failure is
+  // "wrong script", and the script is something we can simply look at. Languages
+  // that share the Latin alphabet are deliberately not checked — there is no
+  // reliable, cheap way to tell French from English by codepoint, and a wrong
+  // warning on correct text is worse than no warning.
+  const SCRIPT_RANGES: Record<string, RegExp> = {
+    hindi: /[\u0900-\u097F]/, marathi: /[\u0900-\u097F]/, nepali: /[\u0900-\u097F]/,
+    bengali: /[\u0980-\u09FF]/, punjabi: /[\u0A00-\u0A7F]/, gujarati: /[\u0A80-\u0AFF]/,
+    tamil: /[\u0B80-\u0BFF]/, telugu: /[\u0C00-\u0C7F]/, kannada: /[\u0C80-\u0CFF]/,
+    malayalam: /[\u0D00-\u0D7F]/, odia: /[\u0B00-\u0B7F]/, urdu: /[\u0600-\u06FF]/,
+    arabic: /[\u0600-\u06FF]/, russian: /[\u0400-\u04FF]/, japanese: /[\u3040-\u30FF]/,
+    korean: /[\uAC00-\uD7AF]/, chinese: /[\u4E00-\u9FFF]/, thai: /[\u0E00-\u0E7F]/,
+  };
+
+  // The agent's primary language — the one the runtime tells the model to
+  // default to, including on the very first turn. The greeting has to match it.
+  const primaryLanguage = selectedLanguages[0] || '';
+  const primaryScript = SCRIPT_RANGES[primaryLanguage.toLowerCase().split(/[\s(]/)[0]] ?? null;
+
+  /** True when this text plainly is not in the agent's primary language. */
+  const isOffLanguage = (text: string) =>
+    Boolean(primaryScript) && text.trim().length > 0 && !primaryScript!.test(text);
+
+  const [translating, setTranslating] = useState<'INBOUND' | 'OUTBOUND' | null>(null);
+
+  /**
+   * Translate one greeting into the agent's primary language, in place.
+   *
+   * Strictly a translation, not a rewrite: the prompt forbids adding, dropping
+   * or reordering anything. That constraint is the whole point — the clause an
+   * old paraphrase kept losing was the two-minute consent question, which is
+   * the part that makes an outbound call polite and, in some places, legal.
+   *
+   * The result lands in the textarea rather than being saved, so the operator
+   * reads it first. Nothing here touches a live call.
+   */
+  const translateWelcome = async (dir: 'INBOUND' | 'OUTBOUND') => {
+    const text = dir === 'OUTBOUND' ? welcomeOutbound : welcomeInbound;
+    if (!text.trim() || !primaryLanguage || translating) return;
+    setTranslating(dir);
+    try {
+      const response = await whapi.post<{ message: string }>('/llm/generate', {
+        agentId,
+        message: text,
+        systemPrompt:
+          `Translate the following call greeting into ${primaryLanguage}, in its native script. ` +
+          'It is spoken aloud by a text-to-speech voice, so write it the way a person would say it. ' +
+          'Translate EXACTLY: do not add, remove, reorder or soften anything, keep every question ' +
+          'and every clause, and keep proper nouns (people, companies, places) as they are. ' +
+          'Output ONLY the translated greeting — no quotes, no notes, no alternatives.',
+        useFallback: true,
+      });
+      const out = (response.message || '').trim().replace(/^["']|["']$/g, '');
+      if (!out) return;
+      if (dir === 'OUTBOUND') setWelcomeOutbound(out); else setWelcomeInbound(out);
+    } catch {
+      // Non-fatal by design: a failed translation leaves the operator's own text
+      // in the box, which is a greeting that works — just not in their language.
+    } finally {
+      setTranslating(null);
+    }
+  };
+
+  /**
+   * The language selection is the operator SAYING what this agent speaks, so
+   * acting on it is not a surprise — leaving the greeting in the old language
+   * would be. Both greetings are translated in place; the operator sees the
+   * result in the boxes and saves (or edits) from there, and nothing has
+   * reached a customer yet.
+   *
+   * Sequential, not parallel: `translating` names one field at a time, and two
+   * in flight would let the second overwrite the first field's spinner state.
+   */
+  const translateOffLanguageWelcomes = async () => {
+    if (isOffLanguage(welcomeInbound)) await translateWelcome('INBOUND');
+    if (isOffLanguage(welcomeOutbound)) await translateWelcome('OUTBOUND');
+  };
+
+  // Set once the agent has hydrated, so loading an agent whose greeting is
+  // already off-language does not rewrite it behind the operator's back on
+  // sight. Only a DELIBERATE change of language triggers a translation.
+  const languageActedOn = useRef<string | null>(null);
+  useEffect(() => {
+    if (languageActedOn.current === null || languageActedOn.current === primaryLanguage) return;
+    languageActedOn.current = primaryLanguage;
+    translateOffLanguageWelcomes();
+    /* eslint-disable-line react-hooks/exhaustive-deps */
+  }, [primaryLanguage]);
 
   const toggleLanguage = (lang: string) => {
     setSelectedLanguages(prev =>
@@ -3177,6 +3282,7 @@ export default function EditAgent() {
                 ]).map(({ dir, label, value, set, hint, placeholder }) => {
                   const active = callDirection === dir;
                   const thanksMismatch = dir === 'OUTBOUND' && THANKS_FOR_CALLING_RE.test(value);
+                  const offLanguage = isOffLanguage(value);
                   return (
                     <div key={dir} style={{ marginBottom: '16px' }}>
                       <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', marginBottom: '7px', flexWrap: 'wrap' }}>
@@ -3207,7 +3313,38 @@ export default function EditAgent() {
                         }}
                         placeholder={placeholder}
                       />
-                      <div style={{ fontSize: '11px', color: 'var(--tx-3)', textAlign: 'right', marginTop: '6px' }}>{value.length}/600</div>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '10px', marginTop: '6px', flexWrap: 'wrap' }}>
+                        {/* Offered whenever there is a script to translate INTO,
+                            not only on a mismatch: an operator revising Hindi
+                            text should not have to delete it to get the button
+                            back. Disabled while another field is translating so
+                            two requests cannot race into one box. */}
+                        {primaryScript && value.trim() ? (
+                          <button
+                            type="button"
+                            onClick={() => translateWelcome(dir)}
+                            disabled={translating !== null}
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: '6px',
+                              background: offLanguage ? 'var(--cyan)' : 'transparent',
+                              color: offLanguage ? '#060c17' : 'var(--tx-2)',
+                              border: `1px solid ${offLanguage ? 'var(--cyan)' : 'var(--line)'}`,
+                              borderRadius: '6px', padding: '5px 11px',
+                              fontSize: '11px', fontWeight: 700, cursor: translating ? 'wait' : 'pointer',
+                              opacity: translating !== null && translating !== dir ? 0.5 : 1,
+                            }}
+                          >
+                            {translating === dir ? 'Translating…' : `Translate to ${primaryLanguage}`}
+                          </button>
+                        ) : <span />}
+                        <span style={{ fontSize: '11px', color: 'var(--tx-3)' }}>{value.length}/600</span>
+                      </div>
+                      {offLanguage && (
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '8px', padding: '10px 12px', background: '#0a2436', border: '1px solid #17567a', borderRadius: '8px', fontSize: '12px', color: '#7fd3ff', lineHeight: 1.45 }}>
+                          <span aria-hidden>🗣️</span>
+                          <span>This agent speaks <b>{primaryLanguage}</b>, but this greeting is not written in {primaryLanguage}'s script. It is spoken aloud exactly as typed, so a {primaryLanguage} voice would read these characters instead of the words. Translate it, or rewrite it in {primaryLanguage}.</span>
+                        </div>
+                      )}
                       {thanksMismatch && (
                         <div style={{ display: 'flex', gap: '8px', marginTop: '8px', padding: '10px 12px', background: '#2a1a0a', border: '1px solid #5a3a12', borderRadius: '8px', fontSize: '12px', color: '#ffb74d', lineHeight: 1.45 }}>
                           <span aria-hidden>⚠️</span>
