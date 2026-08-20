@@ -145,3 +145,61 @@ describe('carrier documents survive a two-parameter stream URL', () => {
     assert.ok(JSON.stringify(json).includes(url.replace(/&/g, '&')));
   });
 });
+
+// ── P1: the engine rides the same URL, for the same reason ──────────────────
+//
+// server.js used to answer "bundled or modular?" with an uncached Supabase read
+// that blocked the WebSocket handshake — 490-1400ms of dead air after the callee
+// picked up, on every call. The dialler already knows, so it says so here. Same
+// two halves as `direction`: emitted when asked for, ABSENT otherwise (absent
+// means "unknown", and server.js falls back to the cached lookup).
+
+describe('engine on the media stream URL', () => {
+  for (const [name, provider] of [['twilio', twilioProvider], ['plivo', plivoProvider]]) {
+    test(`${name}: engine is absent unless the dialler supplies it`, () => {
+      assert.ok(!provider.mediaStreamUrl(ARGS).includes('engine='));
+    });
+
+    test(`${name}: engine is emitted, lower-cased`, () => {
+      const url = new URL(provider.mediaStreamUrl({ ...ARGS, engine: 'Modular' }));
+      assert.equal(url.searchParams.get('engine'), 'modular');
+    });
+
+    test(`${name}: direction and engine coexist without breaking the query string`, () => {
+      // The bug this guards: the old `direction ? url + '?direction=…' : url`
+      // form emits a SECOND '?' once there are two parameters, and whichever
+      // one lands after it is silently lost.
+      const raw = provider.mediaStreamUrl({ ...ARGS, direction: 'OUTBOUND', engine: 'bundled' });
+      assert.equal((raw.match(/\?/g) || []).length, 1, 'exactly one question mark');
+      const url = new URL(raw);
+      assert.equal(url.searchParams.get('direction'), 'outbound');
+      assert.equal(url.searchParams.get('engine'), 'bundled');
+    });
+  }
+
+  test('plivo: callLogId can still be appended on top of both', () => {
+    // The answer controller adds callLogId to whatever mediaStreamUrl produced.
+    const url = new URL(plivoProvider.mediaStreamUrl({ ...ARGS, direction: 'OUTBOUND', engine: 'modular' }));
+    url.searchParams.set('callLogId', 'log_1');
+    assert.equal(url.searchParams.get('direction'), 'outbound');
+    assert.equal(url.searchParams.get('engine'), 'modular');
+    assert.equal(url.searchParams.get('callLogId'), 'log_1');
+  });
+
+  test('plivo: the three-parameter URL survives into the stream XML escaped', () => {
+    // Two '&' now, where there was one. An unescaped ampersand makes the answer
+    // document unparseable and Plivo drops the call on answer.
+    const url = new URL(plivoProvider.mediaStreamUrl({ ...ARGS, direction: 'OUTBOUND', engine: 'modular' }));
+    url.searchParams.set('callLogId', 'log_1');
+    const xml = buildStreamXml({ streamUrl: url.toString() });
+    assert.ok(!/&(?!amp;)/.test(xml), `raw ampersand left in: ${xml}`);
+    assert.ok(xml.includes('engine=modular'));
+  });
+
+  test('twilio: the three-parameter URL survives into the TwiML escaped', () => {
+    const url = twilioProvider.mediaStreamUrl({ ...ARGS, direction: 'OUTBOUND', engine: 'bundled' });
+    const xml = twilioProvider.buildConversationDoc({ streamUrl: url, callLogId: 'log_1' });
+    assert.ok(!/&(?!amp;)/.test(xml), `raw ampersand left in: ${xml}`);
+    assert.ok(xml.includes('engine=bundled'));
+  });
+});

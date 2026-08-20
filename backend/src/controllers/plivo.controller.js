@@ -37,7 +37,8 @@ import {
 import { settleBroadcastCall } from '../services/broadcast/broadcastSettlement.service.js';
 import { releaseSlot } from '../services/telephony/concurrency.js';
 import { syncProgress } from '../services/broadcast/broadcastRunner.service.js';
-import { getRenderedWelcome } from '../services/agentRuntime.service.js';
+import { getRenderedWelcome, loadAgent } from '../services/agentRuntime.service.js';
+import { isBundledEngine } from '../services/outboundCall.service.js';
 import { createCallFinalizer } from '../ws/callFinalizer.js';
 
 /**
@@ -165,10 +166,13 @@ export async function answer(req, res) {
     return failXml(res, 400, `answer called without workspaceId/agentId (CallUUID ${callUuid})`);
   }
 
-  const agent = await prisma.agent.findFirst({
-    where: { id: agentId, workspaceId },
-    select: { settings: true, welcomeMessage: true, name: true },
-  });
+  // loadAgent(), not a raw findFirst: Plivo fetches this endpoint AFTER the
+  // callee has picked up, so everything here is silence on a live line, and one
+  // Supabase round trip from this server measures 490-1400ms. Behind the
+  // 5-minute agent cache a campaign pays it once per agent instead of once per
+  // call — and it populates the very cache the media bridge reads moments later,
+  // so that lookup stops being a second identical round trip too.
+  const agent = await loadAgent(workspaceId, agentId);
   if (!agent) {
     return failXml(res, 404, `agent ${agentId} not found in workspace ${workspaceId}`);
   }
@@ -197,25 +201,41 @@ export async function answer(req, res) {
 
   // ── conversation ──
   //
-  // No engine check here. Both bridges exist — bundled (plivoMediaRealtime) and
-  // modular (plivoMediaModular) — and server.js picks between them per call by
-  // re-reading the agent's engine at upgrade time. Refusing a "non-bundled"
-  // engine here, as this did while only the bundled bridge existed, would now
-  // reject every knowledge-base agent.
+  // No engine check here — this does not REFUSE anything. Both bridges exist,
+  // bundled (plivoMediaRealtime) and modular (plivoMediaModular), and refusing a
+  // "non-bundled" engine here, as this did while only the bundled bridge
+  // existed, would reject every knowledge-base agent.
+  //
+  // What it does do is ANSWER the question, so server.js does not have to. We
+  // are already holding the agent row (loaded above, for the 404 and the
+  // greeting), so the engine is free here — whereas in the upgrade handler it
+  // costs a Supabase round trip mid-handshake, i.e. dead air on a line the
+  // callee has already answered. This covers INBOUND calls, which have no
+  // dialler to have put the flag on the URL; `field(req, 'engine')` is the
+  // outbound case, where placeCall() already stamped it on the answer URL.
   if (!env.PUBLIC_BACKEND_WS_URL) {
     return failXml(res, 500, 'PUBLIC_BACKEND_WS_URL is not set, so there is no media bridge address');
   }
 
-  // The bridge learns BOTH the call log and the call's direction from the socket
-  // URL, because Plivo's `start` event carries no per-call parameters of our
-  // choosing. Built with URL/searchParams rather than string concatenation:
-  // mediaStreamUrl() may already have put a query string on it, and `+= '?…'`
-  // would then emit a second `?` and silently lose one of the two.
+  const declaredEngine = String(field(req, 'engine') || '').toLowerCase();
+  let engine = declaredEngine === 'bundled' || declaredEngine === 'modular' ? declaredEngine : null;
+  if (!engine) {
+    let voiceEngine = 'modular';
+    try { voiceEngine = JSON.parse(agent.settings || '{}').voiceEngine || 'modular'; } catch { /* default */ }
+    engine = isBundledEngine(voiceEngine) ? 'bundled' : 'modular';
+  }
+
+  // The bridge learns the call log, the call's direction AND which bridge to be
+  // from the socket URL, because Plivo's `start` event carries no per-call
+  // parameters of our choosing. Built with URL/searchParams rather than string
+  // concatenation: mediaStreamUrl() may already have put a query string on it,
+  // and `+= '?…'` would then emit a second `?` and silently lose one of them.
   const streamUrlObj = new URL(plivoProvider.mediaStreamUrl({
     baseWsUrl: env.PUBLIC_BACKEND_WS_URL,
     workspaceId,
     agentId,
     direction,
+    engine,
   }));
   if (callLogId) streamUrlObj.searchParams.set('callLogId', callLogId);
   const streamUrl = streamUrlObj.toString();

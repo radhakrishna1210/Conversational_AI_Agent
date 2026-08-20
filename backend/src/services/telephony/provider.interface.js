@@ -71,7 +71,8 @@
  * @property {() => string} defaultFrom                      env-configured fallback caller ID
  * @property {(fromNumber?: string) => ReadyResult} status
  * @property {(p: {baseWsUrl: string, workspaceId: string, agentId: string,
- *                 direction?: 'INBOUND'|'OUTBOUND'|null}) => string} mediaStreamUrl
+ *                 direction?: 'INBOUND'|'OUTBOUND'|null,
+ *                 engine?: 'bundled'|'modular'|null}) => string} mediaStreamUrl
  * @property {(p: {streamUrl: string, callLogId: string|null}) => string} buildConversationDoc
  * @property {(p: {greeting: string, closingLine: string}) => string} buildGreetingDoc
  * @property {(p: {credentials: ProviderCredentials, to: string, from: string,
@@ -104,3 +105,31 @@ export const xmlUrl = (s) =>
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;');
+
+/**
+ * Append the media-bridge's per-call query parameters to a stream URL.
+ *
+ * Two things ride here, both set ONLY by the dialler and both meaning "unknown"
+ * by their absence rather than defaulting to something:
+ *
+ *   direction  which way this leg went, so the bridge greets correctly. An
+ *              inbound webhook builds the same URL without it, and campaigns
+ *              routinely dial out through agents saved as INBOUND.
+ *   engine     'bundled' | 'modular' — which bridge this call is for. The
+ *              dialler resolved it (resolveCallMode) before the carrier was
+ *              asked to dial, so saying it here saves server.js a Supabase
+ *              round trip on the answer path, where it is dead air on a live
+ *              line. See resolveBundledEngine() in server.js.
+ *
+ * Built with URLSearchParams rather than by concatenation because the moment
+ * there are TWO parameters the naive `? …` form emits a second `?` and silently
+ * drops one of them — and because the resulting `&` then has to survive
+ * xmlUrl() into the call document.
+ */
+export const withStreamParams = (url, { direction = null, engine = null } = {}) => {
+  const params = new URLSearchParams();
+  if (direction) params.set('direction', String(direction).toLowerCase());
+  if (engine) params.set('engine', String(engine).toLowerCase());
+  const qs = params.toString();
+  return qs ? `${url}?${qs}` : url;
+};

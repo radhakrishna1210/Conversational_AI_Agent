@@ -34,7 +34,7 @@
 // Call identifier: Plivo calls it `call_uuid`, normalized to `callId` here so
 // the outer service keeps exposing `callSid` unchanged.
 
-import { xmlSafe, xmlUrl } from './provider.interface.js';
+import { xmlSafe, xmlUrl, withStreamParams } from './provider.interface.js';
 
 const API_HOST = 'https://api.plivo.com';
 
@@ -149,10 +149,16 @@ export const plivoProvider = {
    * same URL without it — so its ABSENCE means "unknown", never "inbound".
    * See getRenderedWelcome() for why the agent's stored callDirection is not
    * enough on its own.
+   *
+   * `engine` ('bundled' | 'modular') is the same shape of fact: the dialler has
+   * already resolved which bridge this call is for, so saying it here spares
+   * server.js a Supabase round trip during the WebSocket handshake — which is
+   * dead air on a line the callee has already answered. Absent means "unknown"
+   * and server.js falls back to looking it up. See resolveBundledEngine().
    */
-  mediaStreamUrl({ baseWsUrl, workspaceId, agentId, direction = null }) {
+  mediaStreamUrl({ baseWsUrl, workspaceId, agentId, direction = null, engine = null }) {
     const url = `${baseWsUrl.replace(/\/$/, '')}/api/v1/plivo-media/${workspaceId}/${agentId}`;
-    return direction ? `${url}?direction=${encodeURIComponent(String(direction).toLowerCase())}` : url;
+    return withStreamParams(url, { direction, engine });
   },
 
   /**
@@ -242,6 +248,11 @@ export const plivoProvider = {
     // in the controller rather than here, so without this hop the bridge would
     // have no way to know a campaign call was dialled out.
     if (context.direction) answerUrl.searchParams.set('direction', String(context.direction).toLowerCase());
+    // Same hop, same reason: the dialler already knows which bridge this call
+    // is for, and the answer endpoint is the only place that fact can be handed
+    // to the stream URL it mints. Without it server.js re-reads the agent row
+    // mid-handshake, which is dead air on an answered line.
+    if (context.engine) answerUrl.searchParams.set('engine', String(context.engine).toLowerCase());
     // Whatever else the caller needs back on the callbacks. A broadcast has no
     // agent and no call log — its identity is a BroadcastRecipient row — and
     // this is the only channel Plivo offers for carrying it.

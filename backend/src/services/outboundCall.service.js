@@ -26,14 +26,77 @@ import { resolveProvider } from './telephony/index.js';
 import { acquireSlot } from './telephony/concurrency.js';
 import { xmlSafe } from './telephony/provider.interface.js';
 import { isDeepgramConfigured } from './stt/deepgramStream.service.js';
-import { supportsTelephony } from './voice/telephonyAudio.js';
+import { supportsTelephony, telephonyOutputFormat } from './voice/telephonyAudio.js';
 import { getRenderedWelcome } from './agentRuntime.service.js';
+import { resolveAgentVoice } from './voice.service.js';
+import { warmGreetingAudio, greetingSynthesisOpts } from './voice/greetingAudio.js';
 
 const BUNDLED_ENGINES = new Set(['xai', 'elevenlabs']);
+
+/**
+ * Does this `settings.voiceEngine` value run on a bundled speech-to-speech
+ * engine (the carrier's media stream is piped straight into the vendor's own
+ * realtime session), rather than on our modular STT→LLM→TTS pipeline?
+ *
+ * Exported because server.js has to answer the same question when a carrier
+ * opens a media socket, and it used to answer it with its own inline
+ * `engine === 'xai' || engine === 'elevenlabs'`. Two copies of the same list is
+ * how a third bundled engine ends up dialled through the modular bridge —
+ * silently, for the whole call.
+ */
+export const isBundledEngine = (engine) => BUNDLED_ENGINES.has(String(engine || 'modular'));
 
 const parseSettings = (agent) => {
   try { return JSON.parse(agent.settings || '{}'); } catch { return {}; }
 };
+
+/**
+ * Get this agent's greeting rendered AND synthesized before the callee answers.
+ *
+ * Two separate costs the modular phone bridge otherwise pays as dead air, both
+ * on the answer path where the caller is listening to silence:
+ *
+ *   1. getRenderedWelcome() — an LLM rewrite the first time an agent is used
+ *      (translation, [placeholder] filling, un-robotifying). Memoized per agent
+ *      afterwards, but the FIRST call of a campaign eats it.
+ *   2. the TTS round trip for those one or two sentences, on EVERY call.
+ *
+ * Ringing lasts seconds and has nobody waiting on it, so both belong here.
+ *
+ * Deliberately best-effort in every direction: it resolves the same greeting
+ * text the bridge will (`rendered || welcomeMessage || "Hello, this is …"`) and
+ * the same synthesis options (greetingSynthesisOpts), but if any of that
+ * diverges the bridge simply misses the cache and streams the greeting exactly
+ * as it does today. A miss costs what today costs; it can never be wrong.
+ *
+ * Only for the modular route — a bundled engine speaks its own greeting inside
+ * the vendor's realtime session and never calls our TTS at all.
+ */
+async function warmPhoneGreeting(workspaceId, agent) {
+  const settings = parseSettings(agent);
+
+  // OUTBOUND, matching the stream URL this dial is building. The bridge keys
+  // its welcome render by direction too, so warming the wrong one warms an
+  // entry nothing reads.
+  let text = agent.welcomeMessage || `Hello, this is ${agent.name}.`;
+  try {
+    const rendered = await getRenderedWelcome(workspaceId, agent.id, { direction: 'OUTBOUND' });
+    if (rendered?.welcome) text = rendered.welcome;
+  } catch (e) {
+    logger.warn(`Greeting pre-render failed (the call will render it on answer): ${e.message}`);
+  }
+
+  const voice = await resolveAgentVoice(agent.voice).catch(() => null);
+  if (!voice) return;
+
+  // The bridge refuses a voice that cannot emit a telephony format, so there is
+  // nothing to warm for one — and warming the provider's default MP3 would fill
+  // a cache entry the bridge will never ask for.
+  const ttsFormat = telephonyOutputFormat(voice.provider?.name || settings.ttsProvider);
+  if (!ttsFormat) return;
+
+  await warmGreetingAudio(voice, text, greetingSynthesisOpts(ttsFormat, settings));
+}
 
 /**
  * Can this agent hold a real two-way phone conversation?
@@ -279,8 +342,22 @@ export async function placeOutboundCall({
       // (or direction-less) agent used for a campaign used to say. The bridge
       // reads this back off the socket URL; see getRenderedWelcome().
       direction: 'OUTBOUND',
+      // Which bridge this call is for. We resolved it above (resolveCallMode)
+      // to decide whether to dial at all, so server.js should not have to
+      // re-read the agent row during the WebSocket handshake to learn the same
+      // thing — that read is 490-1400ms of silence after the callee picks up,
+      // on every call in the campaign. Absent for inbound; see
+      // resolveBundledEngine() in server.js for the fallback.
+      engine: isBundledEngine(engine) ? 'bundled' : 'modular',
     });
     document = provider.buildConversationDoc({ streamUrl, callLogId: logId });
+    // Render and synthesize the greeting NOW, while the phone is about to ring.
+    // Ringing is the one stretch of a phone call with nobody waiting on us, and
+    // the alternative is doing both at the moment the callee says "hello?",
+    // where every millisecond is dead air. Fire-and-forget on purpose: a failed
+    // or slow warm just means the bridge does it the old way, so this can never
+    // delay or fail a dial. See services/voice/greetingAudio.js.
+    if (!isBundledEngine(engine)) warmPhoneGreeting(workspaceId, agent).catch(() => {});
   } else {
     // The rendered welcome, for the same reason the media bridge uses it: this
     // is the agent's greeting in the agent's configured language, with
@@ -307,11 +384,18 @@ export async function placeOutboundCall({
       document,
       // Carriers with no per-call document carry these through their own
       // metadata field instead; providers that embed them in XML ignore it.
-      // `direction` rides along for carriers whose bridge cannot be reached
-      // through a stream URL we build here — Plivo hands the carrier an ANSWER
-      // URL and rebuilds the stream URL in its own controller, so the flag has
-      // to survive that hop to reach the bridge.
-      context: { workspaceId, agentId: agent.id, callLogId: logId, direction: 'OUTBOUND' },
+      // `direction` and `engine` ride along for carriers whose bridge cannot be
+      // reached through a stream URL we build here — Plivo hands the carrier an
+      // ANSWER URL and rebuilds the stream URL in its own controller, so both
+      // flags have to survive that hop to reach the bridge. On Twilio they are
+      // already on the stream URL inside `document` and this is ignored.
+      context: {
+        workspaceId,
+        agentId: agent.id,
+        callLogId: logId,
+        direction: 'OUTBOUND',
+        engine: isBundledEngine(engine) ? 'bundled' : 'modular',
+      },
     });
 
     if (!result.ok) {

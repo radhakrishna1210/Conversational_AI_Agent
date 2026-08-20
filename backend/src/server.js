@@ -20,6 +20,8 @@ import { handlePlivoMediaUpgrade } from './ws/plivoMediaRealtime.handler.js';
 import { handlePiopiyMediaUpgrade } from './ws/piopiyMediaRealtime.handler.js';
 import { handlePlivoMediaModularUpgrade } from './ws/plivoMediaModular.handler.js';
 import { SAMPLE_RATES, DEFAULT_SAMPLE_RATE } from './services/telephony/piopiy.provider.js';
+import { isBundledEngine } from './services/outboundCall.service.js';
+import { loadAgent } from './services/agentRuntime.service.js';
 import { resumeStuckKbJobs } from './services/kbChunking.service.js';
 import { startRecordingRetention } from './services/recordingRetention.service.js';
 
@@ -114,20 +116,49 @@ const PIOPIY_MEDIA_UPGRADE_PATH = /^\/api\/v1\/piopiy-media\/([^/]+)\/([^/]+)$/;
 /**
  * Does this agent run on a bundled speech-to-speech engine?
  *
+ * ── THIS RUNS BEFORE THE 101, SO IT IS DEAD AIR ON A LIVE LINE ──────────────
+ *
+ * A carrier opens the media socket the instant the callee says "hello?", and
+ * the upgrade cannot complete until this resolves (see the note on the Twilio
+ * branch below for why the lookup must not move INSIDE handleUpgrade). This
+ * used to be a raw, uncached `prisma.agent.findFirst`, and one Supabase round
+ * trip from this app server measures 490-1400ms — a bare `SELECT 1` costs the
+ * same, so it is network distance, not query cost. That was half a second to a
+ * second and a half of silence on EVERY phone call, paid again by every call in
+ * a bulk campaign, and it sat one level above all the careful concurrency work
+ * inside the bridge's own `start` handler. A web call pays none of it: its
+ * upgrade path does no lookup at all.
+ *
+ * Two things fix it, and the fast one is tried first:
+ *
+ *   1. `engine` ON THE SOCKET URL. The dialler already resolved the engine
+ *      (resolveCallMode) before it asked the carrier to dial, so it can simply
+ *      say so — exactly as it already does for `direction` and `callLogId`.
+ *      When present this costs nothing at all. Absent for inbound calls and for
+ *      calls dialled before this shipped, which is what (2) is for.
+ *   2. `loadAgent()` INSTEAD OF A RAW QUERY. Same row, but behind the 5-minute
+ *      agent cache, so a campaign pays the round trip once per agent rather
+ *      than once per call — and, just as importantly, it POPULATES that cache,
+ *      so the `loadAgent()` the bridge runs moments later inside `start` is a
+ *      hit instead of a second identical round trip.
+ *
  * Never throws: an unreachable database must not take the call down. Falling
  * back to the bundled bridge is deliberate — it refuses a mismatched engine
  * loudly on the first frame, whereas guessing modular would run an entire call
  * through the wrong pipeline.
  */
-async function resolveBundledEngine(workspaceId, agentId) {
+async function resolveBundledEngine(workspaceId, agentId, declaredEngine = null) {
+  // The dialler's own answer. Only ever 'bundled' or 'modular' — anything else
+  // (including a stale or hand-edited URL) falls through to the lookup rather
+  // than being trusted, so a bad query string degrades to slow, never to wrong.
+  if (declaredEngine === 'bundled') return true;
+  if (declaredEngine === 'modular') return false;
+
   try {
-    const agent = await prisma.agent.findFirst({
-      where: { id: agentId, workspaceId },
-      select: { settings: true },
-    });
+    const agent = await loadAgent(workspaceId, agentId);
     let engine = 'modular';
     try { engine = JSON.parse(agent?.settings || '{}').voiceEngine || 'modular'; } catch { /* default */ }
-    return engine === 'xai' || engine === 'elevenlabs';
+    return isBundledEngine(engine);
   } catch (e) {
     logger.warn(`Could not resolve voice engine for media stream: ${e.message}`);
     return true;
@@ -154,6 +185,14 @@ httpServer.on('upgrade', (req, socket, head) => {
   // getRenderedWelcome().
   const rawDirection = String(url.searchParams.get('direction') || '').toUpperCase();
   const callDirection = rawDirection === 'OUTBOUND' || rawDirection === 'INBOUND' ? rawDirection : null;
+
+  // Which bridge this call is FOR, decided by the dialler at dial time and put
+  // on the URL so the handshake needs no database round trip. Absent means
+  // "unknown" — an inbound webhook builds the same URL without it — and
+  // resolveBundledEngine() falls back to the (now cached) lookup. Normalised
+  // here so an unexpected value can never be mistaken for a valid answer.
+  const rawEngine = String(url.searchParams.get('engine') || '').toLowerCase();
+  const declaredEngine = rawEngine === 'bundled' || rawEngine === 'modular' ? rawEngine : null;
 
   const webCallMatch = pathname.match(WEB_CALL_UPGRADE_PATH);
   if (webCallMatch) {
@@ -190,7 +229,7 @@ httpServer.on('upgrade', (req, socket, head) => {
     // started a session, and the caller heard silence for the whole call while
     // the log sat at INITIATED. Resolving first means the handshake — and so
     // the carrier's first frame — cannot happen until we are ready to listen.
-    resolveBundledEngine(workspaceId, agentId).then((bundled) => {
+    resolveBundledEngine(workspaceId, agentId, declaredEngine).then((bundled) => {
       twilioMediaWss.handleUpgrade(req, socket, head, (ws) => {
         if (bundled) handleTwilioMediaUpgrade(ws, { workspaceId, agentId });
         else handleTwilioMediaModularUpgrade(ws, { workspaceId, agentId, direction: callDirection });
@@ -218,7 +257,7 @@ httpServer.on('upgrade', (req, socket, head) => {
     // the `contentType` on the <Stream> element the answer URL emitted, so
     // reading it off the query string would be a second source of truth for a
     // value both ends already agreed on.
-    resolveBundledEngine(workspaceId, agentId).then((bundled) => {
+    resolveBundledEngine(workspaceId, agentId, declaredEngine).then((bundled) => {
       plivoMediaWss.handleUpgrade(req, socket, head, (ws) => {
         if (bundled) handlePlivoMediaUpgrade(ws, { workspaceId, agentId, callLogId });
         else handlePlivoMediaModularUpgrade(ws, { workspaceId, agentId, callLogId, direction: callDirection });

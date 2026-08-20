@@ -346,6 +346,12 @@ export class DeepgramStreamSession {
     // being flushed, not the one now accumulating. They are appended here
     // instead of to `finals`, which keeps the two turns' words separate.
     this._flushTarget = null;
+    // Set by _commitEndOfTurn: this turn ended because WE decided it had, after
+    // a speech_final plus a whole grace window with no further transcript — so
+    // `finals` is already complete and Deepgram is holding nothing back. Lets
+    // finalizeTurn() skip a round trip that cannot return anything new. See the
+    // note there.
+    this._committed = false;
   }
 
   /**
@@ -538,6 +544,12 @@ export class DeepgramStreamSession {
   /** The caller really is done. Fire once; drop any pending candidate. */
   _commitEndOfTurn(reason) {
     if (this._endpointTimer) { clearTimeout(this._endpointTimer); this._endpointTimer = null; }
+    // Reaching here means Deepgram sent speech_final (or an authoritative
+    // UtteranceEnd) and then a FULL grace window passed with no further
+    // transcript — interim or final. Both of those are things _handleMessage
+    // would have cancelled this candidate for. So every word of this turn is
+    // already in `finals` and there is nothing left for a Finalize to flush.
+    this._committed = true;
     this.onEndOfTurn?.(reason);
   }
 
@@ -582,6 +594,10 @@ export class DeepgramStreamSession {
     this._turnSeq += 1;
     this.finals = [];
     this._tail = ''; // the previous turn's last words must not judge this one
+    // A new turn has not been committed by anyone yet, so its transcript is NOT
+    // known to be complete — clear the fast-path flag or finalizeTurn would skip
+    // the flush for a turn that really does still have words in flight.
+    this._committed = false;
     // Drop any speech_final candidate left over from the previous turn — it
     // would otherwise commit an end-of-turn against the turn just started,
     // cutting the caller off the instant they began speaking.
@@ -616,6 +632,27 @@ export class DeepgramStreamSession {
     // Binding the flush to its turn fixes (2); routing results through
     // _flushTarget for the duration of the flush fixes (1).
     if (seq != null && seq !== this._turnSeq) return '';
+
+    // ── The turn already ended on OUR clock: don't ask Deepgram again ──────
+    //
+    // The phone bridge calls this from inside onEndOfTurn, i.e. from
+    // _commitEndOfTurn, which only fires after speech_final PLUS a full grace
+    // window in which no transcript arrived. `finals` is therefore complete by
+    // construction and Deepgram is buffering nothing — yet this method used to
+    // send { type: 'Finalize' } anyway and block up to `timeoutMs` waiting for
+    // the from_finalize marker to come back. That is a full round trip to
+    // Deepgram, on EVERY phone turn, to fetch words we are already holding; it
+    // is most of the ~450ms p50 `preLlmMs` in logs/latency.log.
+    //
+    // The web bridge is deliberately NOT affected: its `end-turn` comes from
+    // the browser's own RMS backstop, which can beat the commit, so there the
+    // flush really can still harvest something and `_committed` is false.
+    //
+    // Not merely "skip the await" — the Finalize is not sent at all. Firing it
+    // and not waiting would let a from_finalize result land after the next
+    // beginTurn() and pollute the following turn, which is exactly what the
+    // _flushTarget machinery below exists to prevent.
+    if (this._committed) return this.takeTranscript();
 
     if (!this.ws || this.dead) return this.takeTranscript();
     // Never connected yet (TLS handshake still in flight)? Nothing is buffered

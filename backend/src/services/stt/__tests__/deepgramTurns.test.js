@@ -517,3 +517,69 @@ test('each model is independently overridable from the environment', () => {
     process.env = saved;
   }
 });
+
+// ── P3: a committed turn must not pay a Deepgram round trip ─────────────────
+//
+// The phone bridge calls finalizeTurn() from inside onEndOfTurn, i.e. from
+// _commitEndOfTurn, at which point the transcript is complete by construction.
+// These lock in that it resolves from the local buffer instead of sending
+// Finalize and blocking on from_finalize — the ~150-450ms/turn phone-only cost.
+
+test('a committed turn resolves without sending Finalize', async () => {
+  const s = new DeepgramStreamSession({ sampleRate: 8000, encoding: 'mulaw', endpointGraceMs: 0 });
+  const sent = fakeSocket(s);
+  const seq = s.beginTurn();
+
+  emitFinal(s, 'yes that works for me');
+  // endpointGraceMs 0 → speech_final commits synchronously, exactly as
+  // _armEndOfTurnCandidate does when the window expires on a real call.
+  s._handleMessage({ speech_final: true });
+  assert.equal(s._committed, true);
+
+  // No from_finalize is ever emitted. Before the fix this awaited the full
+  // timeout; now it must resolve immediately from `finals`.
+  assert.equal(await s.finalizeTurn(1200, seq), 'yes that works for me');
+  assert.equal(
+    sent.filter((p) => String(p).includes('Finalize')).length, 0,
+    'a committed turn must not ask Deepgram to flush',
+  );
+});
+
+test('an UNcommitted turn still flushes — the web path is unchanged', async () => {
+  const s = new DeepgramStreamSession({ sampleRate: 16000 });
+  const sent = fakeSocket(s);
+  const seq = s.beginTurn();
+
+  // The browser's RMS backstop beat the endpoint commit, so nothing armed and
+  // words may still be in flight. The flush must happen.
+  emitFinal(s, 'I would like');
+  assert.equal(s._committed, false);
+
+  const pending = s.finalizeTurn(1200, seq);
+  assert.equal(
+    sent.filter((p) => String(p).includes('Finalize')).length, 1,
+    'an uncommitted turn must still ask Deepgram to flush',
+  );
+  emitFinal(s, 'to reschedule');
+  emitFromFinalize(s);
+  assert.equal(await pending, 'I would like to reschedule');
+});
+
+test('beginTurn clears the committed flag, so the next turn flushes again', async () => {
+  const s = new DeepgramStreamSession({ sampleRate: 8000, encoding: 'mulaw', endpointGraceMs: 0 });
+  const sent = fakeSocket(s);
+
+  s.beginTurn();
+  emitFinal(s, 'first turn');
+  s._handleMessage({ speech_final: true });
+  assert.equal(s._committed, true);
+
+  // Next turn: nothing has committed it yet.
+  const seq2 = s.beginTurn();
+  assert.equal(s._committed, false);
+  emitFinal(s, 'second turn');
+  const pending = s.finalizeTurn(1200, seq2);
+  assert.equal(sent.filter((p) => String(p).includes('Finalize')).length, 1);
+  emitFromFinalize(s);
+  assert.equal(await pending, 'second turn');
+});

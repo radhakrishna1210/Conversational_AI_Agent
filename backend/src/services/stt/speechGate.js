@@ -468,6 +468,81 @@ export function stripAgentEcho(userText, agentText) {
   return raw;
 }
 
+/**
+ * Trim the agent's own words off the front of a transcript captured WHILE THE
+ * AGENT WAS STILL SPEAKING.
+ *
+ * ── WHY THIS IS NOT stripAgentEcho, AND WHY THE CONSTRAINT IS LOOSER ────────
+ *
+ * stripAgentEcho() deliberately only strips a run that is a verbatim SUFFIX of
+ * the agent's utterance, and its docstring is right to insist on that: at a
+ * normal turn boundary the echo is, by construction, the END of what was
+ * playing, so anything else matching is coincidence and stripping it would
+ * delete real words from real turns.
+ *
+ * That reasoning does not hold here. The phone bridge feeds Deepgram the
+ * inbound leg unconditionally, INCLUDING the whole stretch where the agent is
+ * talking and a handset is echoing it straight back. So the echo in an overlap
+ * transcript is not the agent's tail — it is however much of the agent's reply
+ * the line happened to reflect, which is a contiguous run from ANYWHERE in it,
+ * usually most of it. A suffix-only rule strips nothing from
+ * "<the entire reply> yes", and isEchoOfAgent() then discards the whole thing —
+ * which is exactly the behaviour that loses a caller's "yes" and makes them
+ * repeat themselves.
+ *
+ * So: strip the longest leading run of caller tokens that appears contiguously
+ * anywhere in the agent's text. Two or more tokens required, for the same
+ * reason as its sibling — a single shared word at a boundary is coincidence.
+ *
+ * The over-stripping case is a caller who opens by quoting the agent ("Tuesday
+ * or Wednesday, hmm, Wednesday"). That leaves "hmm Wednesday", which is still
+ * the caller's actual answer — and the alternative on this path is not "keep
+ * the quote", it is discarding the turn entirely. Callers should be given the
+ * benefit of the doubt in the direction that keeps them heard.
+ *
+ * Returns '' when the transcript was entirely echo, which the caller should
+ * treat as "there was nothing here".
+ *
+ * @param {string} userText  transcript captured during the agent's playout
+ * @param {string} agentText what the agent was saying at the time
+ */
+export function stripOverlapEcho(userText, agentText) {
+  const raw = String(userText ?? '').trim();
+  const agent = String(agentText ?? '').trim();
+  if (!raw || !agent) return raw;
+
+  const key = (t) => t.toLowerCase().replace(/[^\p{L}\p{N}\p{M}]/gu, '');
+  // Bounded so a pathological transcript cannot turn this into a stall. Both
+  // sides are one conversational turn; these ceilings are far above real ones.
+  //
+  // Tokens that normalize to nothing — a stray dash or ellipsis left standing
+  // by `smart_format` — are dropped from BOTH sides rather than kept. Keeping
+  // them on the caller's side breaks the run at the punctuation mark (so a
+  // fully echoed sentence stops being recognised as one) and then leaves the
+  // mark stranded at the front of the result, where it counts toward the
+  // caller's "is there anything left?" length check. They are not speech.
+  const userTokens = raw.split(/\s+/)
+    .slice(0, 120)
+    .map((t) => ({ raw: t, key: key(t) }))
+    .filter((t) => t.key);
+  const agentTokens = agent.split(/\s+/).slice(0, 400).map(key).filter(Boolean);
+  if (userTokens.length < 2 || !agentTokens.length) return raw;
+
+  // Longest prefix of the caller's tokens that occurs as a contiguous run in
+  // the agent's. O(n*m) with tiny n and m, and it runs once per turn.
+  let bestK = 0;
+  for (let s = 0; s < agentTokens.length; s++) {
+    let k = 0;
+    while (k < userTokens.length && s + k < agentTokens.length
+           && agentTokens[s + k] === userTokens[k].key) k++;
+    if (k > bestK) bestK = k;
+    if (bestK === userTokens.length) break; // cannot do better
+  }
+
+  if (bestK < 2) return raw;
+  return userTokens.slice(bestK).map((t) => t.raw).join(' ').trim();
+}
+
 export const __testing = {
   FRAME_MS, ABS_RMS_FLOOR, MIN_CONTRAST, ZCR_MIN, ZCR_MAX,
   MIN_VOICED_MS, MIN_RUN_MS, normalizeForMatch,

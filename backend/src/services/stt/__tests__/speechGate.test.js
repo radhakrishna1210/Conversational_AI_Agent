@@ -6,9 +6,9 @@
  * mic test somebody has to remember how to perform.
  */
 
-import test from 'node:test';
+import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { analyzeSpeech, isLikelySttHallucination, classifyCallerAffect, isEchoOfAgent, stripAgentEcho } from '../speechGate.js';
+import { analyzeSpeech, isLikelySttHallucination, classifyCallerAffect, isEchoOfAgent, stripAgentEcho, stripOverlapEcho } from '../speechGate.js';
 import { AMBIENT_PRESETS, createAmbienceSource, ULAW_FRAME_BYTES } from '../../voice/ambience.js';
 
 const SR = 24000;
@@ -358,4 +358,75 @@ test('never strips the whole turn away', () => {
 
 test('no previous agent turn means nothing to trim', () => {
   assert.equal(stripAgentEcho('मुझे appointment चाहिए', ''), 'मुझे appointment चाहिए');
+});
+
+// ── P4: recovering a caller who answered while the agent was still talking ──
+//
+// The phone bridge feeds Deepgram the inbound leg for the WHOLE reply, so an
+// overlap transcript is mostly our own audio echoing back off the handset. The
+// shape is "<however much of the reply the line reflected> <what the caller
+// said>", which stripAgentEcho() cannot touch because the echo is not the
+// agent's suffix. Getting this wrong in either direction is expensive: too
+// strict and the caller's "yes" is discarded and they repeat themselves; too
+// loose and the LLM answers a question nobody asked.
+
+describe('stripOverlapEcho', () => {
+  const AGENT = 'I can help you with that, let me check the schedule for you.';
+
+  test('strips a whole echoed reply and keeps the one word the caller said', () => {
+    // The case that motivated this. stripAgentEcho() leaves it untouched and
+    // isEchoOfAgent() then discards the lot, losing the answer.
+    assert.equal(
+      stripOverlapEcho('I can help you with that let me check the schedule for you yes', AGENT),
+      'yes',
+    );
+  });
+
+  test('strips an echoed run from the MIDDLE of the reply, not just the end', () => {
+    assert.equal(stripOverlapEcho('let me check the schedule Tuesday please', AGENT), 'Tuesday please');
+  });
+
+  test('a transcript that is entirely echo comes back empty', () => {
+    assert.equal(stripOverlapEcho('I can help you with that let me check', AGENT), '');
+  });
+
+  test('leaves a transcript that shares nothing with the agent alone', () => {
+    assert.equal(stripOverlapEcho('Tuesday afternoon works better', AGENT), 'Tuesday afternoon works better');
+  });
+
+  test('one shared word is coincidence, not echo, and is never stripped', () => {
+    // "schedule me for Tuesday" opens with a word the agent used. Stripping a
+    // single token could change the meaning of a real request.
+    assert.equal(stripOverlapEcho('schedule me for Tuesday', AGENT), 'schedule me for Tuesday');
+  });
+
+  test('matching ignores case and punctuation, as the transcripts differ in both', () => {
+    assert.equal(stripOverlapEcho('Let me check, the schedule — Friday?', AGENT), 'Friday?');
+  });
+
+  test('a single-token transcript is returned untouched', () => {
+    assert.equal(stripOverlapEcho('schedule', AGENT), 'schedule');
+  });
+
+  test('empty inputs are pass-throughs, not throws', () => {
+    assert.equal(stripOverlapEcho('', AGENT), '');
+    assert.equal(stripOverlapEcho('yes please', ''), 'yes please');
+    assert.equal(stripOverlapEcho(null, AGENT), '');
+    assert.equal(stripOverlapEcho('yes please', null), 'yes please');
+  });
+
+  test('what survives is not itself judged an echo — the two gates agree', () => {
+    // The bridge runs isEchoOfAgent() on the remainder as a second, independent
+    // check. These must not contradict each other, or a recovered turn would be
+    // dropped anyway and the whole recovery is dead code.
+    const recovered = stripOverlapEcho('I can help you with that let me check the schedule for you yes', AGENT);
+    assert.equal(isEchoOfAgent(recovered, AGENT), false);
+  });
+
+  test('is bounded against a pathological transcript', () => {
+    const long = Array(5000).fill('word').join(' ');
+    const started = Date.now();
+    stripOverlapEcho(long, long);
+    assert.ok(Date.now() - started < 500, 'must not stall the turn');
+  });
 });

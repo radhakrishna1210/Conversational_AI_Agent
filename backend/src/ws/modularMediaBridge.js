@@ -63,7 +63,12 @@ import {
   toDeepgramLanguage,
   defaultEndpointingMs,
 } from '../services/stt/deepgramStream.service.js';
-import { analyzeSpeech, classifyCallerAffect, isEchoOfAgent } from '../services/stt/speechGate.js';
+import {
+  analyzeSpeech,
+  classifyCallerAffect,
+  isEchoOfAgent,
+  stripOverlapEcho,
+} from '../services/stt/speechGate.js';
 import { createFillerBudget } from '../services/voice/disfluency.js';
 import {
   decodeUlaw,
@@ -74,6 +79,11 @@ import {
   playableWithFormat,
   PHONE_SAMPLE_RATE,
 } from '../services/voice/telephonyAudio.js';
+import {
+  getGreetingAudio,
+  rememberGreetingAudio,
+  greetingSynthesisOpts,
+} from '../services/voice/greetingAudio.js';
 import { createPlayoutWindow } from '../services/voice/playoutWindow.js';
 import { createUlawPacer } from '../services/voice/ulawPacer.js';
 import { encodeWav } from '../services/voice/callRecorder.js';
@@ -132,6 +142,38 @@ const BARGE_FRAMES = Number(process.env.PHONE_BARGE_FRAMES) || 5;
 const BARGE_GRACE_MS = Number(process.env.PHONE_BARGE_GRACE_MS) || 500;
 /** Weight of each new quiet frame in the running noise-floor estimate. */
 const NOISE_EMA_ALPHA = 0.05;
+
+/**
+ * ── Recovering a caller who answered while the agent was still talking ──────
+ *
+ * The bridge cannot listen and speak at once: `armNextTurn` holds the next turn
+ * closed until playout drains, because a phone line has no echo cancellation
+ * and our own reply comes straight back up the inbound leg. Correct, and it
+ * costs real words — people answer before the agent finishes ("yes", "correct",
+ * a phone number), and everything they said in that window was cleared by
+ * `beginTurn()`. The caller then repeats themselves, which reads as latency and
+ * appears nowhere in logs/latency.log.
+ *
+ * Barge-in does not cover it. That needs BARGE_FRAMES consecutive loud frames
+ * (100ms) to stop the agent mid-word — deliberately conservative, because a
+ * false barge cuts the reply off. A one-word answer never clears that bar.
+ *
+ * So overlap recovery is a SEPARATE, weaker test with a much cheaper failure:
+ * it does not interrupt anything, it only decides whether words already
+ * transcribed are worth keeping. See harvestOverlap().
+ */
+/** Loud frames (not necessarily consecutive) before overlapping speech is believed. */
+const OVERLAP_MIN_LOUD_FRAMES = Number(process.env.PHONE_OVERLAP_FRAMES) || 3;
+/**
+ * How long the line must stay quiet before we answer what was said over us.
+ *
+ * One ordinary endpointing window: the caller may be mid-sentence ("yes, and
+ * also…"), and answering the "yes" alone would cut them off. Any new speech
+ * cancels this and the normal end-of-turn path takes over, with the carried
+ * text prepended — so the wait is only ever paid by a caller who has genuinely
+ * stopped, for whom no end-of-turn would otherwise ever fire.
+ */
+const OVERLAP_SETTLE_MS = Number(process.env.PHONE_OVERLAP_SETTLE_MS) || 700;
 
 /**
  * Longest stretch of caller audio kept for the affect analysis below, matching
@@ -226,6 +268,19 @@ export function runModularMediaBridge(ws, {
   let turnRunning = false;    // a turn is generating (LLM/TTS in flight)
   let bargeCount = 0;
   let abortTurn = false;
+  /**
+   * Inbound frames above the barge threshold since the agent started speaking —
+   * NOT required to be consecutive, unlike bargeCount. This is the energy half
+   * of "did the caller talk over us?"; see harvestOverlap().
+   */
+  let overlapLoudFrames = 0;
+  /**
+   * What the caller said DURING our reply, recovered by harvestOverlap() and
+   * waiting to be spoken for. Prepended to the next turn's transcript.
+   */
+  let carriedUserText = '';
+  /** Pending "answer the carried text if the line stays quiet". See armNextTurn. */
+  let settleTimer = null;
   /** This line's measured noise floor, learned while the agent is quiet. */
   let noiseFloor = 0;
   let noiseSamples = 0;
@@ -366,7 +421,18 @@ export function runModularMediaBridge(ws, {
    * `contentType` decides whether bytes are already mu-law (the native case) or
    * PCM that still needs converting.
    */
-  const pumpAudio = async (stream, contentType, isUlaw) => {
+  /**
+   * @param {AsyncIterable<Buffer>} stream
+   * @param {string} contentType
+   * @param {boolean} isUlaw
+   * @param {Buffer[]|null} [collect] when given, every raw provider chunk is
+   *   pushed here so a completed stream can be cached. See speakLine.
+   * @returns {Promise<boolean>} true only if the whole stream reached the wire.
+   *   A caller that caches the bytes MUST check this: a greeting cut short by a
+   *   barge-in or a hangup is a truncated buffer, and caching that would replay
+   *   the truncation on every later call to this agent.
+   */
+  const pumpAudio = async (stream, contentType, isUlaw, collect = null) => {
     const splitter = createFrameSplitter();
     // Stateful, because HTTP chunks split wherever they like: an odd-length
     // chunk leaves half a 16-bit sample, and converting each chunk on its own
@@ -376,26 +442,62 @@ export function runModularMediaBridge(ws, {
       if (abortTurn || closed) break;
       const buf = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       if (!buf.length) continue;
+      // Collected BEFORE conversion, so the cache holds exactly what the
+      // provider sent and a replay runs the identical code path below.
+      collect?.push(buf);
       const ulaw = isUlaw ? buf : pcm.push(buf);
       if (!ulaw.length) continue;
       for (const frame of splitter.push(ulaw)) sendFrame(frame);
     }
-    if (abortTurn || closed) { splitter.reset(); return; }
+    if (abortTurn || closed) { splitter.reset(); return false; }
     const tail = splitter.flush();
     if (tail) sendFrame(tail);
+    return true;
   };
 
-  /** Speak a fixed line (the welcome message) without running a full turn. */
+  /**
+   * Speak a fixed line (the welcome message) without running a full turn.
+   *
+   * ── THE GREETING IS THE ONE LINE WE ALREADY KNOW ─────────────────────────
+   *
+   * This runs the moment the callee says "hello?", so its cost is silence the
+   * caller actually hears — and the text is IDENTICAL on every call to this
+   * agent. Opening a TTS connection here and waiting for first byte cost
+   * `ttsTtfaMs` (p50 581ms, p90 1450ms) per call, and a 500-recipient campaign
+   * paid it 500 times for the same sentence. The browser never pays it: it
+   * fetched and buffered its welcome over HTTP before the call button was
+   * pressed. See services/voice/greetingAudio.js.
+   *
+   * On a miss the bytes are collected and cached, so the cost is paid once per
+   * (voice, text, carrier format) rather than once per call — and only when the
+   * stream COMPLETED, so a greeting cut short by a barge-in or a hangup is
+   * never what the next caller hears.
+   */
   const speakLine = async (text) => {
     if (!text || !voice || closed) return;
+    const synthOpts = greetingSynthesisOpts(ttsFormat, settings);
+    const isUlaw = ttsFormat?.kind === 'native';
     playout.beginGenerating();
     try {
-      const { stream, contentType } = await streamSynthesizeVoice(voice, text, {
-        fast: true,
-        pace: Number(settings.speakingRate) || 1.05,
-        ...ttsFormatOpts(),
-      });
-      await pumpAudio(stream, contentType, ttsFormat?.kind === 'native');
+      const cached = getGreetingAudio(voice, text, synthOpts);
+      if (cached) {
+        // Same pump, same splitter, same converter — the only difference is
+        // where the bytes came from. Wrapped as a one-chunk async iterable
+        // rather than given a second code path, because a second code path is
+        // how the cached greeting and the streamed one drift apart in format.
+        await pumpAudio((async function* one() { yield cached.buf; })(), cached.contentType, isUlaw);
+      } else {
+        const { stream, contentType } = await streamSynthesizeVoice(voice, text, {
+          fast: true,
+          pace: synthOpts.pace,
+          ...ttsFormatOpts(),
+        });
+        const collected = [];
+        const complete = await pumpAudio(stream, contentType, isUlaw, collected);
+        if (complete) {
+          rememberGreetingAudio(voice, text, synthOpts, Buffer.concat(collected), contentType);
+        }
+      }
       transcript.push({ role: 'assistant', content: text });
       history.push({ role: 'assistant', content: text });
     } catch (err) {
@@ -415,6 +517,9 @@ export function runModularMediaBridge(ws, {
     if (turnRunning || closed) return;
     turnRunning = true;
     abortTurn = false;
+    // Whichever path got us here — a real end of turn, or the settle timer —
+    // the carried text is about to be spent, so the timer has no job left.
+    cancelSettle();
     // Marks "the caller is judged done speaking" — i.e. Deepgram's endpointing+grace
     // commit already fired to get here. Everything from here to the voiceTurnStream()
     // call (STT harvest) is otherwise invisible in logs/latency.log, which only times
@@ -437,6 +542,21 @@ export function runModularMediaBridge(ws, {
         userText = await dg.finalizeTurn(1200, dgTurnSeq);
       } catch { /* nothing usable this turn */ }
       if (!dg?.isAlive) dg = null;
+
+      // ── Words the caller got in while we were still talking ──────────────
+      //
+      // harvestOverlap() recovered these before beginTurn() wiped them, and
+      // already put them through both the energy and the echo tests. They go in
+      // FRONT because that is the order they were said in: "yes" over the tail
+      // of our reply, then "…and Tuesday works too" once we stopped.
+      //
+      // Taken here rather than at harvest time so that a caller who kept
+      // talking gets ONE turn containing everything they said, instead of an
+      // answer to the first half followed by an answer to the second.
+      if (carriedUserText) {
+        userText = userText ? `${carriedUserText} ${userText}`.trim() : carriedUserText;
+        carriedUserText = '';
+      }
 
       // ── The turn was ENTIRELY our own voice coming back ───────────────────
       //
@@ -793,6 +913,14 @@ export function runModularMediaBridge(ws, {
     // step, so every finalizeTurn returned '' and the agent never once answered
     // the caller — the greeting played and the call went dead.
     //
+    // ── What did the caller say WHILE we were talking? ────────────────────
+    //
+    // Read before beginTurn(), because beginTurn() clears `finals` — and that
+    // clear is where a caller's answer used to go to die. Deepgram is fed the
+    // inbound leg for the whole reply (deliberately, see openDeepgram), so the
+    // words ARE transcribed; they were simply wiped a moment later.
+    harvestOverlap();
+
     // dg.isAlive, not just truthiness: a session that died during the turn
     // (LLM/TTS phase) is still a non-null reference here, and beginTurn() on a
     // dead session silently arms a turn nothing will ever harvest. Recreate it
@@ -808,6 +936,121 @@ export function runModularMediaBridge(ws, {
     // outlives — without this, one turn somewhere in the middle of every long
     // call silently pays the cold cost again.
     warmVoiceTurn(workspaceId, agentId, ttsFormat?.format ?? null, ttsFormat?.rate ?? null);
+
+    // ── Somebody answered us mid-reply and is now waiting ─────────────────
+    //
+    // harvestOverlap() recovered real words, so a turn is owed. But the caller
+    // may also be MID-SENTENCE — they said "yes, and also…" and the "and also"
+    // is still coming. Answering immediately would cut them off, which is the
+    // failure this whole file spends four hundred lines avoiding.
+    //
+    // So: wait out one ordinary endpointing window. If anything new arrives,
+    // cancelSettle() drops this and the normal onEndOfTurn path takes over —
+    // with the carried text prepended in runTurn, so nothing is lost either
+    // way. If the line stays quiet, nobody is going to say anything else and
+    // no end-of-turn will ever fire, so answer what we already have.
+    if (carriedUserText) armSettle();
+  };
+
+  /**
+   * Recover the caller's words from the stretch where the agent was audible.
+   *
+   * TWO INDEPENDENT SIGNALS ARE REQUIRED, and neither is sufficient alone.
+   * A phone line has no echo cancellation, so a transcript captured during
+   * playout is mostly OUR OWN REPLY coming back up the handset — and a faithful
+   * transcription of the wrong speaker passes every test built to catch a bad
+   * transcription. Acting on that gives the caller an agent that answers
+   * questions nobody asked, which reads as being ignored.
+   *
+   *   1. ENERGY. At least OVERLAP_MIN_LOUD_FRAMES inbound frames cleared the
+   *      barge threshold — i.e. a multiple of THIS line's measured noise floor.
+   *      Echo alone rarely does that consistently; a person speaking does.
+   *   2. TEXT. What survives stripping the agent's own words is still a real
+   *      utterance. stripOverlapEcho() removes the echoed run (see its note on
+   *      why the suffix-only rule its sibling uses cannot work here), and
+   *      isEchoOfAgent() then rejects any remainder that is still substantially
+   *      agent speech.
+   *
+   * Anything that fails either test is discarded exactly as before, so the
+   * worst case is the behaviour this replaces.
+   *
+   * ── THE RESIDUAL RISK, AND THE KNOB FOR IT ─────────────────────────────
+   *
+   * Both gates can miss the same thing: echo garbled enough that Deepgram
+   * transcribes it as different words (so neither the token match nor the
+   * similarity check recognises it) on a line reflective enough to clear the
+   * energy bar. That would carry a phantom user turn — the exact failure the
+   * blanket discard prevented. It is judged the better trade because the
+   * failure it replaces (the caller's answer silently dropped, every time,
+   * on every call) is certain rather than occasional, and because the LLM
+   * handles one garbled turn far better than a caller handles being ignored.
+   *
+   * If it does show up on live traffic, raise PHONE_OVERLAP_FRAMES before
+   * touching anything else: more required energy is the cheap, blunt fix, and
+   * at a high enough value this degrades cleanly back to the old behaviour.
+   * Every drop is logged with the raw transcript so the two cases are
+   * distinguishable after the fact.
+   */
+  const harvestOverlap = () => {
+    const loud = overlapLoudFrames;
+    overlapLoudFrames = 0;
+    if (!dg || carriedUserText) return;
+
+    // takeTranscript(), not finalizeTurn(): there is nothing to flush (we are
+    // not at an end of turn, we are at the end of OUR speech), and a flush here
+    // would cost a Deepgram round trip on the one path that has no one waiting
+    // for it — the same waste P3 removed from runTurn.
+    const heard = dg.takeTranscript();
+    if (!heard) return;
+
+    if (loud < OVERLAP_MIN_LOUD_FRAMES) {
+      logger.info(
+        `${carrier.label}: dropping "${heard.slice(0, 60)}" heard during playout — `
+        + `only ${loud} loud frame(s), so it is our own audio echoing back`,
+      );
+      return;
+    }
+
+    const lastAgentText = history
+      .filter((m) => m?.role === 'assistant' && typeof m.content === 'string')
+      .pop()?.content || '';
+    const stripped = stripOverlapEcho(heard, lastAgentText).trim();
+
+    // Two characters is the same floor the STT-hallucination filter uses: below
+    // it there is no utterance, only a fragment of one.
+    if (stripped.length < 2 || isEchoOfAgent(stripped, lastAgentText)) {
+      logger.info(
+        `${carrier.label}: dropping "${heard.slice(0, 60)}" heard during playout — `
+        + 'nothing survives removing the agent\'s own words',
+      );
+      return;
+    }
+
+    carriedUserText = stripped;
+    logger.info(
+      { loudFrames: loud, raw: heard.slice(0, 80) },
+      `${carrier.label}: caller talked over the agent — recovered "${stripped}"`,
+    );
+  };
+
+  const cancelSettle = () => {
+    if (settleTimer) { clearTimeout(settleTimer); settleTimer = null; }
+  };
+
+  /**
+   * Answer the carried text once the line has been quiet for one endpointing
+   * window. Re-armed by every new transcript (see onEndOfTurn's sibling in
+   * openDeepgram), so a caller who is still talking always wins the race.
+   */
+  const armSettle = () => {
+    cancelSettle();
+    settleTimer = setTimeout(() => {
+      settleTimer = null;
+      if (closed || turnRunning || !carriedUserText) return;
+      logger.info(`${carrier.label}: answering what the caller said over us`);
+      runTurn();
+    }, OVERLAP_SETTLE_MS);
+    if (typeof settleTimer.unref === 'function') settleTimer.unref();
   };
 
   // Status write + wallet settlement + post-call delivery, exactly once. Shared
@@ -829,6 +1072,10 @@ export function runModularMediaBridge(ws, {
     // A chained setTimeout waiting on playout would otherwise keep re-arming a
     // Deepgram session for a call that has already hung up.
     if (armTimer) { clearTimeout(armTimer); armTimer = null; }
+    // Same reason: a pending "answer what they said over us" must not fire a
+    // whole LLM+TTS turn at a caller who has already hung up.
+    cancelSettle();
+    carriedUserText = '';
     try { dg?.close(); } catch { /* already gone */ }
     dg = null;
     recording.save(callLogId);
@@ -1084,6 +1331,13 @@ export function runModularMediaBridge(ws, {
               ? rms
               : noiseFloor + NOISE_EMA_ALPHA * (rms - noiseFloor);
             noiseSamples += 1;
+          } else if (settleTimer) {
+            // Louder than this line's floor with the agent silent: the caller is
+            // still going. They said "yes" over us and are now finishing the
+            // sentence, so let the real end-of-turn close it — runTurn will
+            // prepend the carried text. Answering the "yes" on its own here is
+            // exactly the mid-sentence cut-off this bridge exists to avoid.
+            cancelSettle();
           }
           bargeCount = 0;
           break;
@@ -1098,6 +1352,13 @@ export function runModularMediaBridge(ws, {
 
         const threshold = Math.max(BARGE_RMS_MIN, noiseFloor * BARGE_MARGIN);
         if (rms >= threshold) {
+          // Energy evidence that SOMEONE talked over us, kept separately from
+          // bargeCount because it does NOT have to be consecutive. A caller who
+          // says "yes" over an eight-second reply produces two or three loud
+          // frames and never trips the barge detector's run of five — and until
+          // armNextTurn started reading this, that "yes" was thrown away and the
+          // caller had to say it again. See OVERLAP_MIN_LOUD_FRAMES.
+          overlapLoudFrames += 1;
           bargeCount += 1;
           if (bargeCount >= BARGE_FRAMES) {
             bargeCount = 0;

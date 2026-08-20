@@ -8,7 +8,7 @@
 // Twilio is the non-India carrier. It stays the default; India routes to Plivo
 // by number, not by flag day. See `backend/docs/PLIVO_INTEGRATION.md` §9.
 
-import { xmlSafe, xmlUrl } from './provider.interface.js';
+import { xmlSafe, xmlUrl, withStreamParams } from './provider.interface.js';
 
 const API_ROOT = 'https://api.twilio.com/2010-04-01';
 
@@ -55,10 +55,16 @@ export const twilioProvider = {
    * same URL without it — so its ABSENCE means "unknown", never "inbound".
    * See getRenderedWelcome() for why the agent's stored callDirection is not
    * enough on its own.
+   *
+   * `engine` ('bundled' | 'modular') is the same shape of fact: the dialler has
+   * already resolved which bridge this call is for, so saying it here spares
+   * server.js a Supabase round trip during the WebSocket handshake — which is
+   * dead air on a line the callee has already answered. Absent means "unknown"
+   * and server.js falls back to looking it up. See resolveBundledEngine().
    */
-  mediaStreamUrl({ baseWsUrl, workspaceId, agentId, direction = null }) {
+  mediaStreamUrl({ baseWsUrl, workspaceId, agentId, direction = null, engine = null }) {
     const url = `${baseWsUrl.replace(/\/$/, '')}/api/v1/twilio-media/${workspaceId}/${agentId}`;
-    return direction ? `${url}?direction=${encodeURIComponent(String(direction).toLowerCase())}` : url;
+    return withStreamParams(url, { direction, engine });
   },
 
   buildConversationDoc({ streamUrl, callLogId }) {
