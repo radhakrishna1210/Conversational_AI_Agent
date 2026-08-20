@@ -90,13 +90,34 @@ export default function Home() {
     const audio = liveAudioRef.current;
     if (!audio) return;
 
-    const onLoadedMetadata = () => setAudioDuration(audio.duration || 0);
-    const onTimeUpdate = () => setAudioProgress(audio.currentTime || 0);
+    const readDuration = () => {
+      if (Number.isFinite(audio.duration) && audio.duration > 0) return audio.duration;
+      if (audio.seekable.length > 0) return audio.seekable.end(audio.seekable.length - 1);
+      if (audio.buffered.length > 0) return audio.buffered.end(audio.buffered.length - 1);
+      return 0;
+    };
+    const syncDuration = () => {
+      const duration = readDuration();
+      if (duration > 0) setAudioDuration(duration);
+    };
+    const onLoadedMetadata = syncDuration;
+    const onDurationChange = syncDuration;
+    const onTimeUpdate = () => {
+      syncDuration();
+      setAudioProgress(audio.currentTime || 0);
+    };
     const onPlay = () => setAudioPlaying(true);
     const onPause = () => setAudioPlaying(false);
-    const onEnded = () => setAudioPlaying(false);
+    const onEnded = () => {
+      const endPosition = readDuration() || audio.currentTime;
+      audio.currentTime = endPosition;
+      setAudioDuration(endPosition);
+      setAudioProgress(endPosition);
+      setAudioPlaying(false);
+    };
 
     audio.addEventListener('loadedmetadata', onLoadedMetadata);
+    audio.addEventListener('durationchange', onDurationChange);
     audio.addEventListener('timeupdate', onTimeUpdate);
     audio.addEventListener('play', onPlay);
     audio.addEventListener('pause', onPause);
@@ -104,6 +125,7 @@ export default function Home() {
 
     return () => {
       audio.removeEventListener('loadedmetadata', onLoadedMetadata);
+      audio.removeEventListener('durationchange', onDurationChange);
       audio.removeEventListener('timeupdate', onTimeUpdate);
       audio.removeEventListener('play', onPlay);
       audio.removeEventListener('pause', onPause);
@@ -366,7 +388,7 @@ export default function Home() {
                 <span>{formatAudioTime(audioDuration)}</span>
               </div>
 
-              <audio ref={liveAudioRef} preload="metadata" src="/test-livekit-agent-builder-ab-1jbgrnqa76z-google-chrome-2026-08-20-13-47-45_Iennw9ic.wav" />
+              <audio ref={liveAudioRef} preload="metadata" src="/saas-demo-booking-call-2026-08-20-10-41-55.webm" />
             </div>
 
             <div className="lp-card lp-turnstate">
