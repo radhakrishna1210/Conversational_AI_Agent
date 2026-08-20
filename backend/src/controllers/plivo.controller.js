@@ -177,11 +177,29 @@ export async function answer(req, res) {
     return failXml(res, 404, `agent ${agentId} not found in workspace ${workspaceId}`);
   }
 
-  // Set by placeCall() on calls this platform dialled; absent on an inbound
-  // leg, where "unknown" is the honest answer and the agent's own setting
-  // decides. Normalised to the casing getRenderedWelcome() expects.
+  // Set by placeCall() on calls this platform dialled. Normalised to the casing
+  // getRenderedWelcome() expects.
   const rawDirection = String(field(req, 'direction') || '').toUpperCase();
   const direction = rawDirection === 'OUTBOUND' || rawDirection === 'INBOUND' ? rawDirection : null;
+
+  // ── An absent flag on THIS endpoint means inbound, not "unknown" ─────────
+  //
+  // It used to mean unknown, and the greeting then fell back to the agent's
+  // configured settings.callDirection — so a customer who dialled a number
+  // belonging to an OUTBOUND-configured agent was greeted with "Hi, this is
+  // Anjali calling from Sunrise Hospital", on a call they had just placed
+  // themselves. The mirror image of the "thank you for calling" bug on outbound
+  // campaigns, and it has no configuration that fixes it: the agent's stored
+  // direction is a single value, and this line is the other one.
+  //
+  // The inference is sound rather than convenient. Every outbound call reaches
+  // this endpoint through placeCall(), which appends `direction` unconditionally
+  // (plivo.provider.js). There is no other way to arrive here with the flag
+  // missing except a carrier delivering a call somebody dialled TO us.
+  //
+  // Deliberately not applied to `mode === 'greeting'` below: that mode is only
+  // reachable from the outbound dialler, so it keeps its own OUTBOUND default.
+  const conversationDirection = direction || 'INBOUND';
 
   if (mode === 'greeting') {
     // Re-rendered here rather than carried on the query string: see
@@ -234,7 +252,7 @@ export async function answer(req, res) {
     baseWsUrl: env.PUBLIC_BACKEND_WS_URL,
     workspaceId,
     agentId,
-    direction,
+    direction: conversationDirection,
     engine,
   }));
   if (callLogId) streamUrlObj.searchParams.set('callLogId', callLogId);

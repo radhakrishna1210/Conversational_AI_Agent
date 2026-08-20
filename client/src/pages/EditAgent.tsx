@@ -3293,32 +3293,14 @@ export default function EditAgent() {
               <div style={{ padding: '18px 30px 20px' }}>
                 {/* Call direction — an inbound greeting may thank the caller for
                     calling; an outbound one must introduce the agent instead. */}
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '14px', flexWrap: 'wrap' }}>
-                  <span style={{ fontSize: '12px', color: 'var(--tx-2)', fontWeight: 600 }}>Call direction</span>
-                  <div style={{ display: 'inline-flex', background: 'var(--s1)', border: '1px solid var(--line)', borderRadius: '8px', padding: '3px' }}>
-                    {(['INBOUND', 'OUTBOUND'] as const).map((dir) => (
-                      <button
-                        key={dir}
-                        type="button"
-                        onClick={() => setCallDirection(dir)}
-                        style={{
-                          padding: '5px 14px', borderRadius: '6px', border: 'none', cursor: 'pointer',
-                          fontSize: '12px', fontWeight: 600, whiteSpace: 'nowrap',
-                          background: callDirection === dir ? (dir === 'OUTBOUND' ? 'var(--orange)' : 'var(--cyan)') : 'transparent',
-                          color: callDirection === dir ? '#060c17' : 'var(--tx-3)',
-                          transition: 'all 0.15s',
-                        }}
-                      >
-                        {dir === 'OUTBOUND' ? 'Outgoing (agent calls)' : 'Incoming (customer calls)'}
-                      </button>
-                    ))}
-                  </div>
-                  <span style={{ fontSize: '11px', color: '#6f6f6f' }}>
-                    {callDirection === 'OUTBOUND'
-                      ? 'Your agent dials the customer — open with “this is [name] calling from [company]”, then the reason.'
-                      : 'Customers call your agent — thanking them for calling is fine.'}
-                  </span>
-                </div>
+                {/* A "Call direction" segmented toggle used to sit here. It set
+                    the same callDirection as the pill beside the agent name in
+                    the header — two controls for one value — and with the
+                    greeting tabs below it there were THREE Incoming/Outgoing
+                    switchers stacked in one card. The header pill is the one
+                    that stays; the tabs below choose which greeting you are
+                    EDITING, which is a different question and now looks like
+                    one. */}
                 {/* Two greetings, one per direction, each spoken by TTS
                     EXACTLY as typed. Nothing rewrites or translates them on the
                     way to the call, so what is in these boxes is what the
