@@ -15,7 +15,7 @@
  * Everything here is read-only. It places no calls and spends nothing.
  */
 import prisma from '../src/config/prisma.js';
-import { twilioProvider, plivoProvider, availableProviders } from '../src/services/telephony/index.js';
+import { resolveProvider, availableProviders } from '../src/services/telephony/index.js';
 import { isDeepgramConfigured } from '../src/services/stt/deepgramStream.service.js';
 import { supportsTelephony } from '../src/services/voice/telephonyAudio.js';
 
@@ -39,7 +39,10 @@ const missingEnv = (id) => (CARRIER_ENV[id] || []).filter((k) => !process.env[k]
 
 console.log('\n── carriers configured on THIS machine ────────────────────────────\n');
 
-const carriers = [twilioProvider, plivoProvider];
+// Driven off the registry, not a list kept by hand. A carrier that was wired
+// up but left out of this array reported nothing here while its numbers still
+// routed to it — which is exactly how PIOPIY went unnoticed.
+const carriers = availableProviders().map((id) => resolveProvider(id));
 const ready = new Set();
 for (const p of carriers) {
   let status;

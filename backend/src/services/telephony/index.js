@@ -5,21 +5,30 @@
 // be rolled back by flipping one row. TELEPHONY_PROVIDER_DEFAULT only covers
 // calls placed from a number we have no record for.
 //
-// Twilio serves everything outside India; Plivo serves India, which Twilio
-// cannot legally carry. Exotel was a second India carrier here until it was
-// removed — it capped sessions at 60 minutes, dropped a call if a turn took
-// over 10 seconds, and never carried live traffic. Its replacement as the
-// India fallback is PIOPIY, which is not in this map yet: it is blocked on
-// account credentials, so resolveProvider() still falls back to Twilio for it.
+// Twilio serves everything outside India; Plivo and PIOPIY serve India, which
+// Twilio cannot legally carry. Exotel was a third India carrier here until it
+// was removed — it capped sessions at 60 minutes, dropped a call if a turn took
+// over 10 seconds, and never carried live traffic. PIOPIY fills that slot.
+//
+// PIOPIY is registered here even while its credentials are still empty. Leaving
+// it out was the more cautious-looking option and was the worse one: an unknown
+// id falls back to Twilio, so a +91 VoiceNumber marked PIOPIY dialled out over a
+// carrier that cannot legally carry Indian domestic traffic, silently and under
+// the wrong caller ID. Registered, the same row is refused by status() before it
+// dials, with text that names the credential to set — every dial path checks
+// status() first (outboundCall.service.js, broadcastCall.service.js). An
+// unconfigured carrier should fail loudly, not reroute.
 
 import { env } from '../../config/env.js';
 import logger from '../../lib/logger.js';
 import { twilioProvider } from './twilio.provider.js';
 import { plivoProvider } from './plivo.provider.js';
+import { piopiyProvider } from './piopiy.provider.js';
 
 const PROVIDERS = new Map([
   [twilioProvider.id, twilioProvider],
   [plivoProvider.id, plivoProvider],
+  [piopiyProvider.id, piopiyProvider],
 ]);
 
 /** Provider ids that are actually wired up right now. */
@@ -48,4 +57,4 @@ export function resolveProvider(providerId) {
   return twilioProvider;
 }
 
-export { twilioProvider, plivoProvider };
+export { twilioProvider, plivoProvider, piopiyProvider };
