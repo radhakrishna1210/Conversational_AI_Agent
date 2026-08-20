@@ -26,7 +26,7 @@ import WebSocket from 'ws';
 import { EventEmitter } from 'events';
 import logger from '../../lib/logger.js';
 import { buildAgentSystemPrompt } from '../agentRuntime.service.js';
-import { resolveAgentVoice } from '../voice.service.js';
+import { resolveAgentVoice, resolveSynthesisTarget } from '../voice.service.js';
 
 const SIGNED_URL_ENDPOINT = 'https://api.elevenlabs.io/v1/convai/conversation/get-signed-url';
 
@@ -99,7 +99,15 @@ export class ElevenLabsRealtimeSession extends EventEmitter {
     // voice (see this.elevenVoiceId note above). Non-fatal on failure.
     try {
       const v = await resolveAgentVoice(this.agent.voice);
-      if (v?.provider?.name === 'ElevenLabs' && v.providerVoiceId) this.elevenVoiceId = v.providerVoiceId;
+      // Via resolveSynthesisTarget, so an ElevenLabs-hosted CLONE counts: its
+      // row says provider 'Custom' and the real voice id lives in metadata, so
+      // the plain name check silently fell back to the shell agent's default
+      // voice — the agent spoke, just not in the voice the user cloned. A Fish
+      // Audio clone still doesn't apply here: this pipeline is ElevenLabs' own.
+      const target = v ? resolveSynthesisTarget(v) : null;
+      if (target?.providerName === 'ElevenLabs' && target.providerVoiceId) {
+        this.elevenVoiceId = target.providerVoiceId;
+      }
     } catch (err) {
       logger.warn({ err: err.message }, 'ElevenLabs Conversational AI: voice resolution failed — using shell agent default voice');
     }

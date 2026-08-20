@@ -63,6 +63,9 @@ export const list = async (req, res) => {
       language: language || undefined,
       q: q || undefined,
       allowedProviders: await enabledTtsProviders(),
+      // Cloned voices are workspace property; without this the picker would
+      // either hide them or show another tenant's.
+      workspaceId: req.params.workspaceId,
     });
 
     res.json({

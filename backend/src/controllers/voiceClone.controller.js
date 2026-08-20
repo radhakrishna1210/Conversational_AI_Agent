@@ -12,6 +12,7 @@ import multer from 'multer';
 import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
 import { env } from '../config/env.js';
+import { getEnabledCatalog } from '../services/platform/modelCatalog.js';
 
 export const CLONE_DIR = path.resolve(env.UPLOAD_DIR || 'uploads', 'voice-clones');
 fs.mkdirSync(CLONE_DIR, { recursive: true });
@@ -110,10 +111,70 @@ const submitToFishAudio = async ({ filePath, mimeType, name, description }) => {
 };
 
 // Cloning-capable providers, in default preference order.
+//
+// `catalogName` is the VoiceProvider / model-catalogue name of the SAME company:
+// the provider that trains a clone is the provider that synthesizes it on every
+// later call (see resolveSynthesisTarget), so cloning to one Super Admin has
+// switched off would produce a voice that cannot be listed or spoken. `ttsModel`
+// is the model that will actually run at call time — the unit the TTS bill is
+// priced in, which is why the UI shows it before you clone.
 const CLONERS = [
-  { id: 'fishaudio', label: 'Fish Audio', enabled: () => Boolean(process.env.FISH_API_KEY), submit: submitToFishAudio },
-  { id: 'elevenlabs', label: 'ElevenLabs', enabled: () => Boolean(process.env.ELEVENLABS_API_KEY), submit: submitToElevenLabs },
+  {
+    id: 'fishaudio',
+    label: 'Fish Audio',
+    catalogName: 'FishAudio',
+    configured: () => Boolean(process.env.FISH_API_KEY),
+    ttsModel: () => process.env.FISH_TTS_MODEL || 's2.1-pro',
+    submit: submitToFishAudio,
+  },
+  {
+    id: 'elevenlabs',
+    label: 'ElevenLabs',
+    catalogName: 'ElevenLabs',
+    configured: () => Boolean(process.env.ELEVENLABS_API_KEY),
+    ttsModel: () => process.env.ELEVENLABS_TTS_MODEL || 'eleven_multilingual_v2',
+    submit: submitToElevenLabs,
+  },
 ];
+
+/**
+ * A model id as shown to users. Fish Audio appends "-free" to the model name on
+ * a free-tier key ("s2.1-pro-free"); that is a detail of which account we hold,
+ * not something a customer should read off the product, so it is trimmed for
+ * DISPLAY only. The real value still goes to the API — fishaudio.provider.js
+ * keys its WebSocket model off that very suffix — and is what gets recorded in
+ * the voice's metadata, so the audit trail keeps the truth.
+ */
+export const publicModelName = (id) => (id ? String(id).replace(/-free$/, '') : id);
+
+/** Provider names Super Admin currently offers under Voice (TTS). */
+const enabledTtsNames = async () => {
+  try {
+    const catalog = await getEnabledCatalog();
+    return (catalog.tts ?? []).map((m) => m.value);
+  } catch (err) {
+    // A catalogue read failure must not block cloning outright; fall back to
+    // "whatever has a key", which is the behaviour that predates this gate.
+    logger.warn(`Model catalogue unavailable, cloning falls back to key presence: ${err.message}`);
+    return null;
+  }
+};
+
+/**
+ * Which provider will train (and therefore speak, and therefore bill) a clone.
+ *
+ * Order: the caller's explicit choice → VOICE_CLONE_PROVIDER → first usable in
+ * CLONERS order. A provider is usable only when it has a key AND is enabled in
+ * the catalogue. Returns null when nothing qualifies.
+ *
+ * @param {{ preferred?: string, enabledNames?: string[]|null }} opts
+ */
+export const resolveCloner = ({ preferred, enabledNames } = {}) => {
+  const usable = (c) =>
+    c.configured() && (!Array.isArray(enabledNames) || enabledNames.includes(c.catalogName));
+  const wanted = (preferred || process.env.VOICE_CLONE_PROVIDER || '').toLowerCase();
+  return (wanted && CLONERS.find((c) => c.id === wanted && usable(c))) || CLONERS.find(usable) || null;
+};
 
 /**
  * Submit the sample to a real cloning provider — chosen by the request, else
@@ -125,13 +186,11 @@ const CLONERS = [
  * Deliberately does NOT retry a different provider on failure: that burns quota
  * on a second account and reports an error from a provider the user didn't pick.
  */
-const submitToProvider = async ({ filePath, mimeType, name, description, preferred }) => {
-  const wanted = (preferred || process.env.VOICE_CLONE_PROVIDER || '').toLowerCase();
-  const chosen = (wanted && CLONERS.find((c) => c.id === wanted && c.enabled()))
-    || CLONERS.find((c) => c.enabled());
+const submitToProvider = async ({ filePath, mimeType, name, description, preferred, enabledNames }) => {
+  const chosen = resolveCloner({ preferred, enabledNames });
   if (!chosen) return null;
   const out = await chosen.submit({ filePath, mimeType, name, description });
-  return { provider: chosen.id, label: chosen.label, ...out };
+  return { provider: chosen.id, label: chosen.label, ttsModel: chosen.ttsModel(), ...out };
 };
 
 // ── Deletion helpers ─────────────────────────────────────────────────────────
@@ -222,6 +281,19 @@ export const cloneVoice = async (req, res) => {
   }
 
   try {
+    const enabledNames = await enabledTtsNames();
+
+    // The picker sends an explicit provider. Honour it or refuse it — silently
+    // cloning to the other one would train the voice on a provider the user did
+    // not choose and bill them for it.
+    const preferred = String(req.body.cloneProvider || '').toLowerCase();
+    if (preferred && resolveCloner({ preferred, enabledNames })?.id !== preferred) {
+      fs.unlink(req.file.path, () => {});
+      return res.status(400).json({
+        error: `${preferred} cannot clone right now — it has no API key configured, or it is switched off in Super Admin → Models. Pick another provider.`,
+      });
+    }
+
     // Attempt REAL provider-side cloning first (Fish Audio or ElevenLabs,
     // whichever is configured) when a key is present. If it fails we still keep
     // the sample, but the status and the response say exactly what happened —
@@ -234,7 +306,8 @@ export const cloneVoice = async (req, res) => {
         mimeType: req.file.mimetype,
         name: name.trim(),
         description,
-        preferred: req.body.cloneProvider,
+        preferred,
+        enabledNames,
       });
     } catch (provErr) {
       cloneError = provErr.message;
@@ -263,6 +336,10 @@ export const cloneVoice = async (req, res) => {
           // Fish reports a training state; 'fast' clones are usable at once but
           // record it so a future async-training state is diagnosable.
           cloneState: cloned?.state ?? null,
+          // The model that will run at call time. Recorded per voice because
+          // FISH_TTS_MODEL / ELEVENLABS_TTS_MODEL can change later, and the
+          // TTS bill for calls made BEFORE that change was priced on this one.
+          ttsModel: cloned?.ttsModel ?? null,
           cloneError,
           createdBy: req.user?.userId ?? null,
         }),
@@ -278,10 +355,13 @@ export const cloneVoice = async (req, res) => {
         language: voice.language,
         category: voice.category,
         status: cloned ? 'cloned' : 'sample_only',
+        clonedProvider: cloned?.provider ?? null,
+        providerLabel: cloned?.label ?? null,
+        ttsModel: publicModelName(cloned?.ttsModel ?? null),
         createdAt: voice.createdAt,
       },
       message: cloned
-        ? `Voice cloned successfully via ${cloned.label} — it can now speak any text and is selectable in the agent voice picker.`
+        ? `Voice cloned successfully via ${cloned.label} (${publicModelName(cloned.ttsModel)}) — it can now speak any text and is selectable in the agent voice picker.`
         : cloneError
           ? `Sample saved, but provider cloning failed: ${cloneError}. The sample is kept for preview; fix the provider issue and re-submit to clone.`
           : 'Sample saved. Add a FISH_API_KEY or ELEVENLABS_API_KEY to backend/.env to enable real neural cloning, then re-submit.',
@@ -290,6 +370,55 @@ export const cloneVoice = async (req, res) => {
     logger.error('cloneVoice failed', err);
     fs.unlink(req.file.path, () => {});
     res.status(500).json({ error: 'Failed to save cloned voice' });
+  }
+};
+
+// ── GET /workspaces/:workspaceId/voices/clone/providers ───────────────────────
+/**
+ * Which TTS provider a clone created right now would train on, speak with, and
+ * be billed by — plus why the others are unavailable.
+ *
+ * The page used to say nothing about this, so nobody could tell whether a new
+ * clone would cost Fish Audio minutes or ElevenLabs characters until after it
+ * existed. Computed with the SAME resolver the upload path uses, so the answer
+ * shown cannot drift from the answer applied.
+ */
+export const cloneProviderInfo = async (req, res) => {
+  try {
+    const enabledNames = await enabledTtsNames();
+    const active = resolveCloner({ enabledNames });
+    const pinned = (process.env.VOICE_CLONE_PROVIDER || '').toLowerCase();
+
+    const providers = CLONERS.map((c) => {
+      const configured = c.configured();
+      const enabled = !Array.isArray(enabledNames) || enabledNames.includes(c.catalogName);
+      return {
+        id: c.id,
+        label: c.label,
+        ttsModel: publicModelName(c.ttsModel()),
+        configured,
+        enabled,
+        usable: configured && enabled,
+        active: active?.id === c.id,
+        // One plain reason, so the UI never has to guess at the combination.
+        unavailableReason: configured
+          ? (enabled ? null : `${c.label} is switched off in Super Admin → Models`)
+          : `No API key configured for ${c.label}`,
+      };
+    });
+
+    res.json({
+      active: active
+        ? { id: active.id, label: active.label, ttsModel: publicModelName(active.ttsModel()) }
+        : null,
+      // 'env' means an operator pinned the choice; 'default' means it fell to
+      // preference order, so adding a key could change who serves the next clone.
+      source: active ? (pinned === active.id ? 'env' : 'default') : null,
+      providers,
+    });
+  } catch (err) {
+    logger.error('cloneProviderInfo failed', err);
+    res.status(500).json({ error: 'Failed to resolve the cloning provider' });
   }
 };
 
@@ -320,6 +449,10 @@ export const listClonedVoices = async (req, res) => {
         // sample can only be dropped on its own once a real clone exists.
         hasSample: Boolean(meta.samplePath),
         clonedProvider: meta.clonedProvider ?? null,
+        // Which provider/model will run — and be billed — every time an agent
+        // speaks with this voice.
+        providerLabel: CLONERS.find((c) => c.id === meta.clonedProvider)?.label ?? null,
+        ttsModel: publicModelName(meta.ttsModel ?? null),
         createdAt: v.createdAt,
       }));
 

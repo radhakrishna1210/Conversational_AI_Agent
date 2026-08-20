@@ -3,6 +3,8 @@
  * Voice Configuration Modal
  * – Loads voices from the backend API (GET /api/voices)
  * – Provider tabs: Google, ElevenLabs, Sarvam, Cartesia, FishAudio (driven by real API data)
+ * – This workspace's cloned voices lead the list, filed under the provider that
+ *   actually speaks them (see providerLabel / backend resolveSynthesisTarget)
  * – Search by name
  * – Filter by gender and language
  * – Voice cards with Play/Preview button (real audio from backend)
@@ -76,6 +78,13 @@ const LIMIT = 20;
 // these are actually offered comes from Super Admin → Models at runtime; this
 // list only fixes the tab ORDER.
 const PROVIDER_ORDER = ['Google', 'ElevenLabs', 'Sarvam', 'Cartesia', 'FishAudio'];
+// A voice cloned on the Clone Voice page is stored under the synthetic 'Custom'
+// provider, with the real one — ElevenLabs or Fish Audio — in its metadata. It
+// gets no tab of its own: the backend files each clone under the provider that
+// will actually speak it, and lists this workspace's clones ahead of the
+// library, so they are the first thing on the Fish Audio / ElevenLabs tab (and
+// on All) instead of a separate place to remember to look.
+const CLONED_PROVIDER = 'Custom';
 const GENDER_OPTIONS = ['All', 'MALE', 'FEMALE', 'NEUTRAL'];
 // Providers whose remote catalogue can be searched live, so a name typed here is
 // looked up at the source and not just in our synced table. Fish because its API
@@ -100,6 +109,18 @@ function genderIcon(gender: string | null) {
   if (gender === 'MALE') return '♂';
   if (gender === 'FEMALE') return '♀';
   return '⚥';
+}
+
+/**
+ * What to print under a voice's name. A cloned voice's row says 'Custom', which
+ * tells the user nothing — show the provider that actually holds the clone, the
+ * same one resolveSynthesisTarget() will call at speak time.
+ */
+function providerLabel(v: Voice): string {
+  if (v.provider !== CLONED_PROVIDER) return v.provider;
+  const host = (v.metadata as { clonedProvider?: string } | null | undefined)?.clonedProvider;
+  const pretty: Record<string, string> = { elevenlabs: 'ElevenLabs', fishaudio: 'Fish Audio' };
+  return host ? pretty[host] ?? host : 'Cloned';
 }
 
 function categoryColor(category: string | null): string {
@@ -773,7 +794,7 @@ export default function VoiceConfigModal({
                       <div className="voice-card-header">
                         <div>
                           <div className="voice-card-name">{v.name}</div>
-                          <div className="voice-card-provider">{v.provider}</div>
+                          <div className="voice-card-provider">{providerLabel(v)}</div>
                         </div>
                         {isSelected && (
                           <div style={{ color: 'var(--cyan-fg)', flexShrink: 0, marginTop: '2px' }}>

@@ -11,7 +11,32 @@ interface ClonedVoice {
   status: string;
   hasSample: boolean;
   clonedProvider: string | null;
+  providerLabel: string | null;
+  ttsModel: string | null;
   createdAt: string;
+}
+
+/**
+ * The provider that trains a clone is the provider that speaks it on every
+ * later call, so it is also the provider that gets billed for those minutes.
+ * The backend resolves it (key present + enabled in Super Admin → Models);
+ * this page only reports the answer, so the two can never disagree.
+ */
+interface CloneProvider {
+  id: string;
+  label: string;
+  ttsModel: string;
+  configured: boolean;
+  enabled: boolean;
+  usable: boolean;
+  active: boolean;
+  unavailableReason: string | null;
+}
+
+interface CloneProviderInfo {
+  active: { id: string; label: string; ttsModel: string } | null;
+  source: 'env' | 'default' | null;
+  providers: CloneProvider[];
 }
 
 const MIN_SECONDS = 20;
@@ -40,6 +65,12 @@ export default function CloneVoice() {
   const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
+  // Which provider/model the next clone will use. The list comes from the
+  // backend resolver, so an option is never offered that the upload would then
+  // refuse — and the default is exactly what it would have chosen anyway.
+  const [providerInfo, setProviderInfo] = useState<CloneProviderInfo | null>(null);
+  const [cloneProvider, setCloneProvider] = useState('');
+
   // Cloned voices list
   const [voices, setVoices] = useState<ClonedVoice[]>([]);
   const [loadingList, setLoadingList] = useState(true);
@@ -62,6 +93,13 @@ export default function CloneVoice() {
 
   useEffect(() => {
     loadVoices();
+    whapi
+      .get<CloneProviderInfo>('/voices/clone/providers')
+      .then((info) => {
+        setProviderInfo(info);
+        setCloneProvider(info?.active?.id ?? '');
+      })
+      .catch(() => setProviderInfo(null)); // field simply stays hidden
     return () => {
       if (previewUrl) URL.revokeObjectURL(previewUrl);
       stopTimer();
@@ -162,6 +200,7 @@ export default function CloneVoice() {
       form.append('name', name.trim());
       form.append('gender', gender);
       form.append('language', language);
+      if (cloneProvider) form.append('cloneProvider', cloneProvider);
       if (description.trim()) form.append('description', description.trim());
 
       const res = await whapi.postForm<{ success: boolean; message?: string }>('/voices/clone', form);
@@ -408,6 +447,35 @@ export default function CloneVoice() {
               <option>Kannada</option>
             </select>
           </div>
+          {/* The provider that trains this voice is the provider that speaks it
+              on every later call, so this choice is also what the TTS bill is
+              priced on. Hidden entirely when the backend could not be reached —
+              better no field than a guessed one. */}
+          {providerInfo && (
+            <div>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--tx)', marginBottom: '8px' }}>
+                TTS Provider *
+              </label>
+              <select
+                className="form-select"
+                value={cloneProvider}
+                onChange={(e) => setCloneProvider(e.target.value)}
+                style={{ width: '100%', background: 'rgba(0,0,0,0.2)', backgroundImage: 'none' }}
+              >
+                {providerInfo.providers.map((p) => (
+                  <option key={p.id} value={p.id} disabled={!p.usable}>
+                    {p.label} · {p.ttsModel}
+                    {p.usable ? '' : ` — ${p.unavailableReason ?? 'unavailable'}`}
+                  </option>
+                ))}
+              </select>
+              <p style={{ color: 'var(--tx-3)', fontSize: '12px', margin: '6px 0 0' }}>
+                {providerInfo.active
+                  ? 'Trains the clone and runs the TTS on every call that uses it — this is the model the TTS cost is priced on.'
+                  : 'No cloning provider is available, so the sample will be saved for preview only and cannot speak new text.'}
+              </p>
+            </div>
+          )}
           <div>
             <label style={{ display: 'block', fontSize: '13px', fontWeight: 600, color: 'var(--tx)', marginBottom: '8px' }}>
               Description <span style={{ color: 'var(--tx-3)', fontWeight: 400 }}>(optional)</span>
@@ -472,6 +540,16 @@ export default function CloneVoice() {
                       {[v.gender, v.language].filter(Boolean).join(' • ')}
                       {v.description ? ` — ${v.description}` : ''}
                     </div>
+                    {/* The provider/model this specific clone is billed on. It
+                        is fixed at clone time: the id only exists upstream. */}
+                    {v.providerLabel && (
+                      <div style={{ color: 'var(--tx-3)', fontSize: '11px', marginTop: '3px' }}>
+                        Speaks via <span style={{ color: 'var(--tx-2)' }}>{v.providerLabel}</span>
+                        {v.ttsModel && (
+                          <span style={{ fontFamily: 'ui-monospace, monospace' }}> · {v.ttsModel}</span>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <span style={{
                     padding: '2px 8px', borderRadius: '10px', fontSize: '11px', fontWeight: 700,

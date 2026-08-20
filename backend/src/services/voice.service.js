@@ -16,60 +16,147 @@ export { syncVoices } from './voice/voice.sync.service.js';
 const DEFAULT_PREVIEW_TEXT =
   'Hello, thank you for calling. How can I assist you today?';
 
+// Cloning provider id (as stored in a cloned voice's metadata) keyed by the
+// catalogue provider name that owns it. Used to gate cloned voices in the
+// picker by the provider that really holds the clone.
+const CLONE_HOST_ID = { ElevenLabs: 'elevenlabs', FishAudio: 'fishaudio' };
+
 // ─── Voice queries ─────────────────────────────────────────────────────────────
 
 /**
- * List voices with optional provider name filter and pagination.
- * @param {{ page?: number, limit?: number, provider?: string }} opts
+ * The filter that picks out a workspace's CLONED voices.
+ *
+ * A clone sits under the synthetic 'Custom' provider, which is not a catalogue
+ * entry, so a flat `provider.name in allowedProviders` dropped every one of them
+ * — a workspace could clone a voice and then never find it in the agent picker.
+ * They are matched instead by the provider that actually synthesizes them
+ * (metadata.clonedProvider, see resolveSynthesisTarget), which is also why a
+ * Fish-hosted clone belongs in the Fish Audio tab: that is who will speak it.
+ *
+ * Returns null when no clone can qualify — no workspace to prove ownership by,
+ * or no cloning-capable provider left enabled (such a clone could not speak).
+ *
+ * Exported for tests: the workspace condition is the only thing standing between
+ * one tenant's picker and another tenant's cloned voices.
+ *
+ * @param {string[]} hostNames – catalogue provider names that may host a clone
+ * @param {string} [workspaceId] – owner scope
  */
-export const listVoices = async ({ page = 1, limit = 20, provider, gender, language, q, allowedProviders } = {}) => {
+export const clonedVoiceFilter = (hostNames, workspaceId) => {
+  const hosts = hostNames.map((n) => CLONE_HOST_ID[n]).filter(Boolean);
+  if (!workspaceId || !hosts.length) return null;
+  return {
+    provider: { name: 'Custom' },
+    workspaceId,
+    OR: hosts.map((h) => ({ metadata: { contains: `"clonedProvider":"${h}"` } })),
+  };
+};
+
+/**
+ * Page across two ordered groups as if they were one list.
+ *
+ * The first group (a workspace's clones) is small and always leads, so a page
+ * can be all clones, all library, or straddle the boundary — the straddle is
+ * where off-by-ones live, hence a pure function with tests around it.
+ *
+ * @param {{ skip: number, limit: number, firstTotal: number }} opts
+ * @returns {{ firstSkip: number, firstTake: number, secondSkip: number }}
+ */
+export const pageAcrossGroups = ({ skip, limit, firstTotal }) => ({
+  firstSkip: Math.min(skip, firstTotal),
+  firstTake: Math.max(0, Math.min(limit, firstTotal - skip)),
+  // Rows of the second group already consumed by earlier pages: only whatever
+  // the first group did not cover.
+  secondSkip: Math.max(0, skip - firstTotal),
+});
+
+/**
+ * List voices with optional provider name filter and pagination.
+ *
+ * A workspace's own cloned voices come FIRST, ahead of the provider library —
+ * they are the handful of voices someone deliberately made, and burying them on
+ * page 4 of 59 makes them effectively unfindable. That ordering has to survive
+ * pagination, so the two groups are counted and paged separately and then
+ * concatenated, rather than sorted within whichever page was fetched.
+ *
+ * @param {{ page?: number, limit?: number, provider?: string, gender?: string,
+ *           language?: string, q?: string, allowedProviders?: string[],
+ *           workspaceId?: string }} opts – workspaceId scopes cloned voices
+ */
+export const listVoices = async ({ page = 1, limit = 20, provider, gender, language, q, allowedProviders, workspaceId } = {}) => {
   const skip = (page - 1) * limit;
-  const where = {
+
+  // Filters that apply to every voice, cloned or not.
+  const base = {
     // Hide un-cloned samples from the agent voice picker: a sample_only voice
     // cannot synthesize speech, so selecting it would break calls (#9 L5).
     NOT: { AND: [{ category: 'cloned' }, { metadata: { contains: '"status":"sample_only"' } }] },
+    AND: [],
   };
-  if (provider) where.provider = { name: { equals: provider } };
-  // Providers Super Admin has switched off must not appear in the picker. This
-  // is applied on top of any explicit ?provider= filter, so asking for a
-  // disabled provider by name returns nothing rather than bypassing the gate.
-  if (Array.isArray(allowedProviders)) {
-    where.AND = [...(where.AND ?? []), { provider: { name: { in: allowedProviders } } }];
-  }
   // Case-insensitive: provider labels are normalised on sync (voice.dto.js), but
   // rows written by earlier syncs keep their original casing ("FEMALE"/"Female"),
   // and an exact match would silently drop them from the picker.
-  if (gender) where.gender = { equals: gender, mode: 'insensitive' };
-  if (language) where.language = { equals: language, mode: 'insensitive' };
+  if (gender) base.gender = { equals: gender, mode: 'insensitive' };
+  if (language) base.language = { equals: language, mode: 'insensitive' };
   // Text search runs HERE, not in the client. The picker used to filter the 20
   // rows of the page it had already fetched, so searching a 200-voice catalogue
   // only ever looked at whichever page you happened to be on — a name on page 6
   // simply did not exist as far as the search box was concerned.
   if (q && String(q).trim()) {
     const term = String(q).trim();
-    where.AND = [...(where.AND ?? []), {
+    base.AND.push({
       OR: [
         { name: { contains: term, mode: 'insensitive' } },
         { language: { contains: term, mode: 'insensitive' } },
         { accent: { contains: term, mode: 'insensitive' } },
         { category: { contains: term, mode: 'insensitive' } },
       ],
-    }];
+    });
   }
 
+  // Providers Super Admin has switched off must not appear in the picker, and
+  // that gate is applied on top of any explicit ?provider= filter — asking for a
+  // disabled provider by name returns nothing rather than bypassing it.
+  const gated = Array.isArray(allowedProviders) ? allowedProviders : null;
+  const libraryNames = (gated ?? (provider ? [provider] : []))
+    .filter((n) => n !== 'Custom' && (!provider || n === provider));
+  // Which hosts' clones belong in this view: on a provider tab, only that
+  // provider's own clones — a Fish clone in the ElevenLabs tab would be a lie
+  // about who speaks it.
+  const cloneHostNames = (gated ?? Object.keys(CLONE_HOST_ID))
+    .filter((n) => !provider || n === provider);
 
-  const [total, voices] = await Promise.all([
-    prisma.voice.count({ where }),
-    prisma.voice.findMany({
-      skip,
-      take: limit,
-      where,
-      include: { provider: { select: { name: true } } },
-      orderBy: [{ language: 'asc' }, { name: 'asc' }],
-    }),
+  const libraryWhere = { ...base, provider: { name: { in: libraryNames } } };
+  const clonedOnly = clonedVoiceFilter(cloneHostNames, workspaceId);
+  const clonedWhere = clonedOnly ? { ...base, ...clonedOnly } : null;
+
+  const include = { provider: { select: { name: true } } };
+  const orderBy = [{ language: 'asc' }, { name: 'asc' }];
+
+  const [clonedTotal, libraryTotal] = await Promise.all([
+    clonedWhere ? prisma.voice.count({ where: clonedWhere }) : 0,
+    prisma.voice.count({ where: libraryWhere }),
   ]);
 
-  return { total, page, limit, voices };
+  const slice = pageAcrossGroups({ skip, limit, firstTotal: clonedTotal });
+  const cloned = slice.firstTake > 0
+    ? await prisma.voice.findMany({ where: clonedWhere, skip: slice.firstSkip, take: slice.firstTake, include, orderBy })
+    : [];
+  // Top the page up from the library. Uses what the cloned query really
+  // returned, not what was asked for, so a row deleted between the count and
+  // the fetch shortens the page instead of leaving a hole in it.
+  const libraryTake = limit - cloned.length;
+  const library = libraryTake > 0
+    ? await prisma.voice.findMany({
+        where: libraryWhere,
+        skip: slice.secondSkip,
+        take: libraryTake,
+        include,
+        orderBy,
+      })
+    : [];
+
+  return { total: clonedTotal + libraryTotal, page, limit, voices: [...cloned, ...library] };
 };
 
 /**

@@ -10,6 +10,8 @@ router.get('/providers/status', voiceCtrl.providerStatus);
 // ─── Voice cloning (workspace-scoped custom voices) ───────────────────────────
 import * as cloneCtrl from '../controllers/voiceClone.controller.js';
 router.post('/clone', cloneCtrl.uploadVoiceSample, cloneCtrl.cloneVoice);
+// Which provider/model a clone made now would use — and be billed on.
+router.get('/clone/providers', cloneCtrl.cloneProviderInfo);
 router.get('/cloned', cloneCtrl.listClonedVoices);
 router.get('/cloned/:id/sample', cloneCtrl.streamClonedSample);
 router.delete('/cloned/:id/sample', cloneCtrl.deleteClonedSample);
