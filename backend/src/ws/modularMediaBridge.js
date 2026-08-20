@@ -86,6 +86,7 @@ import {
 } from '../services/voice/greetingAudio.js';
 import { createPlayoutWindow } from '../services/voice/playoutWindow.js';
 import { createUlawPacer } from '../services/voice/ulawPacer.js';
+import { createAmbiencePump } from '../services/voice/ambiencePump.js';
 import { encodeWav } from '../services/voice/callRecorder.js';
 import { createRecordingTap } from './callRecordingTap.js';
 import { createCallFinalizer } from './callFinalizer.js';
@@ -281,6 +282,24 @@ export function runModularMediaBridge(ws, {
   let carriedUserText = '';
   /** Pending "answer the carried text if the line stays quiet". See armNextTurn. */
   let settleTimer = null;
+
+  /**
+   * ── Call configuration, which the phone never used to honour ─────────────
+   *
+   * `maxDuration`, `maxSilenceBeforeHangup` and `interruptibleEnabled` are set
+   * on the Call configuration tab and were read by the BROWSER client only —
+   * EditAgent.tsx enforces all three for a web call. Nothing on the server did,
+   * so the same agent obeyed its own configuration in the tester and ignored it
+   * on a real phone call. An operator who set "hang up after 15s of silence"
+   * got a web call that hung up and a phone call that sat open until the wallet
+   * ran out, on every number in the campaign.
+   */
+  let maxCallTimer = null;
+  let silenceTimer = null;
+  /** Last time the CALLER was heard — speech energy or a committed transcript. */
+  let lastCallerSpeechAt = Date.now();
+  /** Whether the caller may cut the agent off. From `interruptibleEnabled`. */
+  let interruptible = true;
   /** This line's measured noise floor, learned while the agent is quiet. */
   let noiseFloor = 0;
   let noiseSamples = 0;
@@ -1073,8 +1092,11 @@ export function runModularMediaBridge(ws, {
     // Deepgram session for a call that has already hung up.
     if (armTimer) { clearTimeout(armTimer); armTimer = null; }
     // Same reason: a pending "answer what they said over us" must not fire a
-    // whole LLM+TTS turn at a caller who has already hung up.
+    // whole LLM+TTS turn at a caller who has already hung up — and neither
+    // hangup guard may outlive the call it was guarding.
     cancelSettle();
+    if (maxCallTimer) { clearTimeout(maxCallTimer); maxCallTimer = null; }
+    if (silenceTimer) { clearInterval(silenceTimer); silenceTimer = null; }
     carriedUserText = '';
     try { dg?.close(); } catch { /* already gone */ }
     dg = null;
@@ -1100,13 +1122,6 @@ export function runModularMediaBridge(ws, {
 
         // Started here rather than at construction: sendFrameNow needs streamId,
         // which does not exist until this event.
-        if (carrier.pacedOutbound) {
-          pacer = createUlawPacer({
-            send: sendFrameNow,
-            onError: (err) => logger.warn(`${carrier.label}: outbound pacer: ${err.message}`),
-          });
-          pacer.start();
-        }
         // Only override when the carrier actually supplies one: Plivo has no
         // per-call parameters on `start`, so its id arrives on the socket URL
         // and must survive this.
@@ -1234,6 +1249,89 @@ export function runModularMediaBridge(ws, {
             );
           }
 
+          // Ambience is wired here for the first time on the modular route. It was
+          // already in all three BUNDLED bridges, so the same agent had a
+          // background bed when it ran on xAI/ElevenLabs and dead silence between
+          // sentences on the modular pipeline — the setting simply did nothing for
+          // most agents, because most agents are modular.
+          //
+          // The bed REPLACES the plain pacer rather than running beside it: both
+          // are 20ms mu-law clocks over the same socket, and two clocks writing to
+          // one carrier is exactly the burst ulawPacer.js exists to prevent.
+          // ambiencePump mixes the agent's audio into every bed frame, so it is a
+          // superset — same start/push/flush/stop interface, which is why this is
+          // a swap and not a branch everywhere downstream.
+          //
+          // Note it is armed even for a carrier that does NOT need pacing
+          // (Twilio): a continuous bed has to be emitted on a clock whether or not
+          // the carrier would tolerate a burst of speech.
+          if (settings.ambientSound && settings.ambientSound !== 'None') {
+            pacer = createAmbiencePump({
+              presetName: settings.ambientSound,
+              send: sendFrameNow,
+              onError: (err) => logger.warn(`${carrier.label}: ambience pump: ${err.message}`),
+            });
+            if (!pacer) {
+              logger.warn(`${carrier.label}: unknown ambience preset "${settings.ambientSound}" — no background bed`);
+            }
+          }
+          if (!pacer && carrier.pacedOutbound) {
+            pacer = createUlawPacer({
+              send: sendFrameNow,
+              onError: (err) => logger.warn(`${carrier.label}: outbound pacer: ${err.message}`),
+            });
+          }
+          pacer?.start();
+
+          // ── Call configuration, finally enforced on the phone ──────────
+          //
+          // All three of these are set on the Call configuration tab and were,
+          // until now, honoured only by the browser: EditAgent.tsx enforces
+          // them for a web call and nothing on the server did. So the same
+          // agent obeyed its own settings in the tester and ignored them on a
+          // real call — a "hang up after 15s of silence" agent held the line
+          // open until the wallet ran out, on every number in a campaign.
+          interruptible = agent.interruptibleEnabled !== false;
+
+          // maxDuration is in MINUTES on the agent row. A hard ceiling, not a
+          // target: it exists so a call that goes wrong (a hold-music loop, a
+          // voicemail system talking to us forever) cannot bill indefinitely.
+          const maxCallMs = Math.max(0, Number(agent.maxDuration) || 0) * 60_000;
+          if (maxCallMs > 0) {
+            maxCallTimer = setTimeout(() => {
+              logger.info(`${carrier.label}: reached the ${agent.maxDuration}-minute limit — hanging up`);
+              cleanup('COMPLETED');
+              try { ws.close(); } catch { /* already gone */ }
+            }, maxCallMs);
+            if (typeof maxCallTimer.unref === 'function') maxCallTimer.unref();
+          }
+
+          // Silence hangup, in SECONDS. Measured from the last time the caller
+          // was audible, and deliberately not from the last transcript: a
+          // caller whom Deepgram is mis-transcribing is still a caller, and
+          // hanging up on them because we could not read their words is worse
+          // than staying on a quiet line. Never armed while the agent is
+          // speaking — our own reply is not the caller's silence.
+          const silenceMs = Math.max(0, Number(settings.maxSilenceBeforeHangup) || 0) * 1000;
+          if (silenceMs > 0) {
+            silenceTimer = setInterval(() => {
+              if (closed || turnRunning || playout.isSpeaking()) {
+                // Not silence we can judge — reset the clock rather than let a
+                // long reply age into a hangup.
+                lastCallerSpeechAt = Date.now();
+                return;
+              }
+              if (Date.now() - lastCallerSpeechAt < silenceMs) return;
+              logger.info(
+                `${carrier.label}: no caller audio for ${settings.maxSilenceBeforeHangup}s — hanging up`,
+              );
+              cleanup('COMPLETED');
+              try { ws.close(); } catch { /* already gone */ }
+            }, 1000);
+            if (typeof silenceTimer.unref === 'function') silenceTimer.unref();
+          }
+          lastCallerSpeechAt = Date.now();
+
           openDeepgram();
 
           // Warm what the first turn will need, in this call's audio format,
@@ -1331,7 +1429,14 @@ export function runModularMediaBridge(ws, {
               ? rms
               : noiseFloor + NOISE_EMA_ALPHA * (rms - noiseFloor);
             noiseSamples += 1;
-          } else if (settleTimer) {
+          } else {
+            // Louder than this line's own floor while we are silent: the caller
+            // is talking. This is the signal the silence hangup is measured
+            // against — deliberately energy, not transcript, so a caller
+            // speaking a language Deepgram is mis-transcribing is not hung up on.
+            lastCallerSpeechAt = Date.now();
+          }
+          if (settleTimer && rms > noiseFloor * BARGE_MARGIN) {
             // Louder than this line's floor with the agent silent: the caller is
             // still going. They said "yes" over us and are now finishing the
             // sentence, so let the real end-of-turn close it — runTurn will
@@ -1352,6 +1457,9 @@ export function runModularMediaBridge(ws, {
 
         const threshold = Math.max(BARGE_RMS_MIN, noiseFloor * BARGE_MARGIN);
         if (rms >= threshold) {
+          // The caller is audible over us, so they are not silent — this counts
+          // for the silence hangup even when barge-in is switched off below.
+          lastCallerSpeechAt = Date.now();
           // Energy evidence that SOMEONE talked over us, kept separately from
           // bargeCount because it does NOT have to be consecutive. A caller who
           // says "yes" over an eight-second reply produces two or three loud
@@ -1359,7 +1467,13 @@ export function runModularMediaBridge(ws, {
           // armNextTurn started reading this, that "yes" was thrown away and the
           // caller had to say it again. See OVERLAP_MIN_LOUD_FRAMES.
           overlapLoudFrames += 1;
-          bargeCount += 1;
+          // `interruptibleEnabled` off means the agent finishes its sentence —
+          // NOT that the caller goes unheard. Only the interrupt is suppressed;
+          // harvestOverlap() still recovers what they said, so an agent
+          // configured not to be cut off still answers the question. Counting
+          // frames is skipped rather than the whole block, so the noise floor
+          // and the overlap evidence above keep updating either way.
+          if (interruptible) bargeCount += 1;
           if (bargeCount >= BARGE_FRAMES) {
             bargeCount = 0;
             abortTurn = true;
