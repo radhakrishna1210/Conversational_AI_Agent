@@ -105,6 +105,32 @@ const createDefaultPostCallConfig = (): PostCallConfig => ({
 // agentRuntime.service.js (THANKS_FOR_CALLING_RE / stripInboundThanks).
 const THANKS_FOR_CALLING_RE = /\bthank(?:s|\s*you)?\b[^.!?]*\bfor\s+calling\b/i;
 
+// The mirror of the above: outbound phrasing sitting in the INCOMING greeting.
+//
+// "I'm calling to ask..." is exactly right when the agent placed the call and
+// nonsense when the customer rang in — they know they called, and being told
+// they are being called reads as a broken bot. The inbound half of this pair
+// had no check at all until an operator hit it: a greeting written for outbound
+// was seeded into the incoming field and then faithfully TRANSLATED, so the
+// wrong direction survived in a new language.
+//
+// Hindi is matched too, because the greeting is written in whatever language
+// the agent speaks and an English-only check would miss every Indian-language
+// agent — which is most of them. "kar rahi/raha hoon" after "call"/"phone" is
+// the natural rendering of "I am calling"; the spelling of both loanwords
+// varies by writer, hence the alternations.
+//
+// Deliberately narrow: "Thank you for calling" contains the word "calling" and
+// must NOT match. Only first-person "I am calling" / "calling from" forms do.
+const OUTBOUND_PHRASING_RE = new RegExp(
+  [
+    String.raw`\b(?:i\s*['\u2019]?m|i\s+am|this\s+is\s+\w+)\s+calling\b`,
+    String.raw`\bcalling\s+(?:from|you|to)\b`,
+    String.raw`(?:कॉल|फ़ोन|फोन)\s*कर\s*रह[ीा]\s*हू[ँं]`,
+  ].join('|'),
+  'i',
+);
+
 
 const MicIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--lime)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -195,7 +221,15 @@ export default function EditAgent() {
   // the legacy mirror of whichever one matches the agent's configured
   // direction. Derived so a preview, an export or the web-call greeting can
   // never show the value from before the operator's last keystroke.
-  const activeWelcome = callDirection === 'OUTBOUND' ? welcomeOutbound : welcomeInbound;
+  // Falls through to the other direction when the configured one has not been
+  // written yet. Only the direction a greeting was actually authored for is
+  // seeded now, so the other field is legitimately empty — and `welcomeMessage`
+  // is what every older reader and the server-side fallback chain still use.
+  // Letting it save as '' would delete the agent's only greeting the first time
+  // someone flipped the direction toggle.
+  const activeWelcome = (callDirection === 'OUTBOUND'
+    ? (welcomeOutbound.trim() || welcomeInbound)
+    : (welcomeInbound.trim() || welcomeOutbound));
   const [agentNotFound, setAgentNotFound] = useState(false);
   const [postCallConfigs, setPostCallConfigs] = useState<PostCallConfig[]>([createDefaultPostCallConfig()]);
   const [testingPostCall, setTestingPostCall] = useState<Record<string, 'idle' | 'loading' | 'done' | 'error'>>({});
@@ -650,11 +684,30 @@ export default function EditAgent() {
         if (agent) {
           const savedPostCallConfigs = (agent as any).postCallConfigs;
           setAgentName(agent.name);
-          // Seeded from the legacy field when unset, so an existing agent opens
-          // showing exactly what it says today and the operator edits from
-          // there rather than starting at a blank box.
-          setWelcomeInbound((agent as any).welcomeInbound ?? agent.welcomeMessage ?? '');
-          setWelcomeOutbound((agent as any).welcomeOutbound ?? agent.welcomeMessage ?? '');
+          // Seeded from the legacy field ONLY into the direction that greeting
+          // was actually written for.
+          //
+          // Seeding both was a real bug, reported from a live agent: the stored
+          // greeting was outbound-phrased ("I'm calling to check how you're
+          // doing"), it was copied into the INCOMING box too, and the translate
+          // step then faithfully rendered "I am calling you" in Hindi as this
+          // agent's greeting for people who had rung IN. A faithful translation
+          // of wrong-direction text is still the wrong direction — the
+          // translator worked correctly and the seed was wrong.
+          //
+          // The other box is left EMPTY on purpose. An empty field is not a gap:
+          // welcomeTextFor() falls back to welcomeMessage for it, so behaviour is
+          // exactly what it was before these fields existed, and the operator
+          // writes the second greeting when they have one rather than inheriting
+          // a fabricated one that reads as a mistake.
+          const legacyWelcome = agent.welcomeMessage ?? '';
+          const legacyDirection = (agent as any).callDirection === 'OUTBOUND' ? 'OUTBOUND' : 'INBOUND';
+          setWelcomeInbound(
+            (agent as any).welcomeInbound ?? (legacyDirection === 'INBOUND' ? legacyWelcome : ''),
+          );
+          setWelcomeOutbound(
+            (agent as any).welcomeOutbound ?? (legacyDirection === 'OUTBOUND' ? legacyWelcome : ''),
+          );
           const loadedLanguages = ((agent as any).languages ?? agent.selectedLanguages) || ['English (Indian)'];
           setSelectedLanguages(loadedLanguages);
           // Arms the auto-translate effect above: from here on, a change of
@@ -730,7 +783,7 @@ export default function EditAgent() {
       // The legacy single field tracks whichever direction this agent is FOR,
       // so exports, the Recent-calls preview and any older reader keep seeing
       // the agent's primary greeting rather than a stale copy.
-      welcomeMessage: callDirection === 'OUTBOUND' ? welcomeOutbound : welcomeInbound,
+      welcomeMessage: activeWelcome,
       welcomeInbound,
       welcomeOutbound,
       aiModel,
@@ -957,7 +1010,7 @@ export default function EditAgent() {
     try {
       const agentData = {
         name: agentName,
-        welcomeMessage: callDirection === 'OUTBOUND' ? welcomeOutbound : welcomeInbound,
+        welcomeMessage: activeWelcome,
         welcomeInbound, welcomeOutbound,
         aiModel, voice, transcription,
         languages: selectedLanguages, flowItems, maxDuration, silenceTimeout,
@@ -3282,6 +3335,7 @@ export default function EditAgent() {
                 ]).map(({ dir, label, value, set, hint, placeholder }) => {
                   const active = callDirection === dir;
                   const thanksMismatch = dir === 'OUTBOUND' && THANKS_FOR_CALLING_RE.test(value);
+                  const callingMismatch = dir === 'INBOUND' && OUTBOUND_PHRASING_RE.test(value);
                   const offLanguage = isOffLanguage(value);
                   return (
                     <div key={dir} style={{ marginBottom: '16px' }}>
@@ -3343,6 +3397,17 @@ export default function EditAgent() {
                         <div style={{ display: 'flex', gap: '8px', marginTop: '8px', padding: '10px 12px', background: '#0a2436', border: '1px solid #17567a', borderRadius: '8px', fontSize: '12px', color: '#7fd3ff', lineHeight: 1.45 }}>
                           <span aria-hidden>🗣️</span>
                           <span>This agent speaks <b>{primaryLanguage}</b>, but this greeting is not written in {primaryLanguage}'s script. It is spoken aloud exactly as typed, so a {primaryLanguage} voice would read these characters instead of the words. Translate it, or rewrite it in {primaryLanguage}.</span>
+                        </div>
+                      )}
+                      {!value.trim() && (
+                        <div style={{ marginTop: '8px', padding: '9px 12px', background: 'var(--s1)', border: '1px dashed var(--line)', borderRadius: '8px', fontSize: '11.5px', color: 'var(--tx-3)', lineHeight: 1.45 }}>
+                          Empty on purpose — this agent's greeting was written for the other direction, and copying it here would announce the wrong thing. Until you write one, these calls open with the greeting above. 
+                        </div>
+                      )}
+                      {callingMismatch && (
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '8px', padding: '10px 12px', background: '#2a1a0a', border: '1px solid #5a3a12', borderRadius: '8px', fontSize: '12px', color: '#ffb74d', lineHeight: 1.45 }}>
+                          <span aria-hidden>⚠️</span>
+                          <span>This is the <b>incoming</b> greeting, but it says the agent is calling <i>them</i>. On these calls the customer dialled you — they already know they called, so open by thanking them for calling and naming the company, not by announcing a call.</span>
                         </div>
                       )}
                       {thanksMismatch && (
