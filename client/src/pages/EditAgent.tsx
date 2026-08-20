@@ -168,6 +168,14 @@ export default function EditAgent() {
   // the words that were actually spoken. Both are now spoken verbatim by TTS.
   const [welcomeInbound, setWelcomeInbound] = useState('');
   const [welcomeOutbound, setWelcomeOutbound] = useState('');
+  // Which greeting is on screen. Both must stay editable — a campaign routinely
+  // dials OUT through an agent saved as INBOUND, which is the case that produced
+  // "thank you for calling" on calls the platform itself placed — but showing
+  // both full-size boxes at once next to a direction toggle reads as though the
+  // toggle should be filtering them, and it does not: the toggle sets what the
+  // agent is FOR. One at a time, behind its own tabs, keeps the two controls
+  // from looking like one control.
+  const [welcomeTab, setWelcomeTab] = useState<'INBOUND' | 'OUTBOUND'>('INBOUND');
   const [maxDuration, setMaxDuration] = useState(30);
   const [silenceTimeout, setSilenceTimeout] = useState(5);
   const [interruptibleEnabled, setInterruptibleEnabled] = useState(true);
@@ -713,6 +721,8 @@ export default function EditAgent() {
           // Arms the auto-translate effect above: from here on, a change of
           // primary language is the operator's doing and worth acting on.
           languageActedOn.current = loadedLanguages[0] || '';
+          // Open the tab the agent actually is, not a hardcoded side.
+          setWelcomeTab((agent as any).callDirection === 'OUTBOUND' ? 'OUTBOUND' : 'INBOUND');
           setVoice(agent.voice || 'Google - Aoede (female)');
           setAiModel(agent.aiModel || 'GPT-4.1-Mini');
           setTranscription(agent.transcription || 'Azure');
@@ -3315,6 +3325,54 @@ export default function EditAgent() {
                     customer hears — write them in the language the agent
                     speaks. The direction selector above decides which one is
                     used when a call cannot tell us its own direction. */}
+                {/* A greeting with a problem must not be able to hide behind an
+                    unselected tab — that is the whole risk of collapsing these
+                    from two boxes to one. Each tab carries a dot when ITS
+                    greeting has something wrong with it, so the warning is
+                    visible from the tab strip whichever side you are editing. */}
+                {(() => {
+                  const problem = (dir: 'INBOUND' | 'OUTBOUND') => {
+                    const v = dir === 'OUTBOUND' ? welcomeOutbound : welcomeInbound;
+                    if (!v.trim()) return null;                      // empty is a choice, not a fault
+                    if (isOffLanguage(v)) return 'language';
+                    if (dir === 'OUTBOUND' && THANKS_FOR_CALLING_RE.test(v)) return 'direction';
+                    if (dir === 'INBOUND' && OUTBOUND_PHRASING_RE.test(v)) return 'direction';
+                    return null;
+                  };
+                  return (
+                    <div style={{ display: 'inline-flex', background: 'var(--s1)', border: '1px solid var(--line)', borderRadius: '8px', padding: '3px', marginBottom: '14px' }}>
+                      {(['INBOUND', 'OUTBOUND'] as const).map((dir) => {
+                        const on = welcomeTab === dir;
+                        const flag = problem(dir);
+                        return (
+                          <button
+                            key={dir}
+                            type="button"
+                            onClick={() => setWelcomeTab(dir)}
+                            title={flag === 'language' ? 'Not written in this agent’s language'
+                              : flag === 'direction' ? 'Worded for the other direction' : undefined}
+                            style={{
+                              display: 'inline-flex', alignItems: 'center', gap: '7px',
+                              padding: '5px 14px', borderRadius: '6px', border: 'none', cursor: 'pointer',
+                              fontSize: '12px', fontWeight: 600, whiteSpace: 'nowrap',
+                              background: on ? 'var(--s2)' : 'transparent',
+                              color: on ? 'var(--tx)' : 'var(--tx-3)',
+                              transition: 'all 0.15s',
+                            }}
+                          >
+                            {dir === 'OUTBOUND' ? 'Outgoing' : 'Incoming'}
+                            {callDirection === dir && (
+                              <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: dir === 'OUTBOUND' ? 'var(--orange)' : 'var(--cyan-fg)' }}>
+                                default
+                              </span>
+                            )}
+                            {flag && <span aria-label="needs attention" style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#ffb74d', flexShrink: 0 }} />}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  );
+                })()}
                 {([
                   {
                     dir: 'INBOUND' as const,
@@ -3332,20 +3390,16 @@ export default function EditAgent() {
                     hint: 'Open by naming who is calling and from where, then the reason.',
                     placeholder: 'e.g. नमस्ते, मैं सनराइज़ हॉस्पिटल से अंजलि बोल रही हूँ…',
                   },
-                ]).map(({ dir, label, value, set, hint, placeholder }) => {
-                  const active = callDirection === dir;
+                ]).filter(({ dir }) => dir === welcomeTab).map(({ dir, label, value, set, hint, placeholder }) => {
                   const thanksMismatch = dir === 'OUTBOUND' && THANKS_FOR_CALLING_RE.test(value);
                   const callingMismatch = dir === 'INBOUND' && OUTBOUND_PHRASING_RE.test(value);
                   const offLanguage = isOffLanguage(value);
                   return (
                     <div key={dir} style={{ marginBottom: '16px' }}>
+                      {/* The "default" badge lives on the tab now, so this is
+                          just the label and the one-line rule for this side. */}
                       <div style={{ display: 'flex', alignItems: 'baseline', gap: '10px', marginBottom: '7px', flexWrap: 'wrap' }}>
-                        <span style={{ fontSize: '12px', fontWeight: 700, color: active ? 'var(--tx)' : 'var(--tx-2)' }}>{label}</span>
-                        {active && (
-                          <span style={{ fontSize: '10px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: dir === 'OUTBOUND' ? 'var(--orange)' : 'var(--cyan-fg)' }}>
-                            This agent's default
-                          </span>
-                        )}
+                        <span style={{ fontSize: '12px', fontWeight: 700, color: 'var(--tx)' }}>{label}</span>
                         <span style={{ fontSize: '11px', color: '#6f6f6f' }}>{hint}</span>
                       </div>
                       <textarea
@@ -3355,7 +3409,7 @@ export default function EditAgent() {
                           width: '100%',
                           minHeight: '104px',
                           background: 'var(--s1)',
-                          border: `1px solid ${active ? 'var(--line-strong, var(--line))' : 'var(--line)'}`,
+                          border: '1px solid var(--line)',
                           borderRadius: '10px',
                           padding: '14px 16px',
                           color: 'var(--tx)',
@@ -3401,7 +3455,7 @@ export default function EditAgent() {
                       )}
                       {!value.trim() && (
                         <div style={{ marginTop: '8px', padding: '9px 12px', background: 'var(--s1)', border: '1px dashed var(--line)', borderRadius: '8px', fontSize: '11.5px', color: 'var(--tx-3)', lineHeight: 1.45 }}>
-                          Empty on purpose — this agent's greeting was written for the other direction, and copying it here would announce the wrong thing. Until you write one, these calls open with the greeting above. 
+                          Empty on purpose — this agent's greeting was written for the other direction, and copying it here would announce the wrong thing. Until you write one, these calls open with the other tab's greeting.
                         </div>
                       )}
                       {callingMismatch && (
