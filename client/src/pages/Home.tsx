@@ -49,6 +49,67 @@ export default function Home() {
   const [vertical, setVertical] = useState('healthcare');
 
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const liveAudioRef = useRef<HTMLAudioElement | null>(null);
+  const [audioPlaying, setAudioPlaying] = useState(false);
+  const [audioProgress, setAudioProgress] = useState(0);
+  const [audioDuration, setAudioDuration] = useState(0);
+
+  const formatAudioTime = useCallback((seconds: number) => {
+    if (!Number.isFinite(seconds) || seconds <= 0) return '0:00';
+    const mins = Math.floor(seconds / 60);
+    const secs = Math.floor(seconds % 60)
+      .toString()
+      .padStart(2, '0');
+    return `${mins}:${secs}`;
+  }, []);
+
+  const toggleAudio = useCallback(async () => {
+    const audio = liveAudioRef.current;
+    if (!audio) return;
+
+    if (audio.paused) {
+      try {
+        await audio.play();
+      } catch (error) {
+        console.error('Audio playback failed:', error);
+      }
+      return;
+    }
+
+    audio.pause();
+  }, []);
+
+  const handleAudioSeek = useCallback((value: number) => {
+    const audio = liveAudioRef.current;
+    if (!audio) return;
+    audio.currentTime = value;
+    setAudioProgress(value);
+  }, []);
+
+  useEffect(() => {
+    const audio = liveAudioRef.current;
+    if (!audio) return;
+
+    const onLoadedMetadata = () => setAudioDuration(audio.duration || 0);
+    const onTimeUpdate = () => setAudioProgress(audio.currentTime || 0);
+    const onPlay = () => setAudioPlaying(true);
+    const onPause = () => setAudioPlaying(false);
+    const onEnded = () => setAudioPlaying(false);
+
+    audio.addEventListener('loadedmetadata', onLoadedMetadata);
+    audio.addEventListener('timeupdate', onTimeUpdate);
+    audio.addEventListener('play', onPlay);
+    audio.addEventListener('pause', onPause);
+    audio.addEventListener('ended', onEnded);
+
+    return () => {
+      audio.removeEventListener('loadedmetadata', onLoadedMetadata);
+      audio.removeEventListener('timeupdate', onTimeUpdate);
+      audio.removeEventListener('play', onPlay);
+      audio.removeEventListener('pause', onPause);
+      audio.removeEventListener('ended', onEnded);
+    };
+  }, []);
 
   // The hero cycles only while the demo is idle, so the two figures never
   // contradict each other — during playback the hero mirrors the live turn.
@@ -260,6 +321,54 @@ export default function Home() {
 
           {/* Telemetry */}
           <div className="lp-telemetry">
+            <div className="lp-card lp-live-audio">
+              <div className="lp-live-audio-head">
+                <div>
+                  <div className="lp-kicker-sm">CALL AUDIO</div>
+                  <div className="lp-live-status">
+                    <span className="lp-blink-dot" /> live feed
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  className="lp-live-audio-toggle"
+                  onClick={toggleAudio}
+                  aria-label={audioPlaying ? 'Pause call audio' : 'Play call audio'}
+                >
+                  {audioPlaying ? 'Pause' : 'Play'}
+                </button>
+              </div>
+
+              <div className="lp-live-audio-wave" aria-hidden="true">
+                {Array.from({ length: 26 }).map((_, i) => (
+                  <span
+                    key={i}
+                    className={`lp-live-audio-bar${audioPlaying ? ' is-live' : ''}`}
+                    style={{ height: `${20 + ((i * 11) % 54)}%` }}
+                  />
+                ))}
+              </div>
+
+              <div className="lp-live-audio-progress">
+                <input
+                  aria-label="Call audio progress"
+                  type="range"
+                  min={0}
+                  max={Math.max(audioDuration, 0.01)}
+                  step={0.01}
+                  value={Math.min(audioProgress, Math.max(audioDuration, 0.01))}
+                  onChange={(event) => handleAudioSeek(Number(event.target.value))}
+                />
+              </div>
+
+              <div className="lp-live-audio-timing">
+                <span>{formatAudioTime(audioProgress)}</span>
+                <span>{formatAudioTime(audioDuration)}</span>
+              </div>
+
+              <audio ref={liveAudioRef} preload="metadata" src="/test-livekit-agent-builder-ab-1jbgrnqa76z-google-chrome-2026-08-20-13-47-45_Iennw9ic.wav" />
+            </div>
+
             <div className="lp-card lp-turnstate">
               <div className="lp-kicker-sm">TURN STATE</div>
               <div className="lp-turnstate-v" style={{ color: voiceColor(replay.state) }}>

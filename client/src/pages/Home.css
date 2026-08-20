@@ -573,6 +573,167 @@
   padding: 20px;
 }
 
+.lp-live-audio {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  background:
+    radial-gradient(120% 120% at 10% 0%, rgba(14, 179, 158, 0.16), transparent 40%),
+    linear-gradient(180deg, var(--bg-elevated), var(--bg-card));
+  border: 1px solid rgba(14, 179, 158, 0.22);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 16px 30px rgba(15, 23, 42, 0.08);
+}
+
+html.light .lp-live-audio {
+  background:
+    radial-gradient(120% 120% at 10% 0%, rgba(14, 179, 158, 0.12), transparent 40%),
+    linear-gradient(180deg, #f9fbfe, var(--bg-card));
+  border-color: rgba(14, 179, 158, 0.18);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 18px 32px rgba(15, 23, 42, 0.08);
+}
+
+.lp-live-audio-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.lp-live-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  font-family: var(--ff-m);
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tx-3);
+}
+
+.lp-live-audio-toggle {
+  appearance: none;
+  border: 1px solid rgba(14, 179, 158, 0.35);
+  background: linear-gradient(180deg, rgba(14, 179, 158, 0.16), rgba(148, 163, 184, 0.05));
+  color: var(--tx);
+  padding: 9px 14px;
+  border-radius: 999px;
+  font-family: var(--ff-m);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  cursor: pointer;
+  transition: transform 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+html.light .lp-live-audio-toggle {
+  background: linear-gradient(180deg, rgba(14, 179, 158, 0.09), rgba(14, 179, 158, 0.02));
+  border-color: rgba(14, 179, 158, 0.25);
+}
+
+.lp-live-audio-toggle:hover {
+  transform: translateY(-1px);
+  border-color: rgba(14, 179, 158, 0.6);
+  box-shadow: 0 0 20px rgba(14, 179, 158, 0.2);
+}
+
+.lp-live-audio-wave {
+  display: grid;
+  grid-template-columns: repeat(26, minmax(0, 1fr));
+  align-items: end;
+  gap: 5px;
+  height: 64px;
+  padding: 10px 8px 6px;
+  border-radius: 14px;
+  background: rgba(8, 12, 18, 0.05);
+  border: 1px solid var(--border);
+}
+
+html.light .lp-live-audio-wave {
+  background: rgba(15, 23, 42, 0.025);
+}
+
+.lp-live-audio-bar {
+  border-radius: 999px 999px 0 0;
+  background: linear-gradient(180deg, rgba(97, 209, 255, 0.8), rgba(14, 179, 158, 0.35));
+  opacity: 0.48;
+  transition: height 0.2s ease, opacity 0.2s ease, transform 0.2s ease;
+}
+
+html.light .lp-live-audio-bar {
+  background: linear-gradient(180deg, rgba(14, 179, 158, 0.7), rgba(129, 140, 248, 0.45));
+}
+
+.lp-live-audio-bar.is-live {
+  opacity: 1;
+  transform: scaleY(1.02);
+  background: linear-gradient(180deg, var(--cyan-fg), rgba(14, 179, 158, 0.9));
+  box-shadow: 0 0 14px rgba(14, 179, 158, 0.32);
+}
+
+html.light .lp-live-audio-bar.is-live {
+  box-shadow: 0 0 16px rgba(14, 179, 158, 0.2);
+}
+
+.lp-live-audio-progress {
+  display: flex;
+  align-items: center;
+  width: 100%;
+}
+
+.lp-live-audio-progress input[type='range'] {
+  width: 100%;
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  background: linear-gradient(90deg,
+      var(--cyan) 0%,
+      var(--cyan) var(--fill, 0%),
+      var(--border) var(--fill, 0%),
+      var(--border) 100%);
+  outline: none;
+}
+
+html.light .lp-live-audio-progress input[type='range'] {
+  background: linear-gradient(90deg,
+      var(--cyan) 0%,
+      var(--cyan) var(--fill, 0%),
+      rgba(148, 163, 184, 0.34) var(--fill, 0%),
+      rgba(148, 163, 184, 0.34) 100%);
+}
+
+.lp-live-audio-progress input[type='range']::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(6, 13, 20, 0.9);
+  background: var(--cyan-fg);
+  box-shadow: 0 0 0 4px rgba(14, 179, 158, 0.15);
+  cursor: pointer;
+}
+
+.lp-live-audio-progress input[type='range']::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 2px solid rgba(6, 13, 20, 0.9);
+  border-radius: 50%;
+  background: var(--cyan-fg);
+  box-shadow: 0 0 0 4px rgba(14, 179, 158, 0.15);
+  cursor: pointer;
+}
+
+.lp-live-audio-timing {
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--ff-m);
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--tx-3);
+}
+
 .lp-turnstate {
   position: relative;
   overflow: hidden;
