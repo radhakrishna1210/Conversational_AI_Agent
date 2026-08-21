@@ -59,6 +59,16 @@ const DEEPGRAM_LANG = {
   russian: 'ru', japanese: 'ja', korean: 'ko', mandarin: 'zh', chinese: 'zh',
 };
 
+/**
+ * The languages the phonecall-tuned models actually serve.
+ *
+ * Not a guess and not "anything starting with en": `en-ZA` is refused with the
+ * same 400 as `hi`, so this is the verified set from Deepgram's /v1/models
+ * listing for nova-2-phonecall. Anything outside it must not be paired with a
+ * phonecall model — see resolveDeepgramModel.
+ */
+const PHONECALL_LANGUAGES = new Set(['en', 'en-au', 'en-gb', 'en-in', 'en-nz', 'en-us']);
+
 export function toDeepgramLanguage(value) {
   if (!value) return undefined;
   const raw = String(value).trim();
@@ -221,9 +231,18 @@ export function maxEndpointCommitMs(endpointingMs) {
  * Which Deepgram model this session should open with.
  *
  * Exported and pure so the choice is testable without a socket — it is decided
- * from two fields that are set at construction and never change, and getting it
- * wrong fails SILENTLY (a wrong model still completes the handshake and still
- * returns transcripts, just worse ones).
+ * from two fields that are set at construction and never change.
+ *
+ * ── GETTING IT WRONG FAILS IN TWO DIFFERENT WAYS ────────────────────────────
+ *
+ * An earlier version of this comment said a wrong model "fails SILENTLY — a
+ * wrong model still completes the handshake and still returns transcripts, just
+ * worse ones". That is true only when the model and the LANGUAGE are compatible
+ * and the model is merely a poor fit for the audio. A model/language pair
+ * Deepgram does not serve is a hard 400 at the handshake, so the socket never
+ * opens and the call gets NO speech recognition at all — not a worse transcript,
+ * no transcript. Both failure modes are invisible from the call itself, which is
+ * why the pairs below are pinned by tests rather than reasoned about.
  *
  * Code-switching (`language=multi`) is a nova-3 capability. nova-2 still
  * ACCEPTS the parameter at handshake — it just doesn't code-switch — so a
@@ -249,16 +268,64 @@ export function maxEndpointCommitMs(endpointingMs) {
  * most of why the same agent turns around slower on a call than in a
  * browser.
  *
- * Overridable, and NOT applied to `multi`: the code-switching model has no
- * phonecall variant, and asking for one would fail the handshake.
+ * ── THE PHONECALL FAMILY IS ENGLISH-ONLY, AND THAT IS A HARD LIMIT ──────────
+ *
+ * `nova-2-phonecall` serves en, en-AU, en-GB, en-IN, en-NZ and en-US, and
+ * nothing else — verified against Deepgram's own /v1/models and by opening real
+ * handshakes:
+ *
+ *     nova-2-phonecall + hi   →  400 Bad Request
+ *     nova-2-phonecall + en   →  connects
+ *     nova-3           + hi   →  connects
+ *
+ * So the encoding alone could not decide this. Every non-English agent on a
+ * phone call was asking for a pair Deepgram refuses: the session never opened,
+ * the media handler's reconnect retried the same rejected handshake once a
+ * second for the length of the call, and the caller's speech was never
+ * transcribed at all. The SAME agent worked in a browser, because linear16 took
+ * the third branch and landed on a model that does serve Hindi — which is
+ * exactly the shape the bug reports had ("web is fine, the phone hears nothing").
+ *
+ * ── AND nova-2 DOES NOT COVER THE LANGUAGES THIS PRODUCT SELLS ──────────────
+ *
+ * The same probe over every language DEEPGRAM_LANG can emit: nova-2 refuses
+ * `ta` and `te` on ANY encoding, so Tamil and Telugu agents were broken in the
+ * browser too. nova-3 accepts all nineteen. Non-English therefore goes to
+ * nova-3 on BOTH transports rather than only on the phone — a model the
+ * language works on beats a transport-tuned model that rejects it, and it also
+ * stops the same agent hearing two different models depending on how it was
+ * reached.
+ *
+ * English behaviour is deliberately UNCHANGED: an English (or language-less,
+ * which Deepgram defaults to English) phone call still gets the narrowband
+ * phonecall model, which is the whole point of the encoding branch.
+ *
+ * Every branch is overridable, so a deployment can pin a model without a
+ * release — DEEPGRAM_MODEL_NON_ENGLISH=nova-2 restores the previous choice for
+ * Hindi, for instance.
  *
  * @param {string} [language] - the Deepgram language code, or 'multi'
  * @param {string} [encoding] - the wire format the audio arrives in
  * @returns {string}
  */
 export function resolveDeepgramModel(language, encoding) {
-  if (language === 'multi') return process.env.DEEPGRAM_MODEL_MULTI || 'nova-3';
-  if (encoding === 'mulaw') return process.env.DEEPGRAM_MODEL_PHONE || 'nova-2-phonecall';
+  const lang = String(language || '').toLowerCase();
+
+  if (lang === 'multi') return process.env.DEEPGRAM_MODEL_MULTI || 'nova-3';
+
+  // Absent means English: Deepgram defaults to it when no language is sent, so
+  // a language-less phone call is an English phone call and belongs on the
+  // narrowband model.
+  if (encoding === 'mulaw' && (!lang || PHONECALL_LANGUAGES.has(lang))) {
+    return process.env.DEEPGRAM_MODEL_PHONE || 'nova-2-phonecall';
+  }
+
+  // Not English, whatever the transport. See above: this is about which model
+  // SERVES the language, which nova-2 does not for several of ours.
+  if (lang && !PHONECALL_LANGUAGES.has(lang)) {
+    return process.env.DEEPGRAM_MODEL_NON_ENGLISH || 'nova-3';
+  }
+
   return process.env.DEEPGRAM_MODEL || 'nova-2';
 }
 
