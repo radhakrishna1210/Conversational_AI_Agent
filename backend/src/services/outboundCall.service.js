@@ -26,7 +26,11 @@ import { resolveProvider } from './telephony/index.js';
 import { acquireSlot } from './telephony/concurrency.js';
 import { xmlSafe } from './telephony/provider.interface.js';
 import { isDeepgramConfigured } from './stt/deepgramStream.service.js';
-import { supportsTelephony, telephonyOutputFormat } from './voice/telephonyAudio.js';
+import { supportsTelephony } from './voice/telephonyAudio.js';
+import {
+  telephonyFormatForVoice,
+  synthesisProviderForVoice,
+} from './voice/telephonyVoice.js';
 import { getRenderedWelcome } from './agentRuntime.service.js';
 import { resolveAgentVoice } from './voice.service.js';
 import { warmGreetingAudio, greetingSynthesisOpts } from './voice/greetingAudio.js';
@@ -92,7 +96,11 @@ async function warmPhoneGreeting(workspaceId, agent) {
   // The bridge refuses a voice that cannot emit a telephony format, so there is
   // nothing to warm for one — and warming the provider's default MP3 would fill
   // a cache entry the bridge will never ask for.
-  const ttsFormat = telephonyOutputFormat(voice.provider?.name || settings.ttsProvider);
+  //
+  // Through the SAME resolver the bridge uses: reading voice.provider.name here
+  // meant every cloned voice missed this cache silently, because a clone's row
+  // says `Custom`. See services/voice/telephonyVoice.js.
+  const ttsFormat = telephonyFormatForVoice(voice, settings.ttsProvider);
   if (!ttsFormat) return;
 
   await warmGreetingAudio(voice, text, greetingSynthesisOpts(ttsFormat, settings));
@@ -122,9 +130,25 @@ async function warmPhoneGreeting(workspaceId, agent) {
  * hoping — the alternative is 10,000 people hearing a recorded message when the
  * operator expected a conversation.
  *
- * @returns {{ mode: 'conversation'|'greeting', engine: string, reason: string }}
+ * ── WHY THIS IS ASYNC ───────────────────────────────────────────────────────
+ *
+ * It used to judge the TTS provider from `settings.ttsProvider || agent.voiceProvider`.
+ * Both of those are unset on almost every agent in this database — the voice is
+ * stored as a LABEL on `agent.voice` ("ElevenLabs - Rachel", "Custom - krishna")
+ * and resolved to a row at call time — so the guard below was reading empty
+ * strings and waving every agent through, whatever voice it actually had.
+ *
+ * The bridge, meanwhile, resolves the real voice row and refuses one it cannot
+ * speak. Two checks, the same question, different inputs: the pre-flight always
+ * said yes and the bridge said no AFTER the callee had picked up, so the whole
+ * class of "wrong voice for a phone line" surfaced as a live call dropping in
+ * about a second instead of as a refusal before dialling. Resolving the voice
+ * here — one cached lookup per dial, on the ringing path where nobody is
+ * waiting — is what makes the two agree.
+ *
+ * @returns {Promise<{ mode: 'conversation'|'greeting', engine: string, reason: string }>}
  */
-export function resolveCallMode(agent) {
+export async function resolveCallMode(agent) {
   const settings = parseSettings(agent);
   const engine = settings.voiceEngine || 'modular';
   const bundled = BUNDLED_ENGINES.has(engine);
@@ -153,14 +177,42 @@ export function resolveCallMode(agent) {
     };
   }
 
-  const ttsProvider = settings.ttsProvider || agent?.voiceProvider || '';
+  // The voice this agent will really speak with, resolved exactly as the bridge
+  // resolves it. A lookup failure is deliberately NOT treated as a refusal: the
+  // bridge re-resolves it moments later anyway, and downgrading every call to
+  // greeting-only because one database read blipped is far worse than letting
+  // the call try.
+  const voice = await resolveAgentVoice(agent?.voice).catch(() => null);
+  const ttsProvider = voice
+    ? synthesisProviderForVoice(voice, settings.ttsProvider)
+    : (settings.ttsProvider || agent?.voiceProvider || '');
+
+  // An empty provider with a voice row present means the row cannot synthesize
+  // at all — a clone whose neural training never finished. Named separately
+  // because "finish cloning this voice" and "pick a different provider" are
+  // different actions, and the generic message sends the operator to the wrong one.
+  if (voice && !ttsProvider) {
+    return {
+      mode: 'greeting',
+      engine,
+      reason: `The voice "${voice.name}" has only a raw sample — its neural clone was never `
+        + 'completed, so nothing can synthesize new speech with it. Finish cloning it on the '
+        + 'Clone Voice page, or pick another voice; until then calls play the welcome message only.',
+    };
+  }
+
   if (ttsProvider && !supportsTelephony(ttsProvider)) {
     return {
       mode: 'greeting',
       engine,
-      reason: `This agent's speech provider (${ttsProvider}) can only produce MP3, which a phone `
-        + 'line cannot play. Switch the agent to an ElevenLabs or Cartesia voice for a two-way '
-        + 'phone conversation, or calls will play the welcome message only.',
+      // Names the provider that would really speak it, which for a cloned voice
+      // is its host (Fish Audio / ElevenLabs) rather than the `Custom` label the
+      // picker shows — an operator told "Custom cannot do telephony" has nothing
+      // to act on.
+      reason: `This agent's voice${voice ? ` ("${voice.name}")` : ''} is spoken by ${ttsProvider}, `
+        + 'which can only produce MP3 — a format a phone line cannot play. Switch the agent to an '
+        + 'ElevenLabs, Sarvam or Fish Audio voice (a clone hosted by one of those counts) for a '
+        + 'two-way phone conversation, or calls will play the welcome message only.',
     };
   }
 
@@ -268,7 +320,7 @@ export async function placeOutboundCall({
   if (!tw.ready) return { ok: false, mode: 'none', error: tw.error, status: 503 };
 
   const from = fromNumber || provider.defaultFrom();
-  const { mode, engine, reason } = resolveCallMode(agent);
+  const { mode, engine, reason } = await resolveCallMode(agent);
   // Both engine families now reach the same media-stream URL; server.js picks
   // the bridge from the agent's engine. This flag is about the CALL DOCUMENT
   // (stream vs play-and-hang-up), not about which engine answers.

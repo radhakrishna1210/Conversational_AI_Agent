@@ -429,7 +429,7 @@ export const testCall = async (req, res) => {
 
   logger.info({ agentId, phoneNumber }, 'Initiating REAL test call');
 
-  const { mode, reason } = resolveCallMode(agent);
+  const { mode, reason } = await resolveCallMode(agent);
   const useBundledEngine = mode === 'conversation';
   if (reason) logger.warn(reason);
 

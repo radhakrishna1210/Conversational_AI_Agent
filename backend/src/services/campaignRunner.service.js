@@ -151,7 +151,7 @@ export async function runCampaign(campaignId, workspaceId) {
       return { started: false, reason: 'compliance' };
     }
 
-    const { mode, reason } = resolveCallMode(agent);
+    const { mode, reason } = await resolveCallMode(agent);
     await prisma.campaign.update({
       where: { id: campaignId },
       data: { status: CAMPAIGN_STATUS.RUNNING, callMode: mode, lastError: null, launchedAt: campaign.launchedAt ?? new Date() },

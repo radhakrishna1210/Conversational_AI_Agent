@@ -242,10 +242,34 @@ const MAX_CALL_SECONDS = Number(process.env.MAX_CALL_SECONDS) || 4 * 60 * 60;
  * expected to hang up at `maxSeconds`; see the budget timers in the web and
  * phone bridges.
  *
+ * ── `concurrency` IS ADMISSION CONTROL, AND ONLY DIALLERS DO ADMISSION ──────
+ *
+ * The carrier-concurrency ceiling answers "may we START one more call?". That
+ * is a question with exactly one correct asking point: before a dial. By the
+ * time a media socket opens, the call is RINGING no more — somebody has picked
+ * up the phone — and it has been holding a concurrency slot of its own since
+ * the dial (acquireSlot in placeOutboundCall). Asking again at that point is
+ * asking a call whether it may exist while counting itself in the answer.
+ *
+ * That is not theoretical. The campaign dialler deliberately dials until this
+ * gate refuses, so a running campaign parks `slots.size` exactly AT the ceiling
+ * — and every call answered while it sits there was then refused by the very
+ * slot it already owned, and hung up about one second after the callee said
+ * hello. Identical symptom to a broken voice or a bad answer document, on a
+ * path that only misbehaves under bulk load.
+ *
+ * So: diallers pass nothing and get the gate. Media bridges pass
+ * `concurrency: false` — they can still be refused for an empty WALLET, which
+ * is a real answer-time fact (an inbound call was never gated at all, and a
+ * balance can be spent between dial and pickup).
+ *
+ * @param {object} [opts]
+ * @param {'WEB_CALL'|'PHONE_CALL'} [opts.type]
+ * @param {boolean} [opts.concurrency] false at pickup; see above
  * @returns {Promise<{ allowed: boolean, code?: string, message?: string,
  *   maxSeconds?: number, availableCents?: number, ratePerMinuteCents?: number }>}
  */
-export async function assertCanStartCall(workspaceId, { type = 'WEB_CALL' } = {}) {
+export async function assertCanStartCall(workspaceId, { type = 'WEB_CALL', concurrency = true } = {}) {
   if (!BILLABLE_TYPES.has(type)) return { allowed: true, maxSeconds: Infinity };
 
   /*
@@ -293,7 +317,7 @@ export async function assertCanStartCall(workspaceId, { type = 'WEB_CALL' } = {}
    * created its wallet row. That row would have been created by the next call
    * anyway, and getOrCreateWallet is idempotent.
    */
-  const slotPending = type === 'PHONE_CALL' ? checkConcurrency(workspaceId) : null;
+  const slotPending = concurrency && type === 'PHONE_CALL' ? checkConcurrency(workspaceId) : null;
   const walletPending = getOrCreateWallet(workspaceId);
   const ratePending = getWalletRate();
 
