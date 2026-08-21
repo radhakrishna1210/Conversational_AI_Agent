@@ -562,14 +562,27 @@ drop is logged with the raw transcript so the two cases stay distinguishable,
 and `PHONE_OVERLAP_FRAMES` is the blunt fix — raised high enough it degrades
 cleanly back to the old behaviour.
 
-**Not done — rung 3, real AEC.** Subtracting our own outbound frames from the
-inbound leg (we hold both, with exact wire timing from `playoutWindow`) is what
-would let the bridge listen *through* its own speech and close the last
-structural gap with the browser. Everything above is mitigation.
+**Rung 3, real AEC — DONE (21 Aug 2026).** `services/voice/echoCanceller.js`.
+Bulk delay by energy-envelope cross-correlation (100-400ms, per call, re-checked
+every 500ms) followed by a 128-tap NLMS filter centred on it. The bridge feeds
+it every outbound frame as reference in `sendFrameNow` and runs every inbound
+frame through it before Deepgram, the barge detector, the noise floor or the
+turn buffer see the audio.
+
+Measured on a synthetic hybrid (120ms delay, 0.55 coupling): echo RMS 1795 ->
+215, about 18dB, converging in ~1s of speech, 0 divergences. Cost 0.153ms per
+20ms frame — 0.76% of one call's realtime budget, and a pure passthrough while
+the agent is silent, which is most of a call.
+
+Two things it does NOT do yet, deliberately. `armNextTurn()` still waits for
+playout to drain before `beginTurn()`, and `harvestOverlap()` still applies its
+text heuristic — both now operate on echo-free audio, so they succeed far more
+often, but the structure is unchanged. Removing the deaf window entirely is the
+next step and wants a real call's numbers first.
 
 ### Still open
 
-B1 (one process, 45 clocks), B2 (shared API key), P4 rung 3 (AEC), and step 0 —
+B1 (one process, 45 clocks), B2 (shared API key), and step 0 —
 **verify the VPS region and get a phone turn into `latency.log`**. Nothing above
 has been measured on a real call yet; the expected savings are still arithmetic
 on the numbers in §0.

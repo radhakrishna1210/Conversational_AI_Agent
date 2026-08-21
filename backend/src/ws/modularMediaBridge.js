@@ -72,6 +72,7 @@ import {
 import { createFillerBudget } from '../services/voice/disfluency.js';
 import {
   decodeUlaw,
+  encodeUlaw,
   createFrameSplitter,
   pcmToTelephonyUlaw,
   createPcmUlawConverter,
@@ -88,6 +89,7 @@ import {
   greetingSynthesisOpts,
 } from '../services/voice/greetingAudio.js';
 import { createPlayoutWindow } from '../services/voice/playoutWindow.js';
+import { createEchoCanceller } from '../services/voice/echoCanceller.js';
 import { createUlawPacer } from '../services/voice/ulawPacer.js';
 import { createAmbiencePump } from '../services/voice/ambiencePump.js';
 import { encodeWav } from '../services/voice/callRecorder.js';
@@ -360,6 +362,16 @@ export function runModularMediaBridge(ws, {
    */
   const playout = createPlayoutWindow();
 
+  /**
+   * Subtracts our own voice from the inbound leg.
+   *
+   * The browser gets this free from getUserMedia; a phone line does not, and
+   * every compromise in this file — going deaf for the tail of a reply, the
+   * text heuristic in harvestOverlap(), the high barge threshold — exists only
+   * because the echo could not be removed. See services/voice/echoCanceller.js.
+   */
+  const aec = createEchoCanceller();
+
   /** Both legs of the call, mixed to one WAV at hangup. See callRecordingTap.js. */
   const recording = createRecordingTap({ label: carrier.label, startedAt });
 
@@ -414,6 +426,11 @@ export function runModularMediaBridge(ws, {
       if (turnFirstFrameAt == null) turnFirstFrameAt = Date.now();
       playout.noteFrame();
     }
+
+    // The canceller needs EXACTLY what went on the wire, bed included: the bed
+    // is echoed back up the line like anything else we play, so a reference
+    // without it would leave that part of the echo uncancelled.
+    aec.reference(decodeUlaw(frame));
 
     // Recorded either way: the bed is part of what the caller actually heard.
     recording.outbound(frame);
@@ -1462,15 +1479,29 @@ export function runModularMediaBridge(ws, {
         if (!dg) break;
         const frame = Buffer.from(msg.media.payload, 'base64');
 
+        // The RAW frame, because a recording should be what the caller and the
+        // line actually carried, not what we chose to listen to.
         recording.inbound(frame);
 
-        // Always feed STT — including while the agent speaks, so the words a
-        // caller says over the top are not lost when the barge lands.
-        try { dg.send(frame); } catch { /* session died; next attempt recreates */ }
+        // ── Subtract our own voice before anything looks at this audio ──────
+        //
+        // Everything below — STT, the barge detector, the noise floor, the
+        // turn buffer — was written around the fact that during playout the
+        // inbound leg is mostly OUR reply coming back up the handset. With the
+        // echo removed they all get what the web bridge has always got: the
+        // caller, on their own. `echo.pcm` is the untouched input whenever we
+        // are not audible, which is most of a call.
+        const echo = aec.process(decodeUlaw(frame));
+        const pcm = echo.pcm;
 
-        // Decoded once and used twice — the barge detector's energy reading and
-        // the turn buffer feeding analyzeSpeech() want the same samples.
-        const pcm = decodeUlaw(frame);
+        // Always feed STT — including while the agent speaks, so the words a
+        // caller says over the top are not lost when the barge lands. Now it is
+        // the CLEANED audio: transcribing the agent's own echo is what made
+        // those words unusable even when they were captured.
+        try {
+          dg.send(echo.refActive ? encodeUlaw(pcm) : frame);
+        } catch { /* session died; next attempt recreates */ }
+
         const rms = pcmRms(pcm);
 
         // Capture only while the caller is the one who could be talking: not
@@ -1515,6 +1546,27 @@ export function runModularMediaBridge(ws, {
         }
 
         const threshold = Math.max(BARGE_RMS_MIN, noiseFloor * BARGE_MARGIN);
+
+        // ── A second, independent witness that the caller is talking ────────
+        //
+        // The canceller knows something no energy threshold can: how much of
+        // this frame FAILED to cancel. Pure echo subtracts away to a fraction
+        // of what arrived; a caller talking over us survives, because their
+        // voice is not in the reference. That is a direct measurement of
+        // double talk rather than an inference from loudness.
+        //
+        // It feeds overlap recovery ONLY, never the barge counter. The two have
+        // deliberately different bars — barge-in CUTS THE AGENT OFF mid-word,
+        // so a false positive is a caller interrupted for nothing, while a
+        // false overlap merely keeps a few words that are then re-checked
+        // against the agent's own text in harvestOverlap(). Requiring
+        // convergence keeps the bootstrap frames, where the filter cancels
+        // nothing and everything looks like double talk, out of it.
+        if (echo.refActive && echo.converged && echo.doubleTalk) {
+          lastCallerSpeechAt = Date.now();
+          overlapLoudFrames += 1;
+        }
+
         if (rms >= threshold) {
           // The caller is audible over us, so they are not silent — this counts
           // for the silence hangup even when barge-in is switched off below.
