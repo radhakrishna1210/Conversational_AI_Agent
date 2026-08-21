@@ -273,7 +273,7 @@ export const previewCampaignMode = async (workspaceId, agentId) => {
   if (!agentId) return { mode: null, reason: 'Select a voice agent.' };
   const agent = await prisma.agent.findFirst({ where: { id: String(agentId), workspaceId } });
   if (!agent) throw Object.assign(new Error('Agent not found in this workspace'), { statusCode: 404 });
-  const { mode, engine, reason } = resolveCallMode(agent);
+  const { mode, engine, reason } = await resolveCallMode(agent);
   return { mode, engine, reason, agentName: agent.name };
 };
 

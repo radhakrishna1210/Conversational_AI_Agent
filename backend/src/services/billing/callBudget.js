@@ -132,7 +132,13 @@ export async function openCallBudget({ workspaceId, type = 'PHONE_CALL', label, 
     // pulls in no database client, and can be unit-tested anywhere. The module
     // is cached after the first call, so this is not a per-call cost.
     const { assertCanStartCall } = await import('./settlement.service.js');
-    gate = await assertCanStartCall(workspaceId, { type });
+    // `concurrency: false` — every caller of this function is a media bridge, so
+    // this ALWAYS runs at pickup, and by then the call already holds a carrier
+    // slot it took at dial time. Re-running the admission gate here made a call
+    // refuse itself whenever the pool was full, which a running bulk campaign
+    // guarantees: the callee answered and the line dropped a second later. The
+    // wallet half of the gate still applies — see assertCanStartCall.
+    gate = await assertCanStartCall(workspaceId, { type, concurrency: false });
   } catch (err) {
     logger.error(
       { workspaceId, type, label, err: err.message },

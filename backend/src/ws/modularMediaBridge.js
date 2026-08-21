@@ -75,10 +75,13 @@ import {
   createFrameSplitter,
   pcmToTelephonyUlaw,
   createPcmUlawConverter,
-  telephonyOutputFormat,
   playableWithFormat,
   PHONE_SAMPLE_RATE,
 } from '../services/voice/telephonyAudio.js';
+import {
+  telephonyFormatForVoice,
+  synthesisProviderForVoice,
+} from '../services/voice/telephonyVoice.js';
 import {
   getGreetingAudio,
   rememberGreetingAudio,
@@ -1200,6 +1203,13 @@ export function runModularMediaBridge(ws, {
               { workspaceId, agentId, callLogId, code: gate.code },
               `${carrier.label} refused: ${gate.code}`,
             );
+            // Same reasoning as the catch below: a refused call has to say so on
+            // its own row, or it is indistinguishable from every other way a
+            // call ends one second after pickup.
+            transcript.push({
+              role: 'system',
+              content: `This call was refused before it started (${gate.code}): ${gate.message || ''}`.trim(),
+            });
             // FAILED, not COMPLETED: nothing was served. Duration is ~0, so
             // settlement skips it as a zero-duration call and the caller is not
             // charged for a call that never happened.
@@ -1242,10 +1252,23 @@ export function runModularMediaBridge(ws, {
           voice = await resolveAgentVoice(agent.voice);
           if (!voice) throw new Error('Agent has no resolvable voice');
 
-          ttsFormat = telephonyOutputFormat(voice.provider?.name || settings.ttsProvider);
+          // telephonyFormatForVoice, NOT telephonyOutputFormat(voice.provider.name):
+          // a cloned voice sits under the synthetic `Custom` provider, and asking
+          // THAT name whether it can do telephony is asking a billing label to
+          // synthesize audio. It always says no — so every Fish- and
+          // ElevenLabs-hosted clone threw here, on a line the callee had already
+          // answered, and the call dropped after about a second with an empty
+          // transcript. See services/voice/telephonyVoice.js.
+          const synthProvider = synthesisProviderForVoice(voice, settings.ttsProvider);
+          ttsFormat = telephonyFormatForVoice(voice, settings.ttsProvider);
           if (!ttsFormat) {
             throw new Error(
-              `TTS provider ${voice.provider?.name} cannot emit a telephony audio format`,
+              // The provider that would really speak it, not the row's label —
+              // "Custom cannot emit a telephony audio format" named a thing no
+              // operator can act on.
+              `The voice "${voice.name}" is spoken by ${synthProvider || 'no usable provider'}, `
+              + 'which cannot emit a telephony audio format. Give this agent an ElevenLabs, '
+              + 'Sarvam or Fish Audio voice (or a clone hosted by one) to hold a phone conversation.',
             );
           }
 
@@ -1376,7 +1399,24 @@ export function runModularMediaBridge(ws, {
           // front of it. Same reasoning as runTurn's finally; see armNextTurn.
           armNextTurn();
         } catch (err) {
-          logger.error(`Failed to start ${carrier.label}: ${err.message}`);
+          // Structured, because the interesting fields are the ones that differ
+          // between a broken agent and a broken deployment, and a bare message
+          // string sends whoever reads it back to the code to find out which.
+          logger.error(
+            { workspaceId, agentId, callLogId, voice: agent?.voice, err: err.message },
+            `Failed to start ${carrier.label}`,
+          );
+          // Put the reason ON THE CALL LOG. Without this a refused call is a
+          // FAILED row with a one-second duration and an EMPTY transcript —
+          // which is the same shape a no-answer, a carrier reject and a wallet
+          // refusal all produce, so the operator sees "the call hung up
+          // instantly" and nothing that says why. The reason existed only in the
+          // process log on a VPS, which is what turned a one-line config problem
+          // into a repeated production incident.
+          transcript.push({
+            role: 'system',
+            content: `This call could not start: ${err.message}`,
+          });
           cleanup('FAILED');
           ws.close();
         }
