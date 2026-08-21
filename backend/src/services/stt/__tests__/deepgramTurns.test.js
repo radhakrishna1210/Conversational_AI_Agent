@@ -467,10 +467,15 @@ test('published commit budget covers the longest grace window', () => {
 
 // ── Model selection ──────────────────────────────────────────────────────────
 //
-// Worth pinning because every way of getting this wrong is SILENT: a mismatched
-// model still completes the handshake and still returns transcripts, just worse
-// ones — and on the phone a worse transcript is a slower turn, not merely a
-// less accurate one (see resolveDeepgramModel).
+// Worth pinning because both ways of getting this wrong are invisible from the
+// call. A model that merely SUITS the audio badly still completes the handshake
+// and returns worse transcripts — and on the phone a worse transcript is a
+// slower turn, not merely a less accurate one. A model that does not serve the
+// LANGUAGE is refused outright with a 400, so the session never opens and the
+// call gets no transcript at all. See resolveDeepgramModel.
+//
+// The expectations below are not read off a docs page: they are what Deepgram's
+// /v1/models reports and what real handshakes returned.
 
 test('phone audio gets the narrowband model, browser audio does not', () => {
   const saved = { ...process.env };
@@ -582,4 +587,63 @@ test('beginTurn clears the committed flag, so the next turn flushes again', asyn
   assert.equal(sent.filter((p) => String(p).includes('Finalize')).length, 1);
   emitFromFinalize(s);
   assert.equal(await pending, 'second turn');
+});
+
+// ── The phonecall family is English-only ────────────────────────────────────
+//
+// The regression these pin: a Hindi agent on a phone call asked for
+// `nova-2-phonecall` + `hi`, which Deepgram refuses with 400. The socket never
+// opened, so the caller was never transcribed — for the whole call — while the
+// same agent worked in a browser, because linear16 took a different branch.
+// "Web is fine, the phone hears nothing" was the exact report.
+
+test('a non-English phone call does NOT get the English-only phonecall model', () => {
+  const saved = { ...process.env };
+  delete process.env.DEEPGRAM_MODEL;
+  delete process.env.DEEPGRAM_MODEL_PHONE;
+  delete process.env.DEEPGRAM_MODEL_NON_ENGLISH;
+  try {
+    // Verified by handshake: nova-2-phonecall + hi is 400, nova-3 + hi connects.
+    assert.equal(resolveDeepgramModel('hi', 'mulaw'), 'nova-3');
+    assert.equal(resolveDeepgramModel('ta', 'mulaw'), 'nova-3');
+    assert.equal(resolveDeepgramModel('te', 'mulaw'), 'nova-3');
+    // Regional English IS served by the phonecall model, so it must keep it —
+    // this is the branch that makes the narrowband model worth having.
+    assert.equal(resolveDeepgramModel('en-IN', 'mulaw'), 'nova-2-phonecall');
+    assert.equal(resolveDeepgramModel('en-US', 'mulaw'), 'nova-2-phonecall');
+    // No language at all means English to Deepgram, so the phone model is right.
+    assert.equal(resolveDeepgramModel(undefined, 'mulaw'), 'nova-2-phonecall');
+    // ...but en-ZA is refused by it exactly as `hi` is, so a prefix test on
+    // "en" would have been wrong. It is a verified list, not a pattern.
+    assert.equal(resolveDeepgramModel('en-ZA', 'mulaw'), 'nova-3');
+  } finally {
+    process.env = saved;
+  }
+});
+
+test('non-English uses a model that serves it on the browser too', () => {
+  const saved = { ...process.env };
+  delete process.env.DEEPGRAM_MODEL;
+  delete process.env.DEEPGRAM_MODEL_NON_ENGLISH;
+  try {
+    // nova-2 refuses `ta` and `te` on EVERY encoding, so this was broken in the
+    // browser as well — the phone was simply the louder half of one fault.
+    assert.equal(resolveDeepgramModel('ta', 'linear16'), 'nova-3');
+    assert.equal(resolveDeepgramModel('hi', 'linear16'), 'nova-3');
+    // English is deliberately untouched.
+    assert.equal(resolveDeepgramModel('en', 'linear16'), 'nova-2');
+  } finally {
+    process.env = saved;
+  }
+});
+
+test('the non-English model is overridable, so a deployment can pin it back', () => {
+  const saved = { ...process.env };
+  try {
+    process.env.DEEPGRAM_MODEL_NON_ENGLISH = 'nova-2';
+    assert.equal(resolveDeepgramModel('hi', 'mulaw'), 'nova-2');
+    assert.equal(resolveDeepgramModel('hi', 'linear16'), 'nova-2');
+  } finally {
+    process.env = saved;
+  }
 });
