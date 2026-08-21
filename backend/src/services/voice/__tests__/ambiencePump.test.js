@@ -122,4 +122,41 @@ describe('ambiencePump', () => {
     pump.push(speechFrames(1));
     assert.equal(pump.stats().queuedFrames, 0);
   });
+
+  // ── The bed must not read as "the agent is speaking" ──────────────────────
+  //
+  // THE REGRESSION. This clock never stops, so it emits a frame every 20ms for
+  // the whole call whether or not there is anything to say. The modular phone
+  // bridge fed every one of those frames to playoutWindow.noteFrame(), which
+  // pushes `endsAt` 20ms further out each time — so isSpeaking() was true for
+  // the entire call on any agent with an ambience preset. That flag gates
+  // end-of-turn, caller-audio capture and the noise floor, so the agent spoke
+  // its greeting and then never heard another word. Phone only; the browser
+  // bridge has no pump.
+  it('marks bed-only frames as speech:false and mixed frames as speech:true', async () => {
+    const seen = [];
+    const pump = createAmbiencePump({
+      presetName: 'Office',
+      send: (f, meta) => seen.push(meta),
+    });
+    pump.start();
+    await sleep(120);
+    const quiet = seen.length;
+    assert.ok(quiet > 0, 'the bed should be playing');
+    assert.ok(seen.every((m) => m && m.speech === false),
+      'a bed-only frame carries no agent audio and must not count as playout');
+
+    // Now the agent actually says something.
+    pump.push(speechFrames(3));
+    await sleep(120);
+    const withSpeech = seen.slice(quiet);
+    assert.ok(withSpeech.some((m) => m.speech === true),
+      'frames carrying engine audio must be reported as speech');
+
+    // ...and once it runs out, the bed goes back to being just a bed, which is
+    // what lets isSpeaking() fall false and the caller be heard again.
+    await sleep(150);
+    assert.equal(seen[seen.length - 1].speech, false);
+    pump.stop();
+  });
 });

@@ -392,11 +392,30 @@ export function runModularMediaBridge(ws, {
    *  The zero point for "how long did they hear nothing before the greeting". */
   let connectedAtMs = Date.now();
 
-  const sendFrameNow = (frame) => {
+  /**
+   * @param {Buffer} frame
+   * @param {{speech?: boolean}} [meta] `speech: false` marks a frame that
+   *   carries no agent audio — a bed-only slot from the ambience pump. Defaults
+   *   to true because every other producer (the plain pacer, a direct send)
+   *   only ever emits a frame when it HAS speech to emit.
+   */
+  const sendFrameNow = (frame, { speech = true } = {}) => {
     if (ws.readyState !== ws.OPEN || !streamId) return;
     carrier.sendAudio(ws, streamId, frame);
-    if (turnFirstFrameAt == null) turnFirstFrameAt = Date.now();
-    playout.noteFrame();
+
+    // Only real speech counts as playout. The ambience pump runs a 20ms clock
+    // for the whole call, so counting its bed-only frames here pinned
+    // playout.isSpeaking() true from the first frame to the last — and that
+    // flag is what gates end-of-turn, caller-audio capture and the noise floor.
+    // The result was an agent that greeted the caller and then never heard
+    // another word, on any agent with an ambience preset selected. See the note
+    // in services/voice/ambiencePump.js.
+    if (speech) {
+      if (turnFirstFrameAt == null) turnFirstFrameAt = Date.now();
+      playout.noteFrame();
+    }
+
+    // Recorded either way: the bed is part of what the caller actually heard.
     recording.outbound(frame);
   };
 

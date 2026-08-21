@@ -65,7 +65,25 @@ export function createAmbiencePump({ presetName, send, onError }) {
     }
 
     try {
-      send(mixUlawFrame(engineFrame, bed.nextFrame()));
+      // `speech` says whether this frame carries the AGENT, or is bed only.
+      //
+      // The distinction is load bearing, and leaving it out made the phone
+      // agent deaf. This clock never stops — a background bed that paused
+      // between sentences would not be a background bed — so every 20ms slot
+      // emits a frame whether or not there is anything to say. The modular
+      // bridge counted each of those frames as playout (`playout.noteFrame()`
+      // in sendFrameNow), and playoutWindow reports `isSpeaking()` as
+      // `now() < endsAt` with every frame pushing `endsAt` another 20ms out.
+      // So with any ambience preset selected, `isSpeaking()` was true for the
+      // entire call, and every gate keyed on it jammed shut: end-of-turn was
+      // discarded as "still speaking", caller audio was never captured, and the
+      // noise floor was never learned. The greeting played and the agent never
+      // answered another word — on the phone only, because the browser bridge
+      // has no pump and no playout window.
+      //
+      // `engineFrame` is exactly the right signal: it is non-null only when
+      // this slot had queued engine audio to mix in.
+      send(mixUlawFrame(engineFrame, bed.nextFrame()), { speech: engineFrame !== null });
       emitted += 1;
       sendFailures = 0;
     } catch (err) {
