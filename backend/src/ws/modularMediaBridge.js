@@ -285,6 +285,13 @@ export function runModularMediaBridge(ws, {
    * waiting to be spoken for. Prepended to the next turn's transcript.
    */
   let carriedUserText = '';
+  /**
+   * Did Deepgram declare the caller's OVERLAP utterance finished while we were
+   * still speaking? See onEndOfTurn, which drops that signal, and armNextTurn,
+   * which is the only thing that should care about it.
+   */
+  let overlapTurnEnded = false;
+
   /** Pending "answer the carried text if the line stays quiet". See armNextTurn. */
   let settleTimer = null;
 
@@ -894,7 +901,14 @@ export function runModularMediaBridge(ws, {
       // quiet, so nothing the caller actually says afterwards is lost.
       onEndOfTurn: (reason) => {
         if (playout.isSpeaking()) {
-          logger.info(`${carrier.label}: ignoring end of turn (${reason}) — still speaking`);
+          // Still dropped as an end of turn — we are mid-reply and must not
+          // start another — but REMEMBERED. This is Deepgram saying the caller
+          // finished the sentence they spoke over us, which is the same
+          // semantic signal the whole pipeline trusts everywhere else, and
+          // throwing it away entirely is what makes armNextTurn wait out a
+          // settle window for someone who stopped talking seconds ago.
+          overlapTurnEnded = true;
+          logger.info(`${carrier.label}: end of turn (${reason}) while speaking — carried`);
           return;
         }
         runTurn();
@@ -1007,7 +1021,31 @@ export function runModularMediaBridge(ws, {
     // with the carried text prepended in runTurn, so nothing is lost either
     // way. If the line stays quiet, nobody is going to say anything else and
     // no end-of-turn will ever fire, so answer what we already have.
-    if (carriedUserText) armSettle();
+    if (carriedUserText) {
+      // The settle window exists for a caller who is MID-SENTENCE — "yes, and
+      // also…" — where answering the "yes" alone would cut them off. It does
+      // not exist for a caller who already finished, and Deepgram tells us
+      // which is which.
+      //
+      // Waiting anyway cost up to OVERLAP_SETTLE_MS on exactly the turns where
+      // the caller was most responsive, and the wait is worse than it looks:
+      // the timer starts when OUR playout ends, not when they stopped talking.
+      // Someone who answered two seconds into a ten-second reply has been
+      // silent for eight seconds by then and still waited another 700ms.
+      //
+      // Safe to act on because carriedUserText is not raw transcript: it has
+      // already survived the loud-frame count, stripOverlapEcho() and
+      // isEchoOfAgent(), so it is the caller's words rather than ours coming
+      // back up the line.
+      if (overlapTurnEnded) {
+        logger.info(`${carrier.label}: answering over-talk immediately — Deepgram already closed it`);
+        overlapTurnEnded = false;
+        runTurn();
+      } else {
+        armSettle();
+      }
+    }
+    overlapTurnEnded = false;
   };
 
   /**
