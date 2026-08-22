@@ -645,6 +645,12 @@ export default function EditAgent() {
     // turns so the VAD threshold adapts to the caller's environment instead of
     // assuming one. See NOISE_FLOOR_* in startListeningSegmentSocket (BUG-001).
     noiseFloor: number;
+    // Re-prompts for a caller who has gone quiet, in the agent's language, and
+    // how many have been used since the caller was last heard.
+    noInputPrompts: string[];
+    noInputDelaysMs: number[];
+    noInputAttempt: number;
+    noInputTimer: number | null;
     // Server has model-based (Deepgram) endpointing, so the RMS VAD below is a
     // backstop and uses a longer silence timeout. Set from the `ready` frame.
     sttEndpointing: boolean;
@@ -653,7 +659,7 @@ export default function EditAgent() {
     // so a change to the server's grace windows cannot silently be overridden by
     // a client constant that still fires first.
     endpointCommitMs: number;
-  }>({ active: false, stream: null, audioCtx: null, analyser: null, recorder: null, vadTimer: null, player: null, history: [], mixDest: null, mixRecorder: null, mixChunks: [], logId: null, bundledEngine: false, lastSpeechAt: 0, ambientStop: null, stopPlayback: null, bargeTimer: null, duckLevel: 1, duckRamp: null, duckDisabled: false, socketMode: false, micWorklet: null, capturingPcm: false, modularSession: null, modularQueue: [], modularPlaying: null, modularOutstanding: 0, modularDoneResolvers: [], pendingUserText: '', turnEpoch: 0, endTurnEarly: null, noiseFloor: 0, sttEndpointing: false, endpointCommitMs: 0 });
+  }>({ active: false, stream: null, audioCtx: null, analyser: null, recorder: null, vadTimer: null, player: null, history: [], mixDest: null, mixRecorder: null, mixChunks: [], logId: null, bundledEngine: false, lastSpeechAt: 0, ambientStop: null, stopPlayback: null, bargeTimer: null, duckLevel: 1, duckRamp: null, duckDisabled: false, socketMode: false, micWorklet: null, capturingPcm: false, modularSession: null, modularQueue: [], modularPlaying: null, modularOutstanding: 0, modularDoneResolvers: [], pendingUserText: '', turnEpoch: 0, endTurnEarly: null, noiseFloor: 0, sttEndpointing: false, endpointCommitMs: 0, noInputPrompts: [], noInputDelaysMs: [], noInputAttempt: 0, noInputTimer: null });
 
   // ─── Call history logging (Recent Calls tab) ────────────────────────────────
   // Every test session — chat modal, Chat Test tab, web call, phone call — is
@@ -1834,6 +1840,10 @@ export default function EditAgent() {
         // client's RMS VAD waits before ending a turn (backstop vs sole judge).
         call.sttEndpointing = event.sttEndpointing === true;
         call.endpointCommitMs = Number(event.endpointCommitMs) || 0;
+        call.noInputPrompts = Array.isArray(event.noInputPrompts)
+          ? event.noInputPrompts.filter((p): p is string => typeof p === 'string' && !!p.trim())
+          : [];
+        call.noInputDelaysMs = Array.isArray(event.noInputDelaysMs) ? event.noInputDelaysMs : [];
         break; // the promise itself is resolved by modularCallSocket.start()
       case 'transcript':
         if (event.role === 'user' && event.done) call.pendingUserText = event.text;
@@ -1953,9 +1963,13 @@ export default function EditAgent() {
     // Deepgram's semantic endpoint signal (call.endTurnEarly) — whichever fires
     // first wins; `ended` stops the other from double-firing.
     let ended = false;
+    const clearNoInput = () => {
+      if (call.noInputTimer) { window.clearTimeout(call.noInputTimer); call.noInputTimer = null; }
+    };
     const finishSegment = () => {
       if (ended || !call.active) return;
       ended = true;
+      clearNoInput();
       if (call.vadTimer) { clearInterval(call.vadTimer); call.vadTimer = null; }
       call.capturingPcm = false;
       call.endTurnEarly = null;
@@ -1969,6 +1983,11 @@ export default function EditAgent() {
         return;
       }
       call.lastSpeechAt = Date.now();
+      // The caller was heard, so the escalation starts over. Without this the
+      // ladder would keep climbing across a whole call and the third, closing
+      // line ("feel free to call back") would eventually fire at someone who
+      // has been talking the entire time.
+      call.noInputAttempt = 0;
       setWebCallActivity('processing');
       modularCallSocket.endTurn(call.history);
     };
@@ -1976,6 +1995,45 @@ export default function EditAgent() {
     // Deepgram says the caller finished — end now, but only once we actually
     // heard speech this segment (ignore an endpoint on a noise-only segment).
     call.endTurnEarly = () => { if (speechDetected) finishSegment(); };
+
+    // ── No-input re-prompt ───────────────────────────────────────────────────
+    //
+    // A caller who is not heard otherwise gets nothing back until this segment
+    // hits MAX_SEGMENT_MS — twenty seconds of dead air, which is how "the agent
+    // says nothing and it keeps blank" was reported. Whether they said
+    // something we missed or said nothing at all is indistinguishable from
+    // here, and the answer is the same either way: say so, and invite them to
+    // try again.
+    //
+    // Deliberately NOT an LLM turn. The line has to land on a deadline, and a
+    // model whose p90 time-to-first-token is seconds would make the dead air
+    // part of its own cost — worst of all when the line is quiet BECAUSE the
+    // model is being rate limited. The wording arrives with the ready frame,
+    // already in the agent's language.
+    const promptIndex = call.noInputAttempt;
+    const nextPrompt = call.noInputPrompts[promptIndex];
+    if (nextPrompt) {
+      const waitMs = call.noInputDelaysMs[promptIndex] || 7000;
+      call.noInputTimer = window.setTimeout(() => {
+        call.noInputTimer = null;
+        // speechDetected races us: the caller may have started talking in the
+        // final tick before this fired, and cutting in on them would be worse
+        // than the silence.
+        if (ended || !call.active || speechDetected) return;
+        ended = true;
+        if (call.vadTimer) { clearInterval(call.vadTimer); call.vadTimer = null; }
+        call.capturingPcm = false;
+        call.endTurnEarly = null;
+        modularCallSocket.cancelTurn();
+        call.noInputAttempt = promptIndex + 1;
+        setWebCallActivity('speaking');
+        call.history = [...call.history, { role: 'assistant', content: nextPrompt }];
+        setWebCallTranscript([...call.history]);
+        playAgentAudioStream(nextPrompt)
+          .catch(() => { /* a failed re-prompt must not end the call */ })
+          .finally(() => { if (call.active) startListeningSegmentSocket(); });
+      }, waitMs);
+    }
 
     call.vadTimer = window.setInterval(() => {
       if (!call.active || !call.analyser) return;
@@ -2406,6 +2464,9 @@ export default function EditAgent() {
     }
     if (call.vadTimer) { clearInterval(call.vadTimer); call.vadTimer = null; }
     if (call.bargeTimer) { clearInterval(call.bargeTimer); call.bargeTimer = null; }
+    // An armed re-prompt must not fire into a call that has already ended.
+    if (call.noInputTimer) { window.clearTimeout(call.noInputTimer); call.noInputTimer = null; }
+    call.noInputAttempt = 0;
     // A fade still in flight would keep firing against torn-down elements, and
     // leave duckLevel stranded below 1 for the NEXT call's first segment.
     if (call.duckRamp !== null) { clearInterval(call.duckRamp); call.duckRamp = null; }

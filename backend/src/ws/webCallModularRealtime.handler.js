@@ -34,6 +34,7 @@
  */
 
 import logger from '../lib/logger.js';
+import { noInputPromptFor, noInputDelayMs, maxNoInputAttempts } from '../services/voice/noInputPrompt.js';
 import { verifyAccessToken } from '../lib/jwt.js';
 import prisma from '../config/prisma.js';
 import { voiceTurnStream, warmVoiceTurn } from '../services/agentRuntime.service.js';
@@ -378,11 +379,11 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
 
       // B3: tell Deepgram which language the caller speaks (else a Hindi agent's
       // audio is transcribed as English → empty → silent fallback to batch STT).
+      let agentLanguages = [];
+      try { agentLanguages = JSON.parse(agent.languages || '[]'); } catch { /* ignore */ }
       if (useDeepgram) {
         const settings = safeJson(agent.settings, {});
-        let langs = [];
-        try { langs = JSON.parse(agent.languages || '[]'); } catch { /* ignore */ }
-        dgLanguage = toDeepgramLanguage(settings.sttLanguage) || toDeepgramLanguage(langs[0]);
+        dgLanguage = toDeepgramLanguage(settings.sttLanguage) || toDeepgramLanguage(agentLanguages[0]);
       }
 
       // ── Wallet gate ─────────────────────────────────────────────────────────
@@ -440,10 +441,22 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
       // turn itself. The client's RMS backstop must stay clear of it, or the
       // backstop wins the race on every turn and the server's mid-thought grace
       // window is dead code. Sent rather than duplicated so the two cannot drift.
+      // noInputPrompts: what to say when the caller has gone quiet, already in
+      // the agent's language. Resolved HERE and shipped once, rather than asked
+      // for when the silence happens: the whole point of the feature is to
+      // break dead air on a deadline, so it must not depend on a round trip —
+      // still less on an LLM turn — at the moment it is needed. The client owns
+      // the listening segment on this transport, so it owns the timer too; the
+      // server owns the wording because only it can see agent.languages.
+      const noInputAttempts = maxNoInputAttempts(agentLanguages);
       send({
         type: 'ready',
         sttEndpointing: useDeepgram,
         endpointCommitMs: useDeepgram ? maxEndpointCommitMs(defaultEndpointingMs()) : 0,
+        noInputPrompts: Array.from({ length: noInputAttempts },
+          (_, i) => noInputPromptFor(agentLanguages, i + 1)),
+        noInputDelaysMs: Array.from({ length: noInputAttempts },
+          (_, i) => noInputDelayMs(i + 1)),
       });
       return;
     }

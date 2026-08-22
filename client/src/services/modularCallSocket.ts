@@ -23,7 +23,18 @@ export type ModularCallEvent =
   // endpointCommitMs: worst-case ms of silence before the SERVER ends a turn on
   // its own. The client's RMS backstop is derived from this so the two cannot
   // race — if the backstop fires first, the server's grace window is dead code.
-  | { type: 'ready'; sttEndpointing?: boolean; endpointCommitMs?: number }
+  // noInputPrompts / noInputDelaysMs: what to say, in the agent's language, when
+  // the caller has gone quiet, and how long to wait before each. Resolved by the
+  // server (only it can see agent.languages) and shipped up front, because the
+  // feature exists to break dead air on a deadline — it must not need a round
+  // trip at the moment it fires.
+  | {
+      type: 'ready';
+      sttEndpointing?: boolean;
+      endpointCommitMs?: number;
+      noInputPrompts?: string[];
+      noInputDelaysMs?: number[];
+    }
   | { type: 'transcript'; role: 'user' | 'assistant'; text: string; done: boolean }
   // B4 streaming reply audio: a JSON audio-start opens the stream, raw binary
   // frames carry the audio bytes, an audio-end JSON frame closes it.
