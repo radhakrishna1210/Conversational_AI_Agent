@@ -353,10 +353,29 @@ export const KB_MESSAGE_ACK =
  *   realtime engines must keep kbInline=true: they push one instruction blob at
  *   session open and have no conversation turns to attach the KB to.
  */
-export function buildAgentSystemPrompt(agent, kbText, { voiceMode = false, kbInline = true } = {}) {
+export function buildAgentSystemPrompt(agent, kbText, { voiceMode = false, kbInline = true, spokenWelcome = null } = {}) {
   const flowItems = (safeJson(agent.flowItems, []) || []).filter((f) => f && f.enabled !== false);
   const settings = safeJson(agent.settings, {});
   const languages = safeJson(agent.languages, []);
+
+  // The greeting the caller ACTUALLY heard — not `agent.welcomeMessage`.
+  //
+  // These stopped being the same string when greetings went per-direction:
+  // welcomeTextFor() prefers settings.welcomeInbound/welcomeOutbound and only
+  // falls back to the legacy column. The rule below kept naming the legacy
+  // column, so an agent configured through the greeting tabs was told "do not
+  // repeat X" about a string it had never said — often an empty one — and was
+  // never told that the greeting it DID say was already delivered. It duly
+  // greeted again, and again, which is exactly how it was reported from a live
+  // call: the full welcome re-spoken on turns 3 and 5 before the agent moved on.
+  //
+  // Callers that know the call's real direction may pass `spokenWelcome`; the
+  // default resolves the same way the bridges do for the direction the agent is
+  // configured for. welcomeTextFor never returns empty (it falls back to a
+  // persona line), so this rule always names something real.
+  const deliveredWelcome = (typeof spokenWelcome === 'string' && spokenWelcome.trim())
+    ? spokenWelcome.trim()
+    : welcomeTextFor(agent, settings, settings.callDirection || null);
 
   const flowSection = flowItems.length
     ? flowItems
@@ -395,7 +414,7 @@ ${languages.length
     : `No language restriction configured — mirror the language the user uses.`}
 
 # Conversation Rules
-- Welcome message already delivered at call start: "${agent.welcomeMessage}". Do not repeat it.
+- Welcome message already delivered at call start: "${deliveredWelcome}". Do not repeat it, and do not greet or re-introduce yourself again — the call is already in progress.
 - Track everything the user has told you (name, contact details, preferences) and never re-ask for information already collected.
 - Ask for at most one piece of information per turn.
 - If the user asks for a human, or the request is outside your configured scope, offer to transfer/escalate.
@@ -866,11 +885,12 @@ const CHAT_HISTORY_MAX_CHARS = Number(process.env.CHAT_HISTORY_MAX_CHARS || 40_0
  * dropped, and always keeps at least one message: a single turn longer than the
  * whole budget must still be answerable rather than emptying the window.
  *
- * The window is then opened on a caller turn. With a chat-history provider
- * `prior` is appended directly after the synthetic KB exchange, whose last
- * entry is an assistant ack — a window starting on another assistant message
- * would put two assistant turns back to back, which Gemini treats as a
- * malformed contents array.
+ * It deliberately does NOT drop a leading assistant turn. A call legitimately
+ * opens with the agent speaking, so that entry is the greeting — discarding it
+ * to make the array alternate is how an agent ends up greeting a caller twice.
+ * The KB exchange already puts an assistant ack directly before it and that
+ * shape has always been what this pipeline sends, so leaving the greeting in
+ * place changes nothing about the request beyond keeping it visible.
  *
  * Exported for tests.
  *
@@ -888,7 +908,6 @@ export function windowHistory(messages, { maxMessages, maxChars }) {
     chars += cost;
   }
   kept.reverse();
-  while (kept.length > 1 && kept[0].role !== 'user') kept.shift();
   return kept;
 }
 

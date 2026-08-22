@@ -39,8 +39,11 @@ describe('windowHistory', () => {
       { role: 'user', content: 'recent' },
     ];
     const out = windowHistory(big, { maxMessages: 60, maxChars: 6000 });
-    assert.equal(out.length, 1);
-    assert.equal(out[0].content, 'recent');
+    // The 5000-char assistant turn still fits alongside 'recent'; the oldest
+    // one does not, so it is the only casualty.
+    assert.equal(out.length, 2);
+    assert.equal(out[out.length - 1].content, 'recent');
+    assert.ok(!out.some((m) => m.content.startsWith('x')), 'oldest must be dropped first');
   });
 
   test('keeps the newest message even when it alone exceeds the budget', () => {
@@ -51,13 +54,23 @@ describe('windowHistory', () => {
     assert.equal(out.length, 1);
   });
 
-  // With a chat-history provider `prior` is appended straight after the
-  // synthetic KB exchange, whose last entry is an assistant ack. A window that
-  // opened on another assistant turn would put two in a row, which Gemini
-  // rejects as a malformed contents array.
-  test('opens the window on a caller turn, never an assistant turn', () => {
+  // A call legitimately OPENS with the agent speaking, so a leading assistant
+  // turn is the greeting. An earlier version of this function shifted it off to
+  // force strict alternation, which is precisely how an agent ends up greeting
+  // the same caller three times — it could no longer see that it had greeted.
+  test('never drops a leading assistant turn: that is the greeting', () => {
+    const withGreeting = [
+      { role: 'assistant', content: 'THE GREETING' },
+      { role: 'user', content: 'haan bolo' },
+    ];
+    const out = windowHistory(withGreeting, { maxMessages: 60, maxChars: 8000 });
+    assert.equal(out.length, 2);
+    assert.equal(out[0].content, 'THE GREETING');
+  });
+
+  test('keeps the newest turns when the cap binds, whatever role leads', () => {
     const out = windowHistory(turns(40), { maxMessages: 9, maxChars: 8000 });
-    assert.equal(out[0].role, 'user');
+    assert.equal(out.length, 9);
     assert.equal(out[out.length - 1].content, 'm39');
   });
 
