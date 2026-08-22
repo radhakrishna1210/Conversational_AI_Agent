@@ -836,6 +836,62 @@ export function buildRuntimeMessages({
   };
 }
 
+/**
+ * How much of a live call the model is allowed to remember.
+ *
+ * This used to be a flat `slice(-12)` — six exchanges. A two-minute call runs
+ * 12-24 turns, so the agent lost the beginning of its OWN conversation while
+ * still in it: it re-asked questions the caller had already answered, and the
+ * failure grew with call length, which is exactly how it was reported. Six
+ * exchanges is not a conversation memory, it is a sliding peephole.
+ *
+ * Budgeting by CHARACTERS rather than message count is what makes a bigger
+ * window safe. Voice turns are short by construction (replies are capped at
+ * 320 tokens and callers speak in fragments), so a typical call now keeps ALL
+ * of itself well inside the budget, while a handful of unusually long turns
+ * still cannot inflate the prompt without bound — prompt size drives TTFT
+ * hard on this pipeline (measured: 12k chars 1399ms vs 48k chars 3738ms), so
+ * an uncapped history would buy memory back by paying latency, which is the
+ * other half of the same complaint.
+ */
+const VOICE_HISTORY_MAX_MESSAGES = Number(process.env.VOICE_HISTORY_MAX_MESSAGES || 60);
+const VOICE_HISTORY_MAX_CHARS = Number(process.env.VOICE_HISTORY_MAX_CHARS || 8_000);
+const CHAT_HISTORY_MAX_MESSAGES = Number(process.env.CHAT_HISTORY_MAX_MESSAGES || 40);
+const CHAT_HISTORY_MAX_CHARS = Number(process.env.CHAT_HISTORY_MAX_CHARS || 40_000);
+
+/**
+ * Keep the most recent messages that fit BOTH budgets, oldest-first.
+ *
+ * Walks backwards from the newest message so the current turn is never the one
+ * dropped, and always keeps at least one message: a single turn longer than the
+ * whole budget must still be answerable rather than emptying the window.
+ *
+ * The window is then opened on a caller turn. With a chat-history provider
+ * `prior` is appended directly after the synthetic KB exchange, whose last
+ * entry is an assistant ack — a window starting on another assistant message
+ * would put two assistant turns back to back, which Gemini treats as a
+ * malformed contents array.
+ *
+ * Exported for tests.
+ *
+ * @param {{role:string, content:string}[]} messages already role-filtered
+ * @param {{maxMessages:number, maxChars:number}} budget
+ */
+export function windowHistory(messages, { maxMessages, maxChars }) {
+  const kept = [];
+  let chars = 0;
+  for (let i = messages.length - 1; i >= 0; i -= 1) {
+    const m = messages[i];
+    const cost = m.content.length;
+    if (kept.length && (kept.length >= maxMessages || chars + cost > maxChars)) break;
+    kept.push(m);
+    chars += cost;
+  }
+  kept.reverse();
+  while (kept.length > 1 && kept[0].role !== 'user') kept.shift();
+  return kept;
+}
+
 async function _prepareConverse(workspaceId, agentId, messages, { voiceMode = false, affect = null } = {}) {
   const agent = await loadAgent(workspaceId, agentId);
   if (!agent) {
@@ -844,10 +900,14 @@ async function _prepareConverse(workspaceId, agentId, messages, { voiceMode = fa
     throw err;
   }
 
-  const history = (Array.isArray(messages) ? messages : [])
-    .filter((m) => m && typeof m.content === 'string' && m.content.trim() &&
-      (m.role === 'user' || m.role === 'assistant'))
-    .slice(voiceMode ? -12 : -30); // keep live-call prompts compact
+  const history = windowHistory(
+    (Array.isArray(messages) ? messages : [])
+      .filter((m) => m && typeof m.content === 'string' && m.content.trim() &&
+        (m.role === 'user' || m.role === 'assistant')),
+    voiceMode
+      ? { maxMessages: VOICE_HISTORY_MAX_MESSAGES, maxChars: VOICE_HISTORY_MAX_CHARS }
+      : { maxMessages: CHAT_HISTORY_MAX_MESSAGES, maxChars: CHAT_HISTORY_MAX_CHARS },
+  );
   const last = history[history.length - 1];
   if (!last || last.role !== 'user') {
     const err = new Error('messages must end with a user message');

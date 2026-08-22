@@ -24,6 +24,7 @@
  */
 
 import { createAmbienceSource, mixUlawFrame, ULAW_FRAME_BYTES } from './ambience.js';
+import { subscribeFrameClock } from './frameClock.js';
 
 const FRAME_MS = 20;                 // 160 samples @ 8kHz
 const MAX_FRAMES_PER_TICK = 5;       // cap catch-up after an event-loop stall
@@ -111,7 +112,7 @@ export function createAmbiencePump({ presetName, send, onError }) {
 
   function stop() {
     if (!timer) return;     // idempotent: cleanup() in the handler re-enters
-    clearInterval(timer);
+    timer();                // unsubscribe from the shared clock
     timer = null;
   }
 
@@ -123,8 +124,10 @@ export function createAmbiencePump({ presetName, send, onError }) {
       // fast makes Twilio's buffer — and therefore speech latency — grow without
       // bound over a multi-minute call.
       nextFrameAt = Date.now();
-      timer = setInterval(tick, FRAME_MS);
-      if (typeof timer.unref === 'function') timer.unref(); // never hold the process open
+      // One shared process-wide ticker rather than a timer per call — see
+      // frameClock.js. `timer` holds the unsubscribe function, so every
+      // `if (!timer)` guard in this file keeps its original meaning.
+      timer = subscribeFrameClock(tick);
     },
 
     /** Queue engine audio (µ-law) for the next available frame slots. */

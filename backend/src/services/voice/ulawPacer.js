@@ -40,6 +40,7 @@
  */
 
 import { ULAW_FRAME_BYTES } from './ambience.js';
+import { subscribeFrameClock } from './frameClock.js';
 
 /** 160 mu-law bytes = 160 samples at 8kHz = exactly 20ms, Plivo's cadence. */
 const FRAME_MS = 20;
@@ -130,7 +131,7 @@ export function createUlawPacer({ send, onError }) {
 
   function stop() {
     if (!timer) return;   // idempotent: cleanup() is reachable more than once
-    clearInterval(timer);
+    timer();              // unsubscribe from the shared clock
     timer = null;
   }
 
@@ -145,8 +146,13 @@ export function createUlawPacer({ send, onError }) {
       // by which time a slot dated now would be due alongside the tick's own,
       // and the call would open by emitting two frames at once.
       nextFrameAt = Date.now() + FRAME_MS;
-      timer = setInterval(tick, FRAME_MS);
-      if (typeof timer.unref === 'function') timer.unref(); // never hold the process open
+      // Shared process-wide ticker, not a private setInterval: 45 concurrent
+      // calls used to mean 45 timers on one event loop. `timer` now holds the
+      // unsubscribe function, which keeps every `if (!timer)` guard in this
+      // file meaning exactly what it did before — including the one at the top
+      // of tick() that stops a dispatched callback from writing to a socket the
+      // pacer has already given up on.
+      timer = subscribeFrameClock(tick);
     },
 
     /** Queue synthesized mu-law for the next available frame slots. */

@@ -383,7 +383,18 @@ export class DeepgramStreamSession {
     // UtteranceEnd, so the common case gets no slower.
     this.endpointGraceMs = Number.isFinite(endpointGraceMs)
       ? endpointGraceMs
-      : (Number(process.env.DEEPGRAM_ENDPOINT_GRACE_MS) || 400);
+      // 250, not 400. This is paid on EVERY ordinary turn — a finished
+      // sentence waits endpointing (300ms) + this before the LLM is even
+      // asked — so it is pure, unconditional dead air at the front of the
+      // caller's wait, and the phone has no "thinking" UI to hide it behind
+      // the way the web client does. It does NOT affect the mid-thought case:
+      // a transcript that looksUnfinished still gets unfinishedGraceMs (1100),
+      // which is the window that actually protects a pausing caller. The
+      // client's RMS-VAD backstop is keyed to maxEndpointCommitMs(), which is
+      // derived from the UNFINISHED grace, so lowering this one cannot put the
+      // backstop ahead of the commit point. Raise it back via
+      // DEEPGRAM_ENDPOINT_GRACE_MS if callers report being cut off.
+      : (Number(process.env.DEEPGRAM_ENDPOINT_GRACE_MS) || 250);
     // Grace applied instead when the transcript ends mid-thought (see
     // looksUnfinished). Longer on purpose: the caller is hunting for a word, and
     // the cost of guessing wrong here is the agent talking over them. It is only
