@@ -641,6 +641,19 @@ export class DeepgramStreamSession {
     }
   }
 
+  /**
+   * Has this turn produced any words yet? Read-only — unlike takeTranscript()
+   * it does not consume them.
+   *
+   * Exists so a caller can ask "did the person actually speak?" without having
+   * to harvest, which is the difference between checking and destroying. The
+   * transport-side VAD is an amplitude heuristic and gets this wrong in both
+   * directions; the recogniser holding actual words does not.
+   */
+  hasTranscript() {
+    return this.finals.some((f) => String(f || '').trim());
+  }
+
   /** Return everything transcribed so far and clear it (per-turn harvest). */
   takeTranscript() {
     const text = this.finals.join(' ').trim();

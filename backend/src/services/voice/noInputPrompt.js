@@ -69,8 +69,17 @@ const PROMPTS = {
   ],
 };
 
-/** Longest useful silence before the agent speaks up, per attempt (ms). */
-const DEFAULT_DELAYS_MS = [7000, 9000, 12000];
+/**
+ * Longest useful silence before the agent speaks up, per attempt (ms).
+ *
+ * 7s was tried first and came back as too eager from a live call: a caller who
+ * has just been told something and is deciding what to say next reads a prompt
+ * at seven seconds as being hurried, not helped. A pause that long is ordinary
+ * in speech — people think, check a document, look something up — so the bar
+ * for interrupting them has to sit above a normal thinking pause rather than at
+ * the edge of one.
+ */
+const DEFAULT_DELAYS_MS = [10_000, 14_000, 18_000];
 
 /** How the caller's language label maps onto a prompt set. */
 const ALIASES = {

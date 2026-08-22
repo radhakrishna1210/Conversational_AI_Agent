@@ -145,7 +145,14 @@ class ModularCallSocketService {
 
   startTurn(sampleRate: number) { this.sendJson({ type: 'start-turn', sampleRate }); }
   endTurn(history: { role: string; content: string }[]) { this.sendJson({ type: 'end-turn', history }); }
-  cancelTurn() { this.sendJson({ type: 'cancel-turn' }); }
+  // History rides along even though this frame means "discard the turn": the
+  // server overrides the cancel when Deepgram turns out to hold a transcript,
+  // and a turn promoted that way still needs the conversation behind it. Sending
+  // it unconditionally is cheaper than a round trip to ask for it, and keeps the
+  // override from producing a context-less reply.
+  cancelTurn(history: { role: string; content: string }[] = []) {
+    this.sendJson({ type: 'cancel-turn', history });
+  }
   barge() { this.sendJson({ type: 'barge' }); }
 
   stop() {

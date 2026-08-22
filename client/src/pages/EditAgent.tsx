@@ -1861,7 +1861,27 @@ export default function EditAgent() {
 
   const onModularEvent = (event: ModularCallEvent) => {
     const call = callRef.current;
-    if (!call.active && event.type !== 'error') return;
+    // 'ready' is exempt from the active guard, and must stay exempt.
+    //
+    // modularCallSocket.start() resolves ON the ready frame, and it dispatches
+    // the frame to this handler BEFORE resolving — while `call.active` is still
+    // false, because active is not set until ~30 lines after that await
+    // returns. So every ready frame this call ever received was dropped here,
+    // and every field the frame carries silently kept its initial value:
+    //
+    //   sttEndpointing   stayed false, so the client treated itself as the SOLE
+    //                    endpointer and ended turns on ~800ms of RMS silence,
+    //                    pre-empting Deepgram's semantic endpoint on every turn.
+    //                    That is the mid-sentence cut-off where half a caller's
+    //                    words arrive in one turn and the rest in the next.
+    //   endpointCommitMs stayed 0, so the backstop the server publishes
+    //                    precisely so the two cannot race was never read.
+    //   noInputPrompts   stayed empty, so the no-input re-prompt never armed.
+    //
+    // The handler for 'ready' only writes fields onto `call`; it starts nothing
+    // and touches no audio, so running it before the call is marked active is
+    // safe — which is exactly why the guard could hide this for so long.
+    if (!call.active && event.type !== 'error' && event.type !== 'ready') return;
     switch (event.type) {
       case 'ready':
         // Whether the server can endpoint semantically decides how long the
@@ -1872,6 +1892,17 @@ export default function EditAgent() {
           ? event.noInputPrompts.filter((p): p is string => typeof p === 'string' && !!p.trim())
           : [];
         call.noInputDelaysMs = Array.isArray(event.noInputDelaysMs) ? event.noInputDelaysMs : [];
+        // One line that answers "is the feature even running on this call?".
+        // Both silences look identical from the outside — an agent that never
+        // re-prompts because the timer is broken and one that never re-prompts
+        // because this call is on the bundled engine and never reached this
+        // code are indistinguishable to the caller, and were to us.
+        console.info('[voice] modular call ready', {
+          sttEndpointing: call.sttEndpointing,
+          endpointCommitMs: call.endpointCommitMs,
+          noInputPrompts: call.noInputPrompts.length,
+          firstPrompt: call.noInputPrompts[0] ?? null,
+        });
         break; // the promise itself is resolved by modularCallSocket.start()
       case 'transcript':
         if (event.role === 'user' && event.done) call.pendingUserText = event.text;
@@ -1944,6 +1975,7 @@ export default function EditAgent() {
     // measure how long the CALLER has had to speak, and starting their clock
     // during our own reply would retire the segment before their turn began.
     let listeningSince = armedDuringPlayback ? 0 : Date.now();
+    let lastVadLogAt = 0;
     const startedAt = Date.now();
 
     // ── Adaptive VAD threshold (BUG-001) ─────────────────────────────────────
@@ -2019,6 +2051,27 @@ export default function EditAgent() {
     const clearNoInput = () => {
       if (call.noInputTimer) { window.clearTimeout(call.noInputTimer); call.noInputTimer = null; }
     };
+
+    /**
+     * May we hang up on this silence yet?
+     *
+     * Only once the agent has actually ASKED. maxSilenceBeforeHangup counts from
+     * the caller's last utterance and defaults to 15s, while the re-prompt
+     * ladder runs to 18s — so the call was being cut after the first prompt and
+     * the caller never heard the other two. Worse, hanging up is precisely the
+     * wrong response to the case the prompts exist for: someone we could not
+     * hear is not someone who left, and dropping the call denies them the one
+     * chance to say "hello? can you hear me?".
+     *
+     * So the deadline still applies, but not before the ladder is exhausted.
+     * A caller who has been asked three times and answered none of them has
+     * genuinely gone, and the call ends as it did before.
+     */
+    const silenceHangupAllowed = () => {
+      if (!(maxSilenceBeforeHangup > 0)) return false;
+      if (Date.now() - call.lastSpeechAt <= maxSilenceBeforeHangup * 1000) return false;
+      return call.noInputAttempt >= call.noInputPrompts.length;
+    };
     const finishSegment = () => {
       if (ended || !call.active) return;
       ended = true;
@@ -2026,9 +2079,14 @@ export default function EditAgent() {
       if (call.vadTimer) { clearInterval(call.vadTimer); call.vadTimer = null; }
       call.capturingPcm = false;
       call.endTurnEarly = null;
+      console.info('[vad] segment ended', {
+        speechDetected,
+        heldFloorMs: listeningSince ? Date.now() - listeningSince : null,
+        noiseFloor: call.noiseFloor.toFixed(4),
+      });
       if (!speechDetected) {
-        modularCallSocket.cancelTurn();
-        if (maxSilenceBeforeHangup > 0 && Date.now() - call.lastSpeechAt > maxSilenceBeforeHangup * 1000) {
+        modularCallSocket.cancelTurn(call.history);
+        if (silenceHangupAllowed()) {
           handleEndWebCall();
           return;
         }
@@ -2047,7 +2105,26 @@ export default function EditAgent() {
 
     // Deepgram says the caller finished — end now, but only once we actually
     // heard speech this segment (ignore an endpoint on a noise-only segment).
-    call.endTurnEarly = () => { if (speechDetected) finishSegment(); };
+    // Deepgram says the caller finished. That is AUTHORITATIVE — it has words.
+    //
+    // This used to read `if (speechDetected) finishSegment()`, which let a
+    // crude amplitude heuristic veto a real speech recogniser. When the RMS
+    // gate disagreed, the segment ran on to its timeout and then took the
+    // `!speechDetected` path, which calls cancelTurn() and THROWS THE
+    // TRANSCRIPT AWAY. The caller had spoken, Deepgram had understood them, and
+    // the client discarded it — which is why the same sentence had to be
+    // repeated two or three times before one attempt happened to clear the bar.
+    //
+    // The RMS gate is a timing hint for when nothing else can tell us the turn
+    // ended. It is not evidence about whether speech occurred, and it must
+    // never outvote something that actually heard words. So this ends the turn
+    // unconditionally and marks the segment as speech, which routes
+    // finishSegment down the endTurn path instead of the cancel path.
+    call.endTurnEarly = () => {
+      if (ended || !call.active) return;
+      speechDetected = true;
+      finishSegment();
+    };
 
     // ── No-input re-prompt ───────────────────────────────────────────────────
     //
@@ -2071,8 +2148,12 @@ export default function EditAgent() {
       const nextPrompt = call.noInputPrompts[promptIndex];
       if (!nextPrompt) return;
       const waitMs = call.noInputDelaysMs[promptIndex] || 7000;
+      console.info('[voice] no-input timer armed', { attempt: promptIndex + 1, waitMs });
       call.noInputTimer = window.setTimeout(() => {
         call.noInputTimer = null;
+        console.info('[voice] no-input timer fired', {
+          attempt: promptIndex + 1, ended, speechDetected,
+        });
         // speechDetected races us: the caller may have started talking in the
         // final tick before this fired, and cutting in on them would be worse
         // than the silence.
@@ -2081,7 +2162,7 @@ export default function EditAgent() {
         if (call.vadTimer) { clearInterval(call.vadTimer); call.vadTimer = null; }
         call.capturingPcm = false;
         call.endTurnEarly = null;
-        modularCallSocket.cancelTurn();
+        modularCallSocket.cancelTurn(call.history);
         call.noInputAttempt = promptIndex + 1;
         setWebCallActivity('speaking');
         call.history = [...call.history, { role: 'assistant', content: nextPrompt }];
@@ -2109,6 +2190,25 @@ export default function EditAgent() {
       for (let i = 0; i < data.length; i++) { const d = (data[i] - 128) / 128; sum += d * d; }
       const rms = Math.sqrt(sum / data.length);
       const threshold = speechThreshold();
+      // ── VAD trace ────────────────────────────────────────────────────────
+      // "The agent isn't hearing me" has four different causes that look
+      // identical from the outside: the mic is delivering nothing (rms ~0), the
+      // caller is real but under the bar (rms below threshold), the bar itself
+      // has drifted up (noiseFloor climbed), or detection worked and the turn
+      // ended somewhere later. Only the numbers separate them, and they exist
+      // for one tick each. Throttled to ~1/s so a whole call is readable.
+      if (Date.now() - lastVadLogAt >= 1000) {
+        lastVadLogAt = Date.now();
+        console.info('[vad]', {
+          rms: rms.toFixed(4),
+          threshold: threshold.toFixed(4),
+          noiseFloor: call.noiseFloor.toFixed(4),
+          over: rms > threshold,
+          voicedTicks,
+          speechDetected,
+          playing: playbackActive(),
+        });
+      }
       if (rms > threshold) {
         voicedTicks += 1;
         lastSpeechAt = Date.now();
@@ -2140,8 +2240,7 @@ export default function EditAgent() {
       // A noise-only segment now runs to MAX_SEGMENT_MS instead of ending on the
       // first blip, so check the hang-up deadline here too — otherwise "end the
       // call after N seconds of silence" would only be evaluated every 20s.
-      const silenceHangupDue = !speechDetected && maxSilenceBeforeHangup > 0
-        && Date.now() - call.lastSpeechAt > maxSilenceBeforeHangup * 1000;
+      const silenceHangupDue = !speechDetected && silenceHangupAllowed();
       if ((speechDetected && silentFor > SILENCE_MS) || silenceHangupDue
         || Date.now() - (listeningSince || startedAt) > MAX_SEGMENT_MS) {
         finishSegment();
@@ -2193,6 +2292,16 @@ export default function EditAgent() {
   };
 
   const handleStartWebCall = async () => {
+    // Which pipeline this call actually uses. Everything below — continuous
+    // capture, the no-input re-prompt, the client-side VAD — belongs to the
+    // MODULAR path only; a bundled engine hands the whole conversation to the
+    // provider's own realtime socket and none of it applies. Logged because
+    // that distinction is invisible from the call UI, and "the feature isn't
+    // working" and "this agent never runs that code" look the same.
+    console.info('[voice] starting web call', {
+      voiceEngine,
+      path: voiceEngine === 'modular' ? 'modular (STT→LLM→TTS)' : 'bundled realtime',
+    });
     if (voiceEngine !== 'modular') return handleStartRealtimeWebCall();
     const call = callRef.current;
     call.bundledEngine = false;

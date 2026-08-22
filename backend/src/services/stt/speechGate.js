@@ -205,7 +205,34 @@ export function analyzeSpeech(pcm, sampleRate) {
   const sorted = Float32Array.from(rmsPerFrame).sort();
   const at = (p) => sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * p))];
   const noiseFloor = at(FLOOR_PERCENTILE);
-  const peakRms = at(PEAK_PERCENTILE);
+
+  // The segment's LOUD level, measured so it survives a low speech duty cycle.
+  //
+  // `at(PEAK_PERCENTILE)` is the 95th percentile of the WHOLE segment, which
+  // quietly stops being a speech measurement when speech is less than 5% of it:
+  // the 95th percentile then still lands inside the silence, and the loudest
+  // thing in the buffer is reported as the quietest. Measured on a synthetic
+  // 8.4s segment holding one 400ms utterance, peakRms came back 0.0006 and
+  // contrast 1.06 — a clear, ordinary word judged to be pure silence.
+  //
+  // That is not hypothetical padding. Once the caller's microphone stays open
+  // during the agent's reply (which is what lets someone interrupt or answer
+  // early), every turn's buffer begins with the whole reply, so a SHORT answer —
+  // "haan", "better", "yes", exactly the answers a question invites — is the
+  // normal case rather than the edge case. The transcript was correct every
+  // time; this statistic threw it away.
+  //
+  // So take the same percentile over the frames that clear the absolute floor,
+  // and keep whichever reading is higher. A genuinely silent segment has no such
+  // frames and is unaffected. A handful of loud frames cannot get through on
+  // their own either: voicedMs and longestRunMs below still demand sustained
+  // voiced audio, so this widens what counts as loud without widening what
+  // counts as speech.
+  const loud = Float32Array.from(rmsPerFrame).filter((v) => v >= ABS_RMS_FLOOR).sort();
+  const loudPeak = loud.length
+    ? loud[Math.min(loud.length - 1, Math.floor(loud.length * PEAK_PERCENTILE))]
+    : 0;
+  const peakRms = Math.max(at(PEAK_PERCENTILE), loudPeak);
   const contrast = noiseFloor > 0 ? peakRms / noiseFloor : Infinity;
 
   // Frame threshold: the GEOMETRIC midpoint between the quiet and loud levels —

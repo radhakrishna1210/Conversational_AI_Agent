@@ -541,6 +541,26 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
         await runTurn(msg.history);
         break;
       case 'cancel-turn':
+        // A cancel means the CLIENT's amplitude VAD judged the segment silent.
+        // That judgement is not allowed to destroy words Deepgram has already
+        // recognised. When the recogniser holds a transcript, the caller
+        // demonstrably spoke, so this is a real turn that the transport simply
+        // failed to notice — run it instead of discarding it.
+        //
+        // This is the server-side half of the same fix applied in the browser
+        // (see endTurnEarly). Either half alone would still lose turns: the
+        // client can miss Deepgram's endpoint entirely, and the server cannot
+        // know the client gave up until this frame arrives.
+        if (dgSession?.isAlive && dgSession.hasTranscript()) {
+          logger.info('Modular web call: cancel-turn overridden — Deepgram has a transcript');
+          capturing = false;
+          if (!budget?.expired()) {
+            await runTurn(msg.history);
+          } else {
+            frames = [];
+          }
+          break;
+        }
         frames = [];
         capturing = false;
         // Flush the discarded turn's audio out of the stream so it can't bleed
