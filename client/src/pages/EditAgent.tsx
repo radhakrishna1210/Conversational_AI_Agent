@@ -1643,6 +1643,15 @@ export default function EditAgent() {
    * `call.duckLevel` is updated to the TARGET immediately, so a segment created
    * part-way through a fade still starts at the level we are heading for.
    */
+  // Echo-rejecting speech bar, shared by barge-in and by the listening segment
+  // while the agent is still audible. 5x the tracked room floor (vs 3x for
+  // ordinary listening) is the margin that separates a real interrupting voice
+  // from the agent's own TTS leaking back past echo cancellation. Defined ONCE:
+  // continuous capture relies on it being the same number the ducker validated
+  // in the field, and two copies would drift the moment one was tuned.
+  const BARGE_SNR = 5.0;
+  const BARGE_RMS_FLOOR = 0.03;
+
   const VOLUME_RAMP_MS = 120;
   const VOLUME_RAMP_STEPS = 6;
   const setAgentVolume = (level: number) => {
@@ -1824,11 +1833,30 @@ export default function EditAgent() {
       setWebCallLatency({ sttMs: event.timings.sttMs, llmMs: event.timings.llmMs });
       console.info('Web call socket latency', event.timings);
     }
-    // Resume listening only once every reply audio segment has finished playing.
-    modularPlaybackSettled().then(() => {
+    // Start listening NOW, while the reply is still playing out.
+    //
+    // This used to wait for modularPlaybackSettled(), i.e. for the last audio
+    // segment to drain, which left the microphone entirely closed for the
+    // length of every reply. A caller who cut in lost the opening of their
+    // sentence — barge-in stopped the agent but never captured words, because
+    // it watches volume, not speech — and a caller who answered early had to
+    // repeat themselves. The segment itself knows the agent is still audible
+    // and holds the caller's clocks and the echo-rejecting threshold until it
+    // is not, so opening early costs nothing and captures everything.
+    //
+    // ...unless this caller has already been PROVEN echo-prone. duckDisabled is
+    // set after barge-in watched mic energy sit above the ducked threshold for
+    // 2.4 continuous seconds without ever becoming an interruption — the
+    // signature of the agent's own voice coming back through speakers. For that
+    // caller, streaming during playback is how the agent ends up transcribing
+    // and answering itself, so they keep the old behaviour. It is the one
+    // signal already available that distinguishes headphones from a speaker.
+    const resume = () => {
       call.lastSpeechAt = Date.now();
       if (call.active && call.socketMode) startListeningSegmentSocket();
-    });
+    };
+    if (call.duckDisabled) modularPlaybackSettled().then(resume);
+    else resume();
   };
 
   const onModularEvent = (event: ModularCallEvent) => {
@@ -1886,7 +1914,24 @@ export default function EditAgent() {
   const startListeningSegmentSocket = () => {
     const call = callRef.current;
     if (!call.active || !call.analyser || !call.socketMode) return;
-    setWebCallActivity('listening');
+    // ── Continuous capture ───────────────────────────────────────────────────
+    //
+    // This segment may be armed while the agent is STILL SPEAKING. It used to
+    // start only once every reply segment had drained, which meant the mic was
+    // not streaming at all for the length of a reply: a caller who cut in had
+    // the first second of their sentence discarded before Deepgram received
+    // anything, and a caller who answered early ("yes") had to say it twice.
+    // Barge-in could stop the agent but never heard WORDS — it watches volume.
+    //
+    // So capture opens now and the audio flows throughout. What playback gates
+    // is not the microphone but the JUDGEMENT: while the agent is audible,
+    // speech must clear the echo-rejecting barge bar rather than the ordinary
+    // listening bar, the room floor is not re-learned (it would train on our
+    // own voice), and silence cannot end the turn. Echo may therefore reach
+    // Deepgram's buffer, but it cannot manufacture a turn on its own.
+    const playbackActive = () => call.modularOutstanding > 0;
+    const armedDuringPlayback = playbackActive();
+    if (!armedDuringPlayback) setWebCallActivity('listening');
     call.turnEpoch += 1;
     modularCallSocket.startTurn(call.audioCtx?.sampleRate || 24000);
     call.capturingPcm = true;
@@ -1894,6 +1939,11 @@ export default function EditAgent() {
     const data = new Uint8Array(call.analyser.fftSize);
     let speechDetected = false;
     let lastSpeechAt = Date.now();
+    // When the caller actually got the floor. Time spent listening under the
+    // agent does not count toward MAX_SEGMENT_MS or the silence timeout — both
+    // measure how long the CALLER has had to speak, and starting their clock
+    // during our own reply would retire the segment before their turn began.
+    let listeningSince = armedDuringPlayback ? 0 : Date.now();
     const startedAt = Date.now();
 
     // ── Adaptive VAD threshold (BUG-001) ─────────────────────────────────────
@@ -1918,8 +1968,11 @@ export default function EditAgent() {
     // Adaptation rate, applied only on ticks judged NOT to be speech (see the
     // VAD loop). Fast enough to settle on the room within a few hundred ms.
     const FLOOR_DOWN = 0.25;
-    const speechThreshold = () =>
-      Math.max(SPEECH_RMS_FLOOR, call.noiseFloor * NOISE_FLOOR_SNR);
+    const speechThreshold = () => (playbackActive()
+      // Agent audible: the same bar barge-in uses, which is tuned to reject our
+      // own leakage. Anything quieter than this is not treated as the caller.
+      ? Math.max(BARGE_RMS_FLOOR, call.noiseFloor * BARGE_SNR)
+      : Math.max(SPEECH_RMS_FLOOR, call.noiseFloor * NOISE_FLOOR_SNR));
 
     // A single frame over the threshold is not speech — a key press, a chair
     // creak, a breath or the tail of the agent's own audio all spike for one
@@ -2010,9 +2063,13 @@ export default function EditAgent() {
     // part of its own cost — worst of all when the line is quiet BECAUSE the
     // model is being rate limited. The wording arrives with the ready frame,
     // already in the agent's language.
-    const promptIndex = call.noInputAttempt;
-    const nextPrompt = call.noInputPrompts[promptIndex];
-    if (nextPrompt) {
+    // Armed only once the caller actually HAS the floor. Counting the agent's
+    // own reply toward "you have gone quiet" would prompt someone who was
+    // politely waiting for us to finish speaking.
+    const armNoInput = () => {
+      const promptIndex = call.noInputAttempt;
+      const nextPrompt = call.noInputPrompts[promptIndex];
+      if (!nextPrompt) return;
       const waitMs = call.noInputDelaysMs[promptIndex] || 7000;
       call.noInputTimer = window.setTimeout(() => {
         call.noInputTimer = null;
@@ -2033,10 +2090,20 @@ export default function EditAgent() {
           .catch(() => { /* a failed re-prompt must not end the call */ })
           .finally(() => { if (call.active) startListeningSegmentSocket(); });
       }, waitMs);
-    }
+    };
+    if (!armedDuringPlayback) armNoInput();
 
     call.vadTimer = window.setInterval(() => {
       if (!call.active || !call.analyser) return;
+      // The agent has just stopped being audible: the caller now has the floor,
+      // so start THEIR clocks, show it, and only now begin counting silence
+      // against them.
+      if (!listeningSince && !playbackActive()) {
+        listeningSince = Date.now();
+        lastSpeechAt = Date.now();
+        setWebCallActivity('listening');
+        armNoInput();
+      }
       call.analyser.getByteTimeDomainData(data);
       let sum = 0;
       for (let i = 0; i < data.length; i++) { const d = (data[i] - 128) / 128; sum += d * d; }
@@ -2059,8 +2126,16 @@ export default function EditAgent() {
         voicedTicks = Math.max(0, voicedTicks - 1);
         // This tick is (as far as we can tell) not speech, so it is the best
         // available sample of the room. Track it quickly.
-        call.noiseFloor = Math.max(NOISE_FLOOR_MIN, call.noiseFloor * (1 - FLOOR_DOWN) + rms * FLOOR_DOWN);
+        // NEVER while the agent is audible: that sample is our own voice, and
+        // training the floor on it raises the bar until the caller cannot clear it.
+        if (!playbackActive()) {
+          call.noiseFloor = Math.max(NOISE_FLOOR_MIN, call.noiseFloor * (1 - FLOOR_DOWN) + rms * FLOOR_DOWN);
+        }
       }
+      // Nothing below may retire this segment while the agent is still audible:
+      // the caller has not had their turn yet, so silence under our own reply is
+      // not their silence.
+      if (playbackActive()) return;
       const silentFor = Date.now() - lastSpeechAt;
       // A noise-only segment now runs to MAX_SEGMENT_MS instead of ending on the
       // first blip, so check the hang-up deadline here too — otherwise "end the
@@ -2068,7 +2143,7 @@ export default function EditAgent() {
       const silenceHangupDue = !speechDetected && maxSilenceBeforeHangup > 0
         && Date.now() - call.lastSpeechAt > maxSilenceBeforeHangup * 1000;
       if ((speechDetected && silentFor > SILENCE_MS) || silenceHangupDue
-        || Date.now() - startedAt > MAX_SEGMENT_MS) {
+        || Date.now() - (listeningSince || startedAt) > MAX_SEGMENT_MS) {
         finishSegment();
       }
     }, 100);
@@ -2334,8 +2409,6 @@ export default function EditAgent() {
         // it cuts the agent off mid-sentence for no reason. The floor itself is
         // only ever learned while LISTENING, never during agent speech, so echo
         // cannot train it. Still gated by the ~240ms sustain below.
-        const BARGE_SNR = 5.0;
-        const BARGE_RMS_FLOOR = 0.03;
         const threshold = Math.max(BARGE_RMS_FLOOR, call.noiseFloor * BARGE_SNR);
         // Two thresholds, and the difference is the whole fix. `threshold` is
         // what counts as SPEECH (unscaled — echo attenuated by the duck must not
