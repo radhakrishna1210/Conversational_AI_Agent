@@ -9,11 +9,12 @@
  */
 import { useState } from 'react';
 import PricingBucketsTab from './PricingBucketsTab';
-import { Users, Bug, CreditCard, TrendingUp, Activity, CalendarDays, Cpu } from 'lucide-react';
+import { Users, Bug, CreditCard, TrendingUp, Activity, CalendarDays, Cpu, Mail } from 'lucide-react';
 import {
   AdminPageHeader,
   UserManagementTab,
   ReportIssuesTab,
+  ContactRequestsTab,
   AppointmentsTab,
   WalletRateTab,
   WalletCreditTab,
@@ -60,6 +61,19 @@ export function AdminAppointmentsPage() {
   );
 }
 
+export function AdminContactRequestsPage() {
+  return (
+    <>
+      <AdminPageHeader
+        title="Contact Requests"
+        subtitle="Sales enquiries from the Connect with our sales team form"
+        icon={<Mail size={21} />}
+      />
+      <ContactRequestsTab />
+    </>
+  );
+}
+
 /**
  * Every price on the platform, in the order they beat each other: the default
  * rate first, then the volume tiers and per-client overrides that take
@@ -70,6 +84,7 @@ export function AdminPricingPage() {
   // Held here so saving the default rate immediately corrects the "Default"
   // figure the tier table quotes, without either half refetching the other.
   const [defaultRate, setDefaultRate] = useState<number | null>(null);
+
 
   return (
     <>

@@ -6,7 +6,7 @@ import {
   Search, Filter, Trash2, UserCheck,
   Globe, ChevronDown, X, Check,
   AlertCircle, Ban, ChevronLeft, ChevronRight,
-  Eye, Bug
+  Eye, Bug, Mail
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -965,6 +965,220 @@ export function AppointmentsTab() {
           <div style={{ color: 'var(--tx-2)', marginTop: 4 }}>Use case: {a.useCase} — Reason: {a.reason}</div>
         </div>
       ))}
+    </div>
+  );
+}
+
+interface ContactRequest {
+  id: string;
+  name: string;
+  email: string;
+  phone: string;
+  callVolume: string;
+  helpWith: string;
+  useCase: string;
+  heardAbout: string | null;
+  createdAt: string;
+}
+
+/*
+ * The form posts the <option value>, not its label, so the console would
+ * otherwise show a lead as "whitelabel". Unknown keys fall through to the raw
+ * value rather than being hidden — a value added to the form and not here is a
+ * missing label, not a missing request.
+ */
+const HELP_WITH_LABELS: Record<string, string> = {
+  pricing: 'Pricing enquiry',
+  product: 'Product question',
+  whitelabel: 'White label',
+  enterprise: 'Enterprise / custom',
+  partnership: 'Partnership',
+  appointment: 'Book an appointment',
+};
+
+const HEARD_ABOUT_LABELS: Record<string, string> = {
+  instagram: 'Instagram',
+  linkedin: 'LinkedIn',
+  twitter: 'Twitter / X',
+  google: 'Google Search',
+  bing: 'Bing Search',
+  chatgpt: 'ChatGPT / AI',
+  referral: 'Referral',
+  other: 'Other',
+};
+
+/**
+ * Contact requests — the leads from "Connect with our sales team".
+ *
+ * These were being written to ContactSubmission from the day the form shipped
+ * and read by nothing: the listing endpoint existed, but no page called it, so
+ * every request sat in the database unseen. This is that page.
+ *
+ * Rows collapse to the one line that decides whether to open them — who, what
+ * they want, and how big they are — because the use-case text is free-form and
+ * routinely a paragraph. Email and phone are live links: the first thing anyone
+ * does with one of these is reply to it.
+ */
+export function ContactRequestsTab() {
+  const [rows, setRows] = useState<ContactRequest[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [search, setSearch] = useState('');
+  const [expanded, setExpanded] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError('');
+    try {
+      // Not API(): that helper prefixes /api/v1/admin, and the listing lives on
+      // the public form's own router at /api/v1/contact-form — now behind
+      // authenticate + isAdmin. Same shape as ReportIssuesTab above.
+      const res = await authFetch('/api/v1/contact-form');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Failed to load contact requests (${res.status})`);
+      setRows(Array.isArray(data) ? data : []);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to load');
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const q = search.trim().toLowerCase();
+  const filtered = q
+    ? rows.filter((r) =>
+        [r.name, r.email, r.phone, r.useCase, HELP_WITH_LABELS[r.helpWith] ?? r.helpWith]
+          .some((f) => String(f ?? '').toLowerCase().includes(q)))
+    : rows;
+
+  return (
+    <div>
+      {/* Toolbar */}
+      <div style={{ display: 'flex', gap: 10, marginBottom: 20, alignItems: 'center' }}>
+        <div style={{ position: 'relative', flex: 1, maxWidth: 380 }}>
+          <Search size={14} style={{ position: 'absolute', left: 12, top: '50%', transform: 'translateY(-50%)', color: 'var(--tx-3)' }} />
+          <input
+            type="text"
+            placeholder="Search name, email, phone or use case..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            style={{ width: '100%', padding: '9px 14px 9px 34px', background: 'var(--s1)', border: '1px solid var(--line)', borderRadius: 8, color: 'var(--tx)', fontSize: 13, boxSizing: 'border-box' }}
+          />
+        </div>
+        <button
+          onClick={load}
+          style={{ padding: '8px 16px', background: 'transparent', border: '1px solid var(--line)', borderRadius: 7, color: 'var(--tx-2)', cursor: 'pointer', fontSize: 13, display: 'flex', alignItems: 'center', gap: 6 }}
+        >
+          <RefreshCw size={13} /> Refresh
+        </button>
+        <span style={{ marginLeft: 'auto', fontSize: 13, color: 'var(--tx-2)' }}>
+          {filtered.length} {filtered.length === 1 ? 'request' : 'requests'}
+        </span>
+      </div>
+
+      {/* States */}
+      {loading && (
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: 200, color: 'var(--tx-2)', gap: 10 }}>
+          <RefreshCw size={18} style={{ animation: 'spin 1s linear infinite' }} /> Loading contact requests...
+        </div>
+      )}
+
+      {error && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: 'var(--err)', padding: 20, background: 'rgba(239,68,68,0.08)', borderRadius: 10, border: '1px solid rgba(239,68,68,0.2)', marginBottom: 16 }}>
+          <AlertCircle size={16} /> {error}
+          <button onClick={load} style={{ marginLeft: 'auto', padding: '5px 12px', background: 'transparent', border: '1px solid var(--err)', borderRadius: 6, color: 'var(--err)', cursor: 'pointer', fontSize: 12 }}>Retry</button>
+        </div>
+      )}
+
+      {!loading && !error && filtered.length === 0 && (
+        <div style={{ textAlign: 'center', padding: '60px 20px', color: 'var(--tx-2)', background: 'var(--s1)', borderRadius: 10, border: '1px solid var(--line)' }}>
+          <Mail size={32} style={{ marginBottom: 12, opacity: 0.4 }} />
+          <div style={{ fontSize: 15, fontWeight: 600 }}>
+            {rows.length === 0 ? 'No contact requests yet' : 'No requests match that search'}
+          </div>
+          <div style={{ fontSize: 13, marginTop: 4 }}>
+            {rows.length === 0
+              ? 'Submissions from "Connect with our sales team" will appear here.'
+              : 'Try a different name, email or keyword.'}
+          </div>
+        </div>
+      )}
+
+      {/* Requests list */}
+      {!loading && filtered.length > 0 && (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+          {filtered.map((r) => (
+            <div
+              key={r.id}
+              style={{ background: 'var(--s1)', border: '1px solid var(--line)', borderRadius: 10, overflow: 'hidden', borderLeft: '3px solid var(--cyan)' }}
+            >
+              {/* Header row */}
+              <div
+                onClick={() => setExpanded(expanded === r.id ? null : r.id)}
+                style={{ display: 'flex', alignItems: 'center', padding: '14px 20px', cursor: 'pointer', gap: 12 }}
+              >
+                <Mail size={15} style={{ color: 'var(--cyan-fg)', flexShrink: 0 }} />
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--tx)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                    {r.name} <span style={{ fontWeight: 400, color: 'var(--tx-2)' }}>· {r.email}</span>
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--tx-2)', marginTop: 2 }}>
+                    {new Date(r.createdAt).toLocaleString('en-IN', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    {r.callVolume ? ` · ${r.callVolume}` : ''}
+                  </div>
+                </div>
+                <span style={{ flexShrink: 0, fontSize: 11, fontWeight: 600, color: 'var(--cyan-fg)', background: 'rgba(14,179,158,0.11)', border: '1px solid rgba(14,179,158,0.27)', borderRadius: 100, padding: '4px 10px' }}>
+                  {HELP_WITH_LABELS[r.helpWith] ?? r.helpWith}
+                </span>
+                <ChevronDown
+                  size={14}
+                  style={{ color: 'var(--tx-3)', transition: 'transform 0.2s', transform: expanded === r.id ? 'rotate(180deg)' : 'rotate(0deg)', flexShrink: 0 }}
+                />
+              </div>
+
+              {/* Expanded detail */}
+              {expanded === r.id && (
+                <div style={{ padding: '0 20px 18px', borderTop: '1px solid var(--line)' }}>
+                  <div style={{ paddingTop: 14 }}>
+                    <div style={{ fontSize: 11, fontWeight: 700, color: 'var(--tx-2)', letterSpacing: '0.5px', marginBottom: 6, textTransform: 'uppercase' }}>Use case</div>
+                    <div style={{ fontSize: 13, color: 'var(--tx)', lineHeight: 1.7, background: 'var(--bg-2)', padding: '12px 14px', borderRadius: 7, border: '1px solid var(--line)', whiteSpace: 'pre-wrap' }}>
+                      {r.useCase}
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px 28px', marginTop: 14, fontSize: 12 }}>
+                    <div>
+                      <div style={{ color: 'var(--tx-3)', marginBottom: 2 }}>Email</div>
+                      <a href={`mailto:${r.email}`} style={{ color: 'var(--cyan-fg)', textDecoration: 'none' }}>{r.email}</a>
+                    </div>
+                    <div>
+                      <div style={{ color: 'var(--tx-3)', marginBottom: 2 }}>Phone</div>
+                      <a href={`tel:${r.phone}`} style={{ color: 'var(--cyan-fg)', textDecoration: 'none' }}>{r.phone}</a>
+                    </div>
+                    <div>
+                      <div style={{ color: 'var(--tx-3)', marginBottom: 2 }}>Monthly volume</div>
+                      <span style={{ color: 'var(--tx-2)' }}>{r.callVolume}</span>
+                    </div>
+                    <div>
+                      <div style={{ color: 'var(--tx-3)', marginBottom: 2 }}>Heard about us</div>
+                      <span style={{ color: 'var(--tx-2)' }}>
+                        {r.heardAbout ? (HEARD_ABOUT_LABELS[r.heardAbout] ?? r.heardAbout) : 'Not given'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: 14 }}>
+                    <span style={{ fontSize: 11, color: 'var(--tx-2)', fontWeight: 600 }}>ID: </span>
+                    <span style={{ fontSize: 11, color: 'var(--tx-3)', fontFamily: 'monospace' }}>{r.id}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
