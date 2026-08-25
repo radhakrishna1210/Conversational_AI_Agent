@@ -89,6 +89,50 @@ export const CARRIER_APPLICATION_STATUS = Object.freeze({
   REJECTED: 'REJECTED',
 });
 
+/**
+ * Plivo's own compliance-application lifecycle, and how it collapses onto ours.
+ *
+ * Two of Plivo's five states are worse than a plain rejection and must not be
+ * flattened into one: `suspended` and `expired` mean a previously ACCEPTED
+ * application has stopped protecting the numbers linked to it, so the client's
+ * live numbers are dialling against nothing. They map to REJECTED *and* suspend
+ * the workspace — see plivo/compliance.service.js#applyCarrierStatus.
+ */
+export const PLIVO_COMPLIANCE_STATUS = Object.freeze({
+  DRAFT: 'draft',
+  SUBMITTED: 'submitted',
+  ACCEPTED: 'accepted',
+  REJECTED: 'rejected',
+  SUSPENDED: 'suspended',
+  EXPIRED: 'expired',
+});
+
+export const PLIVO_COMPLIANCE_STATUS_MAP = Object.freeze({
+  [PLIVO_COMPLIANCE_STATUS.DRAFT]: CARRIER_APPLICATION_STATUS.SUBMITTED,
+  [PLIVO_COMPLIANCE_STATUS.SUBMITTED]: CARRIER_APPLICATION_STATUS.SUBMITTED,
+  [PLIVO_COMPLIANCE_STATUS.ACCEPTED]: CARRIER_APPLICATION_STATUS.APPROVED,
+  [PLIVO_COMPLIANCE_STATUS.REJECTED]: CARRIER_APPLICATION_STATUS.REJECTED,
+  [PLIVO_COMPLIANCE_STATUS.SUSPENDED]: CARRIER_APPLICATION_STATUS.REJECTED,
+  [PLIVO_COMPLIANCE_STATUS.EXPIRED]: CARRIER_APPLICATION_STATUS.REJECTED,
+});
+
+/** Plivo statuses that revoke an approval we had already been granted. */
+export const PLIVO_REVOKING_STATUSES = Object.freeze([
+  PLIVO_COMPLIANCE_STATUS.SUSPENDED,
+  PLIVO_COMPLIANCE_STATUS.EXPIRED,
+]);
+
+/**
+ * Plivo's `number_type`, which is a carrier taxonomy and NOT our NUMBER_SERIES.
+ * India sells no mobile numbers to any CPaaS, so `mobile` is listed for
+ * completeness and refused by numberTypeForUseCase().
+ */
+export const PLIVO_NUMBER_TYPE = Object.freeze({
+  LOCAL: 'local',
+  MOBILE: 'mobile',
+  TOLLFREE: 'tollfree',
+});
+
 /** The client's own PE registration on a DLT portal. We only record its outcome. */
 export const PE_STATUS = Object.freeze({
   NOT_STARTED: 'NOT_STARTED',
@@ -127,6 +171,14 @@ export const HEADER_STATUS = Object.freeze({
 
 export const VOICE_NUMBER_STATUS = Object.freeze({
   ACTIVE: 'ACTIVE',
+  // The monthly rental could not be taken from the wallet and the grace period
+  // has run out. The number stops dialling but WE KEEP PAYING THE CARRIER for
+  // it — deliberately. Releasing would destroy the client's DLT header
+  // registration, which they cannot get back: a new number means a new header
+  // application on their operator's portal. Holding a dead number costs us
+  // ~₹200/month; releasing one costs the client days and us a support ticket.
+  // It reactivates by itself on the next sweep once the wallet can pay.
+  SUSPENDED_NONPAYMENT: 'SUSPENDED_NONPAYMENT',
   // Released numbers keep their row forever. A released number is never handed
   // to another workspace: its header registration and accumulated carrier
   // reputation travel with the number, not with us.
