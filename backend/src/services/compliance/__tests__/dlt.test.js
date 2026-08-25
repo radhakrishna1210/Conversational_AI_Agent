@@ -11,6 +11,7 @@ import {
   seriesPermitsUseCase,
 } from '../dlt.js';
 import {
+  ACTOR,
   CARRIER_APPLICATION_STATUS,
   CHECK_STATUS,
   DOCUMENT_KIND,
@@ -267,6 +268,30 @@ describe('evaluateCompliance', () => {
     });
     assert.equal(result.ready, false);
     assert.equal(itemFor(result, 'number_assigned').status, CHECK_STATUS.TODO);
+  });
+
+  test('a number suspended for non-payment says so, instead of reading as "not provisioned yet"', () => {
+    // The client is owed the actionable reason. Falling into the "no number"
+    // branch would tell them "we provision this once the carrier application is
+    // approved" — which is both wrong and unfixable from their side, when the
+    // real answer is "top up your wallet".
+    const result = evaluateCompliance({
+      ...compliantState(),
+      numbers: [{
+        phoneNumber: '+911402345678',
+        series: NUMBER_SERIES.PROMOTIONAL_140,
+        headerStatus: HEADER_STATUS.REGISTERED,
+        status: VOICE_NUMBER_STATUS.SUSPENDED_NONPAYMENT,
+      }],
+    });
+    assert.equal(result.ready, false);
+    const item = itemFor(result, 'number_assigned');
+    assert.equal(item.status, CHECK_STATUS.REJECTED);
+    assert.match(item.detail, /rental is unpaid/);
+    assert.match(item.detail, /\+911402345678/);
+    // The client can fix this themselves, so it must not be filed under
+    // "waiting on the platform".
+    assert.equal(item.actor, ACTOR.CLIENT);
   });
 
   test('a correct number whose header is unregistered still blocks', () => {

@@ -287,7 +287,20 @@ export function evaluateCompliance(state = {}) {
   const rightSeries = active.filter((n) => seriesPermitsUseCase(n.series, useCase));
   const usable = rightSeries.filter((n) => n.headerStatus === HEADER_STATUS.REGISTERED);
 
-  if (!active.length) {
+  // A number suspended for non-payment is still OURS and still rented — it has
+  // simply stopped dialling. Reported separately because the alternative is
+  // what this code used to do: fall into the "no number" branch and tell the
+  // client "we provision this once the carrier application is approved", which
+  // is both wrong and unactionable when the real answer is "top up your wallet".
+  // Named for the numbers, not shortened to `suspended` — that identifier is
+  // already the WORKSPACE suspension flag in this function's parameters, and
+  // the two mean very different things.
+  const unpaidNumbers = (numbers ?? []).filter((n) => n.status === VOICE_NUMBER_STATUS.SUSPENDED_NONPAYMENT);
+
+  if (!active.length && unpaidNumbers.length) {
+    checklist.push(check('number_assigned', 'Caller number assigned', CHECK_STATUS.REJECTED, ACTOR.CLIENT,
+      `${unpaidNumbers[0].phoneNumber} is suspended because its monthly rental is unpaid. Top up your wallet and it reactivates automatically — the number has not been given up.`));
+  } else if (!active.length) {
     checklist.push(check('number_assigned', 'Caller number assigned', CHECK_STATUS.TODO, ACTOR.PLATFORM,
       'We provision this once the carrier application is approved.'));
   } else if (!rightSeries.length) {

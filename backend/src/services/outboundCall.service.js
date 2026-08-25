@@ -22,6 +22,7 @@
 import prisma from '../config/prisma.js';
 import { env } from '../config/env.js';
 import logger from '../lib/logger.js';
+import { VOICE_NUMBER_STATUS } from '../constants/compliance.js';
 import { resolveProvider } from './telephony/index.js';
 import { acquireSlot } from './telephony/concurrency.js';
 import { xmlSafe } from './telephony/provider.interface.js';
@@ -274,18 +275,44 @@ export async function telephonyStatusForNumber(fromNumber) {
  * rows at all, and every one of those is a Twilio call that must keep working.
  */
 export async function resolveProviderIdForNumber(fromNumber) {
-  if (!fromNumber) return undefined;
+  return (await resolveNumberRouting(fromNumber)).providerId;
+}
+
+/**
+ * The caller ID's row, as one lookup: which carrier it routes to, and whether
+ * it is allowed to dial at all.
+ *
+ * The two travel together because they come from the same row, and the dial
+ * path already pays for that read. Splitting the payment check into its own
+ * query would add a round trip to every single call — this deployment measures
+ * ~490ms to its Postgres, which is audible on the line.
+ *
+ * `blocked` carries a customer-facing message when the number is suspended for
+ * non-payment. Unknown numbers are NOT blocked: a caller ID with no VoiceNumber
+ * row is a Twilio number or a verified BYO number, neither of which this table
+ * governs.
+ */
+export async function resolveNumberRouting(fromNumber) {
+  if (!fromNumber) return { providerId: undefined, blocked: null };
   try {
     const row = await prisma.voiceNumber.findUnique({
       where: { phoneNumber: String(fromNumber) },
-      select: { provider: true },
+      select: { provider: true, status: true },
     });
-    return row?.provider || undefined;
+    return {
+      providerId: row?.provider || undefined,
+      blocked: row?.status === VOICE_NUMBER_STATUS.SUSPENDED_NONPAYMENT
+        ? `${fromNumber} is suspended because its monthly rental could not be taken from your wallet. Top up and it reactivates automatically — the number has not been given up.`
+        : null,
+    };
   } catch (e) {
     // A lookup failure must not take the dialer down: the default carrier is a
     // worse answer than the right one, but a far better answer than no call.
+    // Failing OPEN on `blocked` for the same reason — a database blip must not
+    // stop paying customers dialling, and unbilled minutes are recoverable
+    // where refused calls are not.
     logger.warn(`Could not resolve carrier for ${fromNumber}: ${e.message}`);
-    return undefined;
+    return { providerId: undefined, blocked: null };
   }
 }
 
@@ -315,7 +342,18 @@ export async function placeOutboundCall({
 }) {
   // An explicit override wins; otherwise the caller ID's own row decides. Only
   // a number we have never seen falls through to the configured default.
-  const provider = resolveProvider(providerId || await resolveProviderIdForNumber(fromNumber));
+  //
+  // This one read also answers "may this number dial?". The payment gate lives
+  // here rather than with the wallet/concurrency checks because those are
+  // called per-press and per-batch by different callers, and a suspended number
+  // has to be refused on EVERY path — a test call from a suspended number is
+  // still a call we pay the carrier for. Nothing else in this module gates, and
+  // this stays the exception: it costs no extra query.
+  const routing = await resolveNumberRouting(fromNumber);
+  if (routing.blocked) {
+    return { ok: false, mode: 'none', error: routing.blocked, status: 402, code: 'NUMBER_SUSPENDED_NONPAYMENT' };
+  }
+  const provider = resolveProvider(providerId || routing.providerId);
   const tw = provider.status(fromNumber);
   if (!tw.ready) return { ok: false, mode: 'none', error: tw.error, status: 503 };
 
