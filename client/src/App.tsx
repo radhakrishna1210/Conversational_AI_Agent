@@ -33,6 +33,7 @@ import CloneVoice from './pages/CloneVoice';
 import Files from './pages/Files';
 import Integrations from './pages/Integrations';
 import PhoneNumbers from './pages/PhoneNumbers';
+import NumberVerification from './pages/NumberVerification';
 import CallLogs from './pages/CallLogs';
 import Analytics from './pages/Analytics';
 import WhatsApp from './pages/WhatsApp';
@@ -243,6 +244,7 @@ function App() {
             <Route path="/files" element={<Files />} />
             <Route path="/integrations" element={<Integrations />} />
             <Route path="/phone_numbers" element={<PhoneNumbers />} />
+            <Route path="/number_verification" element={<NumberVerification />} />
             <Route path="/call_logs" element={<CallLogs />} />
             <Route path="/analytics" element={<Analytics />} />
             <Route path="/whatsapp" element={<WhatsApp />} />

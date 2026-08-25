@@ -17,6 +17,7 @@ import {
   ContactRequestsTab,
   AppointmentsTab,
   WalletRateTab,
+  NumberRateTab,
   WalletCreditTab,
   ModelAccessTab,
   SystemHealthTab,
@@ -90,7 +91,7 @@ export function AdminPricingPage() {
     <>
       <AdminPageHeader
         title="Pricing"
-        subtitle="The default rate, volume tiers and per-client rates. Admin-only — nothing here is shown to clients."
+        subtitle="The default rate, volume tiers, per-client rates, and phone-number pricing. Admin-only — nothing here is shown to clients."
         icon={<TrendingUp size={21} />}
       />
 
@@ -99,9 +100,21 @@ export function AdminPricingPage() {
         <WalletRateTab onSaved={setDefaultRate} />
       </section>
 
-      <section>
+      <section style={{ marginBottom: 34 }}>
         <h2 style={sectionTitle}>Volume tiers &amp; client rates</h2>
         <PricingBucketsTab defaultRate={defaultRate} />
+      </section>
+
+      {/*
+        Numbers are the only thing besides talk time that costs a client money,
+        and they bill on a different clock. Same page because an admin setting
+        one price wants to see the other; separate card because changing them
+        has different consequences — the per-minute rate applies to every call
+        immediately, number pricing only to numbers rented afterwards.
+      */}
+      <section>
+        <h2 style={sectionTitle}>Phone-number pricing</h2>
+        <NumberRateTab />
       </section>
     </>
   );

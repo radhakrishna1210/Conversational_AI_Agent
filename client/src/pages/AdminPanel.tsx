@@ -1293,6 +1293,140 @@ export function WalletRateTab({ onSaved }: { onSaved?: (perMinuteInr: number) =>
 const adminInput: React.CSSProperties = { width: '100%', padding: '9px 11px', background: 'var(--s2)', border: '1px solid var(--line-2)', borderRadius: 9, color: 'var(--tx)', fontFamily: 'var(--ff-b)', fontSize: 13 };
 const lbl: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, color: 'var(--tx-3)', fontSize: 11 };
 
+/**
+ * What a phone number costs a client: a one-time setup fee and a monthly rental.
+ *
+ * The only pricing here that is not per-minute. A rented number costs us a fixed
+ * sum every month for as long as we hold it — including the months a suspended
+ * number is carried unpaid — so the monthly figure has to clear the carrier's
+ * price with room to spare, not merely match it.
+ *
+ * Changing these affects numbers rented AFTERWARDS only: VoiceNumber freezes its
+ * client price at rent time, so a rise never reprices someone's live number.
+ */
+export function NumberRateTab() {
+  const [monthly, setMonthly] = useState<string>('');
+  const [setup, setSetup] = useState<string>('');
+  const [saved, setSaved] = useState<{ monthlyInr: number; setupInr: number } | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const load = async () => {
+    try {
+      const res = await authFetch(API('/number-rate'));
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || `Failed (${res.status})`);
+      setMonthly(String(data.monthlyInr));
+      setSetup(String(data.setupInr));
+      setSaved({ monthlyInr: data.monthlyInr, setupInr: data.setupInr });
+    } catch (e) { setErr(e instanceof Error ? e.message : 'Failed'); }
+  };
+  useEffect(() => { load(); }, []);
+
+  const save = async () => {
+    setBusy(true); setMsg(null);
+    try {
+      const res = await authFetch(API('/number-rate'), {
+        method: 'PUT',
+        body: JSON.stringify({ monthlyInr: Number(monthly), setupInr: Number(setup) }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Save failed');
+      setSaved({ monthlyInr: data.monthlyInr, setupInr: data.setupInr });
+      setMonthly(String(data.monthlyInr));
+      setSetup(String(data.setupInr));
+      setMsg('Saved. Numbers rented from now on use these prices; existing numbers keep theirs.');
+    } catch (e) { setMsg(e instanceof Error ? e.message : 'Save failed'); }
+    finally { setBusy(false); }
+  };
+
+  const m = Number(monthly);
+  const s = Number(setup);
+  const monthlyValid = Number.isFinite(m) && m > 0;
+  // Zero IS a valid setup fee — "no setup charge" is a real commercial choice.
+  const setupValid = Number.isFinite(s) && s >= 0;
+  const valid = monthlyValid && setupValid;
+  const dirty = valid && saved != null && (m !== saved.monthlyInr || s !== saved.setupInr);
+
+  if (err) return <p style={{ color: 'var(--err)' }}>Couldn't load the number rate: {err}</p>;
+
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 620 }}>
+      <p style={{ color: 'var(--tx-3)', fontSize: 13, lineHeight: 1.6, margin: 0 }}>
+        Charged to the workspace's wallet: the setup fee once when a number is provisioned,
+        the rental every month after. Plivo charges us roughly ₹200/month per Indian number,
+        and we keep paying that while a number is suspended for non-payment — so the monthly
+        figure has to cover more than the carrier's price.
+      </p>
+
+      <div style={{ border: '1px solid var(--line)', borderRadius: 10, padding: 20, display: 'flex', flexDirection: 'column', gap: 16 }}>
+        <label style={{ ...lbl, fontSize: 12 }}>
+          Monthly rental
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
+            <span style={{ fontSize: 20, color: 'var(--tx-2)' }}>₹</span>
+            <input
+              type="number" step="1" min="1" value={monthly}
+              onChange={e => { setMonthly(e.target.value); setMsg(null); }}
+              style={{ ...adminInput, fontSize: 20, padding: '10px 12px', maxWidth: 180 }}
+            />
+            <span style={{ fontSize: 13, color: 'var(--tx-3)' }}>/ month</span>
+          </div>
+        </label>
+
+        <label style={{ ...lbl, fontSize: 12 }}>
+          One-time setup fee
+          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginTop: 6 }}>
+            <span style={{ fontSize: 20, color: 'var(--tx-2)' }}>₹</span>
+            <input
+              type="number" step="1" min="0" value={setup}
+              onChange={e => { setSetup(e.target.value); setMsg(null); }}
+              style={{ ...adminInput, fontSize: 20, padding: '10px 12px', maxWidth: 180 }}
+            />
+            <span style={{ fontSize: 13, color: 'var(--tx-3)' }}>once</span>
+          </div>
+          <span style={{ fontSize: 11, color: 'var(--tx-3)', marginTop: 4 }}>
+            Covers the per-client KYC filing we do as a reseller. Zero is valid.
+          </span>
+        </label>
+
+        {/* The figure that decides whether a sale is worth making. */}
+        {valid && (
+          <p style={{ color: 'var(--tx-3)', fontSize: 12, margin: 0 }}>
+            A new number bills ₹{(s + m).toLocaleString('en-IN')} up front, then
+            ₹{m.toLocaleString('en-IN')}/month. Against ~₹200 carrier cost that is about
+            ₹{(m - 200).toLocaleString('en-IN')}/month gross.
+          </p>
+        )}
+
+        {!monthlyValid && monthly !== '' && (
+          <p style={{ color: 'var(--err)', fontSize: 12, margin: 0 }}>
+            The monthly rental must be greater than zero — a free number still costs us every month.
+          </p>
+        )}
+        {!setupValid && setup !== '' && (
+          <p style={{ color: 'var(--err)', fontSize: 12, margin: 0 }}>Enter zero or a positive setup fee.</p>
+        )}
+
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button
+            onClick={save} disabled={!dirty || busy}
+            style={{
+              padding: '9px 16px', borderRadius: 8,
+              border: '1px solid var(--teal, var(--cyan-fg))', background: dirty ? 'var(--teal, var(--cyan-fg))' : 'transparent',
+              color: dirty ? 'var(--on-cyan)' : 'var(--teal, var(--cyan-fg))', fontWeight: 600,
+              cursor: dirty && !busy ? 'pointer' : 'default', opacity: dirty || busy ? 1 : 0.5,
+            }}
+          >
+            {busy ? 'Saving…' : 'Save number pricing'}
+          </button>
+          {msg && <span style={{ fontSize: 12, color: 'var(--tx-2)' }}>{msg}</span>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function WalletCreditTab() {
   const [workspaceId, setWorkspaceId] = useState('');
   const [amount, setAmount] = useState('');
