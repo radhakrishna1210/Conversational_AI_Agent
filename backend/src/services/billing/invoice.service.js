@@ -32,9 +32,11 @@ const buildNumber = (year, seq) => `INV-${year}-${String(seq).padStart(6, '0')}`
  * @param {object} p
  * @param {string} p.workspaceId
  * @param {number} p.amountCents  total INCLUDING tax — what the customer paid
- * @param {string} [p.type]       topup | subscription
+ * @param {string} [p.type]       topup | subscription | number
  * @param {string} [p.planName]
- * @param {string} [p.paymentOrderId] the idempotency anchor
+ * @param {string} [p.paymentOrderId] the idempotency anchor. Despite the name
+ *   this is a plain unique string with no foreign key, so a synthetic value is
+ *   valid — number billing passes its wallet-ledger key here.
  */
 export async function generateInvoice({
   workspaceId, amountCents, type = 'topup', planName = null,
