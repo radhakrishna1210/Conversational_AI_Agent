@@ -39,6 +39,13 @@ export const TX_TYPES = Object.freeze({
   REFUND: 'refund',
   SUBSCRIPTION: 'subscription',
   ADJUSTMENT: 'adjustment',
+  // Phone numbers are the one thing besides talk time that costs the client
+  // money, and they cost it on a different clock: once at purchase, then every
+  // month for as long as the number is held. Kept as two types rather than one
+  // so an invoice can say which is which — "why am I paying this again?" is the
+  // first question a recurring line item gets.
+  NUMBER_SETUP: 'number_setup',
+  NUMBER_RENTAL: 'number_rental',
 });
 const VALID_TYPES = new Set(Object.values(TX_TYPES));
 
