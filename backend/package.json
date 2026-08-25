@@ -11,6 +11,7 @@
     "dev": "node --env-file=.env --watch src/server.js",
     "dev:tunnel": "node scripts/start-with-tunnel.mjs",
     "phone:check": "node --env-file=.env scripts/check-phone-ready.mjs",
+    "plivo:check": "node --env-file=.env scripts/check-plivo-numbers.mjs",
     "phone:verify": "node --env-file=.env scripts/verify-twilio-number.mjs",
     "prestart": "prisma generate && node scripts/prisma-migrate-deploy.js",
     "start": "node --env-file=.env src/server.js",

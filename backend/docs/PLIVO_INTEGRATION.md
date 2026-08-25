@@ -166,11 +166,20 @@ POST /v1/Account/{MAIN_AUTH_ID}/PhoneNumber/Compliance/
 Content-Type: multipart/form-data
 
 data = {
+  // CORRECTED 2026-08-24: these fields are FLAT. The earlier draft here had
+  // `contact_email` and a nested `street_address` object; neither exists.
+  // Implemented in plivo/compliance.service.js#buildEndUser, which is the one
+  // place this payload is built. Still unverified against a live submission.
   "end_user": {
     "name": "<entityName>",
     "type": "business",
-    "contact_email": "...",
-    "street_address": { ... }
+    "email": "...",
+    "registration_number": "<CIN or Udyam>",
+    "address_line1": "...",
+    "city": "...",
+    "state": "...",
+    "postal_code": "...",
+    "country": "IN"
   },
   "country_iso": "IN",
   "number_type": "local",
@@ -419,8 +428,8 @@ backend/src/services/telephony/     ← ✅ SHIPPED (phase 1)
 backend/src/services/plivo/     ← ✅ SHIPPED (phase 2, partial)
   client.js                  ✅ auth, retries, v3 signature validation
   subaccount.service.js      ✅ create / enable / disable / delete
-  compliance.service.js      requirements → application → status   (phase 3)
-  number.service.js          search / rent / assign / release      (phase 4)
+  compliance.service.js      ✅ requirements → application → status (phase 3)
+  number.service.js          ✅ search / rent / assign / release   (phase 4)
 
 backend/src/services/branding/
   brand.service.js           BrandProfile CRUD + enrolment status
@@ -626,8 +635,8 @@ rate card. Confirm the exact India streaming rate on the first invoice.
 | 0 | ✅ **Done.** Items 1 and 3 answered; India-region org KYC-verified as a **reseller** (2026-08-13) | — |
 | 1 | ✅ **Done.** Provider abstraction; Twilio extracted behind it, unchanged | — |
 | 2 | ✅ **Code done.** `plivo/client.js`, subaccount CRUD + model + migration. **Unverified against live Plivo** — no account yet | Phase 1 |
-| 3 | Compliance API wiring + webhook, mapped onto existing statuses | Phase 2 |
-| 4 | Number search/rent/assign into subaccount | Phase 3 |
+| 3 | ✅ **Code done (2026-08-24).** Compliance API wiring + webhook, mapped onto existing statuses. **Unverified against live Plivo.** See `NUMBER_PURCHASE_MARKETPLACE.md` phase A | Phase 2 |
+| 4 | ✅ **Code done (2026-08-24).** Number search/rent into subaccount + carrier release. SUPER_ADMIN-gated pending the wallet debit. **Unverified against live Plivo.** | Phase 3 |
 | 5 | ✅ **Code done.** `plivo.provider.js`, answer/hangup endpoints, and BOTH bridges — bundled (`plivoMediaRealtime`) and modular (`plivoMediaModular`). **Unverified against a live call** | — |
 | 6 | `BrandProfile` + Truecaller enrolment | independent |
 | 7 | Usage reconciliation | Phase 4 |
