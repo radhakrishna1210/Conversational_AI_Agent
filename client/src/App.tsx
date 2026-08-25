@@ -15,6 +15,7 @@ import Pricing from './pages/Pricing';
 import Documentation from './pages/Documentation';
 import BookAppointment from './pages/BookAppointment';
 import Contact from './pages/Contact';
+import PrivacyPolicy from './pages/PrivacyPolicy';
 import Docs from './pages/Docs';
 import ReportIssue from './pages/ReportIssue';
 import Finance from './pages/Finance';
@@ -176,6 +177,7 @@ function App() {
         <Route path="/documentation" element={<DefaultLayout><Documentation /></DefaultLayout>} />
         <Route path="/book-appointment" element={<DefaultLayout><BookAppointment /></DefaultLayout>} />
         <Route path="/contact" element={<DefaultLayout><Contact /></DefaultLayout>} />
+        <Route path="/privacy-policy" element={<DefaultLayout><PrivacyPolicy /></DefaultLayout>} />
         <Route path="/docs" element={<AdaptiveLayout><Docs /></AdaptiveLayout>} />
         <Route path="/report-issue" element={<AdaptiveLayout><ReportIssue /></AdaptiveLayout>} />
         {/* Public: Airtel verified-calling guide, linked from the caller-number picker */}
