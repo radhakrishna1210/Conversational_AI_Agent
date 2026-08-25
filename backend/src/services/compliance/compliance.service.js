@@ -105,6 +105,14 @@ export async function getComplianceState(workspaceId) {
       useCase: record.useCase,
       entityName: record.entityName,
       legalEntityType: record.legalEntityType,
+      registrationNumber: record.registrationNumber,
+      contactEmail: record.contactEmail,
+      // Parsed here rather than in the client so there is one definition of the
+      // shape. A corrupt value reads as "not filled in yet", which is what the
+      // form should show anyway.
+      registeredAddress: (() => {
+        try { return JSON.parse(record.registeredAddress || '{}'); } catch { return {}; }
+      })(),
       provider: record.provider,
       carrierApplicationStatus: record.carrierApplicationStatus,
       carrierApplicationRef: record.carrierApplicationRef,
@@ -135,6 +143,39 @@ export async function getComplianceState(workspaceId) {
 }
 
 /**
+ * Refuse a caller ID whose monthly rental went unpaid past its grace period.
+ *
+ * Returns a refusal in the standard `{ allowed, code, message }` shape, or null
+ * when there is nothing to say — an unknown number is not our number and is
+ * none of this check's business.
+ *
+ * Fails OPEN on a lookup error, unlike the DLT gate below, and the difference
+ * is deliberate: refusing to dial because a billing status could not be read
+ * would turn a database blip into an outage for every paying customer, and the
+ * money is recoverable afterwards where the calls are not.
+ */
+async function suspendedForNonPayment(workspaceId, fromNumber) {
+  if (!fromNumber) return null;
+  try {
+    const row = await prisma.voiceNumber.findUnique({
+      where: { phoneNumber: String(fromNumber) },
+      select: { status: true, workspaceId: true },
+    });
+    if (!row || row.workspaceId !== workspaceId) return null;
+    if (row.status !== VOICE_NUMBER_STATUS.SUSPENDED_NONPAYMENT) return null;
+
+    return {
+      allowed: false,
+      code: 'NUMBER_SUSPENDED_NONPAYMENT',
+      message: `${fromNumber} is suspended because its monthly rental could not be taken from your wallet. Top up and it reactivates automatically — the number has not been given up.`,
+    };
+  } catch (err) {
+    logger.warn({ workspaceId, fromNumber, err: err.message }, 'Could not check number payment status');
+    return null;
+  }
+}
+
+/**
  * Can this workspace place an outbound call from `fromNumber`?
  *
  * Same `{ allowed, code, message }` shape as assertCanStartCall() so the two
@@ -145,6 +186,14 @@ export async function getComplianceState(workspaceId) {
  * the existing Twilio numbers are still in service.
  */
 export async function assertComplianceReady(workspaceId, { fromNumber } = {}) {
+  // Checked FIRST, ahead of the mode gate, because non-payment is not a DLT
+  // matter: DLT_COMPLIANCE_MODE=warn exists so the regulatory checklist can be
+  // rolled out without stopping traffic, and letting it also wave through a
+  // number the client has stopped paying for would make the suspension
+  // decorative. This is the only reason a caller ID is refused in `warn`.
+  const unpaid = await suspendedForNonPayment(workspaceId, fromNumber);
+  if (unpaid) return unpaid;
+
   const mode = complianceMode();
   if (mode === COMPLIANCE_MODE.OFF) return { allowed: true };
   if (!isIndianNumber(fromNumber)) return { allowed: true };
@@ -233,6 +282,61 @@ export async function setUseCase(workspaceId, { useCase, entityName, legalEntity
 }
 
 /**
+ * The legal entity's carrier-facing details: registration number, registered
+ * address, contact email.
+ *
+ * Separate from setUseCase() even though both write the same row, because they
+ * answer different questions and fail differently. setUseCase() decides which
+ * number series the workspace may be sold and refuses to change once a number
+ * is live; these are facts about the entity that Plivo's `end_user` needs, and
+ * a typo in them is corrected freely right up until the application is filed.
+ *
+ * No validation of the CIN's shape: Udyam numbers, LLPINs and CINs all live in
+ * this column and their formats differ. The carrier is the authority on whether
+ * the number is real, and rejecting a valid registration on a homemade regex
+ * would block onboarding for the entity types we guessed wrong about.
+ */
+export async function setEntityDetails(workspaceId, { registrationNumber, contactEmail, address } = {}) {
+  if (contactEmail !== undefined && contactEmail !== null && contactEmail !== '') {
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(String(contactEmail).trim())) {
+      return { ok: false, error: 'Enter a valid contact email for the registered entity.' };
+    }
+  }
+
+  const record = await getOrCreateCompliance(workspaceId);
+  const data = {};
+
+  if (registrationNumber !== undefined) {
+    data.registrationNumber = registrationNumber ? String(registrationNumber).trim() : null;
+  }
+  if (contactEmail !== undefined) {
+    data.contactEmail = contactEmail ? String(contactEmail).trim() : null;
+  }
+  if (address !== undefined) {
+    if (address === null) {
+      data.registeredAddress = null;
+    } else {
+      // Merged onto what is already stored so a partial save cannot silently
+      // erase the fields it did not send — this form is filled in over several
+      // sittings while the client digs out their GST certificate.
+      const current = (() => {
+        try { return JSON.parse(record.registeredAddress || '{}'); } catch { return {}; }
+      })();
+      const merged = { ...current };
+      for (const key of ['addressLine1', 'city', 'state', 'postalCode', 'country']) {
+        if (address[key] !== undefined) merged[key] = String(address[key] ?? '').trim();
+      }
+      data.registeredAddress = JSON.stringify(merged);
+    }
+  }
+
+  if (Object.keys(data).length) {
+    await prisma.workspaceCompliance.update({ where: { id: record.id }, data });
+  }
+  return { ok: true };
+}
+
+/**
  * Record the client's DLT Principal Entity ID.
  *
  * Stored as SUBMITTED, not VERIFIED. We have no API into the DLT portals, so
@@ -300,6 +404,49 @@ export async function upsertDocument(workspaceId, { kind, fileName, storageKey, 
   return { ok: true, document: { id: doc.id, kind: doc.kind, status: doc.status } };
 }
 
+/**
+ * Remove an uploaded document.
+ *
+ * Exists because business registration is satisfiable two ways — a Certificate
+ * of Incorporation OR an Udyam certificate — and `ComplianceDocument` is unique
+ * per (compliance, kind). Re-uploading only ever replaces the SAME kind, so
+ * without this a client who uploaded a COI can never switch to Udyam. Worse,
+ * simply letting them upload the other kind would leave both on file, and the
+ * carrier submission picks COI first — so the one they abandoned is the one
+ * that gets filed.
+ *
+ * Refused once the application is with the carrier: the documents are part of
+ * what was submitted, and deleting one locally would make our record disagree
+ * with theirs. A rejected application can be edited freely — correcting it is
+ * the whole point.
+ */
+export async function deleteDocument(workspaceId, { documentId }) {
+  const record = await getOrCreateCompliance(workspaceId);
+
+  const locked = [CARRIER_APPLICATION_STATUS.SUBMITTED, CARRIER_APPLICATION_STATUS.APPROVED];
+  if (locked.includes(record.carrierApplicationStatus)) {
+    return {
+      ok: false,
+      error: record.carrierApplicationStatus === CARRIER_APPLICATION_STATUS.APPROVED
+        ? 'Your verification is approved — these documents are the record of what was filed and cannot be removed.'
+        : 'Your documents are with the carrier for review and cannot be changed until they respond.',
+    };
+  }
+
+  const doc = await prisma.complianceDocument.findFirst({
+    where: { id: documentId, complianceId: record.id },
+  });
+  if (!doc) return { ok: false, error: 'Document not found in this workspace.' };
+
+  await prisma.complianceDocument.delete({ where: { id: doc.id } });
+
+  // The file itself is deliberately left on disk. These are KYC documents under
+  // the DPDP Act and their real retention story is the move to private object
+  // storage noted in middleware/upload.js — unlinking here would give the
+  // appearance of erasure without any of the guarantees.
+  return { ok: true, kind: doc.kind };
+}
+
 /** Record a DLT voice template. Approved status requires the portal's template ID. */
 export async function saveTemplate(workspaceId, { id, name, body, dltTemplateId, status }) {
   const record = await getOrCreateCompliance(workspaceId);
@@ -344,6 +491,7 @@ export async function saveTemplate(workspaceId, { id, name, body, dltTemplateId,
  */
 export async function assignNumber(workspaceId, {
   phoneNumber, provider, providerNumberId, subaccountId, series, dailyDialCap,
+  carrierMonthlyCents, clientMonthlyCents, nextRenewalAt,
 }) {
   if (!isIndianNumber(phoneNumber)) {
     return { ok: false, error: 'Provide the number in E.164 form, e.g. +911402345678.' };
@@ -371,6 +519,13 @@ export async function assignNumber(workspaceId, {
       subaccountId: subaccountId ?? null,
       series: series ?? classifyNumberSeries(phoneNumber),
       ...(Number.isInteger(dailyDialCap) ? { dailyDialCap } : {}),
+      // Billing fields are optional: a number recorded by hand (rented through
+      // the carrier's console) has no rate card behind it, and a null
+      // nextRenewalAt keeps it out of the renewal sweep entirely rather than
+      // charging a price nobody agreed.
+      ...(Number.isInteger(carrierMonthlyCents) ? { carrierMonthlyCents } : {}),
+      ...(Number.isInteger(clientMonthlyCents) ? { clientMonthlyCents } : {}),
+      ...(nextRenewalAt ? { nextRenewalAt } : {}),
     },
   });
   return { ok: true, number };
