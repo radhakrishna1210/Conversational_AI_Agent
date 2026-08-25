@@ -8,6 +8,7 @@ import {
   Plug,
   Phone,
   PhoneCall,
+  BadgeCheck,
   Radio,
   Users,
   FileText,
@@ -244,6 +245,19 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
               <div className={`sidebar-item ${path === '/phone_numbers' ? 'active' : ''}`}>
                 <span className="sidebar-icon"><Phone size={16} /></span>
                 <span className="sidebar-text">Phone Numbers</span>
+              </div>
+            </Link>
+
+            {/*
+              Directly under Phone Numbers because it is the gate in front of
+              them: an Indian number cannot be sold to a business the carrier
+              has not verified, so this is where "get me a number" actually
+              starts. See backend/docs/NUMBER_PURCHASE_MARKETPLACE.md.
+            */}
+            <Link to="/number_verification">
+              <div className={`sidebar-item ${path === '/number_verification' ? 'active' : ''}`}>
+                <span className="sidebar-icon"><BadgeCheck size={16} /></span>
+                <span className="sidebar-text">Number Verification</span>
               </div>
             </Link>
 

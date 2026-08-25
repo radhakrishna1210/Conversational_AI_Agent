@@ -25,6 +25,20 @@ interface NumberOpt {
   source: 'twilio' | 'own' | string;
 }
 
+/**
+ * A number the workspace still holds but cannot dial from — today that means
+ * suspended for an unpaid rental.
+ *
+ * Listed separately rather than filtered out. It is still rented, still theirs,
+ * and vanishing from this page with no explanation is how "why did my campaigns
+ * stop?" becomes a support ticket instead of a top-up.
+ */
+interface UnavailableNumber extends NumberOpt {
+  reason: string;
+  actionText?: string;
+  actionLink?: string;
+}
+
 /** Badge text per source. Unknown carriers fall back to their own name. */
 const sourceLabel = (source: string) => {
   if (source === 'own') return 'Verified';
@@ -61,6 +75,7 @@ const regionFor = (n: string) => {
 export default function PhoneNumbers() {
   const [owned, setOwned] = useState<NumberOpt[]>([]);
   const [verified, setVerified] = useState<NumberOpt[]>([]);
+  const [unavailable, setUnavailable] = useState<UnavailableNumber[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -68,8 +83,12 @@ export default function PhoneNumbers() {
     setLoading(true);
     setError(null);
     whapi
-      .get<{ owned: NumberOpt[]; verified: NumberOpt[] }>('/caller-numbers')
-      .then(r => { setOwned(r.owned ?? []); setVerified(r.verified ?? []); })
+      .get<{ owned: NumberOpt[]; verified: NumberOpt[]; unavailable?: UnavailableNumber[] }>('/caller-numbers')
+      .then(r => {
+        setOwned(r.owned ?? []);
+        setVerified(r.verified ?? []);
+        setUnavailable(r.unavailable ?? []);
+      })
       .catch(e => setError(e instanceof Error ? e.message : 'Failed to load numbers'))
       .finally(() => setLoading(false));
   };
@@ -93,10 +112,47 @@ export default function PhoneNumbers() {
         </div>
 
         <div className="rz-stats" style={{ marginBottom: 18 }}>
-          <RzStat label="TOTAL NUMBERS" value={loading ? '—' : all.length} />
+          <RzStat label="TOTAL NUMBERS" value={loading ? '—' : all.length + unavailable.length} />
           <RzStat label="PLATFORM" value={loading ? '—' : owned.length} color="var(--cyan-fg)" />
           <RzStat label="VERIFIED OWN" value={loading ? '—' : verified.length} color="var(--lime)" />
+          {/* Only shown when there is something wrong — a permanent "0 suspended"
+              tile trains people to ignore the row it lives in. */}
+          {!loading && unavailable.length > 0 && (
+            <RzStat label="SUSPENDED" value={unavailable.length} color="var(--err)" />
+          )}
         </div>
+
+        {/* Suspended inventory, above the working list: it is the thing the
+            client came here to understand. */}
+        {!loading && unavailable.length > 0 && (
+          <div className="rz-stack-sm" style={{ marginBottom: 18 }}>
+            {unavailable.map(n => (
+              <div
+                key={n.phoneNumber}
+                className="rz-card"
+                style={{
+                  padding: '16px 18px', borderRadius: 13, display: 'flex', alignItems: 'center',
+                  gap: 16, flexWrap: 'wrap',
+                  background: 'rgba(248,113,113,0.06)', borderColor: 'rgba(248,113,113,0.28)',
+                }}
+              >
+                <span style={{ fontSize: 20 }} aria-hidden>{flagFor(n.phoneNumber)}</span>
+                <div style={{ flex: 1, minWidth: 200 }}>
+                  <div className="rz-title-lg" style={{ fontFamily: 'var(--ff-m)', letterSpacing: '-0.3px' }}>
+                    {n.phoneNumber}
+                  </div>
+                  <div className="rz-sub" style={{ fontSize: 12.5, marginTop: 3 }}>{n.reason}</div>
+                </div>
+                {n.actionLink && (
+                  <Link className="rz-btn rz-btn-primary rz-btn-sm" to={n.actionLink}>
+                    {n.actionText ?? 'Fix'}
+                  </Link>
+                )}
+                <RzPill tone="err">Suspended</RzPill>
+              </div>
+            ))}
+          </div>
+        )}
 
         {error && (
           <div
@@ -111,7 +167,7 @@ export default function PhoneNumbers() {
         {/* Inventory */}
         {loading ? (
           <RzSkeleton rows={3} height={64} />
-        ) : all.length === 0 ? (
+        ) : all.length === 0 && unavailable.length === 0 ? (
           <RzCard>
             <RzEmpty
               icon={
@@ -148,10 +204,17 @@ export default function PhoneNumbers() {
 
         {/* Acquire */}
         <div className="rz-grid-2" style={{ marginTop: 22 }}>
-          <RzCard title="Buy a number" label="New">
+          <RzCard title="Get a number" label="New">
+            {/*
+              This used to promise a number "in a few seconds" and link to
+              /contact. Both were wrong: Indian telecom rules require a
+              per-business KYC application that the carrier reviews by hand
+              before it will sell a number at all, so the honest entry point is
+              the verification flow and the honest timeline is days.
+            */}
             <p className="rz-sub" style={{ margin: '0 0 14px' }}>
-              Get a number provisioned for calling and campaigns in a few seconds. Indian (+91) and US (+1)
-              inventory available.
+              Indian numbers are issued to a verified business. Complete verification once and we
+              allocate a number in the series your call type allows.
             </p>
             <div className="rz-stack-sm" style={{ marginBottom: 16 }}>
               <div className="rz-card" style={{ background: 'rgba(14,179,158,0.05)', borderColor: 'rgba(14,179,158,0.28)', padding: 14, borderRadius: 11 }}>
@@ -167,7 +230,7 @@ export default function PhoneNumbers() {
                 </p>
               </div>
             </div>
-            <Link className="rz-btn rz-btn-primary rz-btn-block" to="/contact">Talk to us about numbers →</Link>
+            <Link className="rz-btn rz-btn-primary rz-btn-block" to="/number_verification">Start verification →</Link>
           </RzCard>
 
           <RzCard title="Bring your own">

@@ -16,6 +16,7 @@ import {
   Plug,
   Phone,
   PhoneCall,
+  BadgeCheck,
   Users,
   FileText,
   BarChart3,
@@ -92,6 +93,10 @@ export function CommandMenu({ open, setOpen }: { open: boolean, setOpen: (open: 
             <CommandItem onSelect={() => runCommand(() => navigate("/phone_numbers"))}>
               <Phone className="mr-2 h-4 w-4" />
               <span>Phone Numbers</span>
+            </CommandItem>
+            <CommandItem onSelect={() => runCommand(() => navigate("/number_verification"))}>
+              <BadgeCheck className="mr-2 h-4 w-4" />
+              <span>Number Verification</span>
             </CommandItem>
             <CommandItem onSelect={() => runCommand(() => navigate("/bulk_call"))}>
               <PhoneCall className="mr-2 h-4 w-4" />
