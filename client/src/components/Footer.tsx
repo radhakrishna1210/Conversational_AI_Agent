@@ -51,7 +51,7 @@ const COLUMNS: Column[] = [
     title: 'Company',
     links: [
       { label: 'Pricing', to: '/pricing' },
-      { label: 'Contact', to: '/contact' },
+      { label: 'Talk to sales', to: '/contact' },
       { label: 'Book a demo', to: '/book-appointment' },
       { label: 'Report an issue', to: '/report-issue' },
       { label: 'Sign in', to: '/login' },

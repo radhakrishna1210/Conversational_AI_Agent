@@ -17,7 +17,9 @@ export const BRAND = {
   /** Design-language name, shown in the design system and mono micro-labels. */
   system: 'Resonance',
   domain: 'spandan.ai',
-  supportEmail: 'support@spandan.ai',
+  /* Deliberately not on `domain` — sales and support mail is handled on the
+     Mannmate side. Read by the landing page's sales band and the contact page. */
+  supportEmail: 'info@mannmate.com',
 } as const;
 
 /** `Page — Spandan`, or just `Spandan` at the root. */

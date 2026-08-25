@@ -1,18 +1,36 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { PopupModal } from 'react-calendly';
-import { Check, Mail, MessageSquare, Zap } from 'lucide-react';
+import { ArrowUpRight, CalendarClock, Check, Mail, MessageSquare, Zap } from 'lucide-react';
 import PhoneInput, { isValidPhoneNumber } from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
 import { RzCard } from '@/components/rz';
+import { BRAND } from '@/lib/brand';
 
 /**
- * Contact — the two-column layout from Spandan Support.dc.html#contact.
+ * Contact — the sales page. Two columns: who you are reaching on the left, the
+ * qualifying form on the right.
  *
- * Reassurance on the left, form on the right. The page previously painted its
- * own palette (#0e1015 page, #000000 fields, #888 body text, black button
- * label) with no reference to the tokens, so it was the one public page that
- * stayed dark when the rest of the site went light, and its field borders
- * disappeared entirely against white.
+ * It is titled "Connect with our sales team" rather than "Contact", and the
+ * landing page ends on a band pointing here, because no price is published
+ * anywhere public (see the header of Pricing.tsx) — a conversation is the only
+ * way a visitor gets a number, so the route to one has to be obvious.
+ *
+ * Two things the earlier version got wrong, and why the markup looks the way it
+ * does now:
+ *
+ *   • It offered exactly one way through — seven fields, all but one required.
+ *     Someone who only wants to send a sentence had no door. Email and the demo
+ *     booking now sit above the fold as their own targets.
+ *
+ *   • The form was one undifferentiated run of eight controls. It is now split
+ *     into "who you are" and "what you need", so the length reads as two short
+ *     steps rather than a wall.
+ *
+ * Colours come from the tokens throughout. The page used to paint its own
+ * palette (#0e1015 page, #000000 fields, #888 body text) and so stayed dark
+ * when the rest of the site went light, with field borders that disappeared
+ * against white.
  */
 
 const BASE = '/api/v1';
@@ -150,27 +168,47 @@ export default function Contact() {
 
       <div className="rz-wrap-wide" style={{ maxWidth: 1080 }}>
         <div className="sp-contact-grid">
-          {/* Left: the pitch */}
-          <div>
-            <div className="rz-eyebrow">Contact</div>
-            <h1 className="rz-h1" style={{ fontSize: 'clamp(28px, 3.4vw, 42px)', margin: '10px 0 0' }}>
-              Talk to a human.
-            </h1>
-            <p className="rz-sub-lg" style={{ margin: '12px 0 24px', maxWidth: 440 }}>
-              Sales questions, a custom deployment, or just want a live demo? Send a note and we
-              will reply within one business day.
+          {/* Left: who you are about to reach, and the two ways to skip the form */}
+          <div className="sp-contact-aside">
+            <div className="rz-eyebrow-pill">
+              <span className="sp-contact-dot" /> Sales
+            </div>
+            <h1 className="sp-contact-h1">Connect with our sales team.</h1>
+            <p className="rz-sub-lg" style={{ margin: '14px 0 0', maxWidth: 460 }}>
+              Tell us your call volume and what the agent needs to do. We will walk through pricing
+              for your numbers, run a live demo on a real call, and scope anything custom — white
+              label, your own carrier, or an on-prem deployment.
             </p>
 
-            <div className="rz-stack-sm">
+            {/* The form is the main path, but a visitor who just wants to write to
+                someone should not have to fill in seven fields to do it. */}
+            <div className="sp-contact-direct">
+              <a href={`mailto:${BRAND.supportEmail}`} className="sp-contact-row">
+                <span className="rz-mark"><Mail size={16} /></span>
+                <span className="sp-contact-row-body">
+                  <span className="sp-contact-row-t">Email us directly</span>
+                  <span className="sp-contact-row-d">{BRAND.supportEmail}</span>
+                </span>
+                <ArrowUpRight size={16} className="sp-contact-row-go" />
+              </a>
+
+              <Link to="/book-appointment" className="sp-contact-row">
+                <span className="rz-mark"><CalendarClock size={16} /></span>
+                <span className="sp-contact-row-body">
+                  <span className="sp-contact-row-t">Book a 30-minute demo</span>
+                  <span className="sp-contact-row-d">Pick a slot that suits you</span>
+                </span>
+                <ArrowUpRight size={16} className="sp-contact-row-go" />
+              </Link>
+            </div>
+
+            <div className="sp-contact-promises">
               {REASSURANCE.map(c => (
-                <div
-                  key={c.title}
-                  style={{ display: 'flex', alignItems: 'center', gap: 14, background: 'var(--s1)', border: '1px solid var(--line)', borderRadius: 13, padding: 15 }}
-                >
-                  <span className="rz-mark" style={{ width: 38, height: 38, borderRadius: 10 }}>{c.icon}</span>
+                <div key={c.title} className="sp-contact-promise">
+                  <span className="sp-contact-promise-i">{c.icon}</span>
                   <div>
-                    <div style={{ fontWeight: 600, fontSize: 14, color: 'var(--tx)' }}>{c.title}</div>
-                    <div className="rz-sub" style={{ fontSize: 12.5 }}>{c.detail}</div>
+                    <div className="sp-contact-promise-t">{c.title}</div>
+                    <div className="sp-contact-promise-d">{c.detail}</div>
                   </div>
                 </div>
               ))}
@@ -178,11 +216,20 @@ export default function Contact() {
           </div>
 
           {/* Right: the form */}
-          <div className="rz-card rz-card-lg" style={{ borderRadius: 18 }}>
+          <div className="sp-contact-card">
+            <div className="sp-contact-card-head">
+              <h2 className="sp-contact-card-h">Send us a note</h2>
+              <p className="sp-contact-card-sub">
+                Takes about a minute. Everything marked <span className="sp-req">*</span> is required.
+              </p>
+            </div>
+
             <form onSubmit={handleSubmit} className="rz-stack" style={{ gap: 14 }}>
+              <div className="sp-contact-legend">Who you are</div>
+
               <div className="rz-grid-2" style={{ gap: 12 }}>
                 <div className="rz-field">
-                  <label className="rz-field-label" htmlFor="c-name">Name *</label>
+                  <label className="rz-field-label" htmlFor="c-name">Name <span className="sp-req">*</span></label>
                   <input
                     id="c-name" type="text" required className="rz-input" placeholder="Dan Alvarez"
                     value={formData.name}
@@ -193,7 +240,7 @@ export default function Contact() {
                 </div>
 
                 <div className="rz-field">
-                  <label className="rz-field-label" htmlFor="c-email">Work email *</label>
+                  <label className="rz-field-label" htmlFor="c-email">Work email <span className="sp-req">*</span></label>
                   <input
                     id="c-email" type="email" required className="rz-input" placeholder="you@company.com"
                     style={emailError ? { borderColor: 'var(--err)' } : undefined}
@@ -212,7 +259,7 @@ export default function Contact() {
 
               <div className="rz-grid-2" style={{ gap: 12 }}>
                 <div className="rz-field contact-phone-input">
-                  <label className="rz-field-label">Phone *</label>
+                  <label className="rz-field-label">Phone <span className="sp-req">*</span></label>
                   <PhoneInput
                     international
                     defaultCountry="US"
@@ -223,7 +270,7 @@ export default function Contact() {
                 </div>
 
                 <div className="rz-field">
-                  <label className="rz-field-label" htmlFor="c-volume">Monthly call volume *</label>
+                  <label className="rz-field-label" htmlFor="c-volume">Monthly call volume <span className="sp-req">*</span></label>
                   <select
                     id="c-volume" required className="rz-select"
                     value={formData.callVolume}
@@ -239,8 +286,10 @@ export default function Contact() {
                 </div>
               </div>
 
+              <div className="sp-contact-legend" style={{ marginTop: 8 }}>What you need</div>
+
               <div className="rz-field">
-                <label className="rz-field-label" htmlFor="c-help">What can we help with? *</label>
+                <label className="rz-field-label" htmlFor="c-help">What can we help with? <span className="sp-req">*</span></label>
                 <select
                   id="c-help" required className="rz-select"
                   value={formData.helpWith}
@@ -257,7 +306,7 @@ export default function Contact() {
               </div>
 
               <div className="rz-field">
-                <label className="rz-field-label" htmlFor="c-usecase">Describe your use case *</label>
+                <label className="rz-field-label" htmlFor="c-usecase">Describe your use case <span className="sp-req">*</span></label>
                 <textarea
                   id="c-usecase" required rows={4} className="rz-textarea"
                   placeholder="Tell us about your use case and call volume…"
@@ -287,19 +336,29 @@ export default function Contact() {
                 </select>
               </div>
 
-              {submitError && <div className="rz-field-error">{submitError}</div>}
+              {submitError && (
+                <div className="sp-contact-err" role="alert">{submitError}</div>
+              )}
 
               <button
                 type="submit"
-                className="rz-btn rz-btn-primary rz-btn-block"
-                style={{ padding: 13, fontSize: 14.5, marginTop: 4 }}
+                className="rz-btn rz-btn-primary rz-btn-block rz-btn-lg"
+                style={{ marginTop: 6 }}
                 disabled={isSubmitting}
               >
-                {isSubmitting ? <><span className="rz-spinner" style={{ borderTopColor: 'var(--on-cyan)' }} /> Sending…</> : 'Send request'}
+                {isSubmitting
+                  ? <><span className="rz-spinner" style={{ borderTopColor: 'var(--on-cyan)' }} /> Sending…</>
+                  : <>Connect with sales <ArrowUpRight size={17} /></>}
               </button>
 
-              <p className="rz-mono-xs" style={{ lineHeight: 1.6, textAlign: 'center', margin: 0 }}>
-                Protected by reCAPTCHA — Google's Privacy Policy and Terms of Service apply.
+              {/*
+                The old line here claimed reCAPTCHA protection and cited Google's
+                terms. Nothing on this page loads reCAPTCHA, so it was a promise
+                the build does not keep — replaced with what actually happens to
+                the details typed above.
+              */}
+              <p className="sp-contact-fine">
+                We use these details only to reply to this request. No list, no resale.
               </p>
             </form>
           </div>
@@ -309,12 +368,180 @@ export default function Contact() {
       <style>{`
         .sp-contact-grid {
           display: grid;
-          grid-template-columns: 1.1fr 0.9fr;
-          gap: 22px;
+          grid-template-columns: 1fr 1fr;
+          gap: 44px;
           align-items: start;
         }
+
+        /*
+          Not sticky. The aside is within ~100px of the form's height, so
+          pinning it only ever scrolled its own heading up behind the fixed
+          navbar — it buys no reachability and costs the h1.
+        */
+
+        .sp-contact-dot {
+          width: 6px;
+          height: 6px;
+          border-radius: 50%;
+          background: var(--cyan);
+          box-shadow: 0 0 10px var(--cyan);
+        }
+
+        .sp-contact-h1 {
+          font-family: var(--ff-d);
+          font-weight: 700;
+          font-size: clamp(30px, 3.6vw, 46px);
+          line-height: 1.04;
+          letter-spacing: -0.02em;
+          color: var(--tx);
+          margin: 16px 0 0;
+          max-width: 12ch;
+        }
+
+        /* ── The two ways past the form ─────────────────────────────────── */
+
+        .sp-contact-direct {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          margin: 30px 0 0;
+          max-width: 460px;
+        }
+
+        .sp-contact-row {
+          display: flex;
+          align-items: center;
+          gap: 14px;
+          padding: 14px 16px;
+          border: 1px solid var(--line-2);
+          border-radius: 13px;
+          background: var(--s1);
+          text-decoration: none;
+          transition: border-color 0.16s ease, background 0.16s ease, transform 0.16s ease;
+        }
+
+        .sp-contact-row:hover {
+          border-color: var(--cyan);
+          background: var(--s2);
+          transform: translateY(-1px);
+        }
+
+        .sp-contact-row-body { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+
+        .sp-contact-row-t {
+          font-size: 14.5px;
+          font-weight: 600;
+          color: var(--tx);
+        }
+
+        .sp-contact-row-d {
+          font-size: 12.5px;
+          color: var(--tx-3);
+          overflow-wrap: anywhere;
+        }
+
+        .sp-contact-row-go {
+          margin-left: auto;
+          flex: none;
+          color: var(--tx-3);
+          transition: color 0.16s ease, transform 0.16s ease;
+        }
+
+        .sp-contact-row:hover .sp-contact-row-go {
+          color: var(--cyan-fg);
+          transform: translate(2px, -2px);
+        }
+
+        /* ── What happens after you send ────────────────────────────────── */
+
+        .sp-contact-promises {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+          margin: 30px 0 0;
+          padding: 22px 0 0;
+          border-top: 1px solid var(--line);
+          max-width: 460px;
+        }
+
+        .sp-contact-promise { display: flex; align-items: flex-start; gap: 12px; }
+
+        .sp-contact-promise-i {
+          flex: none;
+          display: grid;
+          place-items: center;
+          width: 26px;
+          height: 26px;
+          border-radius: 8px;
+          color: var(--cyan-fg);
+          background: rgba(14, 179, 158, 0.11);
+          border: 1px solid rgba(14, 179, 158, 0.25);
+        }
+
+        .sp-contact-promise-t { font-size: 13.5px; font-weight: 600; color: var(--tx); }
+        .sp-contact-promise-d { font-size: 12.5px; color: var(--tx-3); line-height: 1.55; margin-top: 2px; }
+
+        /* ── The form card ──────────────────────────────────────────────── */
+
+        .sp-contact-card {
+          background: var(--s1);
+          border: 1px solid var(--line-2);
+          border-radius: 18px;
+          padding: 26px;
+          box-shadow: var(--shadow-card);
+        }
+
+        .sp-contact-card-head {
+          margin: 0 0 20px;
+          padding-bottom: 18px;
+          border-bottom: 1px solid var(--line);
+        }
+
+        .sp-contact-card-h {
+          font-family: var(--ff-d);
+          font-weight: 700;
+          font-size: 20px;
+          letter-spacing: -0.01em;
+          color: var(--tx);
+          margin: 0;
+        }
+
+        .sp-contact-card-sub { font-size: 13px; color: var(--tx-3); margin: 6px 0 0; }
+
+        /* Splits the eight controls into two readable groups. */
+        .sp-contact-legend {
+          font-family: var(--ff-m);
+          font-size: 11px;
+          letter-spacing: 1.4px;
+          text-transform: uppercase;
+          color: var(--tx-3);
+        }
+
+        .sp-req { color: var(--cyan-fg); }
+
+        .sp-contact-err {
+          font-size: 13px;
+          color: var(--err);
+          background: rgba(248, 113, 113, 0.1);
+          border: 1px solid rgba(248, 113, 113, 0.3);
+          border-radius: 10px;
+          padding: 10px 12px;
+        }
+
+        .sp-contact-fine {
+          font-size: 12px;
+          line-height: 1.6;
+          text-align: center;
+          color: var(--tx-3);
+          margin: 0;
+        }
+
+        /* One column below 900px; sticky is meaningless once the aside sits
+           above the form rather than beside it. */
         @media (max-width: 900px) {
-          .sp-contact-grid { grid-template-columns: 1fr; }
+          .sp-contact-grid { grid-template-columns: 1fr; gap: 32px; }
+          .sp-contact-h1 { max-width: none; }
+          .sp-contact-card { padding: 20px; }
         }
 
         /*
@@ -330,6 +557,7 @@ export default function Contact() {
           color: var(--tx);
           font-family: var(--ff-b);
           font-size: 13.5px;
+          min-width: 0;
         }
         .contact-phone-input .PhoneInputCountrySelect { color: var(--tx); }
         .contact-phone-input .PhoneInputCountrySelectArrow { color: var(--tx-3); opacity: 1; }

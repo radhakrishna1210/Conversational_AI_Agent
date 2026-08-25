@@ -214,8 +214,9 @@ export default function Navbar() {
 
         <li><Link to="/documentation" className={`nav-link ${isActive('/documentation')}`}>Documentation</Link></li>
         <li><Link to="/pricing" className={`nav-link ${isActive('/pricing')}`}>Pricing</Link></li>
-        <li><Link to="/contact" className={`nav-link ${isActive('/contact')}`}>Contact Us</Link></li>
-        <li><Link to="/book-appointment" className={`nav-link ${isActive('/book-appointment')}`}>Book an Appointment</Link></li>
+        <li><Link to="/book-appointment" className={`nav-link ${isActive('/book-appointment')}`}>Book a demo</Link></li>
+        <li className="nav-sales-sep" aria-hidden />
+        <li><Link to="/contact" className={`nav-link nav-link-sales ${isActive('/contact')}`}>Talk to sales</Link></li>
 
         {/*
           Below 560px the bar can't hold the logo, the auth links, the CTA and

@@ -2,6 +2,7 @@ import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import VoiceCore from '@/components/home/VoiceCore';
 import { voiceColor, type VoiceStateId } from '@/lib/voiceStates';
+import { BRAND } from '@/lib/brand';
 import { useConversationReplay } from './home/useConversationReplay';
 import {
   BADGES, BIG_STATS, COMPARE, CONNECTORS, FEATURES, HERO_STATS, INDUSTRIES,
@@ -26,10 +27,23 @@ import './Home.css';
  * per-minute rate — there is no tier to choose — and no price is shown
  * anywhere public by decision (see the header of Pricing.tsx). Porting the
  * grid would put three prices on the busiest page of the site for plans that
- * do not exist. The section's slot is filled by the final CTA instead.
+ * do not exist. The pricing question is answered by a person instead, which is
+ * why the sales band sits high — right after the demo, at position four.
  */
 
 const STATE_ORDER: VoiceStateId[] = ['idle', 'listening', 'understanding', 'thinking', 'speaking', 'acting'];
+
+/*
+ * What a sales conversation actually covers. Listed because "contact us" on its
+ * own asks the visitor to guess whether their question is worth an email — the
+ * three below are the ones the public site cannot answer, since no price is
+ * published and custom deployments are quoted per account.
+ */
+const SALES_POINTS = [
+  { title: 'Pricing for your volume', detail: 'one per-minute rate, worked through against your real call load.' },
+  { title: 'A live demo, on the phone', detail: 'we call you with an agent built for your use case.' },
+  { title: 'Custom & white label', detail: 'your branding, your carrier, your compliance requirements.' },
+];
 
 export default function Home() {
   /* ── Hero: idles through the six states until the demo takes over ─────── */
@@ -435,6 +449,58 @@ export default function Home() {
         </div>
       </section>
 
+      {/* ══ CONNECT WITH SALES ════════════════════════════════════════════ */}
+      <section id="sales" className="lp-sales">
+        <div className="lp-sales-inner">
+          <div>
+            <div className="lp-kicker">TALK TO US</div>
+            <h2 className="lp-sales-h">Connect with our<br />sales team.</h2>
+            <p className="lp-p" style={{ marginTop: 18 }}>
+              Tell us your call volume and what the agent needs to do. We will walk through
+              pricing for your numbers, run a live demo on a real phone call, and scope anything
+              custom — white label, your own carrier, or an on-prem deployment.
+            </p>
+
+            <ul className="lp-sales-points">
+              {SALES_POINTS.map((p) => (
+                <li key={p.title}>
+                  <span className="lp-sales-tick" aria-hidden>✓</span>
+                  <span>
+                    <strong>{p.title}</strong>
+                    <span className="lp-muted"> — {p.detail}</span>
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </div>
+
+          <aside className="lp-sales-card">
+            <div className="lp-sales-card-top">
+              <span className="lp-blink-dot" />
+              A real person replies within one business day
+            </div>
+
+            <Link to="/contact" className="lp-btn lp-btn-primary lp-btn-lg lp-btn-block">
+              Connect with sales →
+            </Link>
+            <Link to="/book-appointment" className="lp-btn lp-btn-secondary lp-btn-block">
+              Book a 30-minute demo
+            </Link>
+
+            <div className="lp-sales-or"><span>or email us directly</span></div>
+
+            <a href={`mailto:${BRAND.supportEmail}`} className="lp-sales-mail">
+              {BRAND.supportEmail}
+            </a>
+
+            <p className="lp-sales-fine">
+              Rather try it yourself first?{' '}
+              <Link to="/signup" className="lp-sales-fine-link">Build an agent free →</Link>
+            </p>
+          </aside>
+        </div>
+      </section>
+
       {/* ══ ANATOMY OF ONE CALL ═══════════════════════════════════════════ */}
       <section id="how" className="lp-sec">
         <div className="lp-sec-centre">
@@ -699,7 +765,7 @@ export default function Home() {
         <h2 className="lp-final-h">Give your product a<br />voice that answers.</h2>
         <div className="lp-hero-cta" style={{ justifyContent: 'center', marginTop: 28 }}>
           <Link to="/signup" className="lp-btn lp-btn-primary lp-btn-lg">Build an agent free</Link>
-          <Link to="/book-appointment" className="lp-btn lp-btn-ghost lp-btn-lg">Book a demo</Link>
+          <Link to="/contact" className="lp-btn lp-btn-ghost lp-btn-lg">Talk to sales</Link>
         </div>
       </section>
     </div>
