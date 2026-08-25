@@ -6,7 +6,7 @@
 
 import { Router } from 'express';
 import express from 'express';
-import { answer, hangup } from '../controllers/plivo.controller.js';
+import { answer, hangup, compliance } from '../controllers/plivo.controller.js';
 
 const router = Router();
 
@@ -25,5 +25,10 @@ router.use(express.urlencoded({ extended: false }));
 // server is down" rather than "wrong verb".
 router.route('/answer').get(answer).post(answer);
 router.route('/hangup').get(hangup).post(hangup);
+
+// Compliance-application status changes. Same public-but-signed treatment: the
+// URL registered with Plivo is PLIVO_WEBHOOK_URL, and the signature is computed
+// over it byte-for-byte, so this path must never move without updating both.
+router.route('/compliance').get(compliance).post(compliance);
 
 export default router;

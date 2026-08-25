@@ -76,6 +76,12 @@ router.put('/wallet-rate', authenticate, isAdmin, platform.adminSetWalletRate);
 // The platform broadcast rate — what a one-way recorded call is charged, per
 // minute. Separate from the wallet rate because it costs us a carrier minute
 // and nothing else; see services/billing/broadcastRate.js.
+// Phone-number pricing: one-time setup fee + monthly rental, platform-wide.
+// Changing these affects numbers rented AFTERWARDS only — VoiceNumber freezes
+// its client price at rent time. See services/billing/numberRate.js.
+router.get('/number-rate', authenticate, isAdmin, platform.adminGetNumberRate);
+router.put('/number-rate', authenticate, isAdmin, platform.adminSetNumberRate);
+
 router.get('/broadcast-rate', authenticate, isAdmin, platform.adminGetBroadcastRate);
 router.put('/broadcast-rate', authenticate, isAdmin, platform.adminSetBroadcastRate);
 

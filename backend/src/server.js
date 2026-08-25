@@ -7,6 +7,7 @@ import { env } from './config/env.js';
 import prisma from './config/prisma.js';
 import logger from './lib/logger.js';
 import { renewDueSubscriptions } from './services/billing/subscription.service.js';
+import { renewDueNumbers } from './services/billing/numberBilling.service.js';
 import { SSE_KEEPALIVE_INTERVAL_MS, SHUTDOWN_GRACE_PERIOD_MS } from './constants/limits.js';
 import { createCampaignWorker } from './workers/campaign.worker.js';
 import { startIntegrationScheduler } from './services/integrationScheduler.service.js';
@@ -327,6 +328,38 @@ const runRenewals = async () => {
   }
 };
 const renewalTimer = setInterval(runRenewals, SUBSCRIPTION_RENEWAL_INTERVAL_MS);
+
+// ── Phone-number rental renewal ──────────────────────────────────────────────
+// A rented number costs us roughly ₹200/month for as long as we hold it, so
+// without this sweep every number sold is billed once and carried forever.
+//
+// Rides the same interval as subscriptions, and is safe for the same reason:
+// renewDueNumbers() keys each charge on the number plus the billing month, so
+// an overlapping tick, a restart mid-run, or a second instance cannot double
+// charge — the database constraint guarantees that, not the schedule.
+const runNumberRenewals = async () => {
+  try {
+    const results = await renewDueNumbers();
+    if (results.length) {
+      logger.info(
+        {
+          due: results.length,
+          charged: results.filter((r) => r.charged).length,
+          suspended: results.filter((r) => r.suspended).length,
+          reactivated: results.filter((r) => r.reactivated).length,
+        },
+        'Number rental sweep complete',
+      );
+    }
+  } catch (err) {
+    logger.error({ err: err.message }, 'Number rental sweep failed');
+  }
+};
+const numberRenewalTimer = setInterval(runNumberRenewals, SUBSCRIPTION_RENEWAL_INTERVAL_MS);
+numberRenewalTimer.unref?.();
+// Offset from the subscription sweep's catch-up so the two do not contend for
+// the same wallet rows the moment a deployment comes back up.
+setTimeout(runNumberRenewals, 60_000).unref?.();
 // Don't hold the process open purely for the renewal timer.
 renewalTimer.unref?.();
 // One sweep shortly after boot so a deployment that was down over a period
@@ -340,6 +373,7 @@ const shutdown = async (signal) => {
     if (voiceSyncScheduler?.stop) voiceSyncScheduler.stop();
     if (recordingRetention?.stop) recordingRetention.stop();
     clearInterval(renewalTimer);
+    clearInterval(numberRenewalTimer);
     await prisma.$disconnect();
     logger.info('Shutdown complete');
     process.exit(0);

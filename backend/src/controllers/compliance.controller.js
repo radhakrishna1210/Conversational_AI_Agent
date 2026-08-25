@@ -8,10 +8,28 @@
 
 import logger from '../lib/logger.js';
 import * as compliance from '../services/compliance/compliance.service.js';
+import * as carrier from '../services/plivo/compliance.service.js';
+import * as carrierNumbers from '../services/plivo/number.service.js';
+import { PlivoError } from '../services/plivo/client.js';
 
 const wsId = (req) => req.params.workspaceId;
 
 const fail = (res, result, status = 400) => res.status(status).json({ error: result.error });
+
+/**
+ * Carrier calls fail in ways the client can act on ("re-upload that document")
+ * and ways they cannot ("Plivo is down"). PlivoError already carries the right
+ * status for the first kind; anything else is ours and is a 502, because a
+ * 500 here would read as "the client sent something bad".
+ */
+const failCarrier = (res, err, action) => {
+  if (err instanceof PlivoError) {
+    logger.warn({ err: err.message, status: err.status }, `${action} rejected by Plivo`);
+    return res.status(err.status && err.status < 500 ? err.status : 502).json({ error: err.message });
+  }
+  logger.error({ err: err.message }, `${action} failed`);
+  return res.status(502).json({ error: `Could not reach the carrier to ${action}. Try again shortly.` });
+};
 
 // GET /workspaces/:workspaceId/compliance
 // The whole onboarding state: record, documents, templates, numbers, and the
@@ -30,6 +48,82 @@ export const putUseCase = async (req, res) => {
   const result = await compliance.setUseCase(wsId(req), req.body);
   if (!result.ok) return fail(res, result);
   res.json(await compliance.getComplianceState(wsId(req)));
+};
+
+// PUT /workspaces/:workspaceId/compliance/entity-details
+// Registration number, registered address and entity contact email — what the
+// carrier's end_user record needs beyond the DLT checklist.
+export const putEntityDetails = async (req, res) => {
+  const result = await compliance.setEntityDetails(wsId(req), req.body);
+  if (!result.ok) return fail(res, result);
+  res.json(await compliance.getComplianceState(wsId(req)));
+};
+
+// GET /workspaces/:workspaceId/compliance/carrier-application
+// Whether this workspace could file today, and everything still missing. Read
+// only — safe to poll while the client fills the form in.
+export const getCarrierApplication = async (req, res) => {
+  try {
+    const check = await carrier.preflight(wsId(req));
+    res.json({
+      ready: check.ok,
+      errors: check.errors,
+      warnings: check.warnings,
+      status: check.record.carrierApplicationStatus,
+      reference: check.record.carrierApplicationRef,
+      rejectionReason: check.record.carrierRejectionReason,
+      submittedAt: check.record.carrierApplicationAt,
+    });
+  } catch (err) {
+    logger.error({ err: err.message }, 'getCarrierApplication failed');
+    res.status(500).json({ error: 'Could not check the carrier application.' });
+  }
+};
+
+// POST /workspaces/:workspaceId/compliance/carrier-application
+// File the KYC application with the carrier. Days of review follow; the result
+// arrives on the /plivo/compliance webhook.
+export const postCarrierApplication = async (req, res) => {
+  try {
+    const result = await carrier.submitApplication(wsId(req));
+    if (!result.ok) return res.status(409).json({ error: result.error, errors: result.errors, canCorrect: result.canCorrect });
+    res.status(201).json({
+      complianceId: result.complianceId,
+      warnings: result.warnings,
+      ...(await compliance.getComplianceState(wsId(req))),
+    });
+  } catch (err) {
+    return failCarrier(res, err, 'file your compliance application');
+  }
+};
+
+// PATCH /workspaces/:workspaceId/compliance/carrier-application
+// Resubmit after a rejection. Every document goes back up — Plivo replaces the
+// set wholesale rather than merging.
+export const patchCarrierApplication = async (req, res) => {
+  try {
+    const result = await carrier.correctApplication(wsId(req));
+    if (!result.ok) return res.status(409).json({ error: result.error, errors: result.errors });
+    res.json({
+      complianceId: result.complianceId,
+      warnings: result.warnings,
+      ...(await compliance.getComplianceState(wsId(req))),
+    });
+  } catch (err) {
+    return failCarrier(res, err, 'resubmit your compliance application');
+  }
+};
+
+// POST /workspaces/:workspaceId/compliance/carrier-application/refresh
+// Backstop for a lost webhook: ask the carrier where the application got to.
+export const refreshCarrierApplication = async (req, res) => {
+  try {
+    const result = await carrier.refreshApplication(wsId(req));
+    if (!result.ok) return fail(res, result, 409);
+    res.json(await compliance.getComplianceState(wsId(req)));
+  } catch (err) {
+    return failCarrier(res, err, 'check your compliance application');
+  }
 };
 
 // PUT /workspaces/:workspaceId/compliance/pe-id
@@ -66,6 +160,16 @@ export const postDocument = async (req, res) => {
   res.status(201).json(await compliance.getComplianceState(wsId(req)));
 };
 
+// DELETE /workspaces/:workspaceId/compliance/documents/:documentId
+// Needed so a client can switch between the two acceptable forms of business
+// registration (Certificate of Incorporation vs Udyam) — re-uploading only ever
+// replaces the same kind.
+export const deleteDocument = async (req, res) => {
+  const result = await compliance.deleteDocument(wsId(req), { documentId: req.params.documentId });
+  if (!result.ok) return fail(res, result, 409);
+  res.json(await compliance.getComplianceState(wsId(req)));
+};
+
 // POST /workspaces/:workspaceId/compliance/templates
 export const postTemplate = async (req, res) => {
   const result = await compliance.saveTemplate(wsId(req), req.body);
@@ -93,12 +197,56 @@ export const putHeaderStatus = async (req, res) => {
   res.json(await compliance.getComplianceState(wsId(req)));
 };
 
+// GET /workspaces/:workspaceId/compliance/numbers/available?pattern=&city=&offset=
+// Live carrier inventory, filtered to the series this workspace's declared use
+// case permits. Free, and reserves nothing — Plivo has no hold mechanism.
+export const getAvailableNumbers = async (req, res) => {
+  try {
+    const result = await carrierNumbers.searchNumbers(wsId(req), {
+      pattern: req.query.pattern,
+      city: req.query.city,
+      offset: Number(req.query.offset) || 0,
+    });
+    if (!result.ok) return fail(res, result, 409);
+    res.json(result);
+  } catch (err) {
+    return failCarrier(res, err, 'search for available numbers');
+  }
+};
+
+// POST /workspaces/:workspaceId/compliance/numbers/rent  { phoneNumber }
+//
+// SUPER_ADMIN only, and deliberately so until phase D lands. This is the call
+// that spends real money against our parent account, and there is no wallet
+// debit behind it yet — a member-facing route here would let a client rent
+// numbers we pay for and they do not. See NUMBER_PURCHASE_MARKETPLACE.md §D.
+export const postRentNumber = async (req, res) => {
+  try {
+    const result = await carrierNumbers.rentNumber(wsId(req), { phoneNumber: req.body?.phoneNumber });
+    if (!result.ok) return fail(res, result, 409);
+    res.status(201).json({
+      number: result.number,
+      ...(await compliance.getComplianceState(wsId(req))),
+    });
+  } catch (err) {
+    return failCarrier(res, err, 'rent that number');
+  }
+};
+
 // DELETE /workspaces/:workspaceId/compliance/numbers/:numberId
-// Releases the number. The row survives: a caller ID is bound to one entity's
-// DLT registration and its carrier reputation follows the number, so knowing
-// who last held it matters after it is gone.
+// Releases the number AT THE CARRIER and then records it. The row survives: a
+// caller ID is bound to one entity's DLT registration and its carrier
+// reputation follows the number, so knowing who last held it matters after it
+// is gone.
 export const deleteNumber = async (req, res) => {
-  const result = await compliance.releaseNumber(wsId(req), { numberId: req.params.numberId });
-  if (!result.ok) return fail(res, result, 404);
-  res.json(await compliance.getComplianceState(wsId(req)));
+  try {
+    const result = await carrierNumbers.releaseRentedNumber(wsId(req), { numberId: req.params.numberId });
+    if (!result.ok) return fail(res, result, 404);
+    res.json(await compliance.getComplianceState(wsId(req)));
+  } catch (err) {
+    // The carrier call failed, so nothing was recorded either. That is the
+    // intended outcome: a row marked released while Plivo still bills us for
+    // the number is the drift this whole path exists to prevent.
+    return failCarrier(res, err, 'release that number');
+  }
 };

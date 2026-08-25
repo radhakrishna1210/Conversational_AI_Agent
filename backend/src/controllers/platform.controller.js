@@ -9,6 +9,7 @@ import { createEvent, resolveAppointmentStart } from '../services/googleCalendar
 import { getWalletRate, setWalletRate, WALLET_RATE_PLAN } from '../services/billing/walletRate.js';
 import { listBuckets, updateBucket } from '../services/billing/pricingBuckets.js';
 import { resolveWorkspaceRate, assignBucket, setRateOverride } from '../services/billing/workspaceRate.js';
+import { getNumberRate, setNumberRate } from '../services/billing/numberRate.js';
 import { getBroadcastRate, setBroadcastRate } from '../services/billing/broadcastRate.js';
 
 /*
@@ -117,11 +118,40 @@ export const adminSetRateOverride = async (req, res) => {
   }
 };
 
+// ─── PHONE-NUMBER RATE ───────────────────────────────────────────────────────
+// The only price here that is not per-minute. A rented number costs us a fixed
+// sum every month for as long as we hold it, so it is billed on its own clock:
+// a one-time setup fee covering the per-client compliance filing a reseller has
+// to do, then a monthly rental. See services/billing/numberRate.js.
+
+/**
+ * GET /admin/number-rate
+ *
+ * Not exposed publicly, unlike the ₹/min wallet rate. The landing page quotes
+ * per-minute pricing; numbers are contact-led and priced in conversation.
+ */
+export const adminGetNumberRate = async (_req, res) => {
+  const rate = await getNumberRate();
+  res.json({ monthlyInr: rate.monthlyInr, setupInr: rate.setupInr });
+};
+
+/** PUT /admin/number-rate  { monthlyInr?, setupInr? } */
+export const adminSetNumberRate = async (req, res) => {
+  try {
+    const rate = await setNumberRate({
+      monthlyInr: req.body?.monthlyInr,
+      setupInr: req.body?.setupInr,
+    });
+    res.json({ monthlyInr: rate.monthlyInr, setupInr: rate.setupInr });
+  } catch (err) {
+    res.status(err.status ?? 500).json({ error: err.message ?? 'Failed to save the rate' });
+  }
+};
+
 // ─── BROADCAST RATE ──────────────────────────────────────────────────────────
-// The second (and only other) price this platform sets. A one-way broadcast
-// costs us a carrier minute and nothing else — no STT, no LLM, no per-call TTS —
-// so charging it at the conversational rate prices it out of a market that is
-// bought on price. See services/billing/broadcastRate.js.
+// A one-way broadcast costs us a carrier minute and nothing else — no STT, no
+// LLM, no per-call TTS — so charging it at the conversational rate prices it
+// out of a market that is bought on price. See services/billing/broadcastRate.js.
 
 /** GET /admin/broadcast-rate */
 export const adminGetBroadcastRate = async (_req, res) => {

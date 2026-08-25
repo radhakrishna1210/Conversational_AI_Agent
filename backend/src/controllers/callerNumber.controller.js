@@ -13,6 +13,7 @@
 
 import logger from '../lib/logger.js';
 import prisma from '../config/prisma.js';
+import { VOICE_NUMBER_STATUS } from '../constants/compliance.js';
 
 const twilioReady = () => Boolean(process.env.TWILIO_ACCOUNT_SID && process.env.TWILIO_AUTH_TOKEN);
 const tw = (path, opts = {}) => {
@@ -63,17 +64,56 @@ const assignedCarrierNumbers = async (workspaceId) => {
   }
 };
 
+/**
+ * Numbers this workspace holds that cannot currently dial.
+ *
+ * Kept OUT of `owned` on purpose — the caller picker must only offer numbers a
+ * call can actually go out on. But they must not simply vanish either: a
+ * suspended number is still rented, still the client's, and disappearing from
+ * the inventory page with no explanation is how "why did my campaigns stop?"
+ * becomes a support ticket instead of a top-up.
+ */
+const unavailableCarrierNumbers = async (workspaceId) => {
+  if (!workspaceId) return [];
+  try {
+    const rows = await prisma.voiceNumber.findMany({
+      where: { workspaceId, status: VOICE_NUMBER_STATUS.SUSPENDED_NONPAYMENT },
+      select: { phoneNumber: true, provider: true },
+      orderBy: { assignedAt: 'desc' },
+      take: 50,
+    });
+    return rows.map((r) => ({
+      phoneNumber: r.phoneNumber,
+      label: r.provider,
+      source: r.provider.toLowerCase(),
+      reason: 'Suspended — the monthly rental is unpaid. Top up and it reactivates automatically.',
+      actionText: 'Top up wallet',
+      actionLink: '/billing',
+    }));
+  } catch (e) {
+    logger.warn(`Could not read suspended carrier numbers: ${e.message}`);
+    return [];
+  }
+};
+
 // GET /workspaces/:workspaceId/caller-numbers
-// → { owned: [...], verified: [...] } for the "select from list" option.
+// → { owned: [...], verified: [...], unavailable: [...] }.
+// `owned` + `verified` feed the caller picker; `unavailable` is inventory the
+// numbers page shows with a reason but nothing may dial from.
 export const listCallerNumbers = async (req, res) => {
-  const carrierNumbers = await assignedCarrierNumbers(req.params.workspaceId);
+  const [carrierNumbers, unavailable] = await Promise.all([
+    assignedCarrierNumbers(req.params.workspaceId),
+    unavailableCarrierNumbers(req.params.workspaceId),
+  ]);
 
   // Twilio missing is no longer fatal. An India-only deployment routes through
   // Plivo and may hold no Twilio credentials at all; 503-ing here
   // would hide every number it does own behind a message about a carrier it
   // does not use.
   if (!twilioReady()) {
-    if (carrierNumbers.length) return res.json({ owned: carrierNumbers, verified: [] });
+    if (carrierNumbers.length || unavailable.length) {
+      return res.json({ owned: carrierNumbers, verified: [], unavailable });
+    }
     return notConfigured(res);
   }
 
@@ -90,12 +130,15 @@ export const listCallerNumbers = async (req, res) => {
         ...carrierNumbers,
       ],
       verified: verified.map((n) => ({ phoneNumber: n.phone_number, label: n.friendly_name, source: 'own' })),
+      unavailable,
     });
   } catch (err) {
     logger.error('listCallerNumbers failed', err);
     // Same reasoning as the unconfigured branch: Twilio being unreachable must
     // not take the India numbers off the list.
-    if (carrierNumbers.length) return res.json({ owned: carrierNumbers, verified: [] });
+    if (carrierNumbers.length || unavailable.length) {
+      return res.json({ owned: carrierNumbers, verified: [], unavailable });
+    }
     res.status(502).json({ error: `Could not load numbers from Twilio: ${err.message}` });
   }
 };
