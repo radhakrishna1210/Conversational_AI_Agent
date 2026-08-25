@@ -1392,7 +1392,178 @@ html.light .lp-stack-detail {
   border-radius: 9px;
 }
 
-/* ── Final CTA ──────────────────────────────────────────────────────────── */
+/* ── Connect with sales ─────────────────────────────────────────────────────
+
+   Placed immediately after the demo, not at the foot of the page.
+
+   The demo is the moment the product does something in front of the visitor,
+   and that is when wanting a conversation is at its highest — so the door is
+   put there rather than 9,000px down where almost nobody reaches. The page
+   still closes on a short CTA; this is the one that gets read.
+
+   It is made prominent by weight and placement rather than by colour: a
+   full-bleed band that breaks the run of page-canvas sections either side of
+   it, the largest heading on the page after the hero, and the action pulled
+   out of the prose into a raised card of its own. The single tinted element is
+   the primary button, which is the site's existing accent — nothing here
+   invents a new highlight colour.
+   ───────────────────────────────────────────────────────────────────────── */
+
+.lp-sales {
+  position: relative;
+  z-index: 1;
+  scroll-margin-top: 90px;
+  /* Banded top and bottom, like .lp-stats-band. Sitting mid-page between two
+     --bg sections, the surface change is what separates it; the wash is the
+     page's own accent at 7%, the weight the demo and lab sections use. */
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background:
+    radial-gradient(90% 120% at 78% 40%, rgba(14, 179, 158, 0.07), transparent 62%),
+    var(--bg-2);
+}
+
+.lp-sales-inner {
+  max-width: var(--lp-max);
+  margin: 0 auto;
+  padding: 84px var(--lp-gutter) 90px;
+  display: grid;
+  grid-template-columns: 1.15fr 0.85fr;
+  gap: 56px;
+  align-items: start;
+}
+
+.lp-sales-h {
+  font-family: var(--ff-d);
+  font-weight: 700;
+  font-size: clamp(32px, 4.6vw, 58px);
+  letter-spacing: -0.02em;
+  line-height: 1.02;
+  color: var(--tx);
+  margin: 14px 0 0;
+}
+
+.lp-sales-points {
+  list-style: none;
+  margin: 26px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  max-width: 540px;
+}
+
+.lp-sales-points li {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--tx-2);
+}
+
+.lp-sales-points strong {
+  color: var(--tx);
+  font-weight: 600;
+}
+
+.lp-sales-tick {
+  flex: none;
+  width: 22px;
+  height: 22px;
+  margin-top: 1px;
+  border-radius: 7px;
+  display: grid;
+  place-items: center;
+  font-size: 12px;
+  color: var(--cyan-fg);
+  background: rgba(14, 179, 158, 0.11);
+  border: 1px solid rgba(14, 179, 158, 0.27);
+}
+
+/* The card is the actual target: raised off the band, so the eye lands on it
+   before it finishes the paragraph beside it. */
+.lp-sales-card {
+  background: var(--s1);
+  border: 1px solid var(--line-2);
+  border-radius: 18px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 11px;
+  box-shadow: var(--shadow-card);
+}
+
+.lp-sales-card-top {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-family: var(--ff-m);
+  font-size: 11.5px;
+  letter-spacing: 0.4px;
+  color: var(--tx-3);
+  margin-bottom: 5px;
+}
+
+.lp-sales-or {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 5px 0 1px;
+  font-family: var(--ff-m);
+  font-size: 11px;
+  color: var(--tx-3);
+}
+
+.lp-sales-or::before,
+.lp-sales-or::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+.lp-sales-mail {
+  text-align: center;
+  font-family: var(--ff-m);
+  font-size: 14px;
+  color: var(--cyan-fg);
+  text-decoration: none;
+  padding: 4px 0 2px;
+  word-break: break-all;
+}
+
+.lp-sales-mail:hover {
+  text-decoration: underline;
+}
+
+.lp-sales-fine {
+  border-top: 1px solid var(--line);
+  margin: 9px 0 0;
+  padding-top: 14px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--tx-3);
+  text-align: center;
+}
+
+.lp-sales-fine-link {
+  color: var(--tx-2);
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.lp-sales-fine-link:hover {
+  color: var(--tx);
+}
+
+/* ── Final CTA ──────────────────────────────────────────────────────────────
+
+   The closer, deliberately light. The sales band earlier in the page carries
+   the argument; repeating it here in full would read as nagging, so this is a
+   headline and two buttons.
+   ───────────────────────────────────────────────────────────────────────── */
 
 .lp-final {
   position: relative;
@@ -1498,6 +1669,13 @@ html.light .lp-stack-detail {
 
   .lp-stats-grid {
     grid-template-columns: 1fr;
+  }
+
+  .lp-sales-inner {
+    grid-template-columns: 1fr;
+    gap: 30px;
+    padding-top: 60px;
+    padding-bottom: 64px;
   }
 
   .lp-sec {

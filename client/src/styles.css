@@ -888,6 +888,51 @@ p {
   color: var(--tx);
 }
 
+/*
+  Sales is the one nav item that has to survive a scan.
+
+  It sat as the fourth of five identical grey links, which is where a visitor
+  who wants a human stops looking. It keeps the bar's restraint — no fill, no
+  brand colour — and is separated instead: full-strength ink, a hairline
+  outline, and a rule that divides it from the informational links to its left.
+*/
+.nav-link-sales {
+  color: var(--tx);
+  font-weight: 600;
+  padding: 7px 14px;
+  border: 1px solid var(--line-2);
+  border-radius: 9px;
+  transition: border-color 0.2s, background 0.2s, color 0.2s;
+}
+
+.nav-link-sales::before {
+  content: '';
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--cyan);
+  box-shadow: 0 0 8px var(--cyan);
+  margin-right: 2px;
+}
+
+.nav-link-sales:hover, .nav-link-sales.active {
+  border-color: var(--cyan);
+  background: var(--bg-hover);
+  color: var(--tx);
+}
+
+.nav-sales-sep {
+  width: 1px;
+  height: 20px;
+  background: var(--line);
+  margin: 0 -14px;
+}
+
+/* The bar is tight above 1100px; the divider is the first thing to go. */
+@media (max-width: 1100px) {
+  .nav-sales-sep { display: none; }
+}
+
 .nav-dropdown {
   position: relative;
 }
@@ -1045,6 +1090,15 @@ p {
   .navbar-nav .nav-link {
     padding: 12px 4px;
     font-size: 15px;
+  }
+
+  /* In the panel the pill is a full-width row, so it needs its own padding
+     back and its label centred — otherwise it reads as an empty box with the
+     text jammed against the left edge. */
+  .navbar-nav .nav-link-sales {
+    padding: 12px 14px;
+    justify-content: center;
+    margin: 8px 0 2px;
   }
 
   /* A hover-triggered mega-menu can't work on touch, so the Solutions group
