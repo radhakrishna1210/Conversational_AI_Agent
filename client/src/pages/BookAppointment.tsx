@@ -323,9 +323,15 @@ if (form.useCase.trim().length < 20) {
               <p style={{ color: '#ef4444', fontSize: '14px', marginTop: '8px' }}>{errorMsg}</p>
             )}
 
+            {/*
+              Claimed reCAPTCHA protection and cited Google's terms through two
+              href="#" links that went nowhere. Nothing on this page loads
+              reCAPTCHA, so it promised a protection the build does not have and
+              pointed at policies it does not publish. Replaced with what
+              actually happens to the details above, matching Contact.tsx.
+            */}
             <p className="form-note">
-              This site is protected by reCAPTCHA and the Google{' '}
-              <a href="#">Privacy Policy</a> and <a href="#">Terms of Service</a> apply.
+              We use these details only to arrange this appointment. No list, no resale.
             </p>
 
             
