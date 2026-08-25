@@ -63,7 +63,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  *
  * @param {string} path        e.g. `/Subaccount/` — appended to /v1/Account/{authId}
  * @param {object} opts
- * @param {'GET'|'POST'|'DELETE'} [opts.method]
+ * @param {'GET'|'POST'|'PATCH'|'DELETE'} [opts.method]
  * @param {object} [opts.json]        JSON body
  * @param {FormData} [opts.form]      multipart body (compliance document upload)
  * @param {object} opts.credentials   { authId, authToken } — required, never implicit
