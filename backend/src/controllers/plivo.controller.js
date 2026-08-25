@@ -24,6 +24,10 @@ import logger from '../lib/logger.js';
 import { env } from '../config/env.js';
 import { validateV3Signature } from '../services/plivo/client.js';
 import {
+  complianceCallbackUrl,
+  handleComplianceCallback,
+} from '../services/plivo/compliance.service.js';
+import {
   plivoProvider,
   buildStreamXml,
   buildGreetingXml,
@@ -91,6 +95,52 @@ const signatureOk = (req, suffix) => {
       'Plivo callback signature did not validate. The URL logged here is the exact string that was '
       + 'signed — compare it with what Plivo actually called. Set PLIVO_SKIP_SIGNATURE_CHECK=true '
       + 'only to confirm that is the cause.',
+    );
+  }
+  return ok;
+};
+
+/**
+ * Same fail-closed check as signatureOk(), but signed over the compliance
+ * callback URL rather than the answer URL.
+ *
+ * Kept separate rather than parameterised because the two URLs come from
+ * different settings that a deployment can configure independently
+ * (PLIVO_ANSWER_URL vs PLIVO_WEBHOOK_URL) — deriving one from the other is
+ * exactly the assumption that makes signature failures unexplainable.
+ */
+const complianceSignatureOk = (req) => {
+  if (process.env.PLIVO_SKIP_SIGNATURE_CHECK === 'true') return true;
+
+  const authToken = process.env.PLIVO_AUTH_TOKEN;
+  if (!authToken) {
+    logger.error('Plivo compliance callback rejected: PLIVO_AUTH_TOKEN is not set.');
+    return false;
+  }
+
+  const base = complianceCallbackUrl();
+  if (!base) {
+    logger.error('Plivo compliance callback rejected: no PLIVO_WEBHOOK_URL or PUBLIC_BACKEND_WS_URL to verify against.');
+    return false;
+  }
+
+  const qs = new URLSearchParams(req.query || {}).toString();
+  const url = qs ? `${base}?${qs}` : base;
+
+  const ok = validateV3Signature({
+    method: req.method === 'GET' ? 'GET' : 'POST',
+    url,
+    nonce: req.get('X-Plivo-Signature-V3-Nonce'),
+    signature: req.get('X-Plivo-Signature-V3'),
+    authToken,
+    params: req.method === 'GET' ? {} : (req.body || {}),
+  });
+
+  if (!ok) {
+    logger.warn(
+      { url },
+      'Plivo compliance callback signature did not validate. The URL logged here is the exact '
+      + 'string that was signed — it must match PLIVO_WEBHOOK_URL byte for byte.',
     );
   }
   return ok;
@@ -346,5 +396,37 @@ export async function hangup(req, res) {
     );
   } catch (e) {
     logger.warn(`Plivo hangup callback could not close out ${callLogId}: ${e.message}`);
+  }
+}
+
+// ── POST /api/v1/plivo/compliance ────────────────────────────────────────────
+//
+// Compliance-application status callbacks. Unlike /answer and /hangup this one
+// carries no call, so there is no XML to return and no caller to apologise to —
+// but it is the channel that tells a client their KYC was approved, so losing
+// one silently strands them in "under review" forever.
+//
+// The signature is validated against complianceCallbackUrl(), NOT against the
+// answer-URL base: Plivo signs the exact string it was given as `callback_url`
+// when the application was filed, and that is a different endpoint.
+export async function compliance(req, res) {
+  if (!complianceSignatureOk(req)) return res.status(403).json({ error: 'Invalid signature' });
+
+  // Plivo posts form-encoded, so everything arrives as strings; some fields may
+  // also ride the query string, the same way the call callbacks do.
+  const payload = { ...(req.query || {}), ...(req.body || {}) };
+
+  try {
+    const result = await handleComplianceCallback(payload);
+    // Always 200, even when we could not place the callback. Plivo retries on a
+    // non-2xx, and a callback for an application no workspace claims would
+    // retry forever — the error log is the actionable artefact, not the retry.
+    if (!result.ok) logger.warn({ reason: result.error }, 'Plivo compliance callback was not applied');
+    return res.status(200).json({ ok: true });
+  } catch (err) {
+    // A genuine failure on our side (database down) SHOULD be retried, so this
+    // one does return a 5xx.
+    logger.error({ err: err.message, payload }, 'Plivo compliance callback failed');
+    return res.status(500).json({ error: 'Could not record the compliance status' });
   }
 }
