@@ -449,7 +449,7 @@ model Invoice {
   // Human-facing sequential document number (INV-2026-000123). Unique so a
   // retried generation cannot mint two documents for the same payment.
   number         String?   @unique
-  // topup | subscription
+  // topup | subscription | number
   type           String    @default("topup")
   subtotalCents  Int       @default(0)
   taxCents       Int       @default(0)
@@ -1090,6 +1090,24 @@ model WorkspaceCompliance {
   entityName      String?
   legalEntityType String?
 
+  // The carrier's `end_user` record, which is a different (and stricter) set of
+  // facts than the DLT checklist above needs. Plivo will not accept a
+  // compliance application for an Indian business without all of these.
+  //
+  // CIN (U72200KA2020PTC123456) for a company, or the Udyam number for an MSME
+  // — whichever registration document was uploaded.
+  registrationNumber String?
+  // JSON: { addressLine1, city, state, postalCode, country }. A JSON column
+  // rather than five columns because it is written and read as one unit, is
+  // never queried by part, and every part is optional until the client fills
+  // the form in — five nullable columns would encode the same thing with more
+  // migration surface.
+  registeredAddress  String?
+  // Where the carrier sends compliance correspondence. NOT the account owner's
+  // login email: the two diverge as soon as an agency runs a client's
+  // workspace, and the carrier's mail has to reach the legal entity.
+  contactEmail       String?
+
   // Our reseller compliance application to the carrier, filed per end customer.
   carrierApplicationStatus String    @default("NOT_SUBMITTED")
   carrierApplicationRef    String?
@@ -1207,9 +1225,27 @@ model VoiceNumber {
   headerStatus          String    @default("NOT_REGISTERED")
   headerRejectionReason String?
   headerRegisteredAt    DateTime?
+  // ACTIVE | SUSPENDED_NONPAYMENT | RELEASED
   status                String    @default("ACTIVE")
   assignedAt            DateTime  @default(now())
   releasedAt            DateTime?
+
+  // ── Billing ────────────────────────────────────────────────────────────
+  // What Plivo charges US, recorded at rent time purely so carrier invoices
+  // can be reconciled against our own rows. NEVER shown to a client and never
+  // used to compute their price — that comes from the platform rate card, so
+  // a carrier price change cannot silently reprice a live customer.
+  carrierMonthlyCents   Int?
+  // What the CLIENT pays per month, frozen at rent time. Frozen rather than
+  // read live from the rate card so raising the platform price does not
+  // retroactively raise every existing number's next renewal.
+  clientMonthlyCents    Int?
+  // When the next monthly debit is due. Null means this number is not on a
+  // recurring charge — a number recorded by hand before billing existed.
+  nextRenewalAt         DateTime?
+  // When a renewal first failed for lack of funds. The grace period runs from
+  // here, and clearing it is what marks the number healthy again.
+  renewalFailedAt       DateTime?
   // Rolling reputation guard. A number's answer rate collapsing is the earliest
   // signal that carriers have started filtering it.
   dailyDialCap          Int       @default(200)
@@ -1219,4 +1255,8 @@ model VoiceNumber {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([workspaceId, status])
+  // The renewal sweep's only query. Declared plainly here; the migration
+  // creates it as a partial index (WHERE "nextRenewalAt" IS NOT NULL), which
+  // Prisma cannot express — same index name, so the two do not fight.
+  @@index([nextRenewalAt])
 }
