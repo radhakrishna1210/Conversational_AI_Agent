@@ -69,6 +69,8 @@ import {
   isEchoOfAgent,
   stripOverlapEcho,
 } from '../services/stt/speechGate.js';
+import { bargeThresholds, BARGE_MARGIN } from '../services/voice/bargeThreshold.js';
+import { noInputPromptFor, noInputDelayMs, maxNoInputAttempts } from '../services/voice/noInputPrompt.js';
 import { createFillerBudget } from '../services/voice/disfluency.js';
 import {
   decodeUlaw,
@@ -139,15 +141,29 @@ const safeJson = (str, fallback) => {
  * grace re-armed by each of voiceTurnStream's per-SENTENCE audio-start events.
  * Both now live in services/voice/playoutWindow.js, which carries the detail.
  */
-const BARGE_RMS_MIN = Number(process.env.PHONE_BARGE_RMS) || 2500;
-/** Speech must exceed the measured noise floor by this factor. */
-const BARGE_MARGIN = Number(process.env.PHONE_BARGE_MARGIN) || 3;
+/**
+ * The level policy — both absolute floors and the noise-floor margin — lives in
+ * services/voice/bargeThreshold.js, which carries the measured levels it has to
+ * sit among and the account of why the shipped floor made the adaptive design
+ * above dead code. It is a separate file because those numbers are the only
+ * part of barge-in checkable against a published standard rather than against a
+ * live call.
+ */
 /** Consecutive loud frames before we believe it. 5 x 20ms = 100ms of speech. */
 const BARGE_FRAMES = Number(process.env.PHONE_BARGE_FRAMES) || 5;
 /** Ignore inbound energy for this long after the agent starts talking (echo). */
 const BARGE_GRACE_MS = Number(process.env.PHONE_BARGE_GRACE_MS) || 500;
 /** Weight of each new quiet frame in the running noise-floor estimate. */
 const NOISE_EMA_ALPHA = 0.05;
+/**
+ * Quiet frames needed before barge-in is allowed to cut the agent off.
+ *
+ * 25 x 20ms = half a second of having heard this line with nobody speaking.
+ * Until then there is no measured floor, so "louder than this line's own noise"
+ * is not a question that can be answered and the detector has no business
+ * acting. See `lineMeasured` at the point of use.
+ */
+const NOISE_MIN_SAMPLES = Number(process.env.PHONE_NOISE_MIN_FRAMES) || 25;
 
 /**
  * ── Recovering a caller who answered while the agent was still talking ──────
@@ -310,6 +326,30 @@ export function runModularMediaBridge(ws, {
   let silenceTimer = null;
   /** Last time the CALLER was heard — speech energy or a committed transcript. */
   let lastCallerSpeechAt = Date.now();
+
+  /**
+   * ── "Sorry, I didn't catch that" — the phone never had it ────────────────
+   *
+   * services/voice/noInputPrompt.js was written for exactly the symptom
+   * reported here, in seven languages, with an escalating three-attempt script.
+   * It was wired into webCallModularRealtime.handler.js ONLY, and even there
+   * the server just ships the strings to the browser: "the client owns the
+   * listening segment on this transport, so it owns the timer too".
+   *
+   * A phone call has no client. Nothing on this bridge imported the module, so
+   * on the transport where a caller has NO visual cue that anyone is still
+   * there — no waveform, no "listening" state, just a line — the feature was
+   * absent. A caller whose words did not make it through got silence, decided
+   * nobody was there, and hung up.
+   *
+   * So the bridge owns the timer here, which it can: it knows when it armed
+   * listening (armNextTurn) and when the caller was last audible.
+   */
+  let noInputTimer = null;
+  /** How many re-prompts this quiet stretch has already produced. */
+  let noInputAttempt = 0;
+  /** agent.languages, parsed — picks the prompt language. */
+  let agentLanguages = [];
   /** Whether the caller may cut the agent off. From `interruptibleEnabled`. */
   let interruptible = true;
   /** This line's measured noise floor, learned while the agent is quiet. */
@@ -585,6 +625,13 @@ export function runModularMediaBridge(ws, {
     // Whichever path got us here — a real end of turn, or the settle timer —
     // the carried text is about to be spent, so the timer has no job left.
     cancelSettle();
+    // A turn is starting, so the caller is not silent. Both the pending prompt
+    // and the ESCALATION are dropped: the three no-input lines get harsher as
+    // they go ("speak louder", then "call back another time"), and carrying a
+    // count across a successful exchange would have the agent open with the
+    // give-up line the next time the caller pauses to think.
+    cancelNoInput();
+    noInputAttempt = 0;
     // Marks "the caller is judged done speaking" — i.e. Deepgram's endpointing+grace
     // commit already fired to get here. Everything from here to the voiceTurnStream()
     // call (STT harvest) is otherwise invisible in logs/latency.log, which only times
@@ -875,6 +922,11 @@ export function runModularMediaBridge(ws, {
   const resolveDgLanguage = () => {
     let langs = [];
     try { langs = JSON.parse(agent?.languages || '[]'); } catch { /* not JSON; no configured list */ }
+    // Kept for the no-input prompts, which are picked by the agent's language
+    // LABEL rather than by Deepgram's code — a Hindi agent must re-prompt in
+    // Hindi, and noInputPromptFor takes the label. Set here so the two cannot
+    // read different fields and disagree about what language this call is in.
+    agentLanguages = langs;
     return toDeepgramLanguage(settings.sttLanguage) || toDeepgramLanguage(langs[0]);
   };
 
@@ -962,12 +1014,12 @@ export function runModularMediaBridge(ws, {
    * endsAt, so isSpeaking() is already false by the time this runs and the arm
    * is immediate.
    */
-  const armNextTurn = (deadline = Date.now() + MAX_ARM_WAIT_MS) => {
+  const armNextTurn = (deadline = Date.now() + MAX_ARM_WAIT_MS, since = Date.now()) => {
     if (armTimer) { clearTimeout(armTimer); armTimer = null; }
     if (closed) return;
 
     if (playout.isSpeaking() && Date.now() < deadline) {
-      armTimer = setTimeout(() => armNextTurn(deadline), ARM_POLL_MS);
+      armTimer = setTimeout(() => armNextTurn(deadline, since), ARM_POLL_MS);
       // Never hold the process open for a call that is already over.
       if (typeof armTimer.unref === 'function') armTimer.unref();
       return;
@@ -991,6 +1043,10 @@ export function runModularMediaBridge(ws, {
     // clear is where a caller's answer used to go to die. Deepgram is fed the
     // inbound leg for the whole reply (deliberately, see openDeepgram), so the
     // words ARE transcribed; they were simply wiped a moment later.
+    //
+    // Read the evidence count first: harvestOverlap() consumes it, and the deaf
+    // window below is only diagnosable next to how much speech landed in it.
+    const loudInDeafWindow = overlapLoudFrames;
     harvestOverlap();
 
     // dg.isAlive, not just truthiness: a session that died during the turn
@@ -1001,6 +1057,37 @@ export function runModularMediaBridge(ws, {
     // one dying mid-turn).
     if (dg && dg.isAlive) dgTurnSeq = dg.beginTurn();
     else openDeepgram();
+
+    // ── How long this bridge was deaf, which nothing measured ────────────
+    //
+    // THE ONE PHONE-ONLY COST THAT NEVER APPEARS IN logs/latency.log. That file
+    // times end-of-speech → LLM → TTS, i.e. the pipeline, and the pipeline is
+    // identical on both transports. What is not identical is this: the browser
+    // listens continuously, and this bridge cannot listen while it speaks, so
+    // every reply is followed by a stretch in which the caller is not being
+    // heard at all. A caller who answers into that stretch and is not recovered
+    // waits it out and then says it again — which the caller experiences as the
+    // agent taking the length of its own reply to respond, and which no
+    // server-side timing can see, because from the pipeline's point of view the
+    // turn started when they repeated themselves.
+    //
+    // Logged with the overlap evidence, because the pair is the diagnosis: a
+    // long deaf window with loud frames in it means somebody was talking and we
+    // were not listening, and whether their words survived is exactly what
+    // harvestOverlap() just decided.
+    const armWaitMs = Date.now() - since;
+    if (armWaitMs >= ARM_POLL_MS * 2) {
+      logger.info(
+        {
+          armWaitMs,
+          loudFrames: loudInDeafWindow,
+          recovered: Boolean(carriedUserText),
+          noiseFloor: Math.round(noiseFloor),
+          bargeThreshold: Math.round(bargeThresholds(noiseFloor).barge),
+        },
+        `${carrier.label}: listening again after ${armWaitMs}ms deaf`,
+      );
+    }
 
     // Listening has resumed, so this is the phone's `start-turn`: re-warm now,
     // while the caller is speaking, rather than serially after they stop. The
@@ -1046,6 +1133,12 @@ export function runModularMediaBridge(ws, {
       }
     }
     overlapTurnEnded = false;
+
+    // We are listening from this instant, so this is the moment the caller's
+    // silence starts counting. Armed unconditionally: if a turn is already on
+    // its way (the carriedUserText branch above), the timer's own guard sees
+    // `turnRunning` and re-arms rather than talking over it.
+    armNoInput();
   };
 
   /**
@@ -1149,6 +1242,90 @@ export function runModularMediaBridge(ws, {
     if (typeof settleTimer.unref === 'function') settleTimer.unref();
   };
 
+  const cancelNoInput = () => {
+    if (noInputTimer) { clearTimeout(noInputTimer); noInputTimer = null; }
+  };
+
+  /**
+   * Speak up if the caller stays silent for a whole no-input window.
+   *
+   * Armed by armNextTurn — i.e. the clock starts when WE started listening, not
+   * when the reply was generated, so a long reply does not age into a re-prompt
+   * the moment it finishes playing.
+   *
+   * THE PROMPT IS SPOKEN WITH speakLine(), not a turn. That is the same choice
+   * noInputPrompt.js makes for the browser and for the same reason: the line
+   * exists to break dead air on a deadline, so routing it through an LLM whose
+   * p90 time-to-first-token is seconds would make the silence part of its own
+   * cost. speakLine also pushes it into `transcript`/`history`, so the model
+   * sees that it asked — otherwise its next turn would repeat the question the
+   * caller has now heard twice.
+   *
+   * Attempts escalate and then STOP (noInputPromptFor returns null past the
+   * script). After the last one the silence hangup, if the agent configures
+   * one, is what ends the call — this must not become a loop that keeps a dead
+   * line open, which is the failure mode of re-prompting forever.
+   */
+  const armNoInput = () => {
+    cancelNoInput();
+    if (closed) return;
+    const attempt = noInputAttempt + 1;
+    if (attempt > maxNoInputAttempts(agentLanguages)) return;
+    const line = noInputPromptFor(agentLanguages, attempt);
+    if (!line) return;
+
+    const waitMs = noInputDelayMs(attempt);
+    noInputTimer = setTimeout(async () => {
+      noInputTimer = null;
+      // The line went busy again between arming and firing — a turn is running,
+      // we started speaking, or there is over-talk waiting to be answered.
+      // Re-arm rather than drop: if that turn ends in silence too, the caller
+      // still needs the prompt.
+      if (closed || turnRunning || playout.isSpeaking() || carriedUserText) {
+        armNoInput();
+        return;
+      }
+
+      // ── Is the caller actually silent, or just not finished? ─────────────
+      //
+      // The timer measures time since we STARTED LISTENING, and those are not
+      // the same thing. A caller who has been talking for twelve seconds
+      // without Deepgram committing an end of turn — a long answer, a list of
+      // numbers, a language it is struggling with — has a running timer and is
+      // mid-sentence, and firing here would talk over them with "sorry, I
+      // didn't catch that". That is worse than the silence this exists to
+      // break, because it happens to the callers who ARE talking.
+      //
+      // `lastCallerSpeechAt` is the energy-based answer and therefore the right
+      // one here: it is set from inbound level, so it is true even on the exact
+      // failure this feature covers — the caller spoke and STT returned nothing.
+      // Waiting out the remainder means the prompt lands a full window after
+      // they stop, not a full window after we started listening.
+      const quietFor = Date.now() - lastCallerSpeechAt;
+      if (quietFor < waitMs) {
+        noInputTimer = setTimeout(() => { noInputTimer = null; armNoInput(); },
+          Math.max(250, waitMs - quietFor));
+        if (typeof noInputTimer.unref === 'function') noInputTimer.unref();
+        return;
+      }
+
+      // Deepgram is holding words it has not committed yet: a turn is about to
+      // run on its own, so there is nothing to break.
+      if (dg?.hasTranscript?.()) { armNoInput(); return; }
+
+      noInputAttempt = attempt;
+      logger.info(
+        `${carrier.label}: caller silent for ${Math.round(quietFor)}ms — `
+        + `re-prompt ${attempt}/${maxNoInputAttempts(agentLanguages)}`,
+      );
+      await speakLine(line);
+      // Same as the end of a turn: listening resumes once the line is quiet,
+      // and that re-arms the next (longer) window.
+      armNextTurn();
+    }, waitMs);
+    if (typeof noInputTimer.unref === 'function') noInputTimer.unref();
+  };
+
   // Status write + wallet settlement + post-call delivery, exactly once. Shared
   // with the bundled and PIOPIY bridges — see ws/callFinalizer.js.
   const finalizeCallLog = createCallFinalizer({
@@ -1172,6 +1349,7 @@ export function runModularMediaBridge(ws, {
     // whole LLM+TTS turn at a caller who has already hung up — and neither
     // hangup guard may outlive the call it was guarding.
     cancelSettle();
+    cancelNoInput();
     if (maxCallTimer) { clearTimeout(maxCallTimer); maxCallTimer = null; }
     if (silenceTimer) { clearInterval(silenceTimer); silenceTimer = null; }
     carriedUserText = '';
@@ -1583,7 +1761,11 @@ export function runModularMediaBridge(ws, {
           break;
         }
 
-        const threshold = Math.max(BARGE_RMS_MIN, noiseFloor * BARGE_MARGIN);
+        // TWO bars, because the two decisions cost different things. See
+        // BARGE_RMS_MIN and OVERLAP_RMS_MIN — they used to be one constant, and
+        // it was the barge-in one, so the cheap decision inherited the
+        // expensive decision's caution and quiet callers went unheard.
+        const { barge: bargeThreshold, overlap: overlapThreshold } = bargeThresholds(noiseFloor);
 
         // ── A second, independent witness that the caller is talking ────────
         //
@@ -1593,19 +1775,26 @@ export function runModularMediaBridge(ws, {
         // voice is not in the reference. That is a direct measurement of
         // double talk rather than an inference from loudness.
         //
-        // It feeds overlap recovery ONLY, never the barge counter. The two have
-        // deliberately different bars — barge-in CUTS THE AGENT OFF mid-word,
-        // so a false positive is a caller interrupted for nothing, while a
-        // false overlap merely keeps a few words that are then re-checked
-        // against the agent's own text in harvestOverlap(). Requiring
-        // convergence keeps the bootstrap frames, where the filter cancels
-        // nothing and everything looks like double talk, out of it.
-        if (echo.refActive && echo.converged && echo.doubleTalk) {
-          lastCallerSpeechAt = Date.now();
-          overlapLoudFrames += 1;
-        }
+        // Requiring convergence keeps the bootstrap frames, where the filter
+        // cancels nothing and everything looks like double talk, out of it.
+        const aecSaysCaller = echo.refActive && echo.converged && echo.doubleTalk;
 
-        if (rms >= threshold) {
+        // ── And the same witness, read the other way ────────────────────────
+        //
+        // A converged filter that cancelled this frame cleanly is telling us the
+        // frame was OURS. That is the one thing an energy threshold can never
+        // establish, and it is what makes it safe to lower BARGE_RMS_MIN to a
+        // level a normal caller can actually reach: the residual echo that the
+        // old 2500 floor was really defending against is precisely the signal
+        // the canceller can now identify by name. Used as a VETO only — never
+        // as a trigger — so a call where the filter never converges behaves
+        // exactly as it does today.
+        const isOurEcho = echo.refActive && echo.converged && !echo.doubleTalk;
+
+        // Counted once per frame, whichever witness spoke. It used to be
+        // possible for one frame to increment this twice (loud AND double talk),
+        // so "three loud frames" could be met by two.
+        if (aecSaysCaller || rms >= overlapThreshold) {
           // The caller is audible over us, so they are not silent — this counts
           // for the silence hangup even when barge-in is switched off below.
           lastCallerSpeechAt = Date.now();
@@ -1616,6 +1805,27 @@ export function runModularMediaBridge(ws, {
           // armNextTurn started reading this, that "yes" was thrown away and the
           // caller had to say it again. See OVERLAP_MIN_LOUD_FRAMES.
           overlapLoudFrames += 1;
+        }
+
+        // ── Do not cut the agent off on a line we have never measured ──────
+        //
+        // The threshold is `max(floor, noiseFloor * margin)`, so before this
+        // line's noise floor has been observed the ADAPTIVE half contributes
+        // nothing and the absolute floor decides alone. That floor is now set
+        // where people speak rather than above it, which is right for a
+        // measured line and wrong for an unmeasured one — and the unmeasured
+        // stretch is the greeting, when the inbound leg is mostly our own
+        // welcome coming back off the handset and the canceller has not had a
+        // quiet moment to lock onto the echo path yet. Self-barging the
+        // greeting ("a greeting that reached 'Hello' and stopped") is the
+        // failure the old 2500 floor was really guarding against, and this
+        // guards against it directly instead of by making every caller shout.
+        //
+        // noiseSamples only advances while the agent is quiet, so this clears
+        // within half a second of the greeting ending and costs nothing after.
+        const lineMeasured = noiseSamples >= NOISE_MIN_SAMPLES;
+
+        if (rms >= bargeThreshold && !isOurEcho && lineMeasured) {
           // `interruptibleEnabled` off means the agent finishes its sentence —
           // NOT that the caller goes unheard. Only the interrupt is suppressed;
           // harvestOverlap() still recovers what they said, so an agent
@@ -1641,9 +1851,10 @@ export function runModularMediaBridge(ws, {
             logger.info(
               {
                 rms: Math.round(rms),
-                threshold: Math.round(threshold),
+                threshold: Math.round(bargeThreshold),
                 noiseFloor: Math.round(noiseFloor),
                 cutMs: Math.round(cutMs),
+                aecConverged: echo.converged,
               },
               'Phone barge-in: caller interrupted',
             );
