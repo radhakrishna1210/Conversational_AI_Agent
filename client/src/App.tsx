@@ -50,7 +50,7 @@ import AdminAuditLog from './pages/AdminAuditLog';
 import AdminCallLogs from './pages/AdminCallLogs';
 import AdminBilling from './pages/AdminBilling';
 import {
-  AdminUsersPage, AdminIssuesPage, AdminAppointmentsPage,
+  AdminUsersPage, AdminIssuesPage, AdminAppointmentsPage, AdminContactRequestsPage,
   AdminPlansPage, AdminWalletsPage, AdminModelsPage, AdminHealthPage,
 } from './pages/adminPages';
 import NotificationArchive from './pages/NotificationArchive';
@@ -271,6 +271,7 @@ function App() {
               <Route path="wallets" element={<AdminWalletsPage />} />
               <Route path="calls" element={<AdminCallLogs />} />
               <Route path="issues" element={<AdminIssuesPage />} />
+              <Route path="contact-requests" element={<AdminContactRequestsPage />} />
               <Route path="models" element={<AdminModelsPage />} />
               <Route path="audit" element={<AdminAuditLog />} />
               <Route path="health" element={<AdminHealthPage />} />

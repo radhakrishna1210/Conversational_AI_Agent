@@ -7,11 +7,12 @@
  * themselves are unchanged and still live in AdminPanel.tsx — only navigation
  * moved, which keeps this change reviewable.
  */
-import { Users, Bug, CreditCard, TrendingUp, Activity, CalendarDays, Cpu } from 'lucide-react';
+import { Users, Bug, CreditCard, TrendingUp, Activity, CalendarDays, Cpu, Mail } from 'lucide-react';
 import {
   AdminPageHeader,
   UserManagementTab,
   ReportIssuesTab,
+  ContactRequestsTab,
   AppointmentsTab,
   WalletRateTab,
   WalletCreditTab,
@@ -54,6 +55,19 @@ export function AdminAppointmentsPage() {
         icon={<CalendarDays size={21} />}
       />
       <AppointmentsTab />
+    </>
+  );
+}
+
+export function AdminContactRequestsPage() {
+  return (
+    <>
+      <AdminPageHeader
+        title="Contact Requests"
+        subtitle="Sales enquiries from the Connect with our sales team form"
+        icon={<Mail size={21} />}
+      />
+      <ContactRequestsTab />
     </>
   );
 }
