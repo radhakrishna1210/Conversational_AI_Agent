@@ -46,7 +46,14 @@ export const getRecentUsers = async (req, res) => {
 /** GET /admin/workspaces — list all workspaces (for assign dropdown) */
 export const listWorkspaces = async (req, res) => {
   const workspaces = await prisma.workspace.findMany({
-    select: { id: true, name: true, slug: true, planName: true },
+    // Pricing comes back with the list so the admin pricing table can show
+    // every client's effective rate without an N+1 of per-workspace lookups.
+    select: {
+      id: true, name: true, slug: true, planName: true,
+      rateOverrideInr: true,
+      pricingBucketId: true,
+      pricingBucket: { select: { id: true, label: true, perMinuteInr: true } },
+    },
     orderBy: { name: 'asc' },
   });
   return res.json({ workspaces });

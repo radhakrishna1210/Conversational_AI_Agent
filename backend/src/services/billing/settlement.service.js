@@ -47,7 +47,7 @@ import prisma from '../../config/prisma.js';
 import logger from '../../lib/logger.js';
 import { applyWalletTransaction, getOrCreateWallet, TX_TYPES } from './wallet.service.js';
 import { calculateCallCharge, formatMinor, billableMinutes, resolveCallRate, affordableSeconds } from './money.js';
-import { getWalletRate } from './walletRate.js';
+import { resolveWorkspaceRate } from './workspaceRate.js';
 import { checkConcurrency } from '../telephony/concurrency.js';
 
 /** Call types that consume voice minutes. CHAT is text — never billed. */
@@ -134,13 +134,17 @@ export async function settleCall(callLogId, { actualCostMicroUsd = null } = {}) 
     // included-minutes allowance to draw down first — the workspace's balance is
     // the only thing that pays for a call.
     //
-    // One ₹/min for everybody, set in Super Admin → Wallet Rate. The same figure
-    // the public landing page quotes, charged pro-rata for the seconds actually
-    // talked. Costed straight from `durationSec`: the previous version round
-    // tripped through `billableMinutes(...) * 60` to rebuild a duration it
-    // already had, which was harmless only while the increment was a whole
-    // minute and is a second, silent rounding step at any finer granularity.
-    const walletRate = await getWalletRate();
+    // The ₹/min THIS workspace is on: a bespoke override if one was set for it,
+    // else its assigned volume bucket, else the platform default in Super Admin
+    // → Wallet Rate. A workspace with neither resolves to the platform rate, so
+    // an account no admin has touched bills exactly as it always did.
+    //
+    // Charged pro-rata for the seconds actually talked, costed straight from
+    // `durationSec`: an earlier version round tripped through
+    // `billableMinutes(...) * 60` to rebuild a duration it already had, which
+    // was harmless only while the increment was a whole minute and is a second,
+    // silent rounding step at any finer granularity.
+    const walletRate = await resolveWorkspaceRate(call.workspaceId);
     const { ratePerMinuteCents, fxRate, amountCents } = calculateCallCharge(durationSec, walletRate);
 
     // Claim before charging. If the process dies between claim and ledger
@@ -319,7 +323,10 @@ export async function assertCanStartCall(workspaceId, { type = 'WEB_CALL', concu
    */
   const slotPending = concurrency && type === 'PHONE_CALL' ? checkConcurrency(workspaceId) : null;
   const walletPending = getOrCreateWallet(workspaceId);
-  const ratePending = getWalletRate();
+  // Per workspace, not the platform default: this rate decides maxSeconds, so
+  // reading the default would tell a discounted customer they can afford fewer
+  // minutes than their balance actually buys (and an expensive one, more).
+  const ratePending = resolveWorkspaceRate(workspaceId);
 
   if (slotPending) {
     const slot = await slotPending;

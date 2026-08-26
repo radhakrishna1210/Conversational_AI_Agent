@@ -30,7 +30,7 @@ import { generateInvoice, listInvoices } from '../services/billing/invoice.servi
 import * as subs from '../services/billing/subscription.service.js';
 import * as autoRenew from '../services/billing/autoRenew.service.js';
 import { getBillingCurrency, formatMinor } from '../services/billing/money.js';
-import { getWalletRate } from '../services/billing/walletRate.js';
+import { resolveWorkspaceRate } from '../services/billing/workspaceRate.js';
 import { writeAudit, AUDIT_ACTIONS, AUDIT_CATEGORIES } from '../services/audit.service.js';
 
 const MIN_TOPUP_CENTS = Number(process.env.MIN_TOPUP_CENTS) || 10_000;   // ₹100
@@ -46,9 +46,12 @@ export const getWallet = async (req, res) => {
       orderBy: { createdAt: 'desc' },
       take: 50,
     });
-    // The one rate this deployment charges. Sent with the wallet so Billing can
-    // show "what a minute costs you" without a plan to look it up on.
-    const rateCents = Math.round((await getWalletRate()).perMinuteInr * 100);
+    // What a minute costs THIS workspace — its override, else its assigned
+    // tier, else the platform default. Resolved per workspace, not read from
+    // the platform rate: reading the default here showed every customer ₹12
+    // while settlement charged them their real tier, so the Billing page
+    // disagreed with the invoice for anyone an admin had repriced.
+    const rateCents = Math.round((await resolveWorkspaceRate(workspaceId)).perMinuteInr * 100);
     res.json({
       ...wallet,
       transactions: transactions.map((t) => ({
@@ -64,8 +67,10 @@ export const getWallet = async (req, res) => {
       razorpayKeyId: razorpay.getPublicKeyId(),
       minTopUpCents: MIN_TOPUP_CENTS,
       maxTopUpCents: MAX_TOPUP_CENTS,
-      // No plan and no subscription: this deployment bills one platform rate
-      // per talk-minute against the wallet, and the wallet is the whole story.
+      // No plan and no subscription: this deployment bills a per-talk-minute
+      // rate against the wallet, and the wallet is the whole story. The rate
+      // itself may be this workspace's tier or a bespoke override — see
+      // services/billing/workspaceRate.js.
       perMinuteRateCents: rateCents,
     });
   } catch (err) {

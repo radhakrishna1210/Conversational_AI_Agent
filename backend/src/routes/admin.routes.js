@@ -60,7 +60,17 @@ import * as billing from '../controllers/billing.controller.js';
 import { listAppointments } from '../controllers/appointment.controller.js';
 
 router.get('/appointments', authenticate, isAdmin, listAppointments);
-// The platform wallet rate — what every call is charged, per minute.
+// ─── Pricing buckets (admin-only; nothing customer-facing reads these) ───────
+// Volume tiers, and the bespoke per-workspace override. Sits above the wallet
+// rate because it OVERRIDES it: the wallet rate is now the fallback for a
+// workspace with neither a bucket nor an override.
+router.get('/pricing/buckets', authenticate, isAdmin, platform.adminListBuckets);
+router.patch('/pricing/buckets/:id', authenticate, isAdmin, platform.adminUpdateBucket);
+router.get('/pricing/workspaces/:workspaceId', authenticate, isAdmin, platform.adminGetWorkspaceRate);
+router.put('/pricing/workspaces/:workspaceId/bucket', authenticate, isAdmin, platform.adminAssignBucket);
+router.put('/pricing/workspaces/:workspaceId/override', authenticate, isAdmin, platform.adminSetRateOverride);
+
+// The platform wallet rate — the DEFAULT every call falls back to, per minute.
 router.get('/wallet-rate', authenticate, isAdmin, platform.adminGetWalletRate);
 router.put('/wallet-rate', authenticate, isAdmin, platform.adminSetWalletRate);
 // The platform broadcast rate — what a one-way recorded call is charged, per

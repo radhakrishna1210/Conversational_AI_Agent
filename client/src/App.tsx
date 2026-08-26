@@ -51,7 +51,8 @@ import AdminCallLogs from './pages/AdminCallLogs';
 import AdminBilling from './pages/AdminBilling';
 import {
   AdminUsersPage, AdminIssuesPage, AdminAppointmentsPage,
-  AdminPlansPage, AdminWalletsPage, AdminModelsPage, AdminHealthPage,
+  AdminPlansPage,
+  AdminPricingPage, AdminWalletsPage, AdminModelsPage, AdminHealthPage,
 } from './pages/adminPages';
 import NotificationArchive from './pages/NotificationArchive';
 import AirtelVerifiedCalling from './pages/AirtelVerifiedCalling';
@@ -267,6 +268,7 @@ function App() {
               <Route path="users" element={<AdminUsersPage />} />
               <Route path="appointments" element={<AdminAppointmentsPage />} />
               <Route path="billing" element={<AdminBilling />} />
+              <Route path="pricing" element={<AdminPricingPage />} />
               <Route path="plans" element={<AdminPlansPage />} />
               <Route path="wallets" element={<AdminWalletsPage />} />
               <Route path="calls" element={<AdminCallLogs />} />

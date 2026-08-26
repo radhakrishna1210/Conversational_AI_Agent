@@ -1021,9 +1021,9 @@ export function WalletRateTab() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 18, maxWidth: 620 }}>
       <p style={{ color: 'var(--tx-3)', fontSize: 13, lineHeight: 1.6, margin: 0 }}>
-        Every call is charged this many rupees per talk-minute, deducted from the workspace's
-        wallet. It applies to all workspaces — there are no plans and no per-tier pricing.
-        The public landing page quotes this exact number.
+        The DEFAULT rupees-per-minute, deducted from the workspace's wallet. It applies to
+        every client that has no volume tier and no per-client override — both of those beat
+        this number. Set tiers and per-client rates in Super Admin → Pricing.
       </p>
 
       <div style={{ border: '1px solid var(--line)', borderRadius: 10, padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>

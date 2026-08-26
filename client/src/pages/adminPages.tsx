@@ -7,6 +7,7 @@
  * themselves are unchanged and still live in AdminPanel.tsx — only navigation
  * moved, which keeps this change reviewable.
  */
+import PricingBucketsTab from './PricingBucketsTab';
 import { Users, Bug, CreditCard, TrendingUp, Activity, CalendarDays, Cpu } from 'lucide-react';
 import {
   AdminPageHeader,
@@ -54,6 +55,19 @@ export function AdminAppointmentsPage() {
         icon={<CalendarDays size={21} />}
       />
       <AppointmentsTab />
+    </>
+  );
+}
+
+export function AdminPricingPage() {
+  return (
+    <>
+      <AdminPageHeader
+        title="Pricing"
+        subtitle="Volume tiers and per-client rates. Admin-only — nothing here is shown to clients."
+        icon={<TrendingUp size={21} />}
+      />
+      <PricingBucketsTab />
     </>
   );
 }

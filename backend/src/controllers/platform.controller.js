@@ -7,6 +7,8 @@ import { sendMail, isMailerConfigured } from '../lib/mailer.js';
 import { appendCallRow } from '../services/googleSheets.service.js';
 import { createEvent, resolveAppointmentStart } from '../services/googleCalendar.service.js';
 import { getWalletRate, setWalletRate, WALLET_RATE_PLAN } from '../services/billing/walletRate.js';
+import { listBuckets, updateBucket } from '../services/billing/pricingBuckets.js';
+import { resolveWorkspaceRate, assignBucket, setRateOverride } from '../services/billing/workspaceRate.js';
 import { getBroadcastRate, setBroadcastRate } from '../services/billing/broadcastRate.js';
 
 /*
@@ -52,6 +54,66 @@ export const adminSetWalletRate = async (req, res) => {
     res.json({ perMinuteInr: rate.perMinuteInr });
   } catch (err) {
     res.status(err.status ?? 500).json({ error: err.message ?? 'Failed to save the rate' });
+  }
+};
+
+// ─── PRICING BUCKETS ─────────────────────────────────────────────────────────
+// Volume tiers a Super Admin assigns to a workspace, plus the bespoke per-
+// workspace override. ADMIN-ONLY on purpose: there is deliberately no public
+// counterpart to getWalletRatePublic here, because this deployment is
+// contact-led and quotes no tiered pricing on the site. If a customer-facing
+// route for these is ever wanted, that is a product decision to take
+// explicitly — not something to add because the data happened to be there.
+
+/** GET /admin/pricing/buckets — the tiers, plus what each one charges. */
+export const adminListBuckets = async (_req, res) => {
+  try {
+    res.json({ buckets: await listBuckets() });
+  } catch (err) {
+    res.status(err.status ?? 500).json({ error: err.message ?? 'Failed to load pricing buckets' });
+  }
+};
+
+/** PATCH /admin/pricing/buckets/:id — reprice or relabel one tier. */
+export const adminUpdateBucket = async (req, res) => {
+  try {
+    const bucket = await updateBucket(req.params.id, req.body ?? {});
+    res.json({ bucket });
+  } catch (err) {
+    res.status(err.status ?? 500).json({ error: err.message ?? 'Failed to update the bucket' });
+  }
+};
+
+/**
+ * GET /admin/pricing/workspaces/:workspaceId — the effective rate and WHY.
+ *
+ * `source` is what makes this worth an endpoint rather than reading the two
+ * columns: an admin looking at an account needs to know whether ₹10 came from
+ * a tier or from a bespoke deal, because those are undone differently.
+ */
+export const adminGetWorkspaceRate = async (req, res) => {
+  try {
+    res.json(await resolveWorkspaceRate(req.params.workspaceId));
+  } catch (err) {
+    res.status(err.status ?? 500).json({ error: err.message ?? 'Failed to resolve the rate' });
+  }
+};
+
+/** PUT /admin/pricing/workspaces/:workspaceId/bucket — assign, or clear with null. */
+export const adminAssignBucket = async (req, res) => {
+  try {
+    res.json(await assignBucket(req.params.workspaceId, req.body?.bucketId ?? null));
+  } catch (err) {
+    res.status(err.status ?? 500).json({ error: err.message ?? 'Failed to assign the bucket' });
+  }
+};
+
+/** PUT /admin/pricing/workspaces/:workspaceId/override — set, or clear with null. */
+export const adminSetRateOverride = async (req, res) => {
+  try {
+    res.json(await setRateOverride(req.params.workspaceId, req.body?.perMinuteInr ?? null));
+  } catch (err) {
+    res.status(err.status ?? 500).json({ error: err.message ?? 'Failed to set the override' });
   }
 };
 
