@@ -296,7 +296,7 @@ export const chat = async (req, res) => {
     const agentContext = {
       name: agent?.name || 'AI Assistant',
       welcomeMessage: agent?.welcomeMessage || welcomeMessage || 'Hello!',
-      aiModel: agent?.aiModel || 'sarvam-30b',
+      aiModel: agent?.aiModel || 'sarvam-105b-conversations',
       voice: agent?.voice || 'Google',
       transcription: agent?.transcription || 'Azure',
       languages: selectedLanguages,
