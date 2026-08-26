@@ -1,10 +1,15 @@
 /**
  * THE platform wallet rate — the single ₹/min figure every call is charged.
  *
- * This deployment bills one way: a prepaid wallet, debited per talk-minute, at
- * one rate for everybody. There are no plans to pick and no per-tier pricing.
- * Super Admin → Wallet Rate is the only place this number is set, and it is the
- * number the public landing page quotes, so the two can never disagree.
+ * This deployment bills one way: a prepaid wallet, debited per talk-minute.
+ * This is the DEFAULT rate — what a workspace pays when it has neither a volume
+ * bucket nor a bespoke override. Both of those beat it; see
+ * services/billing/workspaceRate.js for the precedence, which is the only place
+ * that decides what a given workspace is actually charged.
+ *
+ * Read it through resolveWorkspaceRate(), not directly, anywhere the answer is
+ * "what does THIS workspace pay" — calling getWalletRate() at a charge site
+ * would silently bill every customer the default and ignore their tier.
  *
  * ── Why the rate lives in a Plan row ──────────────────────────────────────────
  * There is no key/value settings table in the schema, and adding one means a

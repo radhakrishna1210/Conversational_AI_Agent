@@ -73,6 +73,13 @@ model Workspace {
   slug                String               @unique
   logoUrl             String?
   planName            String               @default("Starter")
+  // ── Pricing (Super Admin only; never surfaced to customers) ────────────────
+  // Resolution order at charge time is override -> bucket -> platform default.
+  // Both nullable: null on either means "fall through to the next rule", so an
+  // untouched workspace bills exactly as it did before this existed.
+  rateOverrideInr     Float?
+  pricingBucketId     String?
+  pricingBucket       PricingBucket?       @relation(fields: [pricingBucketId], references: [id], onDelete: SetNull)
   createdAt           DateTime             @default(now())
   updatedAt           DateTime             @updatedAt
   agents              Agent[]
@@ -813,6 +820,29 @@ model KbChunk {
 
   @@index([workspaceId, agentId])
   @@index([kbFileId])
+}
+
+// A named volume tier Super Admin can assign to a workspace. ADMIN-ONLY: there
+// is no customer-facing route that reads this table, and none should be added —
+// this deployment is contact-led and quotes no price on the public site.
+//
+// A bucket is a PRICE TIER, not an allowance. `minutes` names the tier and is
+// what a salesperson quotes against; it is deliberately NOT a quota, is never
+// decremented, and never expires. The wallet balance remains the only thing
+// that gates a call, exactly as before.
+model PricingBucket {
+  id           String      @id @default(cuid())
+  // Stable machine key ("bucket_2000"), not the display text, so relabelling a
+  // tier in the UI cannot orphan the workspaces pointing at it.
+  name         String      @unique
+  label        String
+  minutes      Int
+  perMinuteInr Float
+  active       Boolean     @default(true)
+  sortOrder    Int         @default(0)
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  workspaces   Workspace[]
 }
 
 model Plan {
