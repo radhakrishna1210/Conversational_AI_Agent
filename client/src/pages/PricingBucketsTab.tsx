@@ -103,7 +103,7 @@ function BucketRow({ bucket, busy, onSave }: {
   );
 }
 
-export default function PricingBucketsTab() {
+export default function PricingBucketsTab({ defaultRate }: { defaultRate?: number | null } = {}) {
   const [buckets, setBuckets] = useState<Bucket[]>([]);
   const [rows, setRows] = useState<WsRow[]>([]);
   const [fallback, setFallback] = useState(12);
@@ -111,6 +111,13 @@ export default function PricingBucketsTab() {
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [q, setQ] = useState('');
+
+  // The default-rate editor sits above this table on the same page. When it
+  // saves, the number this table calls "Default" changes, so take it from the
+  // parent rather than waiting for a remount to refetch /wallet-rate.
+  useEffect(() => {
+    if (typeof defaultRate === 'number' && defaultRate > 0) setFallback(defaultRate);
+  }, [defaultRate]);
 
   const load = async () => {
     try {

@@ -51,7 +51,6 @@ import AdminCallLogs from './pages/AdminCallLogs';
 import AdminBilling from './pages/AdminBilling';
 import {
   AdminUsersPage, AdminIssuesPage, AdminAppointmentsPage,
-  AdminPlansPage,
   AdminPricingPage, AdminWalletsPage, AdminModelsPage, AdminHealthPage,
 } from './pages/adminPages';
 import NotificationArchive from './pages/NotificationArchive';
@@ -269,7 +268,8 @@ function App() {
               <Route path="appointments" element={<AdminAppointmentsPage />} />
               <Route path="billing" element={<AdminBilling />} />
               <Route path="pricing" element={<AdminPricingPage />} />
-              <Route path="plans" element={<AdminPlansPage />} />
+              {/* The default rate is a section of /admin/pricing now; keep old bookmarks working. */}
+              <Route path="plans" element={<Navigate to="/admin/pricing" replace />} />
               <Route path="wallets" element={<AdminWalletsPage />} />
               <Route path="calls" element={<AdminCallLogs />} />
               <Route path="issues" element={<AdminIssuesPage />} />
