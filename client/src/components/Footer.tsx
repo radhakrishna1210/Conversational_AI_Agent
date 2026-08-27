@@ -90,7 +90,7 @@ export default function Footer() {
         <span>© {new Date().getFullYear()} Spandan, Inc.</span>
         <span style={{ display: 'flex', gap: 14, flexWrap: 'wrap' }}>
           <Link to="/privacy-policy" className="sp-footer-link">Privacy</Link>
-          <Link to="/contact" className="sp-footer-link">Terms</Link>
+          <Link to="/terms" className="sp-footer-link">Terms</Link>
           <span>Made for voice</span>
         </span>
       </div>

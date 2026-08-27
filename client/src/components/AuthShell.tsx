@@ -192,7 +192,7 @@ export default function AuthShell({
           {footer}
 
           <div className="rz-mono-xs" style={{ marginTop: 28, textAlign: 'center', lineHeight: 1.7 }}>
-            By continuing you agree to the Terms and Privacy Policy.<br />
+            By continuing you agree to the <Link to="/terms" style={{ color: 'var(--tx-2)', textDecoration: 'underline' }}>Terms</Link> and <Link to="/privacy-policy" style={{ color: 'var(--tx-2)', textDecoration: 'underline' }}>Privacy Policy</Link>.<br />
             Protected by SOC 2 · SSO available on request.
           </div>
         </div>

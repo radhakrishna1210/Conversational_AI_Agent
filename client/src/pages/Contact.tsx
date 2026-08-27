@@ -4,7 +4,6 @@ import { Check, Mail, MessageSquare, Zap } from 'lucide-react';
 import PhoneInput, { isValidPhoneNumber } from 'react-phone-number-input';
 import 'react-phone-number-input/style.css';
 import { RzCard } from '@/components/rz';
-
 /**
  * Contact — the two-column layout from Spandan Support.dc.html#contact.
  *

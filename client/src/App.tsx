@@ -16,6 +16,7 @@ import Documentation from './pages/Documentation';
 import BookAppointment from './pages/BookAppointment';
 import Contact from './pages/Contact';
 import PrivacyPolicy from './pages/PrivacyPolicy';
+import Terms from './pages/Terms';
 import Docs from './pages/Docs';
 import ReportIssue from './pages/ReportIssue';
 import Finance from './pages/Finance';
@@ -174,10 +175,13 @@ function App() {
       <Routes>
         <Route path="/" element={<DefaultLayout><Home /></DefaultLayout>} />
         <Route path="/pricing" element={<DefaultLayout><Pricing /></DefaultLayout>} />
-        <Route path="/documentation" element={<DefaultLayout><Documentation /></DefaultLayout>} />
+        <Route path="/documentation" element={<DefaultLayout><Documentation /></DefaultLayout>}/> 
         <Route path="/book-appointment" element={<DefaultLayout><BookAppointment /></DefaultLayout>} />
         <Route path="/contact" element={<DefaultLayout><Contact /></DefaultLayout>} />
         <Route path="/privacy-policy" element={<DefaultLayout><PrivacyPolicy /></DefaultLayout>} />
+        <Route path="/terms" element={<DefaultLayout><Terms /></DefaultLayout>} />
+        <Route path="/terms-and-conditions" element={<DefaultLayout><Terms /></DefaultLayout>} />
+        <Route path="/terms-of-service" element={<DefaultLayout><Terms /></DefaultLayout>} />
         <Route path="/docs" element={<AdaptiveLayout><Docs /></AdaptiveLayout>} />
         <Route path="/report-issue" element={<AdaptiveLayout><ReportIssue /></AdaptiveLayout>} />
         {/* Public: Airtel verified-calling guide, linked from the caller-number picker */}
