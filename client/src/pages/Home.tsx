@@ -1,780 +1,414 @@
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
-import VoiceCore from '@/components/home/VoiceCore';
-import { voiceColor, type VoiceStateId } from '@/lib/voiceStates';
-import { BRAND } from '@/lib/brand';
-import { useConversationReplay } from './home/useConversationReplay';
 import {
-  BADGES, BIG_STATS, COMPARE, CONNECTORS, FEATURES, HERO_STATS, INDUSTRIES,
-  NARRATIVE, SCENARIOS, STACK, USE_CASES, VERTICALS, type Support,
+  Phone, MessageCircle, MessagesSquare, Globe, ShieldCheck, Check,
+  Languages, Zap, Radio, Brain, ArrowRight, Plug, AlertTriangle,
+} from 'lucide-react';
+import { BRAND } from '@/lib/brand';
+import {
+  ACCENT, HERO, CHANNELS, HERO_STATS, CONSOLE, PROOF, OMNI, TRUST, BADGES,
+  ASK_AI, CTA_BAND, USE_CASE_BUCKETS, USE_CASES, INDUSTRIES, QA, CAPABILITIES,
+  INTEGRATIONS, INTEGRATIONS_LINK, BUILDER, FLOW, FAQ, FINAL,
+  type Bucket, type Channel,
 } from './home/content';
 import './Home.css';
 
 /*
  * ═══════════════════════════════════════════════════════════════════════════
- * LANDING PAGE — ported from Spandan_flagship_selection/Spandan Homepage.dc.html
+ * LANDING PAGE
  * ═══════════════════════════════════════════════════════════════════════════
  *
- * The organising idea is the call itself: a voice core that visibly changes
- * state, a conversation you can watch replay turn by turn, and then the same
- * six states walked through once as narrative and once as architecture.
+ * A centred, single-column marketing flow: hero (icons → headline → CTA →
+ * full-width console), social proof, an omnichannel band, a trust band, a
+ * get-started band, use-case tabs, the QA scorecard, a capability grid, the
+ * integrations grid, the builder canvas, an FAQ, and a closing CTA.
  *
- * Everything is scoped under `.lp` so it cannot reach the app shell.
+ * One flat --bg surface the whole way down — section rhythm comes from
+ * whitespace, not from alternating panels. Everything is scoped under `.lp`
+ * and every colour resolves from the Resonance tokens in styles.css, so the
+ * page follows the light/dark toggle with almost no per-theme overrides.
  *
- * ── One deliberate omission ──
- * The design carries a three-tier pricing grid (Starter $0 / Growth $99 /
- * Enterprise). It is NOT ported. This product bills a prepaid wallet at one
- * per-minute rate — there is no tier to choose — and no price is shown
- * anywhere public by decision (see the header of Pricing.tsx). Porting the
- * grid would put three prices on the busiest page of the site for plans that
- * do not exist. The pricing question is answered by a person instead, which is
- * why the sales band sits high — right after the demo, at position four.
+ * No price appears anywhere: this product bills a prepaid balance at one
+ * per-minute rate quoted per account (see the header of Pricing.tsx).
  */
 
-const STATE_ORDER: VoiceStateId[] = ['idle', 'listening', 'understanding', 'thinking', 'speaking', 'acting'];
+const CHANNEL_ICON: Record<Channel['icon'], typeof Phone> = {
+  phone: Phone,
+  whatsapp: MessageCircle,
+  chat: MessagesSquare,
+  globe: Globe,
+};
 
-/*
- * What a sales conversation actually covers. Listed because "contact us" on its
- * own asks the visitor to guess whether their question is worth an email — the
- * three below are the ones the public site cannot answer, since no price is
- * published and custom deployments are quoted per account.
- */
-const SALES_POINTS = [
-  { title: 'Pricing for your volume', detail: 'one per-minute rate, worked through against your real call load.' },
-  { title: 'A live demo, on the phone', detail: 'we call you with an agent built for your use case.' },
-  { title: 'Custom & white label', detail: 'your branding, your carrier, your compliance requirements.' },
-];
+const CAPABILITY_ICONS = [Languages, Zap, Radio, Brain];
+
+/** Centred section header: eyebrow + heading + optional intro line. */
+function SecHead({ eyebrow, title, intro, violet }: {
+  eyebrow: string; title: string; intro?: string; violet?: boolean;
+}) {
+  return (
+    <div className="lp-sechead">
+      <div className={`lp-eyebrow${violet ? ' is-violet' : ''}`}>{eyebrow}</div>
+      <h2 className="lp-h2">{title}</h2>
+      {intro && <p className="lp-p lp-sechead-intro">{intro}</p>}
+    </div>
+  );
+}
 
 export default function Home() {
-  /* ── Hero: idles through the six states until the demo takes over ─────── */
-  const [heroState, setHeroState] = useState<VoiceStateId>('listening');
-  const [heroLat, setHeroLat] = useState('318ms');
+  const [bucket, setBucket] = useState<Bucket>('activate');
+  const [openFaq, setOpenFaq] = useState<number | null>(0);
 
-  /* ── Demo ─────────────────────────────────────────────────────────────── */
-  const [scenarioKey, setScenarioKey] = useState('reception');
-  const { replay, scenario, replayAgain } = useConversationReplay(scenarioKey);
+  const cases = USE_CASES.filter((u) => u.bucket === bucket);
 
-  /* ── Narrative ────────────────────────────────────────────────────────── */
-  const [narrIdx, setNarrIdx] = useState(0);
-  const narrRef = useRef<HTMLDivElement | null>(null);
-
-  /* ── Stack stepper + industry tabs ────────────────────────────────────── */
-  const [stackIdx, setStackIdx] = useState(0);
-  const [vertical, setVertical] = useState('healthcare');
-
-  const transcriptRef = useRef<HTMLDivElement | null>(null);
-  const liveAudioRef = useRef<HTMLAudioElement | null>(null);
-  const [audioPlaying, setAudioPlaying] = useState(false);
-  const [audioProgress, setAudioProgress] = useState(0);
-  const [audioDuration, setAudioDuration] = useState(0);
-
-  const formatAudioTime = useCallback((seconds: number) => {
-    if (!Number.isFinite(seconds) || seconds <= 0) return '0:00';
-    const mins = Math.floor(seconds / 60);
-    const secs = Math.floor(seconds % 60)
-      .toString()
-      .padStart(2, '0');
-    return `${mins}:${secs}`;
-  }, []);
-
-  const toggleAudio = useCallback(async () => {
-    const audio = liveAudioRef.current;
-    if (!audio) return;
-
-    if (audio.paused) {
-      try {
-        await audio.play();
-      } catch (error) {
-        console.error('Audio playback failed:', error);
-      }
-      return;
-    }
-
-    audio.pause();
-  }, []);
-
-  const handleAudioSeek = useCallback((value: number) => {
-    const audio = liveAudioRef.current;
-    if (!audio) return;
-    audio.currentTime = value;
-    setAudioProgress(value);
-  }, []);
-
-  useEffect(() => {
-    const audio = liveAudioRef.current;
-    if (!audio) return;
-
-    const readDuration = () => {
-      if (Number.isFinite(audio.duration) && audio.duration > 0) return audio.duration;
-      if (audio.seekable.length > 0) return audio.seekable.end(audio.seekable.length - 1);
-      if (audio.buffered.length > 0) return audio.buffered.end(audio.buffered.length - 1);
-      return 0;
-    };
-    const syncDuration = () => {
-      const duration = readDuration();
-      if (duration > 0) setAudioDuration(duration);
-    };
-    const onLoadedMetadata = syncDuration;
-    const onDurationChange = syncDuration;
-    const onTimeUpdate = () => {
-      syncDuration();
-      setAudioProgress(audio.currentTime || 0);
-    };
-    const onPlay = () => setAudioPlaying(true);
-    const onPause = () => setAudioPlaying(false);
-    const onEnded = () => {
-      const endPosition = readDuration() || audio.currentTime;
-      audio.currentTime = endPosition;
-      setAudioDuration(endPosition);
-      setAudioProgress(endPosition);
-      setAudioPlaying(false);
-    };
-
-    audio.addEventListener('loadedmetadata', onLoadedMetadata);
-    audio.addEventListener('durationchange', onDurationChange);
-    audio.addEventListener('timeupdate', onTimeUpdate);
-    audio.addEventListener('play', onPlay);
-    audio.addEventListener('pause', onPause);
-    audio.addEventListener('ended', onEnded);
-
-    return () => {
-      audio.removeEventListener('loadedmetadata', onLoadedMetadata);
-      audio.removeEventListener('durationchange', onDurationChange);
-      audio.removeEventListener('timeupdate', onTimeUpdate);
-      audio.removeEventListener('play', onPlay);
-      audio.removeEventListener('pause', onPause);
-      audio.removeEventListener('ended', onEnded);
-    };
-  }, []);
-
-  // The hero cycles only while the demo is idle, so the two figures never
-  // contradict each other — during playback the hero mirrors the live turn.
-  const playingRef = useRef(replay.playing);
-  playingRef.current = replay.playing;
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      if (playingRef.current) return;
-      setHeroState((s) => STATE_ORDER[(STATE_ORDER.indexOf(s) + 1) % STATE_ORDER.length]);
-      setHeroLat(`${280 + Math.floor(Math.random() * 60)}ms`);
-    }, 1700);
-    return () => clearInterval(id);
-  }, []);
-
-  // Keep the newest turn in view. rAF so the scroll happens after the row has
-  // actually been laid out, and `isConnected` because a scenario switch can
-  // unmount the node between the commit and the frame.
-  useEffect(() => {
-    const el = transcriptRef.current;
-    if (!el) return;
-    const id = requestAnimationFrame(() => {
-      if (el.isConnected) el.scrollTop = el.scrollHeight;
-    });
-    return () => cancelAnimationFrame(id);
-  }, [replay.turns.length, replay.typing]);
-
-  // Retint the sticky core as each narrative step passes the middle of the
-  // viewport. The -45%/-45% margins collapse the root to a thin band, so
-  // exactly one step is "current" at a time.
-  useEffect(() => {
-    const root = narrRef.current;
-    if (!root) return;
-    const steps = Array.from(root.querySelectorAll<HTMLElement>('[data-narr]'));
-    if (!steps.length) return;
-
-    const io = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((e) => {
-          if (e.isIntersecting) {
-            setNarrIdx(Number(e.target.getAttribute('data-narr')) || 0);
-          }
-        });
-      },
-      { rootMargin: '-45% 0px -45% 0px', threshold: 0 },
-    );
-    steps.forEach((s) => io.observe(s));
-    return () => io.disconnect();
-  }, []);
-
-  const scrollTo = useCallback((id: string) => (e: React.MouseEvent) => {
-    e.preventDefault();
-    const el = document.getElementById(id);
-    if (!el) return;
-    const reduced = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    window.scrollTo({
-      top: el.getBoundingClientRect().top + window.pageYOffset - 70,
-      behavior: reduced ? 'auto' : 'smooth',
-    });
-  }, []);
-
-  const heroLive = replay.playing ? replay.state : heroState;
-  const narr = NARRATIVE[narrIdx] ?? NARRATIVE[0];
-  const layer = STACK[stackIdx] ?? STACK[0];
-  const v = VERTICALS[vertical];
+  /* FAQPage structured data — mirrors the schema.org note in lib/brand.ts. */
+  const faqLd = {
+    '@context': 'https://schema.org',
+    '@type': 'FAQPage',
+    mainEntity: FAQ.map((f) => ({
+      '@type': 'Question',
+      name: f.q,
+      acceptedAnswer: { '@type': 'Answer', text: f.a },
+    })),
+  };
 
   return (
     <div className="lp">
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(faqLd) }} />
+
       {/* ══ HERO ══════════════════════════════════════════════════════════ */}
-      <section id="top" className="lp-hero">
-        <div>
-          <div className="lp-live-badge">
-            <span className="lp-blink-dot" />
-            LIVE · avg first-response ~320 ms
-          </div>
-
-          <h1 className="lp-h1">
-            Calls that forget<br />they’re talking<br />
-            to <span className="lp-h1-accent">AI</span>.
-          </h1>
-
-          <p className="lp-lede">
-            Spandan builds conversational voice agents that answer and place real phone calls —
-            interrupting naturally, pulling from your knowledge base, and firing actions in your
-            CRM, calendar and tools while the conversation is still happening.
-          </p>
-
-          <div className="lp-hero-cta">
-            <a href="#demo" onClick={scrollTo('demo')} className="lp-btn lp-btn-primary lp-btn-lg">
-              <span className="lp-blink-dot lp-blink-dot--dark" /> Hear it live
-            </a>
-            <a href="#stack" onClick={scrollTo('stack')} className="lp-btn lp-btn-ghost lp-btn-lg">
-              Explore the stack →
-            </a>
-          </div>
-
-          <div className="lp-hero-stats">
-            {HERO_STATS.map((s, i) => (
-              <Fragment key={s.label}>
-                {/* Rule between, not after — a trailing divider on the last
-                    stat reads as a missing fourth column. */}
-                {i > 0 && <div className="lp-hero-rule" />}
-                <div>
-                  <div className="lp-hero-stat-v">{s.value}</div>
-                  <div className="lp-hero-stat-k">{s.label}</div>
-                </div>
-              </Fragment>
-            ))}
-          </div>
-        </div>
-
-        {/* Voice core */}
-        <div className="lp-core">
-          <VoiceCore state={heroLive} pointer className="lp-core-canvas" />
-          <div className="lp-core-label">
-            <div className="lp-core-kicker">VOICE CORE</div>
-            <div className="lp-core-state" style={{ color: voiceColor(heroLive) }}>
-              {heroLive.toUpperCase()}
-            </div>
-          </div>
-          <div className="lp-core-foot">
-            <span>turn <span style={{ color: 'var(--cyan-fg)' }}>
-              {heroLive === 'listening' || heroLive === 'idle' ? 'caller' : 'agent'}
-            </span></span>
-            <span>lat <span style={{ color: 'var(--lime)' }}>{heroLat}</span></span>
-          </div>
-          <div className="lp-core-corner">◍ barge-in on</div>
-        </div>
-      </section>
-
-      {/* ══ CONNECTS TO ═══════════════════════════════════════════════════ */}
-      <section className="lp-marquee-band">
-        <div className="lp-marquee-inner">
-          <span className="lp-marquee-kicker">CONNECTS TO</span>
-          <div className="lp-marquee-mask">
-            {/* Listed twice so the -50% translate loops seamlessly. */}
-            <div className="lp-marquee-track" aria-hidden>
-              {[...CONNECTORS, ...CONNECTORS].map((c, i) => <span key={i}>{c}</span>)}
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ══ HEAR IT LIVE ══════════════════════════════════════════════════ */}
-      <section id="demo" className="lp-sec">
-        <div className="lp-sec-head">
-          <div>
-            <div className="lp-kicker">// HEAR IT LIVE</div>
-            <h2 className="lp-h2">Pick a scenario. Watch it think.</h2>
-            <p className="lp-p">
-              A curated conversation replays turn by turn — transcript, live turn-state and the
-              exact tools the agent fires. <span className="lp-muted">Illustrative sample.</span>
-            </p>
-          </div>
-          <div className="lp-scenarios">
-            {Object.entries(SCENARIOS).map(([key, s]) => (
-              <button
-                key={key}
-                type="button"
-                onClick={() => setScenarioKey(key)}
-                className={`lp-pill${key === scenarioKey ? ' is-on' : ''}`}
-                aria-pressed={key === scenarioKey}
-              >
-                {s.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="lp-demo-grid">
-          {/* Transcript */}
-          <div className="lp-terminal">
-            <div className="lp-terminal-bar">
-              <span className="lp-dots">
-                <span style={{ background: '#ff5f57' }} />
-                <span style={{ background: '#febc2e' }} />
-                <span style={{ background: '#28c840' }} />
+      <section className="lp-hero">
+        <div className="lp-hero-channels">
+          {CHANNELS.map((c) => {
+            const Icon = CHANNEL_ICON[c.icon];
+            return (
+              <span key={c.label} className="lp-hero-channel" title={c.detail}>
+                <Icon size={15} aria-hidden />
+                {c.label}
               </span>
-              <span style={{ color: 'var(--tx-2)' }}>{scenario.title}</span>
-              <span className="lp-connected">
-                <span className="lp-blink-dot" /> connected
-              </span>
-            </div>
-
-            <div className="lp-transcript" ref={transcriptRef} aria-live="polite">
-              {replay.turns.map((t) => {
-                const agent = t.who === 'agent';
-                return (
-                  <div key={t.key} className={`lp-turn${agent ? '' : ' is-caller'}`}>
-                    <div
-                      className={`lp-bubble${agent ? ' is-agent' : ''}`}
-                      style={agent ? { borderColor: `${voiceColor(t.s)}55` } : undefined}
-                    >
-                      <div className="lp-bubble-tag">{t.tag}</div>
-                      <div className="lp-bubble-text">{t.text}</div>
-                      {t.tool && (
-                        <div className="lp-tool">
-                          <span className="lp-tool-dot" />
-                          {t.tool}
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                );
-              })}
-              {replay.typing && <div className="lp-typing">agent is thinking…</div>}
-            </div>
-          </div>
-
-          {/* Telemetry */}
-          <div className="lp-telemetry">
-            <div className="lp-card lp-live-audio">
-              <div className="lp-live-audio-head">
-                <div>
-                  <div className="lp-kicker-sm">CALL AUDIO</div>
-                  <div className="lp-live-status">
-                    <span className="lp-blink-dot" /> live feed
-                  </div>
-                </div>
-                <button
-                  type="button"
-                  className="lp-live-audio-toggle"
-                  onClick={toggleAudio}
-                  aria-label={audioPlaying ? 'Pause call audio' : 'Play call audio'}
-                >
-                  {audioPlaying ? 'Pause' : 'Play'}
-                </button>
-              </div>
-
-              <div className="lp-live-audio-wave" aria-hidden="true">
-                {Array.from({ length: 26 }).map((_, i) => (
-                  <span
-                    key={i}
-                    className={`lp-live-audio-bar${audioPlaying ? ' is-live' : ''}`}
-                    style={{ height: `${20 + ((i * 11) % 54)}%` }}
-                  />
-                ))}
-              </div>
-
-              <div className="lp-live-audio-progress">
-                <input
-                  aria-label="Call audio progress"
-                  type="range"
-                  min={0}
-                  max={Math.max(audioDuration, 0.01)}
-                  step={0.01}
-                  value={Math.min(audioProgress, Math.max(audioDuration, 0.01))}
-                  onChange={(event) => handleAudioSeek(Number(event.target.value))}
-                />
-              </div>
-
-              <div className="lp-live-audio-timing">
-                <span>{formatAudioTime(audioProgress)}</span>
-                <span>{formatAudioTime(audioDuration)}</span>
-              </div>
-
-              <audio ref={liveAudioRef} preload="metadata" src="/saas-demo-booking-call-2026-08-20-10-41-55.webm" />
-            </div>
-
-            <div className="lp-card lp-turnstate">
-              <div className="lp-kicker-sm">TURN STATE</div>
-              <div className="lp-turnstate-v" style={{ color: voiceColor(replay.state) }}>
-                {replay.state.toUpperCase()}
-              </div>
-              <div className="lp-progress">
-                {STATE_ORDER.map((s, i) => (
-                  <span
-                    key={s}
-                    style={{
-                      background: i <= replay.stateIndex ? voiceColor(replay.state) : 'var(--s3)',
-                    }}
-                  />
-                ))}
-              </div>
-              <VoiceCore state={replay.state} small className="lp-turnstate-canvas" />
-            </div>
-
-            <div className="lp-card lp-metrics">
-              <div>
-                <div className="lp-kicker-sm">FIRST TOKEN</div>
-                <div className="lp-metric">{replay.latency}<span> ms</span></div>
-              </div>
-              <div>
-                <div className="lp-kicker-sm">TURNS</div>
-                <div className="lp-metric">{replay.turnCount}</div>
-              </div>
-              <div>
-                <div className="lp-kicker-sm">INTERRUPTS</div>
-                <div className="lp-metric" style={{ color: 'var(--coral)' }}>{replay.interrupts}</div>
-              </div>
-              <div>
-                <div className="lp-kicker-sm">TOOLS FIRED</div>
-                <div className="lp-metric" style={{ color: 'var(--lime)' }}>{replay.toolsFired}</div>
-              </div>
-            </div>
-
-            <button type="button" onClick={replayAgain} className="lp-btn lp-btn-secondary lp-btn-block">
-              ↻ Replay conversation
-            </button>
-          </div>
+            );
+          })}
         </div>
-      </section>
 
-      {/* ══ CONNECT WITH SALES ════════════════════════════════════════════ */}
-      <section id="sales" className="lp-sales">
-        <div className="lp-sales-inner">
-          <div>
-            <div className="lp-kicker">TALK TO US</div>
-            <h2 className="lp-sales-h">Connect with our<br />sales team.</h2>
-            <p className="lp-p" style={{ marginTop: 18 }}>
-              Tell us your call volume and what the agent needs to do. We will walk through
-              pricing for your numbers, run a live demo on a real phone call, and scope anything
-              custom — white label, your own carrier, or an on-prem deployment.
-            </p>
+        <h1 className="lp-h1">{HERO.title}</h1>
+        <p className="lp-lede">{HERO.lede}</p>
 
-            <ul className="lp-sales-points">
-              {SALES_POINTS.map((p) => (
-                <li key={p.title}>
-                  <span className="lp-sales-tick" aria-hidden>✓</span>
-                  <span>
-                    <strong>{p.title}</strong>
-                    <span className="lp-muted"> — {p.detail}</span>
-                  </span>
-                </li>
+        <div className="lp-hero-cta">
+          <Link to={HERO.primary.to} className="lp-btn lp-btn-primary lp-btn-lg">
+            {HERO.primary.label}
+          </Link>
+          <Link to={HERO.secondary.to} className="lp-btn lp-btn-ghost lp-btn-lg">
+            {HERO.secondary.label}
+          </Link>
+        </div>
+
+        {/* Call console mock — static, illustrative, full width below the copy */}
+        <div className="lp-console" aria-hidden>
+          <div className="lp-console-bar">
+            <span className="lp-console-dots"><span /><span /><span /></span>
+            <span className="lp-console-title">{CONSOLE.title}</span>
+            <span className="lp-console-status">
+              <span className="lp-blink-dot" /> {CONSOLE.status}
+            </span>
+          </div>
+          <div className="lp-console-body">
+            <div className="lp-console-stream">
+              {CONSOLE.turns.map((t, i) => (
+                <div key={i} className={`lp-console-turn${t.who === 'Agent' ? ' is-agent' : ''}`}>
+                  <div className="lp-console-who">{t.who}</div>
+                  <div className="lp-console-text">{t.text}</div>
+                </div>
               ))}
-            </ul>
-          </div>
-
-          <aside className="lp-sales-card">
-            <div className="lp-sales-card-top">
-              <span className="lp-blink-dot" />
-              A real person replies within one business day
             </div>
-
-            <Link to="/contact" className="lp-btn lp-btn-primary lp-btn-lg lp-btn-block">
-              Connect with sales →
-            </Link>
-            <Link to="/book-appointment" className="lp-btn lp-btn-secondary lp-btn-block">
-              Book a 30-minute demo
-            </Link>
-
-            <div className="lp-sales-or"><span>or email us directly</span></div>
-
-            <a href={`mailto:${BRAND.supportEmail}`} className="lp-sales-mail">
-              {BRAND.supportEmail}
-            </a>
-
-            <p className="lp-sales-fine">
-              Rather try it yourself first?{' '}
-              <Link to="/signup" className="lp-sales-fine-link">Build an agent free →</Link>
-            </p>
-          </aside>
-        </div>
-      </section>
-
-      {/* ══ ANATOMY OF ONE CALL ═══════════════════════════════════════════ */}
-      <section id="how" className="lp-sec">
-        <div className="lp-sec-centre">
-          <div className="lp-kicker lp-kicker--violet">// ANATOMY OF ONE CALL</div>
-          <h2 className="lp-h2">One conversation, start to outcome</h2>
-        </div>
-
-        <div className="lp-narr">
-          <div className="lp-narr-core">
-            <div className="lp-narr-frame">
-              <VoiceCore state={narr.state} className="lp-core-canvas" />
-              <div className="lp-narr-step">{narr.num} / {narr.kicker}</div>
-              <div className="lp-narr-foot">
-                <span>state <span style={{ color: voiceColor(narr.state) }}>{narr.state}</span></span>
-                <span style={{ marginLeft: 'auto' }}>◍ real-time</span>
+            <div className="lp-console-side">
+              <div className="lp-console-tool">
+                <span className="lp-tool-dot" /> {CONSOLE.tool}
+              </div>
+              <div className="lp-console-outcome">
+                <Check size={14} aria-hidden /> {CONSOLE.outcome}
+              </div>
+              <div className="lp-console-stats">
+                {HERO_STATS.map((s) => (
+                  <div key={s.label}>
+                    <div className="lp-console-stat-v">{s.value}</div>
+                    <div className="lp-console-stat-k">{s.label}</div>
+                  </div>
+                ))}
               </div>
             </div>
-          </div>
-
-          <div ref={narrRef}>
-            {NARRATIVE.map((n, i) => (
-              <div key={n.num} data-narr={i} className="lp-narr-step-block">
-                <div className="lp-narr-num">{n.num}</div>
-                <div className="lp-kicker">{n.kicker}</div>
-                <h3 className="lp-h3">{n.title}</h3>
-                <p className="lp-p">{n.body}</p>
-              </div>
-            ))}
           </div>
         </div>
       </section>
 
-      {/* ══ VOICE LAB ═════════════════════════════════════════════════════ */}
-      <section id="lab" className="lp-sec">
-        <div className="lp-lab">
+      {/* ══ SOCIAL PROOF ══════════════════════════════════════════════════ */}
+      <section className="lp-sec">
+        <div className="lp-sechead">
+          <div className="lp-eyebrow">{PROOF.heading}</div>
+        </div>
+        <div className="lp-proof-industries">
+          {PROOF.industries.map((i) => <span key={i}>{i}</span>)}
+        </div>
+        <div className="lp-proof-grid">
+          {PROOF.outcomes.map((o) => (
+            <figure key={o.label} className="lp-proof-card">
+              <blockquote>{o.quote}</blockquote>
+              <figcaption>{o.label}</figcaption>
+            </figure>
+          ))}
+        </div>
+      </section>
+
+      {/* ══ OMNICHANNEL (left-aligned) ════════════════════════════════════ */}
+      <section className="lp-sec">
+        <div className="lp-split">
           <div>
-            <div className="lp-badge-lime">NEW · P2</div>
-            <h2 className="lp-h2">The Voice Lab</h2>
-            <p className="lp-p">
-              Dial in personality, language, pace and warmth, type a line, and watch a generative{' '}
-              <strong style={{ color: 'var(--tx)' }}>voice fingerprint</strong> respond to pitch,
-              energy and conversation state. Every voice looks like it sounds.
-            </p>
-            <div className="lp-hero-cta" style={{ marginTop: 22 }}>
-              <Link to="/clone_voice" className="lp-btn lp-btn-violet">Open Voice Lab</Link>
-              <Link to="/voice_assistant" className="lp-btn lp-btn-ghost">Try “Can you tell?” →</Link>
-            </div>
+            <div className="lp-eyebrow">{OMNI.kicker}</div>
+            <h2 className="lp-h2 lp-h2--left">{OMNI.title}</h2>
+            <p className="lp-p">{OMNI.body}</p>
           </div>
-          <div className="lp-lab-canvas-wrap">
-            <VoiceCore state="speaking" className="lp-core-canvas" />
+          <div className="lp-omni-list">
+            {CHANNELS.map((c) => {
+              const Icon = CHANNEL_ICON[c.icon];
+              return (
+                <div key={c.label} className="lp-omni-row">
+                  <span className="lp-omni-icon"><Icon size={18} aria-hidden /></span>
+                  <span>
+                    <strong>{c.label}</strong>
+                    <span className="lp-muted"> — {c.detail}</span>
+                  </span>
+                </div>
+              );
+            })}
           </div>
         </div>
       </section>
 
-      {/* ══ SOLUTIONS ═════════════════════════════════════════════════════ */}
-      <section id="usecases" className="lp-sec">
-        <div className="lp-kicker">// SOLUTIONS</div>
-        <h2 className="lp-h2" style={{ marginBottom: 24 }}>Built for the calls you make every day</h2>
+      {/* ══ TRUST (left-aligned) ══════════════════════════════════════════ */}
+      <section className="lp-sec">
+        <div className="lp-split">
+          <div>
+            <div className="lp-eyebrow is-violet">{TRUST.kicker}</div>
+            <h2 className="lp-h2 lp-h2--left">{TRUST.title}</h2>
+            <p className="lp-p">{TRUST.body}</p>
+            <div className="lp-chips" style={{ marginTop: 22 }}>
+              {BADGES.map((b) => <span key={b} className="lp-badge">{b}</span>)}
+            </div>
+          </div>
+          <ul className="lp-privacy-points">
+            {TRUST.points.map((p) => (
+              <li key={p}>
+                <span className="lp-tick" aria-hidden><ShieldCheck size={15} /></span>
+                {p}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </section>
+
+      {/* ══ GET STARTED + ASK AI ══════════════════════════════════════════ */}
+      <section className="lp-sec">
+        <div className="lp-cta-band">
+          <h2 className="lp-h2">{CTA_BAND.title}</h2>
+          <div className="lp-hero-cta" style={{ marginTop: 22, justifyContent: 'center' }}>
+            <Link to={CTA_BAND.primary.to} className="lp-btn lp-btn-primary lp-btn-lg">
+              {CTA_BAND.primary.label}
+            </Link>
+            <Link to={CTA_BAND.secondary.to} className="lp-btn lp-btn-secondary lp-btn-lg">
+              {CTA_BAND.secondary.label}
+            </Link>
+          </div>
+          <div className="lp-ask">
+            <span className="lp-ask-lead">{ASK_AI.heading}</span>
+            <span className="lp-ask-links">
+              {ASK_AI.links.map((l) => (
+                <a key={l.label} href={l.href} target="_blank" rel="noreferrer noopener">
+                  {l.label} <ArrowRight size={13} aria-hidden />
+                </a>
+              ))}
+            </span>
+          </div>
+        </div>
+      </section>
+
+      {/* ══ USE CASES ═════════════════════════════════════════════════════ */}
+      <section className="lp-sec">
+        <SecHead
+          eyebrow="USE CASES"
+          title="Perfect for every conversation you have."
+          intro="The same agent, pointed at a different job. Pick where it earns its keep first."
+        />
+
+        <div className="lp-uc-tabs" role="tablist" aria-label="Use case categories">
+          {USE_CASE_BUCKETS.map((b) => (
+            <button
+              key={b.key}
+              type="button"
+              role="tab"
+              aria-selected={b.key === bucket}
+              onClick={() => setBucket(b.key)}
+              className={`lp-uc-tab${b.key === bucket ? ' is-on' : ''}`}
+            >
+              <strong>{b.label}</strong>
+              <span>{b.blurb}</span>
+            </button>
+          ))}
+        </div>
 
         <div className="lp-uc">
-          {USE_CASES.map((u) => (
+          {cases.map((u) => (
             <Link key={u.title} to={u.to} className="lp-uc-card">
               <div className="lp-kicker-sm">{u.tag}</div>
               <h3 className="lp-uc-title">{u.title}</h3>
               <p className="lp-uc-body">{u.body}</p>
-              <div className="lp-uc-more">Explore →</div>
+              <span className="lp-uc-more">Explore <ArrowRight size={13} aria-hidden /></span>
             </Link>
           ))}
         </div>
 
-        <div className="lp-kicker lp-kicker--violet" style={{ marginTop: 48 }}>// INDUSTRIES</div>
-        <div className="lp-chips">
+        <div className="lp-sechead" style={{ marginTop: 44, marginBottom: 0 }}>
+          <div className="lp-eyebrow is-violet">INDUSTRIES</div>
+        </div>
+        <div className="lp-chips lp-chips--centre">
           {INDUSTRIES.map((i) => (
             <Link key={i.label} to={i.to} className="lp-chip">{i.label}</Link>
           ))}
         </div>
       </section>
 
-      {/* ══ THE PLATFORM ══════════════════════════════════════════════════ */}
-      <section id="product" className="lp-sec">
-        <div className="lp-kicker">// THE PLATFORM</div>
-        <h2 className="lp-h2" style={{ marginBottom: 24 }}>Everything a real call needs</h2>
-        <div className="lp-feat">
-          {FEATURES.map((f) => (
-            <Link key={f.title} to={f.to} className="lp-feat-card">
-              <div className="lp-feat-mark">{f.mark}</div>
-              <h3 className="lp-feat-title">{f.title}</h3>
-              <p className="lp-feat-body">{f.body}</p>
-            </Link>
-          ))}
-        </div>
-      </section>
-
-      {/* ══ THE FULL STACK ════════════════════════════════════════════════ */}
-      <section id="stack" className="lp-sec">
-        <div className="lp-kicker">// THE FULL STACK</div>
-        <h2 className="lp-h2" style={{ marginBottom: 8 }}>Every layer of the call, one platform.</h2>
-        <p className="lp-p" style={{ maxWidth: 620, marginBottom: 28 }}>
-          From the carrier line to the outcome in your CRM, Spandan owns each layer a real
-          conversation passes through — so there are no handoffs, and nothing between your agent
-          and the person on the other end.
-        </p>
-
-        <div className="lp-stack-grid">
-          <div className="lp-stack-list">
-            {STACK.map((l, i) => {
-              const on = i === stackIdx;
-              return (
-                <button
-                  key={l.num}
-                  type="button"
-                  onClick={() => setStackIdx(i)}
-                  aria-pressed={on}
-                  className={`lp-stack-row${on ? ' is-on' : ''}`}
-                  style={on ? { borderLeftColor: l.color } : undefined}
-                >
-                  <span
-                    className="lp-stack-num"
-                    style={on ? { background: l.color, color: 'var(--on-cyan)', border: 'none' } : undefined}
-                  >
-                    {l.num}
-                  </span>
-                  <span className="lp-stack-copy">
-                    <span className="lp-stack-title">{l.title}</span>
-                    {on && <span className="lp-stack-body">{l.body}</span>}
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="lp-stack-panel">
-            <VoiceCore state={layer.state} className="lp-core-canvas" style={{ opacity: 0.9 }} />
-            <div className="lp-stack-detail">
-              <div className="lp-kicker-sm" style={{ color: layer.color, letterSpacing: '2px' }}>
-                {layer.kicker}
-              </div>
-              <h3 className="lp-stack-detail-title">{layer.title}</h3>
-              <p className="lp-p" style={{ maxWidth: 440, fontSize: 15 }}>{layer.detail}</p>
-              <div className="lp-stack-controls">
-                <button
-                  type="button"
-                  className="lp-btn lp-btn-primary"
-                  onClick={() => setStackIdx((i) => (i + 1) % STACK.length)}
-                >
-                  Next layer →
-                </button>
-                <div className="lp-stack-dots">
-                  {STACK.map((l, i) => (
-                    <span
-                      key={l.num}
-                      style={{
-                        width: i === stackIdx ? 22 : 7,
-                        background: i === stackIdx ? layer.color : 'var(--s3)',
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      {/* ══ WHY SPANDAN ═══════════════════════════════════════════════════ */}
+      {/* ══ QA & ANALYTICS ════════════════════════════════════════════════ */}
       <section className="lp-sec">
-        <div className="lp-kicker lp-kicker--violet">// WHY SPANDAN</div>
-        <h2 className="lp-h2" style={{ marginBottom: 8 }}>Not a chatbot with a phone number.</h2>
-        <p className="lp-p" style={{ maxWidth: 600, marginBottom: 28 }}>
-          Most tools bolt speech onto a text bot. Spandan is built for the call itself —
-          interruptions, latency, tools and outcomes, end to end.
-        </p>
+        <SecHead eyebrow={QA.kicker} title={QA.title} intro={QA.body} />
 
-        <div className="lp-compare">
-          <div className="lp-compare-scroll">
-            <table>
-              <thead>
-                <tr>
-                  <th className="lp-compare-cap">Capability</th>
-                  <th className="lp-compare-us">Spandan</th>
-                  <th>Chatbot + TTS</th>
-                  <th>Legacy IVR</th>
-                </tr>
-              </thead>
-              <tbody>
-                {COMPARE.map((r) => (
-                  <tr key={r.label}>
-                    <td className="lp-compare-label">{r.label}</td>
-                    <td><Mark v={r.us} /></td>
-                    <td><Mark v={r.bot} /></td>
-                    <td><Mark v={r.ivr} /></td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+        <div className="lp-scorecard" aria-hidden>
+          <div className="lp-scorecard-head">
+            <span>{QA.card.title}</span>
+            <span className="lp-scorecard-note">{QA.card.note}</span>
           </div>
+          <div className="lp-scorecard-metrics">
+            {QA.card.metrics.map((m) => (
+              <div key={m.label}>
+                <div className="lp-scorecard-v">{m.value}</div>
+                <div className="lp-scorecard-k">{m.label}</div>
+              </div>
+            ))}
+          </div>
+          <div className="lp-scorecard-issues">
+            <div className="lp-kicker-sm">Issues flagged on this call</div>
+            {QA.card.issues.map((iss) => (
+              <div key={iss.tag} className={`lp-qa-issue is-${iss.severity}`}>
+                <AlertTriangle size={14} aria-hidden />
+                <span><strong>{iss.tag}</strong> — {iss.text}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="lp-sechead-link">
+          <Link to={QA.link.to} className="lp-uc-more">
+            {QA.link.label} <ArrowRight size={13} aria-hidden />
+          </Link>
         </div>
       </section>
 
-      {/* ══ INDUSTRY TABS ═════════════════════════════════════════════════ */}
+      {/* ══ CAPABILITIES ══════════════════════════════════════════════════ */}
       <section className="lp-sec">
-        <div className="lp-kicker">// TRANSFORM WORKFLOWS</div>
-        <h2 className="lp-h2" style={{ marginBottom: 28 }}>One agent, tuned to your industry</h2>
-
-        <div className="lp-vert-grid">
-          <div className="lp-stack-list">
-            {Object.entries(VERTICALS).map(([key, d]) => {
-              const on = key === vertical;
-              return (
-                <button
-                  key={key}
-                  type="button"
-                  onClick={() => setVertical(key)}
-                  aria-pressed={on}
-                  className={`lp-vert-tab${on ? ' is-on' : ''}`}
-                >
-                  <span className="lp-vert-name">{d.name}</span>
-                  <span className="lp-vert-short">{d.short}</span>
-                </button>
-              );
-            })}
-          </div>
-
-          <div className="lp-vert-panel">
-            <div className="lp-kicker-sm" style={{ color: v.accent, letterSpacing: '2px' }}>{v.kicker}</div>
-            <h3 className="lp-vert-title">{v.title}</h3>
-            <p className="lp-p" style={{ maxWidth: 460, fontSize: 16 }}>{v.body}</p>
-            <div className="lp-vert-metrics">
-              {v.metrics.map((m) => (
-                <div key={m.label}>
-                  <div className="lp-vert-metric-v" style={{ color: v.accent }}>{m.value}</div>
-                  <div className="lp-vert-metric-k">{m.label}</div>
-                </div>
-              ))}
-            </div>
-            <Link to={v.to} className="lp-vert-more" style={{ color: v.accent }}>Learn more →</Link>
-          </div>
+        <SecHead eyebrow="BUILT FOR REAL CALLS" title="Fast, multilingual, and ready for volume." />
+        <div className="lp-caps">
+          {CAPABILITIES.map((c, i) => {
+            const Icon = CAPABILITY_ICONS[i] ?? Zap;
+            return (
+              <div key={c.title} className="lp-cap-card">
+                <span className="lp-cap-icon" style={{ color: ACCENT[c.accent] }}>
+                  <Icon size={20} aria-hidden />
+                </span>
+                <div className="lp-cap-stat" style={{ color: ACCENT[c.accent] }}>{c.stat}</div>
+                <h3 className="lp-cap-title">{c.title}</h3>
+                <p className="lp-cap-body">{c.body}</p>
+              </div>
+            );
+          })}
         </div>
       </section>
 
-      {/* ══ STATS + COMPLIANCE ════════════════════════════════════════════ */}
-      <section className="lp-stats-band">
-        <div className="lp-stats-grid">
-          {BIG_STATS.map((s) => (
-            <div key={s.kicker}>
-              <div className="lp-kicker-sm">{s.kicker}</div>
-              <div className="lp-big-stat">{s.value}</div>
-              <div className="lp-big-stat-body">{s.body}</div>
+      {/* ══ INTEGRATIONS ══════════════════════════════════════════════════ */}
+      <section className="lp-sec">
+        <SecHead
+          eyebrow="INTEGRATIONS"
+          title="One layer to orchestrate every tool."
+          intro="The agent reads and writes the systems you already run — during the call, not after it."
+        />
+        <div className="lp-int">
+          {INTEGRATIONS.map((it) => (
+            <div key={it.name} className="lp-int-card">
+              <span className="lp-int-mark"><Plug size={15} aria-hidden /></span>
+              <div>
+                <div className="lp-int-name">{it.name}</div>
+                <div className="lp-int-detail">{it.detail}</div>
+              </div>
             </div>
           ))}
         </div>
-        <div className="lp-compliance">
-          <span className="lp-kicker-sm">COMPLIANCE, BY DEFAULT</span>
-          <div className="lp-chips" style={{ marginTop: 0 }}>
-            {BADGES.map((b) => <span key={b} className="lp-badge">{b}</span>)}
-          </div>
+        <div className="lp-sechead-link">
+          <Link to={INTEGRATIONS_LINK.to} className="lp-uc-more">
+            {INTEGRATIONS_LINK.label} <ArrowRight size={13} aria-hidden />
+          </Link>
+        </div>
+      </section>
+
+      {/* ══ BUILDER CANVAS ════════════════════════════════════════════════ */}
+      <section className="lp-sec">
+        <SecHead eyebrow={BUILDER.kicker} title={BUILDER.title} intro={BUILDER.body} violet />
+        <div className="lp-flow" aria-hidden>
+          {FLOW.map((n, i) => (
+            <div key={i} className={`lp-flow-node is-${n.kind}`}>
+              <span className="lp-flow-dot" style={{ background: n.accent ? ACCENT[n.accent] : 'var(--tx-3)' }} />
+              <span className="lp-flow-label">{n.label}</span>
+              {n.meta && <span className="lp-flow-meta">{n.meta}</span>}
+            </div>
+          ))}
+        </div>
+        <div className="lp-sechead-link">
+          <Link to={BUILDER.link.to} className="lp-btn lp-btn-secondary">
+            {BUILDER.link.label} <ArrowRight size={14} aria-hidden />
+          </Link>
+        </div>
+      </section>
+
+      {/* ══ FAQ ═══════════════════════════════════════════════════════════ */}
+      <section className="lp-sec">
+        <SecHead eyebrow="FAQ" title="Voice AI, explained." />
+        <div className="lp-faq">
+          {FAQ.map((f, i) => {
+            const open = openFaq === i;
+            return (
+              <div key={f.q} className={`lp-faq-item${open ? ' is-open' : ''}`}>
+                <button
+                  type="button"
+                  className="lp-faq-q"
+                  aria-expanded={open}
+                  onClick={() => setOpenFaq(open ? null : i)}
+                >
+                  <span>{f.q}</span>
+                  <span className="lp-faq-sign" aria-hidden>{open ? '–' : '+'}</span>
+                </button>
+                {open && <p className="lp-faq-a">{f.a}</p>}
+              </div>
+            );
+          })}
         </div>
       </section>
 
       {/* ══ FINAL CTA ═════════════════════════════════════════════════════ */}
       <section className="lp-final">
-        <h2 className="lp-final-h">Give your product a<br />voice that answers.</h2>
+        <h2 className="lp-final-h">{FINAL.title}</h2>
         <div className="lp-hero-cta" style={{ justifyContent: 'center', marginTop: 28 }}>
-          <Link to="/signup" className="lp-btn lp-btn-primary lp-btn-lg">Build an agent free</Link>
-          <Link to="/contact" className="lp-btn lp-btn-ghost lp-btn-lg">Talk to sales</Link>
+          <Link to={FINAL.primary.to} className="lp-btn lp-btn-primary lp-btn-lg">{FINAL.primary.label}</Link>
+          <Link to={FINAL.secondary.to} className="lp-btn lp-btn-ghost lp-btn-lg">{FINAL.secondary.label}</Link>
         </div>
+        <p className="lp-final-fine">
+          Questions about volume pricing or a custom deployment?{' '}
+          <a href={`mailto:${BRAND.supportEmail}`}>{BRAND.supportEmail}</a>
+        </p>
       </section>
     </div>
   );
-}
-
-/** Capability mark in the comparison table. */
-function Mark({ v }: { v: Support }) {
-  if (v === 'yes') return <span className="lp-mark-yes" aria-label="supported">✓</span>;
-  if (v === 'partial') return <span className="lp-mark-part">partial</span>;
-  return <span className="lp-mark-no" aria-label="not supported" />;
 }
