@@ -1,10 +1,12 @@
 import pino from 'pino';
 
+// pino's worker_thread-based `transport` option is incompatible with Node's
+// --watch on Windows: the watch supervisor's restart/teardown doesn't
+// coordinate with the transport worker's lifecycle and silently kills the
+// process. Pretty-printing is applied out-of-process instead by piping
+// through the `pino-pretty` CLI in the dev/start scripts.
 const base = pino({
   level: process.env.LOG_LEVEL ?? 'info',
-  transport: process.env.NODE_ENV !== 'production'
-    ? { target: 'pino-pretty', options: { colorize: true, translateTime: 'SYS:standard' } }
-    : undefined,
 });
 
 /**
