@@ -8,6 +8,7 @@ export const LLM_PROVIDERS = {
   AZURE: "azure",
   GEMINI: "gemini",
   CUSTOM: "custom",
+  SARVAM: "sarvam",
 };
 
 export const ALLOWED_MODELS = {
@@ -36,6 +37,10 @@ export const ALLOWED_MODELS = {
     "gemini-2.5-flash-lite",
   ],
   custom: ["llama-3.3-70b-versatile"],
+  sarvam: [
+    "sarvam-105b-conversations",
+    "sarvam-105b",
+  ],
 };
 
 export const PROVIDER_CONFIGS = {
@@ -59,6 +64,11 @@ export const PROVIDER_CONFIGS = {
     baseUrlEnv: "CUSTOM_LLM_BASE_URL",
     timeout: 30000,
     maxRetries: 2,
+  },
+  sarvam: {
+    apiKeyEnv: "SARVAM_API_KEY",
+    timeout: 30000,
+    maxRetries: 3,
   },
 };
 

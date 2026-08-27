@@ -192,7 +192,7 @@ export const env = {
   // Sarvam AI LLM Configuration
   SARVAM_API_KEY: optional('SARVAM_API_KEY', ''),
   SARVAM_URL: optional('SARVAM_URL', 'https://api.sarvam.ai'),
-  SARVAM_MODEL: optional('SARVAM_MODEL', 'sarvam-30b'),
+  SARVAM_MODEL: optional('SARVAM_MODEL', 'sarvam-105b-conversations'),
 
   // xAI Grok Voice Agent — bundled speech-to-speech (STT+LLM+TTS) engine,
   // selectable per-agent as an alternative to the modular pipeline above.

@@ -46,7 +46,7 @@ export async function transcribeAudio(buffer, mimeType = 'audio/webm', options =
       method: 'POST',
       headers: { 'api-subscription-key': process.env.SARVAM_API_KEY },
       body: fd,
-      signal: AbortSignal.timeout(4_500),
+      signal: AbortSignal.timeout(10_000),
     });
     if (!res.ok) {
       throw new Error(`Sarvam STT HTTP ${res.status}: ${(await res.text()).slice(0, 200)}`);

@@ -3,7 +3,7 @@ import logger from '../lib/logger.js';
 
 const SARVAM_API_KEY = env.SARVAM_API_KEY;
 const SARVAM_BASE_URL = env.SARVAM_URL || 'https://api.sarvam.ai';
-const DEFAULT_MODEL = env.SARVAM_MODEL || 'sarvam-30b';
+const DEFAULT_MODEL = env.SARVAM_MODEL || 'sarvam-105b-conversations';
 
 /**
  * Detect language from text using simple heuristics

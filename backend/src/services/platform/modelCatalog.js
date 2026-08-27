@@ -72,6 +72,8 @@ export const MODEL_GROUPS = [
       // endpoint. They are separately switchable because they bill differently.
       { id: 'llm:groq:llama-3.3-70b',      value: 'Groq Llama 3.3',          label: 'Groq Llama 3.3 70B',   provider: 'Groq',   envKey: 'GROQ_API_KEY' },
       { id: 'llm:custom:llama-3.3-70b',    value: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B (custom endpoint)', provider: 'Custom', envKey: 'CUSTOM_LLM_BASE_URL' },
+      { id: 'llm:sarvam:sarvam-105b-conversations', value: 'sarvam-105b-conversations', label: 'Sarvam 105B Conversations', provider: 'Sarvam', envKey: 'SARVAM_API_KEY' },
+      { id: 'llm:sarvam:sarvam-105b',      value: 'sarvam-105b',             label: 'Sarvam 105B',          provider: 'Sarvam', envKey: 'SARVAM_API_KEY' },
     ],
   },
   {
@@ -129,30 +131,36 @@ export function invalidateModelCatalogCache() {
 async function readOverrides() {
   if (cache && Date.now() - cachedAt < CACHE_TTL_MS) return cache;
 
-  let row = await prisma.plan.findUnique({ where: { name: MODEL_CATALOG_PLAN } });
-  if (!row) {
-    row = await prisma.plan.create({
-      data: {
-        name: MODEL_CATALOG_PLAN,
-        priceUsd: 0, priceInr: 0, perMinuteUsd: 0, perMinuteInr: 0,
-        includedMinutes: 0, kbStorageMb: 0, maxAgents: 0, maxConcurrentCalls: 0,
-        features: '{}',
-        // Inactive and sorted out of the way: this is not a subscribable plan
-        // and must never appear in listAssignablePlans().
-        active: false,
-        sortOrder: -2,
-      },
-    });
-    logger.info('Seeded platform model catalogue (all models enabled)');
+  let row = null;
+  try {
+    row = await prisma.plan.findUnique({ where: { name: MODEL_CATALOG_PLAN } });
+    if (!row) {
+      row = await prisma.plan.create({
+        data: {
+          name: MODEL_CATALOG_PLAN,
+          priceUsd: 0, priceInr: 0, perMinuteUsd: 0, perMinuteInr: 0,
+          includedMinutes: 0, kbStorageMb: 0, maxAgents: 0, maxConcurrentCalls: 0,
+          features: '{}',
+          // Inactive and sorted out of the way: this is not a subscribable plan
+          // and must never appear in listAssignablePlans().
+          active: false,
+          sortOrder: -2,
+        },
+      });
+      logger.info('Seeded platform model catalogue (all models enabled)');
+    }
+  } catch (err) {
+    logger.warn(`Could not read model catalog overrides from database: ${err.message}. Defaulting to all models enabled.`);
+    return {};
   }
 
   let parsed;
   try {
-    parsed = JSON.parse(row.features || '{}');
+    parsed = JSON.parse(row?.features || '{}');
   } catch {
     // A corrupt column must not black out every model. Fail open to "all
     // enabled" — the same state a fresh install has — and say so loudly.
-    logger.error({ features: row.features }, 'Model catalogue JSON is corrupt; treating all models as enabled');
+    logger.error({ features: row?.features }, 'Model catalogue JSON is corrupt; treating all models as enabled');
     parsed = {};
   }
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) parsed = {};
