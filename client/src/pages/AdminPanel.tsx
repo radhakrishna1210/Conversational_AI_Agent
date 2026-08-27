@@ -386,7 +386,7 @@ interface UserDetail extends UserRow {
  * here. All three are gone: there are no plans to assign, filter by or display.
  * A workspace's spending power is its wallet balance, managed under
  * Super Admin -> Wallets, and the rate it is charged is one platform-wide
- * number under Super Admin -> Wallet Rate.
+ * number under Super Admin -> Pricing -> Default rate.
  */
 
 function UserDetailModal({ userId, onClose, onAction }: {
@@ -972,6 +972,8 @@ export function AppointmentsTab() {
 /**
  * The platform wallet rate — the only pricing this deployment has.
  *
+ * Rendered at the top of Super Admin → Pricing, above the volume tiers that
+ * override it, so the fallback rate and the tiers that beat it are read together.
  * Replaces the old plan-catalogue editor. There are no plans: every call is
  * charged one rate per talk-minute against the workspace's wallet, and this is
  * where that number is set. It is also the number settlement deducts and the
@@ -979,7 +981,7 @@ export function AppointmentsTab() {
  * charged cannot drift apart. The marketing site no longer shows it at all:
  * the landing page and /pricing quote no figure and point at /contact instead.
  */
-export function WalletRateTab() {
+export function WalletRateTab({ onSaved }: { onSaved?: (perMinuteInr: number) => void } = {}) {
   const [rate, setRate] = useState<string>('');
   const [saved, setSaved] = useState<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -1007,6 +1009,9 @@ export function WalletRateTab() {
       if (!res.ok) throw new Error(data.error || 'Save failed');
       setSaved(data.perMinuteInr);
       setRate(String(data.perMinuteInr));
+      // The tier table below quotes this same number as the "Default" a client
+      // falls back to, so it has to hear about the change or it shows a stale one.
+      onSaved?.(data.perMinuteInr);
       setMsg('Saved. Every call from now on is charged at this rate.');
     } catch (e) { setMsg(e instanceof Error ? e.message : 'Save failed'); }
     finally { setBusy(false); }
@@ -1023,7 +1028,7 @@ export function WalletRateTab() {
       <p style={{ color: 'var(--tx-3)', fontSize: 13, lineHeight: 1.6, margin: 0 }}>
         The DEFAULT rupees-per-minute, deducted from the workspace's wallet. It applies to
         every client that has no volume tier and no per-client override — both of those beat
-        this number. Set tiers and per-client rates in Super Admin → Pricing.
+        this number. Tiers and per-client rates are set below.
       </p>
 
       <div style={{ border: '1px solid var(--line)', borderRadius: 10, padding: 20, display: 'flex', flexDirection: 'column', gap: 14 }}>

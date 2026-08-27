@@ -14,7 +14,7 @@ import { Link } from 'react-router-dom';
  *      a person: /contact.
  *
  * NO RATE, NO ESTIMATOR, NO TOP-UP FIGURE ON THIS PAGE. The real number lives
- * in Super Admin → Wallet Rate and is shown to a signed-in account in Billing,
+ * in Super Admin → Pricing (Default rate) and is shown to a signed-in account in Billing,
  * which is the same value settlement deducts — so what a customer is quoted and
  * what the wallet takes still cannot drift apart.
  *

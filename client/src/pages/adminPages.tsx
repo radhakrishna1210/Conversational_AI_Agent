@@ -7,6 +7,7 @@
  * themselves are unchanged and still live in AdminPanel.tsx — only navigation
  * moved, which keeps this change reviewable.
  */
+import { useState } from 'react';
 import PricingBucketsTab from './PricingBucketsTab';
 import { Users, Bug, CreditCard, TrendingUp, Activity, CalendarDays, Cpu } from 'lucide-react';
 import {
@@ -59,31 +60,42 @@ export function AdminAppointmentsPage() {
   );
 }
 
+/**
+ * Every price on the platform, in the order they beat each other: the default
+ * rate first, then the volume tiers and per-client overrides that take
+ * precedence over it. These were two separate pages, which meant an admin had
+ * to leave one to see what the other fell back to.
+ */
 export function AdminPricingPage() {
+  // Held here so saving the default rate immediately corrects the "Default"
+  // figure the tier table quotes, without either half refetching the other.
+  const [defaultRate, setDefaultRate] = useState<number | null>(null);
+
   return (
     <>
       <AdminPageHeader
         title="Pricing"
-        subtitle="Volume tiers and per-client rates. Admin-only — nothing here is shown to clients."
+        subtitle="The default rate, volume tiers and per-client rates. Admin-only — nothing here is shown to clients."
         icon={<TrendingUp size={21} />}
       />
-      <PricingBucketsTab />
+
+      <section style={{ marginBottom: 34 }}>
+        <h2 style={sectionTitle}>Default rate</h2>
+        <WalletRateTab onSaved={setDefaultRate} />
+      </section>
+
+      <section>
+        <h2 style={sectionTitle}>Volume tiers &amp; client rates</h2>
+        <PricingBucketsTab defaultRate={defaultRate} />
+      </section>
     </>
   );
 }
 
-export function AdminPlansPage() {
-  return (
-    <>
-      <AdminPageHeader
-        title="Wallet Rate"
-        subtitle="The rupees-per-minute every call is charged — the only pricing this platform has"
-        icon={<TrendingUp size={21} />}
-      />
-      <WalletRateTab />
-    </>
-  );
-}
+const sectionTitle: React.CSSProperties = {
+  fontSize: 14, fontWeight: 600, color: 'var(--tx)',
+  margin: '0 0 12px', paddingBottom: 10, borderBottom: '1px solid var(--line)',
+};
 
 export function AdminWalletsPage() {
   return (
