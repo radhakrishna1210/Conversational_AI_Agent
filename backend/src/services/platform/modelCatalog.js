@@ -67,10 +67,23 @@ export const MODEL_GROUPS = [
       { id: 'llm:azure:gpt-4o-mini',       value: 'azure-gpt-4o-mini',  label: 'Azure GPT-4o Mini',  provider: 'Azure', envKey: 'AZURE_OPENAI_KEY' },
       { id: 'llm:azure:gpt-4.1-mini',      value: 'azure-gpt-4.1-mini', label: 'Azure GPT-4.1 Mini', provider: 'Azure', envKey: 'AZURE_OPENAI_KEY' },
       { id: 'llm:azure:gpt-4.1-nano',      value: 'azure-gpt-4.1-nano', label: 'Azure GPT-4.1 Nano', provider: 'Azure', envKey: 'AZURE_OPENAI_KEY' },
-      // Two ways to reach Llama 3.3: Groq's LPU endpoint (selected by label,
-      // which is what mapAgentModel keys off) and the self-hosted/custom
-      // endpoint. They are separately switchable because they bill differently.
-      { id: 'llm:groq:llama-3.3-70b',      value: 'Groq Llama 3.3',          label: 'Groq Llama 3.3 70B',   provider: 'Groq',   envKey: 'GROQ_API_KEY' },
+      // Groq's LPU endpoint — the low-latency choice for voice (measured first
+      // spoken token ~560-720ms, against ~1.7s p50 for Gemini flash-lite).
+      //
+      // `value` is FROZEN at the original string: mapAgentModel keys off it
+      // containing "groq", and every agent already on this option has it stored
+      // in its aiModel column. Renaming it would silently drop those agents back
+      // to the default provider.
+      //
+      // The LABEL no longer names Llama, because Groq retired
+      // llama-3.3-70b-versatile and the id 404s. What this option actually runs
+      // is GROQ_MODEL (default openai/gpt-oss-20b, see groq.service.js), so a
+      // label promising Llama sent people to a model they were not getting.
+      // Naming the vendor rather than the weights keeps it honest the next time
+      // the underlying id is retired.
+      { id: 'llm:groq:llama-3.3-70b',      value: 'Groq Llama 3.3',          label: 'Groq (fastest — for voice)', provider: 'Groq',   envKey: 'GROQ_API_KEY' },
+      // The self-hosted/custom Llama endpoint. Separately switchable from the
+      // Groq entry above because the two bill differently.
       { id: 'llm:custom:llama-3.3-70b',    value: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B (custom endpoint)', provider: 'Custom', envKey: 'CUSTOM_LLM_BASE_URL' },
     ],
   },
