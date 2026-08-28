@@ -21,6 +21,7 @@ import logger from '../lib/logger.js';
 import { settleCall, assertCanStartCall } from '../services/billing/settlement.service.js';
 import { env } from '../config/env.js';
 import { extractAndStoreCallVariables } from '../services/postCallExtraction.service.js';
+import { recordingFilename } from '../services/callRecordingStore.js';
 
 const RECORDINGS_DIR = path.resolve(env.UPLOAD_DIR || 'uploads', 'call-recordings');
 fs.mkdirSync(RECORDINGS_DIR, { recursive: true });
@@ -332,7 +333,15 @@ export const extractCallVariables = async (req, res) => {
 
 const recordingStorage = multer.diskStorage({
   destination: (_r, _f, cb) => cb(null, RECORDINGS_DIR),
-  filename: (_r, f, cb) => cb(null, `${Date.now()}-${Math.random().toString(36).slice(2)}${path.extname(f.originalname || '') || '.webm'}`),
+  // The name carries :callId — see recordingFilename(). multer writes this file
+  // before the handler below gets a chance to point the row at it, and that gap
+  // is where recordings were being lost: anything that killed the request in
+  // between left audio on disk that nothing could ever identify. With the id in
+  // the name, reattachOrphanRecordings() finishes the job later.
+  filename: (req, f, cb) => cb(
+    null,
+    recordingFilename(req.params.callId, path.extname(f.originalname || '') || '.webm'),
+  ),
 });
 
 export const uploadCallRecording = multer({
@@ -340,14 +349,29 @@ export const uploadCallRecording = multer({
   limits: { fileSize: 100 * 1024 * 1024 }, // a long web call in webm/opus
 }).single('recording');
 
+/**
+ * Attempts for the one write that turns an uploaded file into a playable
+ * recording. Three closely-spaced tries ride out a blip (a pool timeout, a
+ * momentary connect failure to a managed Postgres) without holding the
+ * browser's request open long enough to look hung.
+ */
+const ATTACH_RETRY_DELAYS_MS = [150, 600];
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
 // POST .../calls/:callId/recording  multipart: recording (blob)
 export const saveCallRecording = async (req, res) => {
   try {
     const { workspaceId, agentId, callId } = req.params;
     if (!req.file) return res.status(400).json({ error: 'An audio file is required (field "recording")' });
     const row = await findCall(workspaceId, agentId, callId).catch((err) => {
-      // Orphaned upload — remove the file before failing.
-      fs.unlink(req.file.path, () => {});
+      // ONLY a genuine "no such call" justifies deleting the upload: the row
+      // will never exist, so the bytes can never be attached. Any other error
+      // here is the database being unreachable, and the row is probably fine —
+      // deleting the audio over a transient lookup failure (as this used to,
+      // for every error alike) threw away the very recording it was meant to
+      // be storing. Left on disk, the reattach sweep recovers it.
+      if (err.statusCode === 404) fs.unlink(req.file.path, () => {});
       throw err;
     });
 
@@ -355,13 +379,31 @@ export const saveCallRecording = async (req, res) => {
     if (row.recordingPath) {
       fs.unlink(path.join(RECORDINGS_DIR, path.basename(row.recordingPath)), () => {});
     }
-    const updated = await prisma.agentCallLog.update({
-      where: { id: row.id },
-      data: {
-        recordingPath: path.basename(req.file.path),
-        recordingMime: req.file.mimetype || 'audio/webm',
-      },
-    });
+
+    const data = {
+      recordingPath: path.basename(req.file.path),
+      recordingMime: req.file.mimetype || 'audio/webm',
+    };
+
+    let updated;
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        updated = await prisma.agentCallLog.update({ where: { id: row.id }, data });
+        break;
+      } catch (err) {
+        if (attempt >= ATTACH_RETRY_DELAYS_MS.length) {
+          // Deliberately not deleting the file. It is named after the call, so
+          // the sweep can still finish this — a failure here now delays the
+          // recording rather than losing it.
+          logger.warn(
+            { callId: row.id, filename: data.recordingPath, err: err.message },
+            'Could not attach uploaded recording after retries — leaving it for the reattach sweep',
+          );
+          throw err;
+        }
+        await sleep(ATTACH_RETRY_DELAYS_MS[attempt]);
+      }
+    }
     res.json({ success: true, call: toApi(updated) });
   } catch (err) {
     sendError(res, err, 'Failed to save call recording');
