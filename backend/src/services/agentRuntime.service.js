@@ -1674,12 +1674,21 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
   // When to give up waiting for the primary stream's first token and hedge with
   // a second one. It has to sit ABOVE the normal first-token time or every turn
   // pays for two generations, and BELOW the point where the caller decides the
-  // line is dead. 2500ms was tuned against gemini-3.1-flash-lite, whose p50
-  // first token was ~5s — i.e. the hedge fired on most turns and still could
-  // not save them. On gemini-3.5-flash-lite the whole distribution is
-  // 1.0-1.2s (see resolveLlmForAgent), so 1500ms is clear of the normal case
-  // and reacts a full second sooner when something does stall.
-  const LLM_FIRST_TOKEN_TIMEOUT_MS = Number(process.env.VOICE_LLM_FIRST_TOKEN_TIMEOUT_MS) || 1500;
+  // line is dead.
+  //
+  // 1500ms was set on the belief that gemini-3.5-flash-lite's whole first-token
+  // distribution was 1.0-1.2s. Measured against 28 real turns in
+  // logs/latency.log (2026-08-28) it is not: p50 1686ms, p90 4199ms. The
+  // threshold was sitting BELOW the median, so the "hedge" was firing on more
+  // than half of all turns — a second full generation as the normal path, not
+  // the exception. On free-tier Gemini (15 rpm) that doubles the request rate
+  // that causes the 429s converseStream then has to route around.
+  //
+  // 2500ms sits between that p50 and p90: genuine stalls are still caught, a
+  // merely-late token is not. It is also clear of Groq, whose measured first
+  // SPOKEN token is ~560ms (see groq.service.js) — there the hedge should never
+  // fire at all, which is the point of moving to it.
+  const LLM_FIRST_TOKEN_TIMEOUT_MS = Number(process.env.VOICE_LLM_FIRST_TOKEN_TIMEOUT_MS) || 2500;
   const LLM_SPIKE_TIMEOUT_MS = Number(process.env.VOICE_LLM_SPIKE_TIMEOUT_MS) || 4000;
   const withTimeout = (p, ms) => Promise.race([
     p,
