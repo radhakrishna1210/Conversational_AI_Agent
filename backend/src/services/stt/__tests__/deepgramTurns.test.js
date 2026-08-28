@@ -570,6 +570,58 @@ test('an UNcommitted turn still flushes — the web path is unchanged', async ()
   assert.equal(await pending, 'I would like to reschedule');
 });
 
+// ── A PENDING candidate is as complete as a committed one ───────────────────
+//
+// `_endpointTimer` is armed only by speech_final and cleared by ANY later
+// transcript, so a live timer means "Deepgram said final and has sent nothing
+// since" — the same thing `_committed` waits out the grace window to establish.
+// The window decides whether the CALLER is done, not whether the TRANSCRIPT is;
+// once the turn is ending anyway, that question is already settled. This is the
+// web path's ~345ms p50 preLlmMs on turns where the browser's RMS backstop won.
+
+test('a pending end-of-turn candidate resolves without sending Finalize', async () => {
+  const s = new DeepgramStreamSession({ sampleRate: 16000, endpointGraceMs: 400 });
+  const sent = fakeSocket(s);
+  const seq = s.beginTurn();
+
+  emitFinal(s, 'yes go ahead');
+  s._handleMessage({ speech_final: true }); // arms the candidate; grace still running
+  assert.equal(s._committed, false, 'the grace window has not expired yet');
+  assert.ok(s._endpointTimer, 'speech_final must arm a candidate');
+
+  assert.equal(await s.finalizeTurn(1200, seq), 'yes go ahead');
+  assert.equal(
+    sent.filter((p) => String(p).includes('Finalize')).length, 0,
+    'a turn whose transcript is already complete must not ask Deepgram to flush',
+  );
+  // Left armed it would fire against the turn now running and nudge the client
+  // to end one it never started.
+  assert.equal(s._endpointTimer, null, 'the spent candidate must be disarmed');
+});
+
+test('speech resuming after speech_final puts the flush back', async () => {
+  // The safety case for the test above: the caller paused, Deepgram called it
+  // final, and then they kept talking. That later transcript cancels the
+  // candidate, so words really can still be in flight and the flush is required.
+  const s = new DeepgramStreamSession({ sampleRate: 16000, endpointGraceMs: 400 });
+  const sent = fakeSocket(s);
+  const seq = s.beginTurn();
+
+  emitFinal(s, 'I would like');
+  s._handleMessage({ speech_final: true });
+  emitFinal(s, 'to reschedule'); // caller resumed → candidate cancelled
+  assert.equal(s._endpointTimer, null, 'further speech must cancel the candidate');
+
+  const pending = s.finalizeTurn(1200, seq);
+  assert.equal(
+    sent.filter((p) => String(p).includes('Finalize')).length, 1,
+    'a cancelled candidate means the transcript may be incomplete — flush',
+  );
+  emitFinal(s, 'for next week');
+  emitFromFinalize(s);
+  assert.equal(await pending, 'I would like to reschedule for next week');
+});
+
 test('beginTurn clears the committed flag, so the next turn flushes again', async () => {
   const s = new DeepgramStreamSession({ sampleRate: 8000, encoding: 'mulaw', endpointGraceMs: 0 });
   const sent = fakeSocket(s);
