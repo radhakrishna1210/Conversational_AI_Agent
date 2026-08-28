@@ -21,6 +21,35 @@ import {
 } from 'lucide-react';
 
 
+/**
+ * Retry the two requests that close a web call out.
+ *
+ * Both run in the same instant the call ends, and both were single-shot. A
+ * momentary backend failure there is not a momentary inconvenience: the upload
+ * carries the only copy of the recording that exists, and the PATCH is what
+ * ends and bills the call, so one failed request left a call stuck IN_PROGRESS
+ * with its audio stranded on the server. Retrying spans a restart or a blip,
+ * which is the difference between losing a call and pausing for a few seconds.
+ *
+ * 4xx is not retried — a rejected request does not become valid by repeating
+ * it — except for the two that explicitly mean "later": 408 and 429.
+ */
+const FINALIZE_RETRY_DELAYS_MS = [800, 2500, 6000];
+
+async function withRetry<T>(label: string, run: () => Promise<T>): Promise<T> {
+  for (let attempt = 0; ; attempt += 1) {
+    try {
+      return await run();
+    } catch (e) {
+      const status = (e as { status?: number })?.status;
+      const worthRetrying = status === undefined || status >= 500 || status === 408 || status === 429;
+      if (!worthRetrying || attempt >= FINALIZE_RETRY_DELAYS_MS.length) throw e;
+      console.warn(`${label} failed (attempt ${attempt + 1}), retrying`, e);
+      await new Promise((r) => setTimeout(r, FINALIZE_RETRY_DELAYS_MS[attempt]));
+    }
+  }
+}
+
 interface FlowItem {
   id: string;
   title: string;
@@ -2693,9 +2722,14 @@ export default function EditAgent() {
       // recordings survived some calls and vanished from others.
       try {
         if (blob && blob.size > 0) {
-          const fd = new FormData();
-          fd.append('recording', blob, 'web-call.webm');
-          await whapi.postForm(`/agents/${agentId}/calls/${logId}/recording`, fd);
+          await withRetry('Call recording upload', () => {
+            // Rebuilt per attempt. A FormData that has already been handed to
+            // fetch is not guaranteed to be re-readable, and silently uploading
+            // an empty body on the retry would be worse than the first failure.
+            const fd = new FormData();
+            fd.append('recording', blob, 'web-call.webm');
+            return whapi.postForm(`/agents/${agentId}/calls/${logId}/recording`, fd);
+          });
         } else {
           // Silent before: the call appeared in Recent Calls with no "recording"
           // link and no explanation, so a missing recording looked like the
@@ -2704,11 +2738,20 @@ export default function EditAgent() {
           toast.warning('This call was saved, but its audio recording could not be captured.');
         }
       } catch (e) {
+        // Not necessarily lost any more. The server stores the file under a name
+        // that identifies this call before it writes the row, so an upload that
+        // arrived and then failed to attach is picked up by the backend's
+        // reattach sweep. Only an upload that never arrived is gone, and from
+        // here the two are indistinguishable — so the message promises the
+        // recovery without claiming it already happened.
         console.error('Failed to upload call recording', e);
-        toast.error(`Could not save the call recording: ${e instanceof Error ? e.message : 'unknown error'}`);
+        toast.error('Could not attach the call recording. If it reached the server it will be linked to this call automatically.');
       }
       try {
-        await whapi.patch(`/agents/${agentId}/calls/${logId}`, { transcript: history, status: finalStatus, ended: true });
+        await withRetry('Call log finalize', () => whapi.patch(
+          `/agents/${agentId}/calls/${logId}`,
+          { transcript: history, status: finalStatus, ended: true },
+        ));
       } catch (e) {
         console.error('Failed to finalize call history', e);
         toast.error(`Could not finalize the call log: ${e instanceof Error ? e.message : 'unknown error'}`);
