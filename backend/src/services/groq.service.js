@@ -52,6 +52,24 @@ class GroqService {
     return messages;
   }
 
+  /**
+   * Extra params this model needs, on top of the OpenAI-compatible basics.
+   *
+   * gpt-oss is a REASONING model: left to itself it spends its first tokens on
+   * hidden reasoning, and `delta.content` — the only thing we can speak — stays
+   * empty until that finishes. Measured from this deployment (2026-08-28): with
+   * `reasoning_effort: 'low'` the first spoken token lands in ~560ms; without
+   * it, three runs produced no content at all inside a 100-token budget. On a
+   * voice turn that is the difference between the fastest LLM available here
+   * and one that never answers.
+   *
+   * Sent ONLY to models that accept it. Groq rejects unknown params per-model,
+   * so blanket-sending it would break every non-reasoning model on the account.
+   */
+  _modelParams(model) {
+    return /gpt-oss/i.test(model) ? { reasoning_effort: 'low' } : {};
+  }
+
   /** Buffered generation — returns the full reply string (single-call path). */
   async generateResponse(message, config = {}, options = {}) {
     await this.initializeClient();
@@ -61,6 +79,7 @@ class GroqService {
       messages: this._messages(message, options),
       temperature: config.temperature ?? 0.7,
       max_tokens: options.maxTokens ?? 2000,
+      ...this._modelParams(model),
     });
     return res?.choices?.[0]?.message?.content || '';
   }
@@ -75,6 +94,7 @@ class GroqService {
       temperature: config.temperature ?? 0.7,
       max_tokens: options.maxTokens ?? 2000,
       stream: true,
+      ...this._modelParams(model),
     });
     for await (const chunk of stream) {
       const delta = chunk?.choices?.[0]?.delta?.content;

@@ -717,7 +717,28 @@ export class DeepgramStreamSession {
     // and not waiting would let a from_finalize result land after the next
     // beginTurn() and pollute the following turn, which is exactly what the
     // _flushTarget machinery below exists to prevent.
-    if (this._committed) return this.takeTranscript();
+    //
+    // A PENDING candidate proves the same thing. `_endpointTimer` is armed only
+    // by a speech_final, and _handleMessage clears it on ANY further transcript
+    // — so a live timer means "Deepgram said final, and has sent nothing since",
+    // which is exactly the condition `_committed` waits out the grace window to
+    // establish. The grace window exists to decide whether the CALLER is done,
+    // not whether the TRANSCRIPT is complete, and by the time this is called the
+    // caller question is already settled: the turn is over either way.
+    //
+    // This is the web path. Its `end-turn` comes from the browser's RMS
+    // backstop, which is deliberately held above the server's commit point, so
+    // `_committed` is usually true — but when the backstop wins (a caller who
+    // trails off, or noise that keeps speech_final from confirming) the turn
+    // paid a full Deepgram round trip for words already in hand. That round trip
+    // is most of the ~345ms p50 `preLlmMs` those turns show in latency.log.
+    if (this._committed || this._endpointTimer) {
+      // The turn is ending now, so a candidate for THIS turn has nothing left to
+      // decide. Left armed it would fire against a turn that is already running
+      // and nudge the client to end one it never started.
+      if (this._endpointTimer) { clearTimeout(this._endpointTimer); this._endpointTimer = null; }
+      return this.takeTranscript();
+    }
 
     if (!this.ws || this.dead) return this.takeTranscript();
     // Never connected yet (TLS handshake still in flight)? Nothing is buffered
