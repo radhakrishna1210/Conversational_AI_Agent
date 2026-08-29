@@ -24,6 +24,12 @@
 
 import WebSocket from 'ws';
 import logger from '../../lib/logger.js';
+// Language mapping lives in one table shared with the batch providers. It used
+// to be a private map here, and Sarvam — the batch fallback this file hands off
+// to — had no equivalent at all, so a Hindi agent's fallback transcription sent
+// Sarvam the literal string "Hindi" and got a 400 for it. Re-exported rather
+// than moved: every caller already imports toDeepgramLanguage from this module.
+export { toDeepgramLanguage } from './sttLanguage.js';
 
 export function isDeepgramConfigured() {
   return Boolean(process.env.DEEPGRAM_API_KEY);
@@ -43,22 +49,6 @@ export function isDeepgramConfigured() {
  */
 const MIN_FINAL_CONFIDENCE = Number(process.env.DEEPGRAM_MIN_CONFIDENCE) || 0.35;
 
-// Map an agent's language (display name like "Hindi" / "English (Indian)", or an
-// ISO code) to the Deepgram `language` param. Without this, a Hindi agent's
-// audio is transcribed as English → empty/garbage → silent fallback to batch
-// STT (which is exactly what the logs showed: sttProvider stayed "sarvam").
-const DEEPGRAM_LANG = {
-  // "Multi" is the UI's multilingual/code-switching option. Without these entries
-  // it fell through to the agent's first language (e.g. Hindi), so a caller
-  // speaking English — or Hinglish, which is the norm for this use case — was
-  // transcribed by a Hindi-only model and came back garbled or empty.
-  multi: 'multi', multilingual: 'multi', auto: 'multi',
-  hindi: 'hi', english: 'en', 'english (american)': 'en-US', 'english (british)': 'en-GB',
-  'english (indian)': 'en-IN', 'english (australian)': 'en-AU', tamil: 'ta', telugu: 'te',
-  spanish: 'es', french: 'fr', german: 'de', portuguese: 'pt', italian: 'it', dutch: 'nl',
-  russian: 'ru', japanese: 'ja', korean: 'ko', mandarin: 'zh', chinese: 'zh',
-};
-
 /**
  * The languages the phonecall-tuned models actually serve.
  *
@@ -69,12 +59,7 @@ const DEEPGRAM_LANG = {
  */
 const PHONECALL_LANGUAGES = new Set(['en', 'en-au', 'en-gb', 'en-in', 'en-nz', 'en-us']);
 
-export function toDeepgramLanguage(value) {
-  if (!value) return undefined;
-  const raw = String(value).trim();
-  if (/^[a-z]{2}(-[A-Za-z]{2,})?$/.test(raw)) return raw; // already a code like "hi" / "en-IN"
-  return DEEPGRAM_LANG[raw.toLowerCase()];
-}
+
 
 /**
  * Words a turn does not end on.
@@ -288,7 +273,7 @@ export function maxEndpointCommitMs(endpointingMs) {
  *
  * ── AND nova-2 DOES NOT COVER THE LANGUAGES THIS PRODUCT SELLS ──────────────
  *
- * The same probe over every language DEEPGRAM_LANG can emit: nova-2 refuses
+ * The same probe over every language sttLanguage.js can emit: nova-2 refuses
  * `ta` and `te` on ANY encoding, so Tamil and Telugu agents were broken in the
  * browser too. nova-3 accepts all nineteen. Non-English therefore goes to
  * nova-3 on BOTH transports rather than only on the phone — a model the
