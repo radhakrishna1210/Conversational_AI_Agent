@@ -517,6 +517,32 @@ export function canStreamTokens() {
 }
 
 /**
+ * Why token streaming is unavailable, phrased for the person choosing a voice
+ * in the agent editor — or null when it IS available.
+ *
+ * The free-tier case is the one worth stating plainly: it is the reason the
+ * socket path silently never ran on this deployment, and no log said so. The
+ * message names the two env values that fix it, because the person reading it
+ * in the UI cannot see .env and the person who can does not see this screen.
+ *
+ * @returns {string|null}
+ */
+export function streamingBlockReason() {
+  if (!hasCredentials()) {
+    return 'No Fish Audio API key is configured on this platform, so this voice cannot stream.';
+  }
+  if (!msgpackAvailable()) {
+    return 'Fish Audio streaming needs the @msgpack/msgpack package, which is not installed on this server.';
+  }
+  if (/-free$/.test(wsModel())) {
+    return `Fish Audio's free-tier model (${wsModel()}) accepts the streaming connection but never returns audio, `
+      + 'so streaming is disabled for it. Set FISH_TTS_WS_MODEL to a paid model (for example s2-pro), '
+      + 'or pick a voice from a provider whose streaming tier is enabled.';
+  }
+  return null;
+}
+
+/**
  * Fish Audio WebSocket TTS ("/v1/tts/live") — the true low-latency path. Text is
  * pushed in incrementally as the LLM generates it and audio comes back as one
  * continuous stream, so the agent starts speaking on the first sentence while

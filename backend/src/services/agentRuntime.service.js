@@ -12,6 +12,7 @@
 
 import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
+import { createSegmentOrder } from './voice/segmentOrder.js';
 import { logTurnLatency } from '../lib/latencyLog.js';
 import { getLLMProviderWithFallback } from './llm.factory.js';
 import { mapAgentModel } from '../controllers/llm.controller.js';
@@ -1491,7 +1492,7 @@ export async function voiceTurn(workspaceId, agentId, audioBuffer, mimeType, his
  * path of a live call. Everything else about the turn is identical, which is
  * the point: web and phone run the same conversation code.
  */
-export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeType, history = [], { onEvent, shouldAbort, userText: providedText, audioHadSpeech = false, affect = null, fillerBudget = null, audioFormat = null, sampleRate = null, channel = null, preLlmMs = null } = {}) {
+export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeType, history = [], { onEvent, shouldAbort, userText: providedText, audioHadSpeech = false, affect = null, fillerBudget = null, audioFormat = null, sampleRate = null, channel = null, preLlmMs = null, endpointMs = null } = {}) {
   const emit = typeof onEvent === 'function' ? onEvent : () => {};
   const aborted = typeof shouldAbort === 'function' ? shouldAbort : () => false;
   const turnStartedAt = performance.now();
@@ -1647,7 +1648,7 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
       // turn's opener here is what keeps the two mechanisms from stacking.
       fillerBudget?.noteAudioAck();
       emit({ type: 'audio-start', contentType: f.contentType, format: f.audioFormat ?? null });
-      emit({ type: 'audio-chunk', data: f.buf.toString('base64') });
+      emit({ type: 'audio-chunk', chunk: f.buf });
       emit({ type: 'audio-end' });
     }, fillerDelayMs);
   }
@@ -1707,7 +1708,30 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
   //
   // Which providers can do it is a capability lookup, not a hardcoded name —
   // ElevenLabs and Fish Audio today; anything else falls to the split path.
-  const canOverlap = process.env.VOICE_TTS_OVERLAP === 'true'
+  //
+  // WHICH PATH THIS AGENT USES IS THE AGENT'S SETTING, NOT A DEPLOY FLAG.
+  //
+  // This used to read `process.env.VOICE_TTS_OVERLAP === 'true'`, which made a
+  // per-workspace capability depend on one process-wide value that defaulted to
+  // off. The result was measurable: every logged turn on this deployment ran
+  // `mode:"split"` and not one ran `ws-overlap`, so the socket path the pipeline
+  // was designed around had never executed in production.
+  //
+  // Now the agent editor owns it (Call Configuration → Response speed):
+  //   'auto'   — use the socket path whenever the selected voice can, else HTTP
+  //   'socket' — the same today, but records that the choice was deliberate
+  //   'http'   — force per-sentence HTTP, for a voice that sounds better that way
+  // The env var survives ONLY as an operator kill switch (`=false`), for taking
+  // the path out of service platform-wide without editing every agent.
+  //
+  // No provider is named here. Whether the socket path is available is asked of
+  // whichever voice the workspace picked, so a tenant who switches provider in
+  // the UI gets whatever that provider supports, with no code change.
+  const ttsDelivery = ['auto', 'socket', 'http'].includes(settings.ttsDelivery)
+    ? settings.ttsDelivery
+    : 'auto';
+  const canOverlap = process.env.VOICE_TTS_OVERLAP !== 'false'
+    && ttsDelivery !== 'http'
     && supportsTokenStreaming(voice);
 
   // Naturalness filter for THIS reply. Sits between the LLM's tokens and TTS on
@@ -1758,36 +1782,112 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
   let llmTtftMs = null;   // LLM time-to-first-token
   let firstTtsTextAt = null; // when the first speakable text reached TTS
 
+  // Emission order gate. Segments must reach the client strictly in order — a
+  // client appends them to one playback queue and a phone bridge converts them
+  // into one mu-law stream, so interleaving two segments' bytes is not "slightly
+  // out of order", it is noise. SYNTHESIS, on the other hand, has no reason to
+  // be serial, and making it serial is what put a second full TTS round trip in
+  // the middle of every reply (see streamTtsForText).
+  const segmentOrder = createSegmentOrder();
+
   // Synthesize one text chunk and forward its bytes as ONE audio SEGMENT
   // (its own audio-start … chunks … audio-end). Segments never share a
   // MediaSource client-side, so independently-encoded MP3s can't corrupt each
   // other — the failure that forced the old per-sentence overlap off. The
   // client queues segments and plays them back-to-back.
-  const streamTtsForText = async (text) => {
+  //
+  // The request is issued IMMEDIATELY, but this segment does not emit until
+  // every segment created before it has finished emitting. That separation is
+  // the whole point: the caller is listening to sentence one for a second or
+  // more, and the remainder of the reply can be synthesized inside that window
+  // instead of after it. Previously the remainder's request was not sent until
+  // sentence one had fully drained, so its ~600ms time-to-first-byte landed as
+  // an audible gap mid-reply on every single turn.
+  //
+  // Chunks that arrive before this segment's turn are held in `buffered`;
+  // once it has the floor they are flushed and the rest stream through live.
+  const streamTtsForText = (text) => {
     const clean = stripForVoice(text);
-    if (!clean || !voice || aborted()) return;
+    if (!clean || !voice || aborted()) return Promise.resolve();
     const ttsStart = performance.now();
     if (firstTtsTextAt == null) firstTtsTextAt = ttsStart;
-    try {
-      const { stream, contentType } = await streamSynthesizeVoice(voice, clean, {
-        fast: true, pace: speakingRate, affect,
-        ...(audioFormat ? { audioFormat } : {}),
-        ...(sampleRate ? { sampleRate } : {}),
-      });
-      if (aborted()) return;
-      audioStarted = true;
-      emit({ type: 'audio-start', contentType, format: audioFormat || null });
-      for await (const c of stream) {
-        if (aborted()) break; // barge-in: stop shovelling audio nobody's hearing
-        if (firstAudioAt == null) firstAudioAt = performance.now();
-        const buf = Buffer.isBuffer(c) ? c : Buffer.from(c);
-        if (buf.length) emit({ type: 'audio-chunk', data: buf.toString('base64') });
+
+    // Position in the emission order, claimed BEFORE the request is issued so
+    // it reflects which sentence came first rather than which provider answered
+    // first. See voice/segmentOrder.js.
+    const slot = segmentOrder.claim();
+    const done = (async () => {
+      let opened = false;
+      let counted = false;
+      try {
+        const { stream, contentType } = await streamSynthesizeVoice(voice, clean, {
+          fast: true, pace: speakingRate, affect,
+          ...(audioFormat ? { audioFormat } : {}),
+          ...(sampleRate ? { sampleRate } : {}),
+        });
+
+        const buffered = [];
+        let hasFloor = false;
+        // Resolves when the segments queued ahead of this one are done. Their
+        // failures are already logged where they happen and must not stop this
+        // segment from being spoken.
+        const floor = slot.floor.then(() => { hasFloor = true; });
+
+        const open = (ct) => {
+          if (opened) return;
+          opened = true;
+          audioStarted = true;
+          emit({ type: 'audio-start', contentType: ct, format: audioFormat || null });
+        };
+        const push = (buf) => {
+          if (!buf.length) return;
+          if (firstAudioAt == null) firstAudioAt = performance.now();
+          emit({ type: 'audio-chunk', chunk: buf });
+        };
+
+        for await (const c of stream) {
+          if (aborted()) break; // barge-in: stop shovelling audio nobody's hearing
+          const buf = Buffer.isBuffer(c) ? c : Buffer.from(c);
+          if (!buf.length) continue;
+          if (!hasFloor) { buffered.push(buf); continue; }
+          if (!opened) {
+            open(contentType);
+            for (const held of buffered.splice(0)) push(held);
+          }
+          push(buf);
+        }
+
+        // Synthesis is finished at this point — everything after it is either
+        // already-received bytes or waiting for the wire. Bank the cost HERE, or
+        // a segment that spent two seconds queued behind sentence one would be
+        // logged as a two-second TTS call and the metric would blame the wrong
+        // stage for a delay that is, by design, hidden behind playback.
+        ttsMs += Math.round(performance.now() - ttsStart);
+        counted = true;
+
+        // The stream finished before this segment reached the front of the
+        // queue — wait for the floor, then emit everything at once.
+        if (!aborted()) {
+          await floor;
+          if (!opened) open(contentType);
+          for (const held of buffered.splice(0)) push(held);
+        }
+        if (opened) emit({ type: 'audio-end' });
+      } catch (err) {
+        logger.warn(`voiceTurnStream TTS failed: ${err.message}`);
+        // A segment that opened must still close, or a client waits forever for
+        // an audio-end that is never coming.
+        if (opened) emit({ type: 'audio-end' });
       }
-      emit({ type: 'audio-end' });
-    } catch (err) {
-      logger.warn(`voiceTurnStream TTS failed: ${err.message}`);
-    }
-    ttsMs += Math.round(performance.now() - ttsStart);
+      // Only when the try block did not reach the line above (a failed request,
+      // an abort) — a failure still cost time and should still be counted once.
+      if (!counted) ttsMs += Math.round(performance.now() - ttsStart);
+      // Unconditional: a segment that failed still has to hand the wire on, or
+      // every sentence after it is silently dropped.
+      slot.release();
+    })();
+
+    return done;
   };
 
   const llmStartedAt = performance.now();
@@ -1823,7 +1923,7 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
           });
         }
         if (firstAudioAt == null) firstAudioAt = performance.now();
-        emit({ type: 'audio-chunk', data: buf.toString('base64') });
+        emit({ type: 'audio-chunk', chunk: buf });
       });
       tts?.once('done', resolve);
       tts?.once('error', (e) => { logger.warn(`${ttsProvider} WS TTS error: ${e.message}`); resolve(); });
@@ -1984,8 +2084,14 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
       const rest = splitIdx > 0 ? reply.slice(splitIdx) : '';
       reply = stripForVoice(reply);
       if (firstSegment) {
+        // NOT `await firstSegment` first. streamTtsForText now issues its
+        // request immediately and waits its turn only to EMIT, so starting the
+        // remainder here overlaps its synthesis with the tail of sentence one's
+        // playback. Awaiting sentence one first is what made every reply pay a
+        // second time-to-first-byte as an audible mid-sentence gap.
+        const restSegment = rest.trim() && !aborted() ? streamTtsForText(rest) : null;
         await firstSegment;
-        if (rest.trim() && !aborted()) await streamTtsForText(rest);
+        if (restSegment) await restSegment;
       } else if (reply && !aborted()) {
         await streamTtsForText(reply); // no boundary found — speak it whole
       }
@@ -2033,10 +2139,18 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
     : `${fillerEnabled ? 'hesitation' : 'openers'}`
       + `${replyFilterOpts.inject ? '+inject' : ''}`
       + `${ssmlBreaks ? '+pauses' : ''}`;
+  // `endpointMs` is the silence the caller sat through BEFORE this record's
+  // clock started — the recogniser's VAD timeout plus its confirmation grace.
+  // It was missing for the entire life of this log, which meant every reported
+  // p50 understated what a caller actually experiences by ~700ms. `waitMs` is
+  // the honest end-to-end number: from the moment they stopped speaking to the
+  // moment audio came back.
+  const waitMs = ttfaMs + (preLlmMs || 0) + (endpointMs || 0);
   const latency = {
-    agentId, channel, sttProvider, llmProvider: provider, model, prepMs, preLlmMs,
-    sttMs, voiceWaitMs, ragMs, llmMs, llmTtftMs, ttsMs, ttsTtfaMs, ttfaMs, totalMs,
-    streamed: true, mode: ttsMode, filler: fillerPlayed, natural: naturalMode,
+    agentId, channel, sttProvider, llmProvider: provider, model, prepMs,
+    endpointMs, preLlmMs,
+    sttMs, voiceWaitMs, ragMs, llmMs, llmTtftMs, ttsMs, ttsTtfaMs, ttfaMs, waitMs, totalMs,
+    streamed: true, mode: ttsMode, delivery: ttsDelivery, filler: fillerPlayed, natural: naturalMode,
   };
   logger.info(latency, 'Web call streaming turn latency');
   logTurnLatency(latency);

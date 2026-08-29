@@ -114,6 +114,23 @@ export function canStreamTokens() {
   return hasCredentials();
 }
 
+/**
+ * Why token streaming is unavailable, phrased for the person choosing a voice
+ * in the agent editor — or null when it IS available.
+ *
+ * Lives with the provider rather than in the runtime so the reason stays true
+ * when this provider's constraints change, and so adding a provider does not
+ * mean editing a switch statement somewhere else. See ../ttsStreamFactory.js.
+ *
+ * @returns {string|null}
+ */
+export function streamingBlockReason() {
+  if (!hasCredentials()) {
+    return 'No ElevenLabs API key is configured on this platform, so this voice cannot stream.';
+  }
+  return null;
+}
+
 function authHeaders() {
   return {
     'xi-api-key': getApiKey(),

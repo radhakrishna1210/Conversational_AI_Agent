@@ -63,7 +63,13 @@ class ModularCallSocketService {
     workspaceId: string,
     agentId: string,
     token: string,
-    onEvent: (e: ModularCallEvent) => void
+    onEvent: (e: ModularCallEvent) => void,
+    // The AudioContext's rate, known before this socket opens. Sent with auth so
+    // the server can open its speech-recognition connection at the right rate
+    // while the greeting plays. Without it the server would have to guess, and a
+    // wrong guess means tearing that connection down and re-handshaking it on
+    // the first turn — which is the cost warming it early exists to avoid.
+    sampleRate?: number
   ): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       const socket = new WebSocket(this.wsUrl(workspaceId, agentId));
@@ -83,7 +89,7 @@ class ModularCallSocketService {
       let serverError: string | null = null;
       const TERMINAL_CODES = ['INSUFFICIENT_BALANCE'];
 
-      socket.onopen = () => socket.send(JSON.stringify({ type: 'auth', token }));
+      socket.onopen = () => socket.send(JSON.stringify({ type: 'auth', token, sampleRate }));
 
       socket.onmessage = (event) => {
         // Binary frames are raw reply-audio bytes (between audio-start/audio-end).
@@ -143,7 +149,23 @@ class ModularCallSocketService {
    */
   attachCallLog(callLogId: string) { this.sendJson({ type: 'call-log', callLogId }); }
 
-  startTurn(sampleRate: number) { this.sendJson({ type: 'start-turn', sampleRate }); }
+  /**
+   * Begin a listening segment.
+   *
+   * History rides along even though nothing is being answered yet. The server
+   * decides when the turn ends (its speech recogniser commits an end-of-turn
+   * well before our RMS backstop would), but it used to have no conversation to
+   * run against until our `end-turn` arrived — so it had to notify us and wait
+   * for that frame to come back, a full round trip after the point where it
+   * already knew the caller was finished.
+   *
+   * Nothing can change the history while the caller is speaking, so the copy
+   * sent here is identical to the one `end-turn` would carry, just available a
+   * turn earlier.
+   */
+  startTurn(sampleRate: number, history: { role: string; content: string }[] = []) {
+    this.sendJson({ type: 'start-turn', sampleRate, history });
+  }
   endTurn(history: { role: string; content: string }[]) { this.sendJson({ type: 'end-turn', history }); }
   // History rides along even though this frame means "discard the turn": the
   // server overrides the cancel when Deepgram turns out to hold a transcript,
