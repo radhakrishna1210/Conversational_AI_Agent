@@ -7,10 +7,17 @@
  * contact-led. Keep it that way: a bucket is a sales instrument, not a pricing
  * page. There is no customer-facing endpoint behind any of this.
  *
- * A tier is a PRICE, not an allowance. The minutes in its name are what a
- * salesperson quotes against; nothing decrements them, nothing expires, and
- * running "out" is not a state that exists. The wallet balance remains the only
- * thing that gates a call.
+ * A tier prices a BAND of monthly volume — under 200 minutes, 200 to 1,500, and
+ * so on. The band is what an admin reads to pick the right tier; it is NOT an
+ * allowance and NOT a quota. Nothing is decremented, nothing expires, and the
+ * wallet balance is still the only thing that gates a call.
+ *
+ * NOTHING PICKS A TIER AUTOMATICALLY. A client whose usage outgrows their band
+ * keeps their rate until an admin reassigns them here, deliberately. The bands
+ * describe; they do not resolve.
+ *
+ * Bounds are MIN INCLUSIVE, MAX EXCLUSIVE — 1,500 minutes belongs to the
+ * 1,500–5,000 tier, not to the one below it.
  */
 import { useEffect, useState } from 'react';
 import { API } from '@/lib/adminApi';
@@ -18,7 +25,11 @@ import { authFetch } from '@/lib/authFetch';
 
 type Bucket = {
   id: string; name: string; label: string;
-  minutes: number; perMinuteInr: number; active: boolean;
+  /** Band floor, inclusive. */
+  minMinutes: number;
+  /** Band ceiling, exclusive. null is the open-ended top bracket. */
+  maxMinutes: number | null;
+  perMinuteInr: number; active: boolean;
   /** How many clients are billed on this tier right now. */
   workspaceCount: number;
 };
@@ -31,7 +42,7 @@ type WsRow = {
 };
 
 /** The shape sent to PATCH /pricing/buckets/:id — only the changed fields. */
-type BucketPatch = Partial<Pick<Bucket, 'label' | 'minutes' | 'perMinuteInr' | 'active'>>;
+type BucketPatch = Partial<Pick<Bucket, 'label' | 'minMinutes' | 'maxMinutes' | 'perMinuteInr' | 'active'>>;
 
 const input: React.CSSProperties = {
   width: '100%', padding: '9px 11px', background: 'var(--s2)',
@@ -53,18 +64,68 @@ const primaryButton = (enabled: boolean): React.CSSProperties => ({
   opacity: enabled ? 1 : 0.5,
 });
 
-/** The ₹ figure a tier is worth at a given rate — what a salesperson quotes. */
-const worth = (minutes: number, rate: number) =>
-  `${minutes.toLocaleString('en-IN')} min = ₹${Math.round(minutes * rate).toLocaleString('en-IN')}`;
+const inr = (n: number) => `₹${Math.round(n).toLocaleString('en-IN')}`;
+const mins = (n: number) => n.toLocaleString('en-IN');
 
-/** "3 clients" / "1 client" / "No clients", for the tier row and its warnings. */
+/**
+ * What a client in this band spends per month at this rate.
+ *
+ * The figure a salesperson actually quotes. A band has two ends, so it is a
+ * spread rather than one number — and for the open-ended top bracket only a
+ * floor, since there is no ceiling to multiply.
+ */
+const spend = (minMinutes: number, maxMinutes: number | null, rate: number) => (
+  maxMinutes === null
+    ? `${mins(minMinutes)}+ min = ${inr(minMinutes * rate)}+ / month`
+    : `${mins(minMinutes)}–${mins(maxMinutes)} min = ${inr(minMinutes * rate)}–${inr(maxMinutes * rate)} / month`
+);
+
+/** "3 clients" / "1 client", for the tier row and its warnings. */
 const clientCount = (n: number) => (n === 1 ? '1 client' : `${n} clients`);
+
+/**
+ * Whether the offered bands tile the whole range — no gap, no overlap.
+ *
+ * Not enforced on the server: nothing resolves a rate from a band, so an
+ * overlap is untidy rather than wrong, and refusing one would block the
+ * ordinary case of widening a band before narrowing its neighbour. Reported
+ * here instead, because an admin who has left 1,500–2,000 uncovered wants to
+ * find out now rather than when a customer falls in it.
+ *
+ * Retired tiers are excluded: they are not offered, so they cannot leave a hole.
+ */
+const bandGaps = (buckets: Bucket[]): string[] => {
+  const offered = buckets.filter((b) => b.active).sort((a, b) => a.minMinutes - b.minMinutes);
+  if (offered.length === 0) return [];
+
+  const problems: string[] = [];
+  if (offered[0].minMinutes > 0) problems.push(`Nothing covers 0–${mins(offered[0].minMinutes)} min.`);
+
+  for (let i = 0; i < offered.length - 1; i += 1) {
+    const cur = offered[i];
+    const next = offered[i + 1];
+    if (cur.maxMinutes === null) {
+      problems.push(`${cur.label} is open-ended but ${next.label} sits above it.`);
+    } else if (cur.maxMinutes < next.minMinutes) {
+      problems.push(`Nothing covers ${mins(cur.maxMinutes)}–${mins(next.minMinutes)} min.`);
+    } else if (cur.maxMinutes > next.minMinutes) {
+      problems.push(`${cur.label} and ${next.label} both cover ${mins(next.minMinutes)}–${mins(cur.maxMinutes)} min.`);
+    }
+  }
+
+  const top = offered[offered.length - 1];
+  if (top.maxMinutes !== null) problems.push(`Nothing covers volume above ${mins(top.maxMinutes)} min.`);
+
+  return problems;
+};
 
 /**
  * Mirrors pickRate() in backend/src/services/billing/workspaceRate.js.
  * Kept deliberately in step: if this and the server ever disagree, the table
  * shows an admin a price the customer is not actually charged, which is worse
  * than showing nothing. Same order, same zero/NaN fall-through.
+ *
+ * Note what it does NOT consult: the band. Tiers are assigned, never inferred.
  */
 const effectiveRate = (w: WsRow, fallback: number): { rate: number; source: string } => {
   if (w.rateOverrideInr && w.rateOverrideInr > 0) return { rate: w.rateOverrideInr, source: 'Override' };
@@ -73,6 +134,35 @@ const effectiveRate = (w: WsRow, fallback: number): { rate: number; source: stri
   }
   return { rate: fallback, source: 'Default' };
 };
+
+/** Shared by the tier row and the create form — a band is two bounded fields. */
+function BandFields({ from, to, busy, onFrom, onTo }: {
+  from: string; to: string; busy: boolean;
+  onFrom: (v: string) => void; onTo: (v: string) => void;
+}) {
+  return (
+    <>
+      <div style={{ width: 110 }}>
+        <span style={fieldLabel}>From (min)</span>
+        <input
+          type="number" step="1" min="0" value={from} disabled={busy}
+          onChange={(e) => onFrom(e.target.value)}
+          style={input}
+        />
+      </div>
+
+      <div style={{ width: 130 }}>
+        <span style={fieldLabel}>To (min)</span>
+        <input
+          type="number" step="1" min="1" value={to} disabled={busy}
+          placeholder="no limit"
+          onChange={(e) => onTo(e.target.value)}
+          style={input}
+        />
+      </div>
+    </>
+  );
+}
 
 /**
  * One tier, fully editable.
@@ -87,7 +177,8 @@ function BucketRow({ bucket, busy, onSave }: {
   bucket: Bucket; busy: boolean; onSave: (patch: BucketPatch) => void;
 }) {
   const [label, setLabel] = useState(bucket.label);
-  const [minutes, setMinutes] = useState(String(bucket.minutes));
+  const [from, setFrom] = useState(String(bucket.minMinutes));
+  const [to, setTo] = useState(bucket.maxMinutes === null ? '' : String(bucket.maxMinutes));
   const [rate, setRate] = useState(String(bucket.perMinuteInr));
   const [active, setActive] = useState(bucket.active);
 
@@ -95,24 +186,29 @@ function BucketRow({ bucket, busy, onSave }: {
   // server actually stored rather than what was typed at it.
   useEffect(() => {
     setLabel(bucket.label);
-    setMinutes(String(bucket.minutes));
+    setFrom(String(bucket.minMinutes));
+    setTo(bucket.maxMinutes === null ? '' : String(bucket.maxMinutes));
     setRate(String(bucket.perMinuteInr));
     setActive(bucket.active);
-  }, [bucket.label, bucket.minutes, bucket.perMinuteInr, bucket.active]);
+  }, [bucket.label, bucket.minMinutes, bucket.maxMinutes, bucket.perMinuteInr, bucket.active]);
 
   const parsedRate = Number(rate);
-  const parsedMinutes = Number(minutes);
+  const parsedFrom = Number(from);
+  // An empty ceiling is the open-ended top bracket, not a missing field.
+  const parsedTo = to.trim() === '' ? null : Number(to);
   const trimmedLabel = label.trim();
 
   const valid = Number.isFinite(parsedRate) && parsedRate > 0
-    && Number.isInteger(parsedMinutes) && parsedMinutes > 0
+    && Number.isInteger(parsedFrom) && parsedFrom >= 0
+    && (parsedTo === null || (Number.isInteger(parsedTo) && parsedTo > parsedFrom))
     && trimmedLabel.length > 0;
 
   // Send only what changed, so a save that merely flips `active` cannot also
   // resubmit the rate and read as a reprice in the logs.
   const patch: BucketPatch = {};
   if (trimmedLabel !== bucket.label) patch.label = trimmedLabel;
-  if (parsedMinutes !== bucket.minutes) patch.minutes = parsedMinutes;
+  if (parsedFrom !== bucket.minMinutes) patch.minMinutes = parsedFrom;
+  if (parsedTo !== bucket.maxMinutes) patch.maxMinutes = parsedTo;
   if (parsedRate !== bucket.perMinuteInr) patch.perMinuteInr = parsedRate;
   if (active !== bucket.active) patch.active = active;
 
@@ -127,19 +223,12 @@ function BucketRow({ bucket, busy, onSave }: {
       opacity: bucket.active ? 1 : 0.72,
     }}>
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
-        <div style={{ flex: '1 1 190px', minWidth: 160 }}>
+        <div style={{ flex: '1 1 170px', minWidth: 150 }}>
           <span style={fieldLabel}>Tier name</span>
           <input value={label} disabled={busy} onChange={(e) => setLabel(e.target.value)} style={input} />
         </div>
 
-        <div style={{ width: 120 }}>
-          <span style={fieldLabel}>Minutes</span>
-          <input
-            type="number" step="1" min="1" value={minutes} disabled={busy}
-            onChange={(e) => setMinutes(e.target.value)}
-            style={input}
-          />
-        </div>
+        <BandFields from={from} to={to} busy={busy} onFrom={setFrom} onTo={setTo} />
 
         <div style={{ width: 150 }}>
           <span style={fieldLabel}>Rate</span>
@@ -161,7 +250,7 @@ function BucketRow({ bucket, busy, onSave }: {
 
       <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap', fontSize: 12 }}>
         <span style={{ color: 'var(--tx-3)' }}>
-          {valid ? worth(parsedMinutes, parsedRate) : 'Fill in every field to price this tier'}
+          {valid ? spend(parsedFrom, parsedTo, parsedRate) : 'Fill in every field to price this band'}
         </span>
 
         <span style={{ color: 'var(--tx-3)' }}>
@@ -214,16 +303,20 @@ function BucketRow({ bucket, busy, onSave }: {
  */
 function NewBucketForm({ busy, onCreate }: {
   busy: boolean;
-  onCreate: (input: { label: string; minutes: number; perMinuteInr: number }) => void;
+  onCreate: (input: { label: string; minMinutes: number; maxMinutes: number | null; perMinuteInr: number }) => void;
 }) {
   const [open, setOpen] = useState(false);
   const [label, setLabel] = useState('');
-  const [minutes, setMinutes] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
   const [rate, setRate] = useState('');
 
-  const parsedMinutes = Number(minutes);
+  const parsedFrom = Number(from);
+  const parsedTo = to.trim() === '' ? null : Number(to);
   const parsedRate = Number(rate);
-  const valid = Number.isInteger(parsedMinutes) && parsedMinutes > 0
+  const valid = from.trim() !== ''
+    && Number.isInteger(parsedFrom) && parsedFrom >= 0
+    && (parsedTo === null || (Number.isInteger(parsedTo) && parsedTo > parsedFrom))
     && Number.isFinite(parsedRate) && parsedRate > 0;
 
   if (!open) {
@@ -247,23 +340,16 @@ function NewBucketForm({ busy, onCreate }: {
       display: 'flex', flexDirection: 'column', gap: 12,
     }}>
       <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
-        <div style={{ flex: '1 1 190px', minWidth: 160 }}>
+        <div style={{ flex: '1 1 170px', minWidth: 150 }}>
           <span style={fieldLabel}>Tier name</span>
           <input
-            value={label} disabled={busy} placeholder="defaults to the minutes"
+            value={label} disabled={busy} placeholder="defaults to the band"
             onChange={(e) => setLabel(e.target.value)}
             style={input}
           />
         </div>
 
-        <div style={{ width: 120 }}>
-          <span style={fieldLabel}>Minutes</span>
-          <input
-            type="number" step="1" min="1" value={minutes} disabled={busy}
-            onChange={(e) => setMinutes(e.target.value)}
-            style={input}
-          />
-        </div>
+        <BandFields from={from} to={to} busy={busy} onFrom={setFrom} onTo={setTo} />
 
         <div style={{ width: 150 }}>
           <span style={fieldLabel}>Rate</span>
@@ -279,7 +365,9 @@ function NewBucketForm({ busy, onCreate }: {
         </div>
 
         <button
-          onClick={() => onCreate({ label: label.trim(), minutes: parsedMinutes, perMinuteInr: parsedRate })}
+          onClick={() => onCreate({
+            label: label.trim(), minMinutes: parsedFrom, maxMinutes: parsedTo, perMinuteInr: parsedRate,
+          })}
           disabled={!valid || busy}
           style={primaryButton(valid && !busy)}
         >
@@ -287,7 +375,7 @@ function NewBucketForm({ busy, onCreate }: {
         </button>
 
         <button
-          onClick={() => { setLabel(''); setMinutes(''); setRate(''); setOpen(false); }}
+          onClick={() => { setLabel(''); setFrom(''); setTo(''); setRate(''); setOpen(false); }}
           disabled={busy}
           style={{
             padding: '7px 12px', borderRadius: 8, fontSize: 13,
@@ -301,8 +389,8 @@ function NewBucketForm({ busy, onCreate }: {
 
       <span style={{ fontSize: 12, color: 'var(--tx-3)' }}>
         {valid
-          ? `${worth(parsedMinutes, parsedRate)}. Starts assigned to nobody.`
-          : 'Enter the minutes this tier quotes and the rate it charges.'}
+          ? `${spend(parsedFrom, parsedTo, parsedRate)}. Starts assigned to nobody.`
+          : 'Set where the band starts and what it charges. Leave "to" empty for the top band.'}
       </span>
     </div>
   );
@@ -360,7 +448,9 @@ export default function PricingBucketsTab({ defaultRate }: { defaultRate?: numbe
     } finally { setBusy(null); }
   };
 
-  const createBucket = async (body: { label: string; minutes: number; perMinuteInr: number }) => {
+  const createBucket = async (body: {
+    label: string; minMinutes: number; maxMinutes: number | null; perMinuteInr: number;
+  }) => {
     setBusy('new'); setMsg(null);
     try {
       const res = await authFetch(API('/pricing/buckets'), {
@@ -408,6 +498,8 @@ export default function PricingBucketsTab({ defaultRate }: { defaultRate?: numbe
     || w.name.toLowerCase().includes(q.toLowerCase())
     || w.slug.toLowerCase().includes(q.toLowerCase()));
 
+  const gaps = bandGaps(buckets);
+
   const cell: React.CSSProperties = {
     padding: '9px 10px', borderBottom: '1px solid var(--line)',
     fontSize: 13, color: 'var(--tx-2)',
@@ -420,10 +512,12 @@ export default function PricingBucketsTab({ defaultRate }: { defaultRate?: numbe
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 26 }}>
       <p style={{ color: 'var(--tx-3)', fontSize: 13, lineHeight: 1.6, margin: 0, maxWidth: 760 }}>
-        Volume tiers you can assign to a client. A tier is a <strong>price</strong>, not an
-        allowance — the minutes in its name are what you quote against, never a quota, and
-        nothing is decremented or expires. The wallet balance is still the only thing that
-        gates a call. None of this is shown to clients anywhere.
+        Volume tiers you can assign to a client. Each covers a band of monthly minutes and
+        sets a <strong>price</strong>, not an allowance — nothing is decremented, nothing
+        expires, and the wallet balance is still the only thing that gates a call. A client
+        whose usage outgrows their band keeps their rate until you move them here; bands are
+        never applied automatically. Bounds include the start and exclude the end, so 1,500
+        minutes falls in the 1,500–5,000 band. None of this is shown to clients anywhere.
       </p>
 
       <div>
@@ -437,6 +531,16 @@ export default function PricingBucketsTab({ defaultRate }: { defaultRate?: numbe
           ))}
           <NewBucketForm busy={busy === 'new'} onCreate={createBucket} />
         </div>
+
+        {/* Not an error — the tiers still work, and assignment is manual, so a
+            hole in the bands cannot mis-bill anyone. It just means there is a
+            volume with no tier to quote for it. */}
+        {gaps.length > 0 && (
+          <p style={{ margin: '12px 0 0', fontSize: 12, color: 'var(--tx-3)', lineHeight: 1.6 }}>
+            <strong style={{ color: 'var(--tx-2)' }}>Bands don&apos;t line up:</strong>{' '}
+            {gaps.join(' ')}
+          </p>
+        )}
       </div>
 
       <div>
@@ -478,7 +582,7 @@ export default function PricingBucketsTab({ defaultRate }: { defaultRate?: numbe
                       <select
                         value={w.pricingBucketId || ''} disabled={busy === w.id}
                         onChange={(e) => assign(w.id, e.target.value || null)}
-                        style={{ ...input, maxWidth: 180, padding: '6px 8px' }}
+                        style={{ ...input, maxWidth: 200, padding: '6px 8px' }}
                       >
                         <option value="">— none —</option>
                         {offered.map((b) => (
