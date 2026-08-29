@@ -832,11 +832,22 @@ model KbChunk {
 // that gates a call, exactly as before.
 model PricingBucket {
   id           String      @id @default(cuid())
-  // Stable machine key ("bucket_2000"), not the display text, so relabelling a
-  // tier in the UI cannot orphan the workspaces pointing at it.
+  // Stable machine key ("bucket_1500_5000"), not the display text, so
+  // relabelling a tier in the UI cannot orphan the workspaces pointing at it.
   name         String      @unique
   label        String
-  minutes      Int
+  // The monthly-volume bracket this tier prices, MIN INCLUSIVE, MAX EXCLUSIVE
+  // — so 1,500 belongs to the 1,500-5,000 tier and not to the one below it.
+  // A null max is the open-ended top bracket ("over 5,000").
+  //
+  // `minMinutes` is mapped onto the original `minutes` column rather than
+  // given a new one. That column held the single figure a tier used to quote
+  // against, which is exactly the lower bound of the bracket that replaced it,
+  // so reusing it keeps the migration additive against the live database —
+  // dropping a NOT NULL column with real rows in it is the one thing the
+  // deployment notes forbid.
+  minMinutes   Int         @map("minutes")
+  maxMinutes   Int?
   perMinuteInr Float
   active       Boolean     @default(true)
   sortOrder    Int         @default(0)

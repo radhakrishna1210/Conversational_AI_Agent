@@ -27,17 +27,54 @@ const rejects = (promise, status, match) =>
   });
 
 const RATE_ERR = /greater than zero/;
-const MINUTES_ERR = /whole number greater than zero/;
+const MIN_ERR = /must start at a whole number/;
+const MAX_ERR = /must end at a whole number/;
+const BAND_ERR = /contains no minutes/;
 
-describe('createBucket — minutes', () => {
-  for (const minutes of [0, -1, 1.5, 'abc', null, undefined, '']) {
-    it(`rejects ${JSON.stringify(minutes)}`, async () => {
-      await rejects(createBucket({ minutes, perMinuteInr: 10 }), 400, MINUTES_ERR);
+/** A band that would pass validation, so a single bad field is the only cause. */
+const OK = { minMinutes: 200, maxMinutes: 1500, perMinuteInr: 10 };
+
+describe('createBucket — where the band starts', () => {
+  for (const minMinutes of [-1, 1.5, 'abc', null, undefined, '', Infinity]) {
+    it(`rejects ${JSON.stringify(minMinutes)}`, async () => {
+      await rejects(createBucket({ ...OK, minMinutes }), 400, MIN_ERR);
     });
   }
 
-  it('rejects Infinity, which Number() accepts but no tier can quote', async () => {
-    await rejects(createBucket({ minutes: Infinity, perMinuteInr: 10 }), 400, MINUTES_ERR);
+  it('accepts zero, which is the bottom band floor', async () => {
+    // Not a rejection test: it must get PAST the floor guard and fail on the
+    // rate instead, proving zero is a legal floor rather than a missing value.
+    await rejects(createBucket({ minMinutes: 0, maxMinutes: 200, perMinuteInr: 0 }), 400, RATE_ERR);
+  });
+});
+
+describe('createBucket — where the band ends', () => {
+  for (const maxMinutes of [0, -1, 1.5, 'abc']) {
+    it(`rejects ${JSON.stringify(maxMinutes)}`, async () => {
+      await rejects(createBucket({ ...OK, maxMinutes }), 400, MAX_ERR);
+    });
+  }
+
+  it('treats an omitted ceiling as the open-ended top band', async () => {
+    // Must fall through to the rate guard, not the ceiling guard — an absent
+    // maximum is a real choice here, not a missing field.
+    await rejects(createBucket({ minMinutes: 5000, perMinuteInr: 0 }), 400, RATE_ERR);
+  });
+
+  it('treats an empty-string ceiling the same way, since that is what the form sends', async () => {
+    await rejects(createBucket({ minMinutes: 5000, maxMinutes: '', perMinuteInr: 0 }), 400, RATE_ERR);
+  });
+});
+
+describe('createBucket — the band has to contain something', () => {
+  it('rejects a ceiling below the floor', async () => {
+    await rejects(createBucket({ ...OK, minMinutes: 1500, maxMinutes: 200 }), 400, BAND_ERR);
+  });
+
+  it('rejects equal bounds, because the ceiling is exclusive', async () => {
+    // [200, 200) is empty. Worth pinning: it is the boundary case the
+    // half-open convention exists to make unambiguous.
+    await rejects(createBucket({ ...OK, minMinutes: 200, maxMinutes: 200 }), 400, BAND_ERR);
   });
 });
 
@@ -47,15 +84,9 @@ describe('createBucket — rate', () => {
   // entirely. Both must fail loudly rather than be stored.
   for (const rate of [0, -5, 'abc', null, undefined, '']) {
     it(`rejects ${JSON.stringify(rate)}`, async () => {
-      await rejects(createBucket({ minutes: 5000, perMinuteInr: rate }), 400, RATE_ERR);
+      await rejects(createBucket({ ...OK, perMinuteInr: rate }), 400, RATE_ERR);
     });
   }
-
-  it('rejects a rate before it ever looks the tier up', async () => {
-    // Minutes are checked first, so a bad rate on a plausible tier still fails
-    // on the rate — proving the guard runs ahead of the uniqueness query.
-    await rejects(createBucket({ minutes: 2000, perMinuteInr: 0 }), 400, RATE_ERR);
-  });
 });
 
 describe('updateBucket — nothing to update', () => {
@@ -67,7 +98,7 @@ describe('updateBucket — nothing to update', () => {
     // The admin UI sends only the fields that actually changed, so an unchanged
     // save arrives looking exactly like this rather than as a no-op write.
     await rejects(
-      updateBucket('bkt_1', { label: undefined, minutes: undefined, perMinuteInr: undefined, active: undefined }),
+      updateBucket('bkt_1', { label: undefined, minMinutes: undefined, perMinuteInr: undefined, active: undefined }),
       400,
       /Nothing to update/,
     );
@@ -79,13 +110,19 @@ describe('updateBucket — field guards match create', () => {
     await rejects(updateBucket('bkt_1', { perMinuteInr: 0 }), 400, RATE_ERR);
   });
 
-  it('rejects a fractional minutes figure', async () => {
-    await rejects(updateBucket('bkt_1', { minutes: 2.5 }), 400, MINUTES_ERR);
+  it('rejects a fractional floor', async () => {
+    await rejects(updateBucket('bkt_1', { minMinutes: 2.5 }), 400, MIN_ERR);
   });
 
   it('rejects a blank label, which create instead defaults', async () => {
     // The asymmetry is deliberate: creating a tier without a label gets the
-    // minutes as one, but blanking an existing tier's label is a mistake.
+    // band as one, but blanking an existing tier's label is a mistake.
     await rejects(updateBucket('bkt_1', { label: '   ' }), 400, /Label cannot be empty/);
+  });
+
+  it('rejects an inverted band given in one patch', async () => {
+    // Both edges present, so this fails on the pure ordering check without ever
+    // reading the row — the read-before-write path is only for a one-edge move.
+    await rejects(updateBucket('bkt_1', { minMinutes: 1500, maxMinutes: 200 }), 400, BAND_ERR);
   });
 });
