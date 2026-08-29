@@ -368,11 +368,18 @@ function BucketRow({ bucket, busy, onSave, onDelete }: {
         </p>
       )}
 
-      {!bucket.active && (
-        <p style={{ margin: 0, fontSize: 11, color: 'var(--tx-3)' }}>
-          Retired — not offered to new clients. Still billing anyone already assigned.
-        </p>
-      )}
+      {/*
+        What the tick above actually does, always shown and driven by the
+        CHECKBOX rather than the saved row — so an admin sees the consequence
+        while deciding, not after saving. "Offer to new clients" is not
+        self-explanatory on its own, and the cost of guessing wrong is a tier
+        quietly vanishing from the picker three sections down the page.
+      */}
+      <p style={{ margin: 0, fontSize: 11, color: 'var(--tx-3)', lineHeight: 1.5 }}>
+        {active
+          ? 'Ticked: listed in the client picker below, so it can be assigned to anyone.'
+          : 'Unticked: hidden from the client picker. Anyone already on it keeps being billed this rate until you move them.'}
+      </p>
     </div>
   );
 }
@@ -609,6 +616,7 @@ export default function PricingBucketsTab({ defaultRate }: { defaultRate?: numbe
   // like the page is broken. Name the actual cause instead: this is the one
   // failure here that no amount of retrying fixes.
   const staleApi = buckets.length > 0 && buckets.some((b) => b.minMinutes === undefined);
+  const retiredCount = buckets.filter((b) => !b.active).length;
 
   const cell: React.CSSProperties = {
     padding: '9px 10px', borderBottom: '1px solid var(--line)',
@@ -678,6 +686,20 @@ export default function PricingBucketsTab({ defaultRate }: { defaultRate?: numbe
         <p style={{ color: 'var(--tx-3)', fontSize: 12, margin: '0 0 10px' }}>
           An override beats the tier; a client with neither pays the default (&#8377;{fallback}/min).
           Clear the override box to fall back to the tier.
+          {/*
+            A picker listing one tier out of four looks broken, and the reason
+            is three sections up the page. Say it here, where the short list is.
+          */}
+          {retiredCount > 0 && (
+            <>
+              {' '}
+              <span style={{ color: 'var(--tx-2)' }}>
+                {retiredCount === 1 ? 'One tier is retired' : `${retiredCount} tiers are retired`}
+                {' '}and so not offered below — re-tick &ldquo;Offer to new clients&rdquo; above to
+                bring {retiredCount === 1 ? 'it' : 'one'} back.
+              </span>
+            </>
+          )}
         </p>
 
         <input
@@ -720,7 +742,15 @@ export default function PricingBucketsTab({ defaultRate }: { defaultRate?: numbe
                         onChange={(e) => assign(w.id, e.target.value || null)}
                         style={{ ...input, maxWidth: 200, padding: '6px 8px' }}
                       >
-                        <option value="">— none —</option>
+                        {/*
+                          Not "none". A client with no tier is not on nothing —
+                          they are on the platform default, which is what the
+                          Pays column beside this has always called it. Naming
+                          the option after the rate it actually applies makes
+                          the picker read as a choice between two prices rather
+                          than between a price and an absence.
+                        */}
+                        <option value="">Default rate · ₹{fallback}</option>
                         {offered.map((b) => (
                           <option key={b.id} value={b.id}>
                             {b.label} · ₹{b.perMinuteInr}{b.active ? '' : ' (retired)'}
