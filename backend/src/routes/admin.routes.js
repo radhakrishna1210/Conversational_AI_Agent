@@ -67,6 +67,7 @@ router.get('/appointments', authenticate, isAdmin, listAppointments);
 router.get('/pricing/buckets', authenticate, isAdmin, platform.adminListBuckets);
 router.post('/pricing/buckets', authenticate, isAdmin, platform.adminCreateBucket);
 router.patch('/pricing/buckets/:id', authenticate, isAdmin, platform.adminUpdateBucket);
+router.delete('/pricing/buckets/:id', authenticate, isAdmin, platform.adminDeleteBucket);
 router.get('/pricing/workspaces/:workspaceId', authenticate, isAdmin, platform.adminGetWorkspaceRate);
 router.put('/pricing/workspaces/:workspaceId/bucket', authenticate, isAdmin, platform.adminAssignBucket);
 router.put('/pricing/workspaces/:workspaceId/override', authenticate, isAdmin, platform.adminSetRateOverride);

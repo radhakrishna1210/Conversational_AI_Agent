@@ -61,20 +61,27 @@ export const SEED_BUCKETS = [
 ];
 
 /**
- * Create any missing seed bucket. Idempotent and safe to call on every boot.
+ * Seed the tiers on a genuinely empty table. Safe to call on every read.
  *
- * Deliberately createMany-with-skipDuplicates rather than upsert: an admin who
- * has repriced a tier to ₹9 must not have it silently reset on the next
- * restart. Missing rows are created; existing rows are never touched.
+ * FIRST RUN ONLY — deliberately not "create any that are missing".
+ *
+ * Per-name seeding was right while these four were fixed and an admin could
+ * only reprice them. It stopped being right the moment tiers became
+ * deletable: it would recreate a deleted band on the very next boot, which
+ * makes the delete button a lie and is the sort of thing that is only ever
+ * discovered days later. Once ANY tier exists, the admin owns the list.
+ *
+ * Emptying the table entirely therefore restores the four defaults, which is
+ * the one sensible reading of "there are no tiers at all".
+ *
+ * Existing rows are never touched either way: an admin who has repriced a tier
+ * to ₹9 must not have it reset on a restart.
  */
 export async function ensureBucketsSeeded() {
-  const existing = await prisma.pricingBucket.findMany({ select: { name: true } });
-  const have = new Set(existing.map((b) => b.name));
-  const missing = SEED_BUCKETS.filter((b) => !have.has(b.name));
-  if (missing.length === 0) return;
+  if (await prisma.pricingBucket.count() > 0) return;
 
-  await prisma.pricingBucket.createMany({ data: missing, skipDuplicates: true });
-  logger.info({ created: missing.map((b) => b.name) }, 'Seeded pricing buckets');
+  await prisma.pricingBucket.createMany({ data: SEED_BUCKETS, skipDuplicates: true });
+  logger.info({ created: SEED_BUCKETS.map((b) => b.name) }, 'Seeded pricing buckets');
 }
 
 /**
@@ -293,4 +300,59 @@ export async function updateBucket(id, patch = {}) {
 
   const { _count, ...bucket } = row;
   return { ...bucket, workspaceCount: _count.workspaces };
+}
+
+/**
+ * Whether a tier may be deleted, as a pure function.
+ *
+ * Split from the database read for the same reason pickRate is in
+ * workspaceRate.js: this is the part with the billing consequences, and
+ * keeping it pure means it can be tested exhaustively without a database —
+ * the billing suites otherwise run against the LIVE one, where fabricating a
+ * tier to satisfy a test would mean creating a real row that real workspaces
+ * could be pointed at.
+ *
+ * @param {{ label: string, workspaceCount: number }} bucket
+ */
+export function assertDeletable(bucket) {
+  const clients = Number(bucket?.workspaceCount) || 0;
+  if (clients <= 0) return;
+
+  throw Object.assign(
+    new Error(`${bucket.label} still has ${clients} client${clients === 1 ? '' : 's'} on it. Move them to another tier first, or retire this one instead — deleting it would drop them to the default rate.`),
+    { status: 409 },
+  );
+}
+
+/**
+ * Delete a tier outright.
+ *
+ * REFUSES WHILE ANY CLIENT IS ON IT, and that refusal is the whole point of
+ * this function rather than a courtesy. `Workspace.pricingBucketId` is
+ * ON DELETE SET NULL, so deleting an occupied tier would not fail — it would
+ * quietly null out every assignment and drop those clients to the platform
+ * default rate on their next call. A silent reprice of a real customer is
+ * exactly the outcome the whole tier system exists to make deliberate, so the
+ * admin reassigns first and deletes second.
+ *
+ * Retiring (`active: false`) remains the right move for a tier that still has
+ * customers on it: it stops being offered while everybody on it keeps the
+ * price they agreed.
+ *
+ * @param {string} id
+ */
+export async function deleteBucket(id) {
+  const bucket = await prisma.pricingBucket.findUnique({
+    where: { id },
+    include: { _count: { select: { workspaces: true } } },
+  });
+
+  if (!bucket) throw Object.assign(new Error('Unknown pricing tier'), { status: 404 });
+
+  assertDeletable({ label: bucket.label, workspaceCount: bucket._count.workspaces });
+
+  await prisma.pricingBucket.delete({ where: { id } });
+  logger.info({ bucketId: id, name: bucket.name }, 'Pricing bucket deleted');
+
+  return { id, name: bucket.name, label: bucket.label };
 }

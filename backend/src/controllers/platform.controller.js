@@ -7,7 +7,7 @@ import { sendMail, isMailerConfigured } from '../lib/mailer.js';
 import { appendCallRow } from '../services/googleSheets.service.js';
 import { createEvent, resolveAppointmentStart } from '../services/googleCalendar.service.js';
 import { getWalletRate, setWalletRate, WALLET_RATE_PLAN } from '../services/billing/walletRate.js';
-import { listBuckets, createBucket, updateBucket } from '../services/billing/pricingBuckets.js';
+import { listBuckets, createBucket, updateBucket, deleteBucket } from '../services/billing/pricingBuckets.js';
 import { resolveWorkspaceRate, assignBucket, setRateOverride } from '../services/billing/workspaceRate.js';
 import { getNumberRate, setNumberRate } from '../services/billing/numberRate.js';
 import { getBroadcastRate, setBroadcastRate } from '../services/billing/broadcastRate.js';
@@ -96,6 +96,21 @@ export const adminUpdateBucket = async (req, res) => {
     res.json({ bucket });
   } catch (err) {
     res.status(err.status ?? 500).json({ error: err.message ?? 'Failed to update the bucket' });
+  }
+};
+
+/**
+ * DELETE /admin/pricing/buckets/:id — remove a tier for good.
+ *
+ * 409 means the tier still has clients on it. That is not a lock to force
+ * past: the FK nulls assignments on delete, so removing an occupied tier
+ * silently reprices real customers to the default. Reassign, or retire it.
+ */
+export const adminDeleteBucket = async (req, res) => {
+  try {
+    res.json({ deleted: await deleteBucket(req.params.id) });
+  } catch (err) {
+    res.status(err.status ?? 500).json({ error: err.message ?? 'Failed to delete the bucket' });
   }
 };
 
