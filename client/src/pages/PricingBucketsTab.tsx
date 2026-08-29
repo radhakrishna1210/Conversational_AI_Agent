@@ -427,7 +427,14 @@ export default function PricingBucketsTab({ defaultRate }: { defaultRate?: numbe
   const [rows, setRows] = useState<WsRow[]>([]);
   const [fallback, setFallback] = useState(12);
   const [err, setErr] = useState<string | null>(null);
-  const [msg, setMsg] = useState<string | null>(null);
+  // Which half of the page a message belongs to. One shared string used to
+  // render at the very bottom of the component — under an 86-row client table
+  // — so a failed "Add tier" reported itself entirely off screen and read as
+  // the button doing nothing at all.
+  const [msg, setMsg] = useState<{ text: string; where: 'tiers' | 'clients' } | null>(null);
+  const say = (where: 'tiers' | 'clients') => (text: string) => setMsg({ text, where });
+  const sayTiers = say('tiers');
+  const sayClients = say('clients');
   const [busy, setBusy] = useState<string | null>(null);
   const [q, setQ] = useState('');
 
@@ -465,12 +472,12 @@ export default function PricingBucketsTab({ defaultRate }: { defaultRate?: numbe
       if (!res.ok) throw new Error(data.error || 'Save failed');
       // Repricing a tier changes what every client on it pays from their NEXT
       // call. Already-settled calls keep the rate recorded on their log row.
-      setMsg(patch.perMinuteInr !== undefined
+      sayTiers(patch.perMinuteInr !== undefined
         ? `${data.bucket.label} is now ₹${data.bucket.perMinuteInr}/min. Clients on this tier are charged the new rate from their next call.`
         : `${data.bucket.label} saved.`);
       await load();
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : 'Save failed');
+      sayTiers(e instanceof Error ? e.message : 'Save failed');
     } finally { setBusy(null); }
   };
 
@@ -484,10 +491,10 @@ export default function PricingBucketsTab({ defaultRate }: { defaultRate?: numbe
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Could not add the tier');
-      setMsg(`${data.bucket.label} added at ₹${data.bucket.perMinuteInr}/min. Assign it to a client below.`);
+      sayTiers(`${data.bucket.label} added at ₹${data.bucket.perMinuteInr}/min. Assign it to a client below.`);
       await load();
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : 'Could not add the tier');
+      sayTiers(e instanceof Error ? e.message : 'Could not add the tier');
     } finally { setBusy(null); }
   };
 
@@ -500,7 +507,7 @@ export default function PricingBucketsTab({ defaultRate }: { defaultRate?: numbe
       if (!res.ok) throw new Error(((await res.json()) as { error?: string }).error || 'Failed');
       await load();
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : 'Failed');
+      sayClients(e instanceof Error ? e.message : 'Failed');
     } finally { setBusy(null); }
   };
 
@@ -514,7 +521,7 @@ export default function PricingBucketsTab({ defaultRate }: { defaultRate?: numbe
       if (!res.ok) throw new Error(((await res.json()) as { error?: string }).error || 'Failed');
       await load();
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : 'Failed');
+      sayClients(e instanceof Error ? e.message : 'Failed');
     } finally { setBusy(null); }
   };
 
@@ -525,6 +532,12 @@ export default function PricingBucketsTab({ defaultRate }: { defaultRate?: numbe
     || w.slug.toLowerCase().includes(q.toLowerCase()));
 
   const gaps = bandGaps(buckets);
+
+  // A server on the pre-band build sends tiers with no bounds and has no
+  // create route at all, so From/To stay blank and "Add tier" 404s. Both look
+  // like the page is broken. Name the actual cause instead: this is the one
+  // failure here that no amount of retrying fixes.
+  const staleApi = buckets.length > 0 && buckets.some((b) => b.minMinutes === undefined);
 
   const cell: React.CSSProperties = {
     padding: '9px 10px', borderBottom: '1px solid var(--line)',
@@ -548,6 +561,21 @@ export default function PricingBucketsTab({ defaultRate }: { defaultRate?: numbe
 
       <div>
         <h3 style={{ fontSize: 13, color: 'var(--tx)', margin: '0 0 10px' }}>Tiers</h3>
+
+        {staleApi && (
+          <div style={{
+            border: '1px solid var(--line-2)', borderLeft: '3px solid var(--warn, var(--tx-2))',
+            borderRadius: 8, padding: '11px 14px', marginBottom: 12,
+            fontSize: 12, color: 'var(--tx-2)', lineHeight: 1.6,
+          }}>
+            <strong>The backend is running an older build than this page.</strong> It is not
+            sending tier bands, so From and To stay blank, and it has no route to add a tier.
+            Restart the backend — that regenerates the database client, applies the band
+            migration and creates the missing bands. Editing a tier&apos;s name or rate still
+            works in the meantime.
+          </div>
+        )}
+
         <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
           {buckets.map((b) => (
             <BucketRow
@@ -555,7 +583,7 @@ export default function PricingBucketsTab({ defaultRate }: { defaultRate?: numbe
               onSave={(patch) => saveBucket(b, patch)}
             />
           ))}
-          <NewBucketForm busy={busy === 'new'} onCreate={createBucket} />
+          {!staleApi && <NewBucketForm busy={busy === 'new'} onCreate={createBucket} />}
         </div>
 
         {/* Not an error — the tiers still work, and assignment is manual, so a
@@ -566,6 +594,10 @@ export default function PricingBucketsTab({ defaultRate }: { defaultRate?: numbe
             <strong style={{ color: 'var(--tx-2)' }}>Bands don&apos;t line up:</strong>{' '}
             {gaps.join(' ')}
           </p>
+        )}
+
+        {msg?.where === 'tiers' && (
+          <p style={{ margin: '12px 0 0', fontSize: 12, color: 'var(--tx-2)' }}>{msg.text}</p>
         )}
       </div>
 
@@ -580,6 +612,12 @@ export default function PricingBucketsTab({ defaultRate }: { defaultRate?: numbe
           value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search clients…"
           style={{ ...input, maxWidth: 280, marginBottom: 12 }}
         />
+
+        {/* Above the table, not below it: with 86 clients, a failure reported
+            under the last row is a failure nobody sees. */}
+        {msg?.where === 'clients' && (
+          <p style={{ margin: '0 0 12px', fontSize: 12, color: 'var(--tx-2)' }}>{msg.text}</p>
+        )}
 
         <div style={{ border: '1px solid var(--line)', borderRadius: 10, overflowX: 'auto' }}>
           <table style={{ width: '100%', borderCollapse: 'collapse', minWidth: 660 }}>
@@ -651,7 +689,6 @@ export default function PricingBucketsTab({ defaultRate }: { defaultRate?: numbe
         </div>
       </div>
 
-      {msg && <p style={{ fontSize: 12, color: 'var(--tx-2)', margin: 0 }}>{msg}</p>}
     </div>
   );
 }
