@@ -9,6 +9,7 @@
  */
 import { useState } from 'react';
 import PricingBucketsTab from './PricingBucketsTab';
+import BroadcastRateTab from './BroadcastRateTab';
 import { Users, Bug, CreditCard, TrendingUp, Activity, CalendarDays, Cpu, Mail } from 'lucide-react';
 import {
   AdminPageHeader,
@@ -91,7 +92,7 @@ export function AdminPricingPage() {
     <>
       <AdminPageHeader
         title="Pricing"
-        subtitle="The default rate, volume tiers, per-client rates, and phone-number pricing. Admin-only — nothing here is shown to clients."
+        subtitle="The default rate, volume tiers, per-client rates, broadcast pricing and phone-number pricing. Admin-only — nothing here is shown to clients."
         icon={<TrendingUp size={21} />}
       />
 
@@ -103,6 +104,17 @@ export function AdminPricingPage() {
       <section style={{ marginBottom: 34 }}>
         <h2 style={sectionTitle}>Volume tiers &amp; client rates</h2>
         <PricingBucketsTab defaultRate={defaultRate} />
+      </section>
+
+      {/*
+        Broadcasts are billed per minute like a conversation, but at their own
+        rate and with no tier or override applying — a recorded call costs us a
+        carrier minute and nothing else. Above number pricing because it is
+        still talk time, below the tiers because none of them reach it.
+      */}
+      <section style={{ marginBottom: 34 }}>
+        <h2 style={sectionTitle}>Broadcast rate</h2>
+        <BroadcastRateTab />
       </section>
 
       {/*

@@ -65,6 +65,7 @@ router.get('/appointments', authenticate, isAdmin, listAppointments);
 // rate because it OVERRIDES it: the wallet rate is now the fallback for a
 // workspace with neither a bucket nor an override.
 router.get('/pricing/buckets', authenticate, isAdmin, platform.adminListBuckets);
+router.post('/pricing/buckets', authenticate, isAdmin, platform.adminCreateBucket);
 router.patch('/pricing/buckets/:id', authenticate, isAdmin, platform.adminUpdateBucket);
 router.get('/pricing/workspaces/:workspaceId', authenticate, isAdmin, platform.adminGetWorkspaceRate);
 router.put('/pricing/workspaces/:workspaceId/bucket', authenticate, isAdmin, platform.adminAssignBucket);

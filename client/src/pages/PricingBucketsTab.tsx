@@ -19,6 +19,8 @@ import { authFetch } from '@/lib/authFetch';
 type Bucket = {
   id: string; name: string; label: string;
   minutes: number; perMinuteInr: number; active: boolean;
+  /** How many clients are billed on this tier right now. */
+  workspaceCount: number;
 };
 
 type WsRow = {
@@ -28,11 +30,35 @@ type WsRow = {
   pricingBucket: { id: string; label: string; perMinuteInr: number } | null;
 };
 
+/** The shape sent to PATCH /pricing/buckets/:id — only the changed fields. */
+type BucketPatch = Partial<Pick<Bucket, 'label' | 'minutes' | 'perMinuteInr' | 'active'>>;
+
 const input: React.CSSProperties = {
   width: '100%', padding: '9px 11px', background: 'var(--s2)',
   border: '1px solid var(--line-2)', borderRadius: 9, color: 'var(--tx)',
   fontFamily: 'var(--ff-b)', fontSize: 13,
 };
+
+const fieldLabel: React.CSSProperties = {
+  display: 'block', color: 'var(--tx-3)', fontSize: 10,
+  textTransform: 'uppercase', letterSpacing: '.04em', fontWeight: 600, marginBottom: 4,
+};
+
+const primaryButton = (enabled: boolean): React.CSSProperties => ({
+  padding: '7px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
+  border: '1px solid var(--teal, var(--cyan-fg))',
+  background: enabled ? 'var(--teal, var(--cyan-fg))' : 'transparent',
+  color: enabled ? 'var(--on-cyan)' : 'var(--teal, var(--cyan-fg))',
+  cursor: enabled ? 'pointer' : 'default',
+  opacity: enabled ? 1 : 0.5,
+});
+
+/** The ₹ figure a tier is worth at a given rate — what a salesperson quotes. */
+const worth = (minutes: number, rate: number) =>
+  `${minutes.toLocaleString('en-IN')} min = ₹${Math.round(minutes * rate).toLocaleString('en-IN')}`;
+
+/** "3 clients" / "1 client" / "No clients", for the tier row and its warnings. */
+const clientCount = (n: number) => (n === 1 ? '1 client' : `${n} clients`);
 
 /**
  * Mirrors pickRate() in backend/src/services/billing/workspaceRate.js.
@@ -48,57 +74,236 @@ const effectiveRate = (w: WsRow, fallback: number): { rate: number; source: stri
   return { rate: fallback, source: 'Default' };
 };
 
-/** One tier. Local input state so typing does not refetch the client table. */
+/**
+ * One tier, fully editable.
+ *
+ * Local input state so typing does not refetch the client table below, and so a
+ * half-typed rate is never sent. Everything commits together on Save: editing a
+ * tier's price changes what every client on it pays from their next call, and
+ * that should be one deliberate action, not a side effect of tabbing out of a
+ * field.
+ */
 function BucketRow({ bucket, busy, onSave }: {
-  bucket: Bucket; busy: boolean; onSave: (rate: number) => void;
+  bucket: Bucket; busy: boolean; onSave: (patch: BucketPatch) => void;
 }) {
-  const [val, setVal] = useState(String(bucket.perMinuteInr));
-  useEffect(() => { setVal(String(bucket.perMinuteInr)); }, [bucket.perMinuteInr]);
+  const [label, setLabel] = useState(bucket.label);
+  const [minutes, setMinutes] = useState(String(bucket.minutes));
+  const [rate, setRate] = useState(String(bucket.perMinuteInr));
+  const [active, setActive] = useState(bucket.active);
 
-  const parsed = Number(val);
-  const valid = Number.isFinite(parsed) && parsed > 0;
-  const dirty = valid && parsed !== bucket.perMinuteInr;
+  // Re-sync when the parent reloads after a save, so the inputs show what the
+  // server actually stored rather than what was typed at it.
+  useEffect(() => {
+    setLabel(bucket.label);
+    setMinutes(String(bucket.minutes));
+    setRate(String(bucket.perMinuteInr));
+    setActive(bucket.active);
+  }, [bucket.label, bucket.minutes, bucket.perMinuteInr, bucket.active]);
+
+  const parsedRate = Number(rate);
+  const parsedMinutes = Number(minutes);
+  const trimmedLabel = label.trim();
+
+  const valid = Number.isFinite(parsedRate) && parsedRate > 0
+    && Number.isInteger(parsedMinutes) && parsedMinutes > 0
+    && trimmedLabel.length > 0;
+
+  // Send only what changed, so a save that merely flips `active` cannot also
+  // resubmit the rate and read as a reprice in the logs.
+  const patch: BucketPatch = {};
+  if (trimmedLabel !== bucket.label) patch.label = trimmedLabel;
+  if (parsedMinutes !== bucket.minutes) patch.minutes = parsedMinutes;
+  if (parsedRate !== bucket.perMinuteInr) patch.perMinuteInr = parsedRate;
+  if (active !== bucket.active) patch.active = active;
+
+  const dirty = valid && Object.keys(patch).length > 0;
+  const repricing = patch.perMinuteInr !== undefined && bucket.workspaceCount > 0;
+  const retiring = patch.active === false;
 
   return (
     <div style={{
-      border: '1px solid var(--line)', borderRadius: 10, padding: '12px 16px',
-      display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap',
+      border: '1px solid var(--line)', borderRadius: 10, padding: '14px 16px',
+      display: 'flex', flexDirection: 'column', gap: 12,
+      opacity: bucket.active ? 1 : 0.72,
     }}>
-      <div style={{ minWidth: 150 }}>
-        <div style={{ color: 'var(--tx)', fontSize: 14, fontWeight: 600 }}>{bucket.label}</div>
-        <div style={{ color: 'var(--tx-3)', fontSize: 11 }}>
-          {bucket.minutes.toLocaleString('en-IN')} min tier
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ flex: '1 1 190px', minWidth: 160 }}>
+          <span style={fieldLabel}>Tier name</span>
+          <input value={label} disabled={busy} onChange={(e) => setLabel(e.target.value)} style={input} />
         </div>
+
+        <div style={{ width: 120 }}>
+          <span style={fieldLabel}>Minutes</span>
+          <input
+            type="number" step="1" min="1" value={minutes} disabled={busy}
+            onChange={(e) => setMinutes(e.target.value)}
+            style={input}
+          />
+        </div>
+
+        <div style={{ width: 150 }}>
+          <span style={fieldLabel}>Rate</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ color: 'var(--tx-2)' }}>&#8377;</span>
+            <input
+              type="number" step="0.01" min="0.01" value={rate} disabled={busy}
+              onChange={(e) => setRate(e.target.value)}
+              style={input}
+            />
+            <span style={{ fontSize: 12, color: 'var(--tx-3)' }}>/min</span>
+          </div>
+        </div>
+
+        <button onClick={() => onSave(patch)} disabled={!dirty || busy} style={primaryButton(dirty && !busy)}>
+          {busy ? 'Saving…' : 'Save'}
+        </button>
       </div>
 
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-        <span style={{ color: 'var(--tx-2)' }}>&#8377;</span>
-        <input
-          type="number" step="0.01" min="0.01" value={val} disabled={busy}
-          onChange={(e) => setVal(e.target.value)}
-          style={{ ...input, maxWidth: 110 }}
-        />
-        <span style={{ fontSize: 12, color: 'var(--tx-3)' }}>/ min</span>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 18, flexWrap: 'wrap', fontSize: 12 }}>
+        <span style={{ color: 'var(--tx-3)' }}>
+          {valid ? worth(parsedMinutes, parsedRate) : 'Fill in every field to price this tier'}
+        </span>
+
+        <span style={{ color: 'var(--tx-3)' }}>
+          {bucket.workspaceCount === 0 ? 'No clients' : clientCount(bucket.workspaceCount)}
+        </span>
+
+        {/*
+          `active` governs whether the tier is OFFERED, never whether it bills.
+          Retiring one leaves everybody on it at the price they agreed — see the
+          note in services/billing/workspaceRate.js. The picker below stops
+          listing it, which is the whole of what this flag does.
+        */}
+        <label style={{
+          display: 'flex', alignItems: 'center', gap: 6,
+          color: 'var(--tx-2)', cursor: busy ? 'default' : 'pointer',
+        }}>
+          <input type="checkbox" checked={active} disabled={busy} onChange={(e) => setActive(e.target.checked)} />
+          Offer to new clients
+        </label>
       </div>
 
-      {/* The number a salesperson actually quotes: what the tier is worth. */}
-      <div style={{ color: 'var(--tx-3)', fontSize: 12, flex: 1, minWidth: 150 }}>
-        {valid && `${bucket.minutes.toLocaleString('en-IN')} min = ₹${(bucket.minutes * parsed).toLocaleString('en-IN')}`}
-      </div>
+      {/* Warned BEFORE the save rather than reported after it, because both of
+          these are irreversible in the only sense that matters here: somebody's
+          next call is billed differently. */}
+      {(repricing || retiring) && (
+        <p style={{ margin: 0, fontSize: 12, color: 'var(--warn, var(--tx-2))', lineHeight: 1.5 }}>
+          {repricing && `Saving reprices ${clientCount(bucket.workspaceCount)} from their next call. `}
+          {retiring && (bucket.workspaceCount === 0
+            ? 'Retiring hides this tier from the picker.'
+            : `Retiring hides this tier from the picker; the ${clientCount(bucket.workspaceCount)} on it stay at this price until reassigned.`)}
+        </p>
+      )}
 
+      {!bucket.active && (
+        <p style={{ margin: 0, fontSize: 11, color: 'var(--tx-3)' }}>
+          Retired — not offered to new clients. Still billing anyone already assigned.
+        </p>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Add a tier.
+ *
+ * Collapsed until asked for: adding a tier is rare next to repricing one, and
+ * an always-open form invites a stray submit on a page where every other
+ * control moves money. A new tier starts assigned to nobody, so this is the one
+ * action on this page that cannot change an existing client's bill.
+ */
+function NewBucketForm({ busy, onCreate }: {
+  busy: boolean;
+  onCreate: (input: { label: string; minutes: number; perMinuteInr: number }) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [label, setLabel] = useState('');
+  const [minutes, setMinutes] = useState('');
+  const [rate, setRate] = useState('');
+
+  const parsedMinutes = Number(minutes);
+  const parsedRate = Number(rate);
+  const valid = Number.isInteger(parsedMinutes) && parsedMinutes > 0
+    && Number.isFinite(parsedRate) && parsedRate > 0;
+
+  if (!open) {
+    return (
       <button
-        onClick={() => onSave(parsed)} disabled={!dirty || busy}
+        onClick={() => setOpen(true)}
         style={{
-          padding: '7px 14px', borderRadius: 8, fontSize: 13, fontWeight: 600,
-          border: '1px solid var(--teal, var(--cyan-fg))',
-          background: dirty ? 'var(--teal, var(--cyan-fg))' : 'transparent',
-          color: dirty ? 'var(--on-cyan)' : 'var(--teal, var(--cyan-fg))',
-          cursor: dirty && !busy ? 'pointer' : 'default',
-          opacity: dirty || busy ? 1 : 0.5,
+          alignSelf: 'flex-start', padding: '8px 14px', borderRadius: 8,
+          border: '1px dashed var(--line-2)', background: 'transparent',
+          color: 'var(--tx-2)', fontSize: 13, fontWeight: 600, cursor: 'pointer',
         }}
       >
-        {busy ? 'Saving…' : 'Save'}
+        + Add a tier
       </button>
+    );
+  }
+
+  return (
+    <div style={{
+      border: '1px solid var(--line-2)', borderRadius: 10, padding: '14px 16px',
+      display: 'flex', flexDirection: 'column', gap: 12,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, flexWrap: 'wrap' }}>
+        <div style={{ flex: '1 1 190px', minWidth: 160 }}>
+          <span style={fieldLabel}>Tier name</span>
+          <input
+            value={label} disabled={busy} placeholder="defaults to the minutes"
+            onChange={(e) => setLabel(e.target.value)}
+            style={input}
+          />
+        </div>
+
+        <div style={{ width: 120 }}>
+          <span style={fieldLabel}>Minutes</span>
+          <input
+            type="number" step="1" min="1" value={minutes} disabled={busy}
+            onChange={(e) => setMinutes(e.target.value)}
+            style={input}
+          />
+        </div>
+
+        <div style={{ width: 150 }}>
+          <span style={fieldLabel}>Rate</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ color: 'var(--tx-2)' }}>&#8377;</span>
+            <input
+              type="number" step="0.01" min="0.01" value={rate} disabled={busy}
+              onChange={(e) => setRate(e.target.value)}
+              style={input}
+            />
+            <span style={{ fontSize: 12, color: 'var(--tx-3)' }}>/min</span>
+          </div>
+        </div>
+
+        <button
+          onClick={() => onCreate({ label: label.trim(), minutes: parsedMinutes, perMinuteInr: parsedRate })}
+          disabled={!valid || busy}
+          style={primaryButton(valid && !busy)}
+        >
+          {busy ? 'Adding…' : 'Add tier'}
+        </button>
+
+        <button
+          onClick={() => { setLabel(''); setMinutes(''); setRate(''); setOpen(false); }}
+          disabled={busy}
+          style={{
+            padding: '7px 12px', borderRadius: 8, fontSize: 13,
+            border: '1px solid var(--line-2)', background: 'transparent',
+            color: 'var(--tx-3)', cursor: busy ? 'default' : 'pointer',
+          }}
+        >
+          Cancel
+        </button>
+      </div>
+
+      <span style={{ fontSize: 12, color: 'var(--tx-3)' }}>
+        {valid
+          ? `${worth(parsedMinutes, parsedRate)}. Starts assigned to nobody.`
+          : 'Enter the minutes this tier quotes and the rate it charges.'}
+      </span>
     </div>
   );
 }
@@ -136,20 +341,37 @@ export default function PricingBucketsTab({ defaultRate }: { defaultRate?: numbe
   };
   useEffect(() => { load(); }, []);
 
-  const saveBucket = async (b: Bucket, perMinuteInr: number) => {
+  const saveBucket = async (b: Bucket, patch: BucketPatch) => {
     setBusy(b.id); setMsg(null);
     try {
       const res = await authFetch(API(`/pricing/buckets/${b.id}`), {
-        method: 'PATCH', body: JSON.stringify({ perMinuteInr }),
+        method: 'PATCH', body: JSON.stringify(patch),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Save failed');
       // Repricing a tier changes what every client on it pays from their NEXT
       // call. Already-settled calls keep the rate recorded on their log row.
-      setMsg(`${data.bucket.label} is now ₹${data.bucket.perMinuteInr}/min. Clients on this tier are charged the new rate from their next call.`);
+      setMsg(patch.perMinuteInr !== undefined
+        ? `${data.bucket.label} is now ₹${data.bucket.perMinuteInr}/min. Clients on this tier are charged the new rate from their next call.`
+        : `${data.bucket.label} saved.`);
       await load();
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Save failed');
+    } finally { setBusy(null); }
+  };
+
+  const createBucket = async (body: { label: string; minutes: number; perMinuteInr: number }) => {
+    setBusy('new'); setMsg(null);
+    try {
+      const res = await authFetch(API('/pricing/buckets'), {
+        method: 'POST', body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not add the tier');
+      setMsg(`${data.bucket.label} added at ₹${data.bucket.perMinuteInr}/min. Assign it to a client below.`);
+      await load();
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : 'Could not add the tier');
     } finally { setBusy(null); }
   };
 
@@ -210,9 +432,10 @@ export default function PricingBucketsTab({ defaultRate }: { defaultRate?: numbe
           {buckets.map((b) => (
             <BucketRow
               key={b.id} bucket={b} busy={busy === b.id}
-              onSave={(rate) => saveBucket(b, rate)}
+              onSave={(patch) => saveBucket(b, patch)}
             />
           ))}
+          <NewBucketForm busy={busy === 'new'} onCreate={createBucket} />
         </div>
       </div>
 
@@ -241,6 +464,10 @@ export default function PricingBucketsTab({ defaultRate }: { defaultRate?: numbe
             <tbody>
               {filtered.map((w) => {
                 const eff = effectiveRate(w, fallback);
+                // A retired tier stays listed only for the clients already on it,
+                // so this dropdown can never silently drop somebody's current
+                // tier — but nobody new can be moved onto one.
+                const offered = buckets.filter((b) => b.active || b.id === w.pricingBucketId);
                 return (
                   <tr key={w.id} style={{ opacity: busy === w.id ? 0.5 : 1 }}>
                     <td style={cell}>
@@ -254,8 +481,10 @@ export default function PricingBucketsTab({ defaultRate }: { defaultRate?: numbe
                         style={{ ...input, maxWidth: 180, padding: '6px 8px' }}
                       >
                         <option value="">— none —</option>
-                        {buckets.map((b) => (
-                          <option key={b.id} value={b.id}>{b.label} · ₹{b.perMinuteInr}</option>
+                        {offered.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.label} · ₹{b.perMinuteInr}{b.active ? '' : ' (retired)'}
+                          </option>
                         ))}
                       </select>
                     </td>
