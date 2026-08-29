@@ -3,6 +3,8 @@ import { env } from '../config/env.js';
 import { encryptToken, decryptToken } from '../lib/encryption.js';
 import { generateSecureToken } from '../lib/hash.js';
 import logger from '../lib/logger.js';
+import { errorMessage, apiError } from './integrationError.js';
+import { resetIntegrationBackoff } from './integrationBackoff.js';
 import { broadcastIntegrationEvent } from '../lib/integrationEvents.js';
 import { INTEGRATION_ORDER, INTEGRATION_PROVIDERS } from '../constants/integrations.js';
 import { buildConnectionIdentity, isPlaceholderValue, isValidWebhookUrl, normalizeIntegrationName, normalizeWebhookUrl, validateIntegrationCredentials, validateWebhookProviderUrl } from './integrationConnectionUtils.js';
@@ -152,7 +154,10 @@ const exchangeCode = async (p, code, cbUri) => {
     body: params.toString(),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error_description || data.error || `Token exchange failed (${res.status})`);
+  // `data.error` is an OBJECT on Google's APIs, and `new Error(obj)` yields the
+  // literal string "[object Object]" — the bug that made 241,776 failed sync
+  // jobs unreadable. apiError() unwraps the real message. See integrationError.js.
+  if (!res.ok) throw apiError(data, `Token exchange failed (${res.status})`, res.status);
   return data;
 };
 
@@ -178,13 +183,20 @@ const upsertToken = (integrationId, workspaceId, providerKey, payload) =>
     },
   });
 
-const markConnected = (workspaceId, providerKey, p, expiresIn) =>
-  prisma.integration.upsert({
+const markConnected = async (workspaceId, providerKey, p, expiresIn) => {
+  const row = await prisma.integration.upsert({
     where: { workspaceId_provider: { workspaceId, provider: p.key } },
     create: { workspaceId, provider: p.key, name: p.name, status: 'connected', connected: true, webhookStatus: 'ready', lastSyncAt: now() },
     update: { name: p.name, status: 'connected', connected: true, webhookStatus: 'ready', lastError: null, tokenExpiresAt: expiresIn ? new Date(Date.now() + Number(expiresIn) * 1000) : null },
     ...withIncludes,
   });
+  // Fresh credentials: drop any retry penalty earned by the old ones. Without
+  // this, reconnecting a broken integration would appear to do nothing for up
+  // to six hours, and the obvious next move — reconnect it again — would not
+  // help either.
+  resetIntegrationBackoff(row.id);
+  return row;
+};
 
 // ─── Snapshot (sync) ─────────────────────────────────────────────────────────
 
@@ -313,7 +325,7 @@ export const connectWithCredentials = async (workspaceId, providerKey, credentia
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw Object.assign(new Error(data.error_description || data.error || 'Invalid Google OAuth token — generate a new one from the OAuth Playground'), { statusCode: 400 });
+      if (!res.ok) throw apiError(data, 'Invalid Google OAuth token — generate a new one from the OAuth Playground', 400);
       accountLabel = data.email ?? data.name ?? p.name;
       extraMeta = { email: data.email, sheetUrl: sanitizedCredentials.sheetUrl };
     }
@@ -350,7 +362,7 @@ export const connectWithCredentials = async (workspaceId, providerKey, credentia
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok || !data.ok) throw Object.assign(new Error(data.error || 'Invalid Slack bot token'), { statusCode: 400 });
+      if (!res.ok || !data.ok) throw apiError(data, 'Invalid Slack bot token', 400);
       accountLabel = data.team ?? 'Slack';
       extraMeta = { channelId: sanitizedCredentials.channelId, teamId: data.team_id };
     }
@@ -664,21 +676,65 @@ export const runSyncJob = async (jobId) => {
     await prisma.syncJob.update({ where: { id: jobId }, data: { status: 'completed', completedAt: now(), error: null } });
     await addLog({ workspaceId: job.workspaceId, provider: job.provider, integrationId: job.integration.id, event: 'sync_completed', message: `${job.provider} synced`, status: 'completed' });
     broadcastIntegrationEvent(job.workspaceId, 'integration:sync_completed', { provider: job.provider, jobId });
-    return { ok: true, snapshot };
+    return { ok: true, snapshot, integrationId: job.integration.id };
   } catch (err) {
-    await prisma.syncJob.update({ where: { id: jobId }, data: { status: 'failed', completedAt: now(), error: err.message } });
-    await prisma.integration.update({ where: { id: job.integration.id }, data: { status: 'error', lastError: err.message } });
-    await addLog({ workspaceId: job.workspaceId, provider: job.provider, integrationId: job.integration.id, level: 'error', event: 'sync_failed', message: err.message, status: 'failed' });
-    broadcastIntegrationEvent(job.workspaceId, 'integration:sync_failed', { provider: job.provider, jobId, error: err.message });
-    return { ok: false, error: err.message };
+    // Defence in depth for the "[object Object]" bug: even if a provider path
+    // still builds an Error badly, this is the last place the reason can be
+    // recovered before it is written to a column someone will read in a month.
+    const message = errorMessage(err, `${job.provider} sync failed`);
+    await prisma.syncJob.update({ where: { id: jobId }, data: { status: 'failed', completedAt: now(), error: message } });
+    await prisma.integration.update({ where: { id: job.integration.id }, data: { status: 'error', lastError: message } });
+    await addLog({ workspaceId: job.workspaceId, provider: job.provider, integrationId: job.integration.id, level: 'error', event: 'sync_failed', message, status: 'failed' });
+    broadcastIntegrationEvent(job.workspaceId, 'integration:sync_failed', { provider: job.provider, jobId, error: message });
+    return { ok: false, error: message, integrationId: job.integration.id };
   }
 };
 
-export const processPendingSyncJobs = async () => {
+/**
+ * Run the queued sync jobs that are due.
+ *
+ * @param {object} [opts]
+ * @param {Set<string>} [opts.skipIntegrationIds] integrations currently backing
+ *   off after repeated failures. Their queued jobs are RETIRED rather than run:
+ *   a backlog that has already been judged hopeless must not be replayed against
+ *   the database one full sync at a time. On this deployment that backlog stood
+ *   at 8,191 jobs, all for two broken integrations, and draining it by running
+ *   each one was itself a meaningful share of the load.
+ * @returns {Promise<Array<{ jobId: string, integrationId: string|null, ok: boolean, error?: string }>>}
+ *   one entry per job, so the scheduler can decide what to back off and what to
+ *   forgive. It used to swallow every result, which is why a permanently
+ *   failing integration was indistinguishable from a healthy one.
+ */
+export const processPendingSyncJobs = async ({ skipIntegrationIds } = {}) => {
   const jobs = await prisma.syncJob.findMany({ where: { status: 'queued', scheduledAt: { lte: now() } }, orderBy: { createdAt: 'asc' }, take: 10 });
-  for (const job of jobs) {
-    await runSyncJob(job.id).catch((err) => logger.error({ err, jobId: job.id }, 'Sync job failed'));
+  const results = [];
+
+  const retired = jobs.filter((j) => j.integrationId && skipIntegrationIds?.has(j.integrationId));
+  if (retired.length) {
+    // One UPDATE for the whole batch instead of one sync attempt each.
+    await prisma.syncJob.updateMany({
+      where: { id: { in: retired.map((j) => j.id) } },
+      data: { status: 'skipped', completedAt: now(), error: 'Superseded: integration is backing off after repeated failures' },
+    }).catch((err) => logger.warn(`Could not retire superseded sync jobs: ${err.message}`));
+    for (const job of retired) results.push({ jobId: job.id, integrationId: job.integrationId, ok: false, skipped: true });
   }
+
+  const skipIds = new Set(retired.map((j) => j.id));
+  for (const job of jobs) {
+    if (skipIds.has(job.id)) continue;
+    try {
+      const outcome = await runSyncJob(job.id);
+      results.push({ jobId: job.id, integrationId: outcome?.integrationId ?? job.integrationId, ok: Boolean(outcome?.ok), error: outcome?.error });
+    } catch (err) {
+      // runSyncJob handles its own provider failures; reaching here means the
+      // DATABASE failed while recording one. That is not the integration's
+      // fault, so it is reported without an `ok:false` verdict that would back
+      // off a provider for the database's problem.
+      logger.error({ err, jobId: job.id }, 'Sync job failed');
+      results.push({ jobId: job.id, integrationId: job.integrationId, ok: false, infrastructure: true, error: errorMessage(err) });
+    }
+  }
+  return results;
 };
 
 // ─── Webhook events ───────────────────────────────────────────────────────────
