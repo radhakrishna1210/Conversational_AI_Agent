@@ -16,7 +16,7 @@
  */
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { createBucket, updateBucket } from '../pricingBuckets.js';
+import { createBucket, updateBucket, assertDeletable } from '../pricingBuckets.js';
 
 /** Assert a rejection carries both the message and the HTTP status the API returns. */
 const rejects = (promise, status, match) =>
@@ -124,5 +124,45 @@ describe('updateBucket — field guards match create', () => {
     // Both edges present, so this fails on the pure ordering check without ever
     // reading the row — the read-before-write path is only for a one-edge move.
     await rejects(updateBucket('bkt_1', { minMinutes: 1500, maxMinutes: 200 }), 400, BAND_ERR);
+  });
+});
+
+describe('assertDeletable — the refusal is the feature', () => {
+  // `Workspace.pricingBucketId` is ON DELETE SET NULL, so deleting an occupied
+  // tier does NOT error at the database: it silently nulls every assignment and
+  // drops those clients to the platform default on their next call. Postgres
+  // will not stop that, so this guard is the only thing that does.
+  it('refuses a tier with clients on it', () => {
+    assert.throws(
+      () => assertDeletable({ label: '200-1,500 min', workspaceCount: 3 }),
+      (err) => {
+        assert.equal(err.status, 409);
+        assert.match(err.message, /still has 3 clients/);
+        // The message has to name the way out, or the admin is just stuck.
+        assert.match(err.message, /Move them to another tier first, or retire/);
+        return true;
+      },
+    );
+  });
+
+  it('says "1 client", not "1 clients"', () => {
+    assert.throws(
+      () => assertDeletable({ label: 'Under 200 min', workspaceCount: 1 }),
+      (err) => {
+        assert.ok(err.message.includes('still has 1 client on it'), err.message);
+        return true;
+      },
+    );
+  });
+
+  it('allows a tier nobody is on', () => {
+    assert.doesNotThrow(() => assertDeletable({ label: 'Over 5,000 min', workspaceCount: 0 }));
+  });
+
+  it('treats an absent count as empty rather than throwing on it', () => {
+    // A caller that forgot the _count include should not get a TypeError out of
+    // a guard whose whole job is to produce a clear refusal.
+    assert.doesNotThrow(() => assertDeletable({ label: 'x' }));
+    assert.doesNotThrow(() => assertDeletable({ label: 'x', workspaceCount: null }));
   });
 });

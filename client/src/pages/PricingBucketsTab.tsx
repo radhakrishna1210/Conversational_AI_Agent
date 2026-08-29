@@ -189,9 +189,15 @@ function BandFields({ from, to, busy, onFrom, onTo }: {
  * that should be one deliberate action, not a side effect of tabbing out of a
  * field.
  */
-function BucketRow({ bucket, busy, onSave }: {
-  bucket: Bucket; busy: boolean; onSave: (patch: BucketPatch) => void;
+function BucketRow({ bucket, busy, onSave, onDelete }: {
+  bucket: Bucket; busy: boolean;
+  onSave: (patch: BucketPatch) => void;
+  onDelete: () => void;
 }) {
+  // Two-step rather than a browser confirm(): a native dialog blocks the whole
+  // page, and this control is one click from a Save button on a row that
+  // prices real customers.
+  const [confirming, setConfirming] = useState(false);
   const [label, setLabel] = useState(bucket.label);
   // Number.isFinite guards rather than a plain String(): a server on the older
   // bucket shape sends no bounds, and String(undefined) would put the literal
@@ -209,6 +215,7 @@ function BucketRow({ bucket, busy, onSave }: {
     setTo(bounded(bucket.maxMinutes));
     setRate(String(bucket.perMinuteInr));
     setActive(bucket.active);
+    setConfirming(false);
   }, [bucket.label, bucket.minMinutes, bucket.maxMinutes, bucket.perMinuteInr, bucket.active]);
 
   const parsedRate = Number(rate);
@@ -296,6 +303,57 @@ function BucketRow({ bucket, busy, onSave }: {
           <input type="checkbox" checked={active} disabled={busy} onChange={(e) => setActive(e.target.checked)} />
           Offer to new clients
         </label>
+
+        {/*
+          Only ever offered on a tier nobody is on. The server refuses the rest
+          anyway — the FK nulls assignments on delete, so removing an occupied
+          tier would silently reprice its clients to the default — but an admin
+          should not have to click a button to find that out. For a tier with
+          customers, the honest control is the retire checkbox beside this.
+        */}
+        <span style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+          {count > 0 ? (
+            <span style={{ color: 'var(--tx-3)' }} title="Reassign its clients first, or retire it instead">
+              Reassign its clients to delete
+            </span>
+          ) : confirming ? (
+            <>
+              <span style={{ color: 'var(--tx-2)' }}>Delete {bucket.label}?</span>
+              <button
+                onClick={onDelete} disabled={busy}
+                style={{
+                  padding: '4px 10px', borderRadius: 7, fontSize: 12, fontWeight: 600,
+                  border: '1px solid var(--err)', background: 'var(--err)',
+                  color: 'var(--on-cyan, #fff)', cursor: busy ? 'default' : 'pointer',
+                }}
+              >
+                {busy ? 'Deleting…' : 'Delete'}
+              </button>
+              <button
+                onClick={() => setConfirming(false)} disabled={busy}
+                style={{
+                  padding: '4px 8px', borderRadius: 7, fontSize: 12,
+                  border: '1px solid var(--line-2)', background: 'transparent',
+                  color: 'var(--tx-3)', cursor: busy ? 'default' : 'pointer',
+                }}
+              >
+                Cancel
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setConfirming(true)} disabled={busy}
+              style={{
+                padding: '4px 8px', borderRadius: 7, fontSize: 12,
+                border: '1px solid transparent', background: 'transparent',
+                color: 'var(--tx-3)', cursor: busy ? 'default' : 'pointer',
+                textDecoration: 'underline',
+              }}
+            >
+              Delete
+            </button>
+          )}
+        </span>
       </div>
 
       {/* Warned BEFORE the save rather than reported after it, because both of
@@ -498,6 +556,19 @@ export default function PricingBucketsTab({ defaultRate }: { defaultRate?: numbe
     } finally { setBusy(null); }
   };
 
+  const removeBucket = async (b: Bucket) => {
+    setBusy(b.id); setMsg(null);
+    try {
+      const res = await authFetch(API(`/pricing/buckets/${b.id}`), { method: 'DELETE' });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Could not delete the tier');
+      sayTiers(`${data.deleted.label} deleted.`);
+      await load();
+    } catch (e) {
+      sayTiers(e instanceof Error ? e.message : 'Could not delete the tier');
+    } finally { setBusy(null); }
+  };
+
   const assign = async (workspaceId: string, bucketId: string | null) => {
     setBusy(workspaceId); setMsg(null);
     try {
@@ -581,6 +652,7 @@ export default function PricingBucketsTab({ defaultRate }: { defaultRate?: numbe
             <BucketRow
               key={b.id} bucket={b} busy={busy === b.id}
               onSave={(patch) => saveBucket(b, patch)}
+              onDelete={() => removeBucket(b)}
             />
           ))}
           {!staleApi && <NewBucketForm busy={busy === 'new'} onCreate={createBucket} />}
