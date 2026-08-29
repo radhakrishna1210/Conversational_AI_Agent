@@ -61,7 +61,6 @@ import {
   DeepgramStreamSession,
   isDeepgramConfigured,
   toDeepgramLanguage,
-  defaultEndpointingMs,
 } from '../services/stt/deepgramStream.service.js';
 import {
   analyzeSpeech,
@@ -90,6 +89,7 @@ import {
   rememberGreetingAudio,
   greetingSynthesisOpts,
 } from '../services/voice/greetingAudio.js';
+import { turnEndProfileFor } from '../services/voice/turnEndProfile.js';
 import { createPlayoutWindow } from '../services/voice/playoutWindow.js';
 import { createEchoCanceller } from '../services/voice/echoCanceller.js';
 import { createUlawPacer } from '../services/voice/ulawPacer.js';
@@ -786,6 +786,10 @@ export function runModularMediaBridge(ws, {
           fillerBudget,
           channel: 'phone',
           preLlmMs: Date.now() - turnEndDetectedAt,
+          // Silence the caller sat through before this turn was even declared
+          // over — the recogniser's VAD timeout plus its confirmation grace.
+          // Outside every previous metric, and the same size as the LLM wait.
+          endpointMs: dg?.lastEndpointMs ?? null,
           // Ask TTS for the carrier's own format — see ttsFormatOpts().
           ...ttsFormatOpts(),
           shouldAbort: () => abortTurn || closed,
@@ -840,7 +844,7 @@ export function runModularMediaBridge(ws, {
                 break;
               case 'audio-chunk': {
                 if (abortTurn || closed || !pending) break;
-                const buf = Buffer.from(ev.data, 'base64');
+                const buf = ev.chunk;
                 const ulaw = pendingPcm ? pendingPcm.push(buf) : buf;
                 if (!ulaw.length) break;
                 for (const frame of pending.push(ulaw)) sendFrame(frame);
@@ -937,9 +941,21 @@ export function runModularMediaBridge(ws, {
       encoding: 'mulaw',
       sampleRate: PHONE_SAMPLE_RATE,
       language: dgLanguage,
-      // Shared with the web handler — the phone path had its own 500ms default,
-      // so end-of-turn committed at a different point per transport.
-      endpointingMs: defaultEndpointingMs(),
+      // The agent's own turn-end profile (Call Configuration → Response speed),
+      // resolved from exactly the same module the web transport uses. Two
+      // things this fixes at once: the phone path had its own 500ms default, so
+      // the same agent turned around at a different speed depending on how it
+      // was reached; and an operator who wanted a slower window had to edit env
+      // for every agent on the box. `openDeepgram` runs after settings are
+      // loaded, so the profile here is the caller's agent, not a default.
+      ...(() => {
+        const profile = turnEndProfileFor(settings);
+        return {
+          endpointingMs: profile.endpointingMs,
+          endpointGraceMs: profile.graceMs,
+          unfinishedGraceMs: profile.unfinishedGraceMs,
+        };
+      })(),
       // Guarded, because Deepgram is fed the inbound leg unconditionally and a
       // phone line has no echo cancellation: our own reply comes back up it and
       // is transcribed like any other speech, so it can commit an end of turn

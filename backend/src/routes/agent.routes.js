@@ -20,6 +20,8 @@ router.put('/:agentId/voice', voiceCtrl.setVoice);
 // ─── Conversation runtime (Chat Test + Web Call share this brain) ─────────────
 import * as runtimeCtrl from '../controllers/agentRuntime.controller.js';
 router.get('/:agentId/welcome', runtimeCtrl.welcome);
+// What this agent's response-speed controls can do, given the voice it is on.
+router.get('/:agentId/response-profile', runtimeCtrl.responseProfile);
 router.post('/:agentId/converse', runtimeCtrl.converse);
 router.post('/:agentId/speak', runtimeCtrl.speak);
 router.post('/:agentId/speak-stream', runtimeCtrl.speakStream);

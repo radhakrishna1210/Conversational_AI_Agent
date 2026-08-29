@@ -26,10 +26,12 @@ import { resolveSynthesisTarget } from '../voice.service.js';
 const TOKEN_STREAMERS = {
   ElevenLabs: {
     supported: () => elevenLabsProvider.canStreamTokens(),
+    reason: () => elevenLabsProvider.streamingBlockReason(),
     create: (voiceId, opts) => new elevenLabsProvider.ElevenLabsTtsStream(voiceId, opts),
   },
   FishAudio: {
     supported: () => fishAudioProvider.canStreamTokens(),
+    reason: () => fishAudioProvider.streamingBlockReason(),
     create: (voiceId, opts) => new fishAudioProvider.FishAudioTtsStream(voiceId, opts),
   },
 };
@@ -71,6 +73,46 @@ export function createTokenTtsStream(voice, opts = {}) {
   const resolved = entryFor(voice);
   if (!resolved || !resolved.entry.supported()) return null;
   return resolved.entry.create(resolved.voiceId, opts);
+}
+
+/**
+ * What this specific voice can actually do, and why — the answer the agent
+ * editor needs in order to let someone CHOOSE a voice knowingly instead of
+ * discovering months later that the fast path never ran.
+ *
+ * Deliberately describes the voice the workspace picked rather than
+ * recommending one: which provider is fastest is a product decision that
+ * belongs to the person configuring the agent, not to this file. Everything
+ * here is derived — no provider is named in the logic, and a provider added to
+ * TOKEN_STREAMERS later is described by this function with no edit.
+ *
+ * @param {object} voice - Voice row including { provider: { name } }
+ * @returns {{ providerName: string, tokenStreaming: boolean, ssmlBreaks: boolean,
+ *   deliveryMode: 'socket'|'http', reason: string|null }}
+ */
+export function describeTtsCapabilities(voice) {
+  const resolved = entryFor(voice);
+  const providerName = synthesisProviderName(voice);
+  if (!resolved) {
+    return {
+      providerName,
+      tokenStreaming: false,
+      ssmlBreaks: supportsSsmlBreaks(voice),
+      deliveryMode: 'http',
+      // Not an error: the per-sentence HTTP path is fully functional, and for
+      // several providers it is the only path they publish.
+      reason: `${providerName} does not offer an incremental-text streaming endpoint here, `
+        + 'so replies are synthesized sentence by sentence over HTTP.',
+    };
+  }
+  const supported = resolved.entry.supported();
+  return {
+    providerName,
+    tokenStreaming: supported,
+    ssmlBreaks: supportsSsmlBreaks(voice),
+    deliveryMode: supported ? 'socket' : 'http',
+    reason: supported ? null : (resolved.entry.reason?.() ?? null),
+  };
 }
 
 /** Provider name that would actually synthesize this voice (for logs). */

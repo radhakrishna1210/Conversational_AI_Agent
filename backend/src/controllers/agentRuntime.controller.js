@@ -10,6 +10,9 @@
 import multer from 'multer';
 import logger from '../lib/logger.js';
 import * as runtime from '../services/agentRuntime.service.js';
+import { resolveAgentVoice } from '../services/voice.service.js';
+import { describeTtsCapabilities } from '../services/voice/ttsStreamFactory.js';
+import { turnEndProfileFor, turnEndProfileList, maxCommitMsFor, DEFAULT_TURN_END_PROFILE } from '../services/voice/turnEndProfile.js';
 
 const sendError = (res, err, fallbackMsg) => {
   const status = err.statusCode || 500;
@@ -164,8 +167,15 @@ export const voiceTurnStream = async (req, res) => {
     });
     res.flushHeaders();
 
+    // The only consumer that has to serialize audio as text. The WS transports
+    // take the Buffer straight through; here it must survive JSON.stringify,
+    // which would otherwise turn it into { type: 'Buffer', data: [...] }.
     const write = (event) => {
-      if (!res.writableEnded) res.write(`${JSON.stringify(event)}\n`);
+      if (res.writableEnded) return;
+      const line = event?.type === 'audio-chunk' && Buffer.isBuffer(event.chunk)
+        ? { type: 'audio-chunk', data: event.chunk.toString('base64') }
+        : event;
+      res.write(`${JSON.stringify(line)}\n`);
     };
 
     await runtime.voiceTurnStream(
@@ -185,5 +195,75 @@ export const voiceTurnStream = async (req, res) => {
       return res.end();
     }
     sendError(res, err, 'Agent streaming voice turn failed');
+  }
+};
+
+/**
+ * GET .../response-profile
+ *
+ * Everything the agent editor needs to let someone tune this agent's response
+ * speed WITHOUT guessing: the profiles they can pick from (with the actual
+ * milliseconds each one waits), and what the voice they have currently selected
+ * can really do.
+ *
+ * That second half is the point. Whether the agent can stream its reply as the
+ * words are generated — the difference between a reply that starts in ~600ms
+ * and one that starts after a whole sentence has been synthesized — depends
+ * entirely on which voice provider the workspace picked, and until now there
+ * was no way to find that out except by reading the server logs. So the editor
+ * asks, and shows the answer next to the control.
+ *
+ * Nothing here recommends a provider or a profile. It reports what the current
+ * choice does, and the choice stays the user's.
+ */
+export const responseProfile = async (req, res) => {
+  try {
+    const { workspaceId, agentId } = req.params;
+    const agent = await runtime.loadAgent(workspaceId, agentId);
+    if (!agent) return res.status(404).json({ error: 'Agent not found in this workspace' });
+
+    let settings = {};
+    try { settings = JSON.parse(agent.settings || '{}') || {}; } catch { /* defaults */ }
+
+    // `?voice=` lets the editor ask about a voice the user has just PICKED but
+    // not yet saved, so the capability note under the control updates as they
+    // browse voices instead of only after a save. Falls back to what is stored.
+    const candidate = typeof req.query.voice === 'string' && req.query.voice.trim()
+      ? req.query.voice.trim()
+      : agent.voice;
+    // A voice that cannot be resolved (never picked, or a clone whose upstream
+    // id went missing) is not an error here — the editor still needs the rest.
+    const voice = await resolveAgentVoice(candidate).catch(() => null);
+    const capabilities = voice
+      ? describeTtsCapabilities(voice)
+      : {
+        providerName: null,
+        tokenStreaming: false,
+        ssmlBreaks: false,
+        deliveryMode: 'http',
+        reason: 'No voice is selected for this agent yet.',
+      };
+
+    const profile = turnEndProfileFor(settings);
+    res.json({
+      turnEnd: {
+        selected: settings.turnEndSensitivity || DEFAULT_TURN_END_PROFILE,
+        profiles: turnEndProfileList(),
+        // What the agent will actually use, env overrides included — so an
+        // operator override is visible rather than making the UI look wrong.
+        effective: { ...profile, maxCommitMs: maxCommitMsFor(profile) },
+      },
+      ttsDelivery: {
+        selected: ['auto', 'socket', 'http'].includes(settings.ttsDelivery)
+          ? settings.ttsDelivery
+          : 'auto',
+        // Platform kill switch. When an operator has taken the streaming path
+        // out of service, say so instead of showing a control that does nothing.
+        available: process.env.VOICE_TTS_OVERLAP !== 'false',
+        voice: capabilities,
+      },
+    });
+  } catch (err) {
+    sendError(res, err, 'Failed to load the agent response profile');
   }
 };
