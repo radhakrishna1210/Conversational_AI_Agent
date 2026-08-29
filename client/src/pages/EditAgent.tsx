@@ -34,6 +34,61 @@ import {
  * 4xx is not retried — a rejected request does not become valid by repeating
  * it — except for the two that explicitly mean "later": 408 and 429.
  */
+/**
+ * One entry of the Reply Timing control.
+ *
+ * The real list comes from the server (GET .../response-profile) so the
+ * milliseconds shown in the UI are the ones the pipeline will actually wait —
+ * the two used to be maintained as separate constants in separate files, and
+ * they drifted, which meant the browser's own turn-end backstop kept firing
+ * before the server's and quietly cancelling it.
+ */
+type TurnEndOption = {
+  id: string;
+  label: string;
+  description: string;
+  endpointingMs: number;
+  graceMs: number;
+  unfinishedGraceMs: number;
+};
+
+// Rendered only when the server has not answered yet (or could not). Kept in
+// step with services/voice/turnEndProfile.js; the server's copy is canonical.
+const TURN_END_FALLBACK: TurnEndOption[] = [
+  { id: 'fast', label: 'Fast', description: 'Replies as soon as the caller pauses. Best for short answers.', endpointingMs: 250, graceMs: 250, unfinishedGraceMs: 800 },
+  { id: 'balanced', label: 'Balanced', description: 'Waits long enough for a natural mid-sentence pause. The default.', endpointingMs: 300, graceMs: 400, unfinishedGraceMs: 1100 },
+  { id: 'patient', label: 'Patient', description: 'Room to hesitate, spell a name, or read out a number. Slower to answer.', endpointingMs: 400, graceMs: 700, unfinishedGraceMs: 1600 },
+];
+
+/**
+ * How this agent's reply audio is produced.
+ *
+ * Deliberately expresses INTENT rather than naming a provider: what "Streaming"
+ * actually does depends on the voice the workspace picked, and the note under
+ * the control reports what that voice can really do. Choosing a provider stays
+ * the user's decision in the Voice tab, not something the code decides for them.
+ */
+const TTS_DELIVERY_OPTIONS = [
+  {
+    id: 'auto',
+    label: 'Auto',
+    hint: 'Fastest available',
+    description: 'Stream the reply when the selected voice supports it, otherwise synthesize sentence by sentence.',
+  },
+  {
+    id: 'socket',
+    label: 'Streaming',
+    hint: 'Lowest latency',
+    description: 'Always prefer streaming. Falls back to sentence-by-sentence when the selected voice cannot stream.',
+  },
+  {
+    id: 'http',
+    label: 'Sentence',
+    hint: 'Steadiest voice',
+    description: 'Synthesize each sentence as its own request. Slower to start, but some voices are more consistent this way.',
+  },
+];
+
 const FINALIZE_RETRY_DELAYS_MS = [800, 2500, 6000];
 
 async function withRetry<T>(label: string, run: () => Promise<T>): Promise<T> {
@@ -238,6 +293,19 @@ export default function EditAgent() {
   const [transferCondition, setTransferCondition] = useState('');
   const [fillerWords, setFillerWords] = useState(false);
   const [speakingRate, setSpeakingRate] = useState(1.0);
+  // ── Response speed (per agent) ────────────────────────────────────────
+  // How long to wait after the caller stops before answering, and how the
+  // reply audio is delivered. Both are genuine per-conversation choices — a
+  // support line reading out order numbers wants a different wait than a
+  // yes/no qualifier — so they live on the agent, not in a deploy config.
+  // Defaults reproduce today's behaviour exactly.
+  const [turnEndSensitivity, setTurnEndSensitivity] = useState('balanced');
+  const [ttsDelivery, setTtsDelivery] = useState('auto');
+  // What the server says these controls can actually do for THIS agent, given
+  // the voice it is on. Fetched rather than assumed: whether a reply can stream
+  // while it is being written depends on the selected voice provider, and
+  // guessing that in the browser is how the setting ends up lying.
+  const [responseProfile, setResponseProfile] = useState<any>(null);
   const [ambientSound, setAmbientSound] = useState('None');
   const [showModelModal, setShowModelModal] = useState(false);
   // Filter text for the model picker. Lives here rather than inside the modal
@@ -449,6 +517,23 @@ export default function EditAgent() {
     }
     return [...groups.entries()];
   }, [modelCatalog, modelQuery]);
+
+  // What the response-speed controls can actually deliver for this agent.
+  //
+  // Re-runs when the selected VOICE changes, and asks about that voice rather
+  // than the saved one, so the note under the control tells the truth while
+  // someone is still browsing voices. A failure leaves `responseProfile` null,
+  // which renders the controls without their capability note — degraded, not
+  // broken.
+  useEffect(() => {
+    if (!agentId) return;
+    let cancelled = false;
+    const query = voice ? `?voice=${encodeURIComponent(voice)}` : '';
+    whapi.get<any>(`/agents/${agentId}/response-profile${query}`)
+      .then((data) => { if (!cancelled) setResponseProfile(data); })
+      .catch(() => { if (!cancelled) setResponseProfile(null); });
+    return () => { cancelled = true; };
+  }, [agentId, voice]);
 
   const loadRecentCalls = async () => {
     setCallsLoading(true);
@@ -806,6 +891,8 @@ export default function EditAgent() {
           setTransferCondition((agent as any).transferCondition ?? '');
           setFillerWords((agent as any).fillerWords ?? false);
           setSpeakingRate((agent as any).speakingRate ?? 1.0);
+          setTurnEndSensitivity((agent as any).turnEndSensitivity ?? 'balanced');
+          setTtsDelivery((agent as any).ttsDelivery ?? 'auto');
           setAmbientSound((agent as any).ambientSound ?? 'None');
           setInterruptibleEnabled(agent.interruptibleEnabled ?? true);
           setFlowItems((agent.flowItems as any) || getDefaultFlowItems(agent.name || ''));
@@ -878,6 +965,8 @@ export default function EditAgent() {
       transferCondition,
       fillerWords,
       speakingRate,
+      turnEndSensitivity,
+      ttsDelivery,
       ambientSound,
       interruptibleEnabled,
       postCallConfigs,
@@ -1980,8 +2069,14 @@ export default function EditAgent() {
         endModularPlayback();
         break;
       case 'endpoint':
-        // Deepgram's semantic detector says the caller finished — end the turn
-        // now (beats the RMS VAD). No-op if the turn already ended.
+        // The server's speech recogniser says the caller finished.
+        //
+        // This is now a NOTIFICATION, not a request. The server has already
+        // started the turn off the same signal (it has our history from
+        // start-turn), so what is left here is the half only the browser can
+        // do: stop capturing, drop the no-input timers, and move the indicator
+        // to "processing". endTurnEarly still sends end-turn, which the server
+        // treats as a confirmation of the turn it is already running.
         call.endTurnEarly?.();
         break;
       case 'done':
@@ -2026,7 +2121,10 @@ export default function EditAgent() {
     const armedDuringPlayback = playbackActive();
     if (!armedDuringPlayback) setWebCallActivity('listening');
     call.turnEpoch += 1;
-    modularCallSocket.startTurn(call.audioCtx?.sampleRate || 24000);
+    // History goes with the segment START so the server can run the turn the
+    // instant its recogniser commits, instead of telling us and waiting for our
+    // end-turn to come back. See modularCallSocket.startTurn.
+    modularCallSocket.startTurn(call.audioCtx?.sampleRate || 24000, call.history);
     call.capturingPcm = true;
 
     const data = new Uint8Array(call.analyser.fftSize);
@@ -2422,7 +2520,7 @@ export default function EditAgent() {
       // The socket carries every turn; the analyser above still drives VAD.
       const { token: sockToken, workspaceId: sockWs } = getAuth();
       if (!sockToken || !sockWs || !agentId) throw new Error('Missing auth/workspace context');
-      await modularCallSocket.start(sockWs, agentId, sockToken, onModularEvent);
+      await modularCallSocket.start(sockWs, agentId, sockToken, onModularEvent, audioCtx.sampleRate);
       await audioCtx.audioWorklet.addModule('/xai-mic-worklet.js');
       const micWorklet = new AudioWorkletNode(audioCtx, 'xai-mic-capture');
       micSource.connect(micWorklet);
@@ -4151,6 +4249,127 @@ export default function EditAgent() {
                             <label style={{ display: 'block', color: 'var(--tx)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Speaking Rate (Speed)</label>
                             <input type="range" min="0.5" max="2.0" step="0.1" value={speakingRate} onChange={e => setSpeakingRate(Number(e.target.value))} style={{ width: '100%', accentColor: 'var(--cyan)' }} />
                             <div style={{ textAlign: 'right', color: 'var(--cyan-fg)', fontSize: '14px', fontWeight: '700' }}>{speakingRate}x</div>
+                          </div>
+
+                          <div style={{ height: '1px', background: 'var(--s1)' }} />
+
+                          {/* How long to wait after the caller stops before answering.
+                              This is pure dead air on every single turn, and the right
+                              amount of it depends on the conversation, so it belongs to
+                              the agent rather than to a server config. */}
+                          <div>
+                            <label style={{ display: 'block', color: 'var(--tx)', fontSize: '14px', fontWeight: '600', marginBottom: '4px' }}>Reply Timing</label>
+                            <div style={{ fontSize: '12px', color: 'var(--tx-2)', marginBottom: '12px' }}>
+                              How long the agent waits after the caller stops speaking before it answers.
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                              {(responseProfile?.turnEnd?.profiles ?? TURN_END_FALLBACK).map((p: TurnEndOption) => {
+                                const active = turnEndSensitivity === p.id;
+                                // The wait a caller feels on an ordinary turn: the
+                                // recogniser's silence timeout plus the confirmation
+                                // window. Shown because "Fast" means nothing on its own.
+                                const typicalMs = p.endpointingMs + p.graceMs;
+                                return (
+                                  <div
+                                    key={p.id}
+                                    onClick={() => setTurnEndSensitivity(p.id)}
+                                    title={p.description}
+                                    style={{
+                                      padding: '12px',
+                                      background: active ? '#0a2e30' : 'var(--s1)',
+                                      border: `1px solid ${active ? 'var(--cyan)' : 'var(--line-2)'}`,
+                                      borderRadius: '8px',
+                                      cursor: 'pointer',
+                                      transition: 'all 0.2s',
+                                    }}
+                                  >
+                                    <div style={{ color: active ? 'var(--cyan)' : 'var(--tx)', fontWeight: '700', fontSize: '13px' }}>{p.label}</div>
+                                    <div style={{ color: 'var(--tx-2)', fontSize: '11px', marginTop: '4px', fontVariantNumeric: 'tabular-nums' }}>
+                                      waits {(typicalMs / 1000).toFixed(2)}s
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            <div style={{ fontSize: '11px', color: 'var(--tx-2)', marginTop: '10px', lineHeight: 1.5 }}>
+                              {(responseProfile?.turnEnd?.profiles ?? TURN_END_FALLBACK)
+                                .find((p: TurnEndOption) => p.id === turnEndSensitivity)?.description}
+                            </div>
+                          </div>
+
+                          <div style={{ height: '1px', background: 'var(--s1)' }} />
+
+                          {/* Whether the reply is spoken as it is written, or
+                              synthesized a sentence at a time. Which of those is even
+                              possible depends on the voice provider this agent uses, so
+                              the server is asked rather than the browser assuming. */}
+                          <div>
+                            <label style={{ display: 'block', color: 'var(--tx)', fontSize: '14px', fontWeight: '600', marginBottom: '4px' }}>Reply Delivery</label>
+                            <div style={{ fontSize: '12px', color: 'var(--tx-2)', marginBottom: '12px' }}>
+                              Streaming starts speaking while the reply is still being written. Sentence-by-sentence
+                              waits for each full sentence &mdash; slower to start, but some voices sound steadier that way.
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                              {TTS_DELIVERY_OPTIONS.map(opt => {
+                                const active = ttsDelivery === opt.id;
+                                return (
+                                  <div
+                                    key={opt.id}
+                                    onClick={() => setTtsDelivery(opt.id)}
+                                    title={opt.description}
+                                    style={{
+                                      padding: '12px',
+                                      background: active ? '#0a2e30' : 'var(--s1)',
+                                      border: `1px solid ${active ? 'var(--cyan)' : 'var(--line-2)'}`,
+                                      borderRadius: '8px',
+                                      cursor: 'pointer',
+                                      transition: 'all 0.2s',
+                                    }}
+                                  >
+                                    <div style={{ color: active ? 'var(--cyan)' : 'var(--tx)', fontWeight: '700', fontSize: '13px' }}>{opt.label}</div>
+                                    <div style={{ color: 'var(--tx-2)', fontSize: '11px', marginTop: '4px' }}>{opt.hint}</div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+
+                            {/* The honest part. Without this, an agent can sit on
+                                "Auto" for months while its voice provider quietly has
+                                no streaming tier, with nothing in the product saying so. */}
+                            {responseProfile?.ttsDelivery && (
+                              <div style={{
+                                marginTop: '12px',
+                                padding: '10px 12px',
+                                background: 'var(--s1)',
+                                border: `1px solid ${responseProfile.ttsDelivery.voice?.tokenStreaming ? 'var(--line-2)' : '#5a4a1e'}`,
+                                borderRadius: '8px',
+                                fontSize: '11.5px',
+                                color: 'var(--tx-2)',
+                                lineHeight: 1.55,
+                              }}>
+                                {responseProfile.ttsDelivery.available === false ? (
+                                  <>Streaming replies are switched off for this platform, so every agent is using
+                                  sentence-by-sentence delivery. Contact your administrator.</>
+                                ) : responseProfile.ttsDelivery.voice?.tokenStreaming ? (
+                                  <>
+                                    <span style={{ color: 'var(--cyan)', fontWeight: 700 }}>
+                                      {responseProfile.ttsDelivery.voice.providerName} can stream.
+                                    </span>{' '}
+                                    {ttsDelivery === 'http'
+                                      ? 'This agent is set to sentence-by-sentence, so it is not using it.'
+                                      : 'This agent starts speaking as the reply is written.'}
+                                  </>
+                                ) : (
+                                  <>
+                                    <span style={{ color: '#d6ac46', fontWeight: 700 }}>
+                                      This voice cannot stream.
+                                    </span>{' '}
+                                    {responseProfile.ttsDelivery.voice?.reason}
+                                    {ttsDelivery !== 'http' && ' Replies fall back to sentence-by-sentence until then.'}
+                                  </>
+                                )}
+                              </div>
+                            )}
                           </div>
                         </div>
                       )}

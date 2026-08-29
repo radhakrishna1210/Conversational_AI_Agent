@@ -1,6 +1,11 @@
 import '../config/env.js'; // validate env on startup
+import { installKeepAliveDispatcher } from '../lib/httpKeepAlive.js';
 import { createCampaignWorker } from './campaign.worker.js';
 import logger from '../lib/logger.js';
+
+// Same reason as server.js: campaign workers dial calls, so their turns pay
+// the same TCP+TLS handshake per provider without a warm pool.
+installKeepAliveDispatcher();
 
 const workers = [
   createCampaignWorker(),

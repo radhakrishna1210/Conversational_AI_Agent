@@ -1,4 +1,5 @@
 import './config/env.js';
+import { installKeepAliveDispatcher } from './lib/httpKeepAlive.js';
 import { mkdirSync } from 'fs';
 import http from 'http';
 import { WebSocketServer } from 'ws';
@@ -25,6 +26,13 @@ import { isBundledEngine } from './services/outboundCall.service.js';
 import { loadAgent } from './services/agentRuntime.service.js';
 import { resumeStuckKbJobs } from './services/kbChunking.service.js';
 import { startRecordingRetention } from './services/recordingRetention.service.js';
+
+// Before anything can issue an outbound request. Undici's default pool drops an
+// idle socket after 4s, which is shorter than every conversational turn gap, so
+// without this each turn re-handshakes TCP+TLS to the STT, LLM and TTS
+// providers — roughly 500ms per turn that no per-stage metric attributes to
+// anything. Provider-neutral by construction: see lib/httpKeepAlive.js.
+installKeepAliveDispatcher();
 
 mkdirSync(env.UPLOAD_DIR, { recursive: true });
 

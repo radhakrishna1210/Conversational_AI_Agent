@@ -38,7 +38,8 @@ import { noInputPromptFor, noInputDelayMs, maxNoInputAttempts } from '../service
 import { verifyAccessToken } from '../lib/jwt.js';
 import prisma from '../config/prisma.js';
 import { voiceTurnStream, warmVoiceTurn } from '../services/agentRuntime.service.js';
-import { DeepgramStreamSession, isDeepgramConfigured, toDeepgramLanguage, maxEndpointCommitMs, defaultEndpointingMs } from '../services/stt/deepgramStream.service.js';
+import { DeepgramStreamSession, isDeepgramConfigured, toDeepgramLanguage } from '../services/stt/deepgramStream.service.js';
+import { turnEndProfileFor, maxCommitMsFor } from '../services/voice/turnEndProfile.js';
 import { analyzeSpeech, classifyCallerAffect, isEchoOfAgent } from '../services/stt/speechGate.js';
 import { createFillerBudget } from '../services/voice/disfluency.js';
 import { openCallBudget } from '../services/billing/callBudget.js';
@@ -149,6 +150,33 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
   // bound to it so a flush that resolves after the next turn has started can
   // neither steal that turn's words nor donate the previous turn's (BUG-001).
   let dgTurnSeq = 0;
+  // The agent's own turn-end profile (Call Configuration → Response speed).
+  // Resolved once at auth, because it decides how the Deepgram socket is opened
+  // and what the browser is told to keep its RMS backstop clear of.
+  let turnProfile = turnEndProfileFor({});
+  // ── Server-owned turn start ──────────────────────────────────────────────
+  // The server decides when a turn ends (Deepgram's commit) but used to have to
+  // ASK THE BROWSER to tell it so: it sent { type:'endpoint' }, the browser
+  // called its own endTurnEarly(), and the browser sent 'end-turn' back. A full
+  // round trip, on every turn, to be told something this process had already
+  // decided — free on localhost and ~120ms from the VPS.
+  //
+  // The browser now sends its conversation history with 'start-turn' as well,
+  // which is the only thing the server was actually missing (history cannot
+  // change while the caller is speaking, so the copy from start-turn is the
+  // same one end-turn would have carried). With that in hand the commit can run
+  // the turn directly, and 'end-turn' becomes a confirmation rather than a
+  // trigger.
+  //
+  // `segmentSeq` makes the two paths idempotent: whichever arrives first runs
+  // the turn, the other is a no-op. Without it a client backstop firing at the
+  // same moment as the commit would run the turn twice.
+  let segmentSeq = 0;
+  let turnStartedForSegment = -1;
+  // History as of this listening segment's start. `undefined` means the client
+  // is an older build that does not send it yet — the server then waits for
+  // 'end-turn' exactly as before, so an unpatched client keeps working.
+  let segmentHistory;
   // How much talk time the wallet actually paid for. Armed once the gate passes.
   let budget = null;
   // The Recent Calls row for this call. The BROWSER creates it (this transport
@@ -207,7 +235,80 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
     if (ws.readyState === ws.OPEN) ws.close(closeCode, code);
   };
 
-  const runTurn = async (history) => {
+  /**
+   * Run at most ONE turn per listening segment, whoever asks first.
+   *
+   * Both the server's own end-of-turn commit and the browser's 'end-turn' frame
+   * route through here. Guarding on the segment number rather than on
+   * `turnActive` matters: turnActive only covers the window while a reply is
+   * being generated, and the two triggers can arrive in the same tick, before
+   * it is set.
+   */
+  const beginTurnOnce = async (seq, history, endpointMs = null) => {
+    if (seq !== segmentSeq || turnStartedForSegment === seq) return;
+    turnStartedForSegment = seq;
+    capturing = false;
+    // The socket close from an expired budget and a turn trigger can cross on
+    // the wire. Running the turn anyway would spend a full STT+LLM+TTS round on
+    // minutes the wallet has already run out of.
+    if (budget?.expired()) { frames = []; return; }
+    await runTurn(history, endpointMs);
+  };
+
+  /**
+   * Open the call-long Deepgram session, or reuse the live one.
+   *
+   * Called at AUTH rather than on the first 'start-turn', which is where it used
+   * to live. That ordering cost the first turn of every call: the socket's TLS
+   * handshake was still in flight while the caller spoke, so `dgListened` was
+   * false and the turn fell back to batch STT — the 4515ms `sttMs` outlier in
+   * logs/latency.log. Opening it while the greeting plays makes turn one behave
+   * like every other turn.
+   *
+   * Non-fatal throughout: batch STT covers any failure.
+   */
+  const ensureDeepgramSession = () => {
+    if (!useDeepgram) return;
+    if (dgSession && !dgSession.isAlive) dgSession = null;
+    if (dgSession) return;
+    try {
+      dgSession = new DeepgramStreamSession({
+        sampleRate,
+        language: dgLanguage,
+        // All three come from the agent's own turn-end profile, so two agents
+        // on this deployment can wait for different lengths of silence.
+        endpointingMs: turnProfile.endpointingMs,
+        endpointGraceMs: turnProfile.graceMs,
+        unfinishedGraceMs: turnProfile.unfinishedGraceMs,
+        // Semantic turn end: fires only once the caller is genuinely finished
+        // (confirmed speech_final, or an authoritative UtteranceEnd).
+        //
+        // This now STARTS THE TURN rather than asking the browser to. The
+        // 'endpoint' frame is still sent, because the browser owns the mic, the
+        // "processing" indicator and its own no-input timers and has to know the
+        // segment is over — but it is a notification now, not a request.
+        onEndOfTurn: (reason) => {
+          if (!capturing || turnActive) return;
+          logger.info(`Modular web call: end of turn (${reason})`);
+          const endpointMs = dgSession?.lastEndpointMs ?? null;
+          send({ type: 'endpoint' });
+          // Only when the client actually gave us history to run with. An older
+          // client sends none, and there the browser's 'end-turn' still drives.
+          if (segmentHistory !== undefined) {
+            beginTurnOnce(segmentSeq, segmentHistory, endpointMs)
+              .catch((err) => logger.warn(`Server-started turn failed: ${err.message}`));
+          }
+        },
+      });
+      dgSession.connect();
+      dgTurnSeq = dgSession.beginTurn();
+    } catch (err) {
+      logger.warn(`Deepgram session start failed, using batch STT: ${err.message}`);
+      dgSession = null;
+    }
+  };
+
+  const runTurn = async (history, endpointMs = null) => {
     // Marks "the caller is judged done speaking" (client sent end-turn) — the same
     // reference point modularMediaBridge.js uses for its preLlmMs, so the two
     // channels are directly comparable in logs/latency.log.
@@ -346,6 +447,12 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
           fillerBudget,
           channel: 'web',
           preLlmMs: Date.now() - turnEndDetectedAt,
+          // The wait BEFORE this turn began: Deepgram's VAD timeout plus the
+          // confirmation grace. It is real dead air the caller sits through,
+          // and until now it appeared in no metric at all — so every latency
+          // discussion silently started ~700ms after the caller stopped
+          // talking. Null when the browser's backstop ended the turn instead.
+          endpointMs,
           shouldAbort: () => bargeRequested,
           onEvent: (e) => {
             if (bargeRequested && e.type !== 'done') return; // caller cut in; drop reply audio
@@ -357,7 +464,9 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
             } else if (e.type === 'audio-chunk') {
               // Forward the raw audio as an efficient binary frame (no base64
               // bloat over the wire) — the client appends it to a MediaSource.
-              sendBinary(Buffer.from(e.data, 'base64'));
+              // `chunk` is already a Buffer: the runtime used to base64-encode
+              // every byte here purely so this line could decode it again.
+              sendBinary(e.chunk);
             } else if (e.type === 'audio-end') {
               if (e.text) send({ type: 'transcript', role: 'assistant', text: e.text, done: true });
               send({ type: 'audio-end' });
@@ -482,9 +591,13 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
       // audio is transcribed as English → empty → silent fallback to batch STT).
       let agentLanguages = [];
       try { agentLanguages = JSON.parse(agent.languages || '[]'); } catch { /* ignore */ }
+      const agentSettings = safeJson(agent.settings, {});
+      // The agent's chosen wait-for-silence profile. Everything downstream —
+      // how the Deepgram socket is opened, and the backstop the browser is told
+      // to stay clear of — is derived from this one object.
+      turnProfile = turnEndProfileFor(agentSettings);
       if (useDeepgram) {
-        const settings = safeJson(agent.settings, {});
-        dgLanguage = toDeepgramLanguage(settings.sttLanguage) || toDeepgramLanguage(agentLanguages[0]);
+        dgLanguage = toDeepgramLanguage(agentSettings.sttLanguage) || toDeepgramLanguage(agentLanguages[0]);
       }
 
       // ── Wallet gate ─────────────────────────────────────────────────────────
@@ -579,12 +692,29 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
       send({
         type: 'ready',
         sttEndpointing: useDeepgram,
-        endpointCommitMs: useDeepgram ? maxEndpointCommitMs(defaultEndpointingMs()) : 0,
+        endpointCommitMs: useDeepgram ? maxCommitMsFor(turnProfile) : 0,
         noInputPrompts: Array.from({ length: noInputAttempts },
           (_, i) => noInputPromptFor(agentLanguages, i + 1)),
         noInputDelaysMs: Array.from({ length: noInputAttempts },
           (_, i) => noInputDelayMs(i + 1)),
       });
+
+      // Warm everything turn one would otherwise pay for, while the caller is
+      // still hearing the greeting: the Deepgram TLS handshake, and the agent /
+      // KB / voice / filler caches. Both are fire-and-forget — the call works
+      // identically without them, just slower on its first turn.
+      //
+      // The rate has to be right FIRST. It is baked into the Deepgram URL, so a
+      // session opened at the wrong rate is torn down and re-handshaked by the
+      // first 'start-turn' — which would spend the warm-up and then throw it
+      // away. The browser knows its AudioContext rate before it opens this
+      // socket and now sends it here; an older client omits it and simply keeps
+      // the previous behaviour of connecting on the first turn.
+      if (Number.isFinite(msg.sampleRate) && msg.sampleRate > 0) {
+        sampleRate = msg.sampleRate;
+        ensureDeepgramSession();
+      }
+      warmVoiceTurn(workspaceId, agentId);
       return;
     }
 
@@ -609,63 +739,37 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
         sampleRate = newRate;
         frames = [];
         capturing = true;
+        // A new listening segment. Whoever ends it — the server's own commit or
+        // the browser's backstop — runs the turn exactly once against this id.
+        segmentSeq += 1;
+        turnStartedForSegment = -1;
+        // The conversation as it stands right now. Nothing can change it while
+        // the caller is speaking, so this is the same history 'end-turn' would
+        // have carried, available a whole turn earlier. Left undefined by older
+        // clients, which keeps them on the wait-for-'end-turn' path.
+        segmentHistory = Array.isArray(msg.history) ? msg.history : undefined;
         // Warm agent/KB/voice/filler caches WHILE the caller is speaking, so a
         // cold cache costs nothing after they stop (the prepMs spikes in
-        // latency.log). Fire-and-forget; the turn works identically without it.
+        // latency.log). Already warmed at auth; this covers config edits
+        // mid-call. Fire-and-forget; the turn works identically without it.
         warmVoiceTurn(workspaceId, agentId);
-        // B3: reuse the call-long Deepgram session; (re)connect only when there
-        // is none or it died. Non-fatal — batch STT covers any failure.
-        if (useDeepgram) {
-          if (dgSession && !dgSession.isAlive) dgSession = null;
-          if (dgSession) {
-            // Opens a fresh, empty buffer for this turn AND stamps it with a
-            // sequence number, so an in-flight flush from the previous turn
-            // (cancel-turn does not await one) can neither leak its words into
-            // this turn nor swallow this turn's opening words.
-            dgTurnSeq = dgSession.beginTurn();
-          } else {
-            try {
-              dgSession = new DeepgramStreamSession({
-                sampleRate,
-                language: dgLanguage,
-                // How long Deepgram's VAD waits before emitting speech_final.
-                // This is now a CANDIDATE signal, confirmed by the session's
-                // grace window rather than trusted outright, so it no longer
-                // has to be conservative on its own — see the end-of-turn note
-                // in deepgramStream.service.js. Commit lands at
-                // endpointing + grace (300 + 400 = ~700ms of real silence),
-                // which is a natural turn boundary rather than a mid-sentence
-                // breath, while still beating the client's RMS backstop. The
-                // value is shared with the phone bridge so the same agent does
-                // not turn around at two different speeds per transport.
-                endpointingMs: defaultEndpointingMs(),
-                // Semantic turn end: fires only once the caller is genuinely
-                // finished (confirmed speech_final, or an authoritative
-                // UtteranceEnd). Nudges the client to end the turn ahead of its
-                // RMS VAD. Only while capturing — never during the agent's reply.
-                onEndOfTurn: (reason) => {
-                  if (!capturing || turnActive) return;
-                  logger.info(`Modular web call: end of turn (${reason})`);
-                  send({ type: 'endpoint' });
-                },
-              });
-              dgSession.connect();
-              dgTurnSeq = dgSession.beginTurn();
-            } catch (err) {
-              logger.warn(`Deepgram session start failed, using batch STT: ${err.message}`);
-              dgSession = null;
-            }
-          }
-        }
+        // Reuse the call-long session; (re)connect only when there is none or it
+        // died. Normally a no-op — it was opened at auth.
+        ensureDeepgramSession();
+        // Opens a fresh, empty buffer for this turn AND stamps it with a
+        // sequence number, so an in-flight flush from the previous turn
+        // (cancel-turn does not await one) can neither leak its words into this
+        // turn nor swallow this turn's opening words.
+        if (dgSession) dgTurnSeq = dgSession.beginTurn();
         break;
       }
       case 'end-turn':
         capturing = false;
-        // The socket close from an expired budget and this frame can cross on
-        // the wire. Running the turn anyway would spend a full STT+LLM+TTS round
-        // on minutes the wallet has already run out of.
-        if (budget?.expired()) { frames = []; break; }
-        await runTurn(msg.history);
+        // Usually a confirmation of a turn this server already started off its
+        // own end-of-turn commit, in which case this is a no-op. It still
+        // TRIGGERS the turn when the browser's RMS backstop won the race, or
+        // when the client is an older build that sends no history on start-turn.
+        await beginTurnOnce(segmentSeq, msg.history);
         break;
       case 'cancel-turn':
         // A cancel means the CLIENT's amplitude VAD judged the segment silent.
@@ -680,16 +784,14 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
         // know the client gave up until this frame arrives.
         if (dgSession?.isAlive && dgSession.hasTranscript()) {
           logger.info('Modular web call: cancel-turn overridden — Deepgram has a transcript');
-          capturing = false;
-          if (!budget?.expired()) {
-            await runTurn(msg.history);
-          } else {
-            frames = [];
-          }
+          await beginTurnOnce(segmentSeq, msg.history);
           break;
         }
         frames = [];
         capturing = false;
+        // Nothing will run for this segment. Claim it so a commit landing right
+        // behind this frame cannot resurrect a turn the caller was silent in.
+        turnStartedForSegment = segmentSeq;
         // Flush the discarded turn's audio out of the stream so it can't bleed
         // into the next turn's transcript; the session itself stays open.
         //

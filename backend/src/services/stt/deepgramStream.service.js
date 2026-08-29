@@ -172,6 +172,16 @@ export function looksUnfinished(text) {
 }
 
 /**
+ * SUPERSEDED by services/voice/turnEndProfile.js, which resolves these timings
+ * per AGENT. Nothing on a live path calls this or maxEndpointCommitMs() any
+ * more; both are kept for their tests and for callers with no agent context.
+ *
+ * Do not reach for them from a transport. This value being restated in more
+ * than one place is the exact failure they were written to end — the web
+ * handler and the phone bridge each had their own copy, drifted to 600ms and
+ * 500ms, and the same agent turned around at a different speed depending on how
+ * it was reached. Resolving from the agent's profile is what keeps that fixed.
+ *
  * Deepgram's VAD silence timeout, in ms — the ONE place the default lives.
  *
  * It had been copy-pasted into four call sites that had already drifted apart
@@ -333,6 +343,7 @@ export class DeepgramStreamSession {
    */
   constructor({
     sampleRate = 24000, language, endpointingMs, onEndOfTurn, endpointGraceMs,
+    unfinishedGraceMs,
     encoding = 'linear16',
   } = {}) {
     this.sampleRate = sampleRate;
@@ -374,8 +385,20 @@ export class DeepgramStreamSession {
     // the cost of guessing wrong here is the agent talking over them. It is only
     // ever paid on turns that genuinely dangle, so ordinary turns keep the fast
     // path and the average is unchanged.
-    this.unfinishedGraceMs = Number(process.env.DEEPGRAM_UNFINISHED_GRACE_MS) || 1100;
+    // Passed in from the agent's turn-end profile (see voice/turnEndProfile.js)
+    // so two agents on the same deployment can wait for different lengths of
+    // silence. The env fallback stays for callers that have no agent context.
+    this.unfinishedGraceMs = Number.isFinite(unfinishedGraceMs) && unfinishedGraceMs > 0
+      ? unfinishedGraceMs
+      : (Number(process.env.DEEPGRAM_UNFINISHED_GRACE_MS) || 1100);
     this._endpointTimer = null;
+    // Set when a speech_final candidate is armed; cleared when it commits or is
+    // cancelled. Only feeds lastEndpointMs — nothing decides anything from it.
+    this._candidateArmedAt = null;
+    // Total real silence before the most recent commit (VAD timeout + grace),
+    // in ms, or null when no turn has committed yet. Read by the transports so
+    // the cost of endpointing finally appears in the latency record.
+    this.lastEndpointMs = null;
     // Most recent transcript text seen this turn (interim OR final). Interims
     // are what make this work — the tail is known before Deepgram commits it.
     this._tail = '';
@@ -543,6 +566,10 @@ export class DeepgramStreamSession {
     if (alt?.transcript && this._endpointTimer) {
       clearTimeout(this._endpointTimer);
       this._endpointTimer = null;
+      // The caller resumed, so this pause was mid-sentence. The next candidate
+      // starts its own clock; keeping this one would report the endpoint as
+      // everything since the first hesitation.
+      this._candidateArmedAt = null;
     }
 
     if (alt?.transcript && msg.is_final) {
@@ -581,6 +608,9 @@ export class DeepgramStreamSession {
    */
   _armEndOfTurnCandidate(reason = 'speech_final') {
     if (this._endpointTimer) clearTimeout(this._endpointTimer);
+    // When Deepgram first said "they stopped". Used only to report the endpoint
+    // cost afterwards — see lastEndpointMs, and the note on _commitEndOfTurn.
+    this._candidateArmedAt = Date.now();
     // Content-aware window. A turn ending on "and", "which" or "um" is not a
     // turn — it is a caller mid-sentence — so it gets the long window; anything
     // that reads as a finished thought keeps the fast one.
@@ -596,6 +626,21 @@ export class DeepgramStreamSession {
   /** The caller really is done. Fire once; drop any pending candidate. */
   _commitEndOfTurn(reason) {
     if (this._endpointTimer) { clearTimeout(this._endpointTimer); this._endpointTimer = null; }
+    // ── The silence nobody was measuring ────────────────────────────────────
+    //
+    // Every latency record in logs/latency.log starts its clock at end-of-turn,
+    // so the wait BEFORE that — Deepgram's VAD timeout plus this grace window —
+    // was invisible: a fixed ~700ms at p50 and up to 1400ms on a turn that
+    // trails off mid-thought, i.e. a fifth of the whole turn budget, absent from
+    // every metric and therefore from every conversation about latency.
+    //
+    // The candidate was armed `endpointingMs` after the caller actually went
+    // quiet (that is what Deepgram's endpointing parameter means), so total
+    // silence-before-commit is that plus however long the grace ran.
+    this.lastEndpointMs = this._candidateArmedAt
+      ? (Date.now() - this._candidateArmedAt) + (Number(this.endpointingMs) || 0)
+      : null;
+    this._candidateArmedAt = null;
     // Reaching here means Deepgram sent speech_final (or an authoritative
     // UtteranceEnd) and then a FULL grace window passed with no further
     // transcript — interim or final. Both of those are things _handleMessage
@@ -667,6 +712,8 @@ export class DeepgramStreamSession {
     // would otherwise commit an end-of-turn against the turn just started,
     // cutting the caller off the instant they began speaking.
     if (this._endpointTimer) { clearTimeout(this._endpointTimer); this._endpointTimer = null; }
+    this._candidateArmedAt = null;
+    this.lastEndpointMs = null; // belongs to the turn that just ended, not this one
     return this._turnSeq;
   }
 
