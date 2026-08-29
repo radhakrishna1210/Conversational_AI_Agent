@@ -7,7 +7,7 @@ import { sendMail, isMailerConfigured } from '../lib/mailer.js';
 import { appendCallRow } from '../services/googleSheets.service.js';
 import { createEvent, resolveAppointmentStart } from '../services/googleCalendar.service.js';
 import { getWalletRate, setWalletRate, WALLET_RATE_PLAN } from '../services/billing/walletRate.js';
-import { listBuckets, updateBucket } from '../services/billing/pricingBuckets.js';
+import { listBuckets, createBucket, updateBucket } from '../services/billing/pricingBuckets.js';
 import { resolveWorkspaceRate, assignBucket, setRateOverride } from '../services/billing/workspaceRate.js';
 import { getNumberRate, setNumberRate } from '../services/billing/numberRate.js';
 import { getBroadcastRate, setBroadcastRate } from '../services/billing/broadcastRate.js';
@@ -75,7 +75,21 @@ export const adminListBuckets = async (_req, res) => {
   }
 };
 
-/** PATCH /admin/pricing/buckets/:id — reprice or relabel one tier. */
+/**
+ * POST /admin/pricing/buckets — add a tier.
+ *
+ * Creating a tier assigns it to nobody, so unlike a reprice this cannot change
+ * what any existing client pays. 409 means a tier already quotes those minutes.
+ */
+export const adminCreateBucket = async (req, res) => {
+  try {
+    res.status(201).json({ bucket: await createBucket(req.body ?? {}) });
+  } catch (err) {
+    res.status(err.status ?? 500).json({ error: err.message ?? 'Failed to create the bucket' });
+  }
+};
+
+/** PATCH /admin/pricing/buckets/:id — reprice, relabel, resize or retire one tier. */
 export const adminUpdateBucket = async (req, res) => {
   try {
     const bucket = await updateBucket(req.params.id, req.body ?? {});

@@ -53,19 +53,115 @@ export async function ensureBucketsSeeded() {
   logger.info({ created: missing.map((b) => b.name) }, 'Seeded pricing buckets');
 }
 
-/** Every bucket, cheapest tier last, for the admin picker. */
+/**
+ * Field validation, shared by create and update.
+ *
+ * Extracted rather than written twice: these are the guards that stop a tier
+ * being saved at a rate that would bill every client on it wrongly, and a
+ * create path that validated even slightly differently from the update path
+ * would be a hole in exactly the place it matters. Each returns the cleaned
+ * value or throws a 400 carrying the message the admin UI shows verbatim.
+ */
+const parseLabel = (v) => {
+  const label = String(v).trim();
+  if (!label) throw Object.assign(new Error('Label cannot be empty'), { status: 400 });
+  return label;
+};
+
+const parseMinutes = (v) => {
+  const minutes = Number(v);
+  if (!Number.isInteger(minutes) || minutes <= 0) {
+    throw Object.assign(new Error('Minutes must be a whole number greater than zero'), { status: 400 });
+  }
+  return minutes;
+};
+
+const parseRate = (v) => {
+  const inr = Number(v);
+  // Same guard as setWalletRate: zero or negative would make every call on this
+  // tier free, and NaN would fall through money.js to the USD path and bill
+  // something else entirely.
+  if (!Number.isFinite(inr) || inr <= 0) {
+    throw Object.assign(new Error('Rate must be a number greater than zero'), { status: 400 });
+  }
+  return inr;
+};
+
+/**
+ * Every bucket, smallest tier first, with how many clients sit on each.
+ *
+ * Ordered by `minutes` rather than `sortOrder` so the list always reads
+ * small-to-large however the tiers were entered — an admin adding a 3,000 tier
+ * after the 15,000 one expects it to appear in the middle, not at the bottom.
+ * The three seeded tiers were already numbered in minutes order, so this
+ * changes nothing about what an existing install displays. `sortOrder` stays as
+ * the tiebreaker for two tiers quoting the same minutes.
+ *
+ * The client count is what makes deactivating a tier a decision rather than a
+ * guess: retiring one does not reprice anybody (see workspaceRate.js), and the
+ * admin needs to see how many accounts that promise is covering.
+ */
 export async function listBuckets() {
   await ensureBucketsSeeded();
-  return prisma.pricingBucket.findMany({ orderBy: [{ sortOrder: 'asc' }, { minutes: 'asc' }] });
+  const rows = await prisma.pricingBucket.findMany({
+    orderBy: [{ minutes: 'asc' }, { sortOrder: 'asc' }],
+    include: { _count: { select: { workspaces: true } } },
+  });
+  return rows.map(({ _count, ...b }) => ({ ...b, workspaceCount: _count.workspaces }));
 }
 
 /**
- * Reprice or relabel one bucket.
+ * Add a tier.
+ *
+ * `name` is derived from the minutes rather than typed, because it is a machine
+ * key nobody should have to invent, and deriving it makes "the 5,000 tier"
+ * exactly one row by construction. Two tiers quoting the same minutes is
+ * therefore rejected — it is far more likely a double submit than a real
+ * commercial structure, and the two would be indistinguishable in the picker
+ * a salesperson uses.
+ *
+ * A new tier starts assigned to nobody, so creating one can never change what
+ * any existing client is charged.
+ *
+ * @param {{ label?: string, minutes: number, perMinuteInr: number }} input
+ */
+export async function createBucket(input = {}) {
+  const minutes = parseMinutes(input.minutes);
+  const perMinuteInr = parseRate(input.perMinuteInr);
+  // Default the label to the figure it quotes, matching the seeded tiers, so
+  // an admin who only fills in the numbers still gets a sensible picker entry.
+  const label = input.label === undefined || String(input.label).trim() === ''
+    ? `${minutes.toLocaleString('en-IN')} minutes`
+    : parseLabel(input.label);
+
+  const name = `bucket_${minutes}`;
+  const clash = await prisma.pricingBucket.findUnique({ where: { name } });
+  if (clash) {
+    throw Object.assign(
+      new Error(`A ${minutes.toLocaleString('en-IN')}-minute tier already exists (${clash.label}). Edit that one instead.`),
+      { status: 409 },
+    );
+  }
+
+  const row = await prisma.pricingBucket.create({
+    data: { name, label, minutes, perMinuteInr, active: true, sortOrder: 0 },
+  });
+
+  logger.info({ bucketId: row.id, name, minutes, perMinuteInr }, 'Pricing bucket created');
+  return { ...row, workspaceCount: 0 };
+}
+
+/**
+ * Reprice, relabel, resize or retire one bucket.
  *
  * Changing a bucket's rate immediately changes what every workspace assigned to
  * it is charged on its NEXT call. Calls already settled are untouched — the rate
  * they were billed at is recorded on the call log row, so history stays
  * reproducible after a reprice.
+ *
+ * Setting `active: false` retires the tier from the picker WITHOUT repricing
+ * anyone already on it; see the note in workspaceRate.js for why that has to be
+ * true. To move those clients, reassign them.
  *
  * @param {string} id
  * @param {{ label?: string, minutes?: number, perMinuteInr?: number, active?: boolean }} patch
@@ -73,38 +169,25 @@ export async function listBuckets() {
 export async function updateBucket(id, patch = {}) {
   const data = {};
 
-  if (patch.label !== undefined) {
-    const label = String(patch.label).trim();
-    if (!label) throw Object.assign(new Error('Label cannot be empty'), { status: 400 });
-    data.label = label;
-  }
-
-  if (patch.minutes !== undefined) {
-    const minutes = Number(patch.minutes);
-    if (!Number.isInteger(minutes) || minutes <= 0) {
-      throw Object.assign(new Error('Minutes must be a whole number greater than zero'), { status: 400 });
-    }
-    data.minutes = minutes;
-  }
-
-  if (patch.perMinuteInr !== undefined) {
-    const inr = Number(patch.perMinuteInr);
-    // Same guard as setWalletRate: zero or negative would make every call on
-    // this tier free, and NaN would fall through money.js to the USD path and
-    // bill something else entirely.
-    if (!Number.isFinite(inr) || inr <= 0) {
-      throw Object.assign(new Error('Rate must be a number greater than zero'), { status: 400 });
-    }
-    data.perMinuteInr = inr;
-  }
-
+  if (patch.label !== undefined) data.label = parseLabel(patch.label);
+  if (patch.minutes !== undefined) data.minutes = parseMinutes(patch.minutes);
+  if (patch.perMinuteInr !== undefined) data.perMinuteInr = parseRate(patch.perMinuteInr);
   if (patch.active !== undefined) data.active = Boolean(patch.active);
 
   if (Object.keys(data).length === 0) {
     throw Object.assign(new Error('Nothing to update'), { status: 400 });
   }
 
-  const row = await prisma.pricingBucket.update({ where: { id }, data });
+  // `name` deliberately does NOT follow a minutes change. It is the stable key
+  // the seeder recognises: rewriting it would make ensureBucketsSeeded believe
+  // its tier had gone missing and recreate a duplicate on the next boot.
+  const row = await prisma.pricingBucket.update({
+    where: { id },
+    data,
+    include: { _count: { select: { workspaces: true } } },
+  });
   logger.info({ bucketId: id, ...data }, 'Pricing bucket updated');
-  return row;
+
+  const { _count, ...bucket } = row;
+  return { ...bucket, workspaceCount: _count.workspaces };
 }
