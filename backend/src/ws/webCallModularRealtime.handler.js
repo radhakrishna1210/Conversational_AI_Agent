@@ -45,7 +45,44 @@ import { openCallBudget } from '../services/billing/callBudget.js';
 import { finalizeAbandonedCall } from './callFinalizer.js';
 import { startHeartbeat } from './socketHeartbeat.js';
 
-const AUTH_TIMEOUT_MS = 10_000;
+/**
+ * How long the browser gets to send its `auth` frame.
+ *
+ * This reaps a socket that connects and then says nothing — a scanner, a half-
+ * open connection, a tab killed between the handshake and the first frame. It
+ * is a deadline for THE CLIENT, and it is cleared the moment the auth frame
+ * lands, not when the server has finished acting on it.
+ *
+ * That distinction is the bug this file had. One 10s timer covered both the
+ * client's frame AND everything the server then did with it, including two
+ * round trips to a database in another region. When the database was slow, a
+ * browser that had authenticated in 40ms was hung up on for the server's own
+ * tardiness — and reported as "Auth timeout", which sent every investigation
+ * in the wrong direction.
+ */
+const AUTH_TIMEOUT_MS = Number(process.env.WEB_CALL_AUTH_TIMEOUT_MS) || 10_000;
+
+/**
+ * How long the SERVER gets to make a call ready once the caller has proved who
+ * they are: load the agent and clear the wallet gate, both of which are remote
+ * database work.
+ *
+ * Deliberately much longer than the client deadline above, because the failure
+ * modes are not comparable. A client that has not spoken in ten seconds is
+ * gone. A database that has not answered in ten seconds is usually about to,
+ * and hanging up on a caller whose wallet is healthy — measured at 21.6s for
+ * the gate alone on a bad day against Supabase — is a worse outcome than making
+ * them wait.
+ *
+ * It is still bounded, because an unbounded wait is just a hang with extra
+ * steps: when it expires the caller is told the backend is slow, which is true
+ * and actionable, instead of "could not start", which is neither.
+ */
+const STARTUP_TIMEOUT_MS = Number(process.env.WEB_CALL_STARTUP_TIMEOUT_MS) || 30_000;
+
+/** A startup slower than this is logged even when it succeeds — it is the only
+ *  warning that the call path is drifting toward the timeout above. */
+const STARTUP_SLOW_MS = Number(process.env.WEB_CALL_STARTUP_SLOW_MS) || 3_000;
 
 /**
  * How long the browser gets to finalize its own call before the server does it
@@ -127,9 +164,15 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
   // which is exactly how a prompt-only version drifts into sounding nervous.
   const fillerBudget = createFillerBudget();
 
-  const authTimer = setTimeout(() => {
-    if (!authenticated) ws.close(4001, 'Auth timeout');
+  // Cleared when the auth FRAME arrives — see AUTH_TIMEOUT_MS.
+  let authTimer = setTimeout(() => {
+    if (!authenticated) refuse(4001, 'AUTH_TIMEOUT', 'No authentication was received. Reload the page and try again.');
   }, AUTH_TIMEOUT_MS);
+  // Armed once the server starts doing its own work, cleared when the call is
+  // ready. Null whenever no startup is in flight.
+  let startupTimer = null;
+  const clearAuthTimer = () => { if (authTimer) { clearTimeout(authTimer); authTimer = null; } };
+  const clearStartupTimer = () => { if (startupTimer) { clearTimeout(startupTimer); startupTimer = null; } };
 
   // Without this, a tab that crashes or drops off the network never produces a
   // 'close', so the call never ends as far as this process is concerned — and
@@ -141,6 +184,27 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
   };
   const sendBinary = (buf) => {
     if (ws.readyState === ws.OPEN) ws.send(buf, { binary: true });
+  };
+
+  /**
+   * Refuse the call and SAY WHY.
+   *
+   * Every startup failure used to be a bare ws.close(). A WebSocket close code
+   * and reason are not delivered to page JavaScript in any useful form, so the
+   * browser could only report that the socket went away — which is how a slow
+   * database, an expired token and a missing agent all surfaced as the same
+   * sentence, "The Web Call could not be started", and why the real cause took
+   * a database probe to find rather than a glance at the screen.
+   *
+   * The error frame goes first and the close follows, because the client latches
+   * the last error it saw before the close and shows that instead of its
+   * fallback text.
+   */
+  const refuse = (closeCode, code, message) => {
+    clearAuthTimer();
+    clearStartupTimer();
+    send({ type: 'error', code, message });
+    if (ws.readyState === ws.OPEN) ws.close(closeCode, code);
   };
 
   const runTurn = async (history) => {
@@ -315,7 +379,8 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
   const cleanup = (status = 'COMPLETED') => {
     if (closed) return;
     closed = true;
-    clearTimeout(authTimer);
+    clearAuthTimer();
+    clearStartupTimer();
     stopHeartbeat();
     budget?.stop();
     frames = [];
@@ -357,9 +422,13 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
       if (isBinary) return; // ignore audio before auth
       const msg = safeJson(raw.toString(), null);
       if (msg?.type !== 'auth' || typeof msg.token !== 'string') {
-        ws.close(4001, 'First message must be { type: "auth", token }');
+        refuse(4001, 'AUTH_MALFORMED', 'The connection did not start with a valid sign-in. Reload the page and try again.');
         return;
       }
+      // The client has met its deadline. Everything from here is the server's
+      // own work, on its own budget — a slow database must never be reported as
+      // the caller failing to authenticate.
+      clearAuthTimer();
       try {
         const payload = verifyAccessToken(msg.token);
         if (payload.workspaceId && payload.workspaceId !== workspaceId) {
@@ -367,13 +436,45 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
         }
       } catch (err) {
         logger.warn(`Modular web call auth failed: ${err.message}`);
-        ws.close(4001, 'Invalid or expired token');
+        refuse(4001, 'AUTH_INVALID', 'Your session has expired. Sign in again and retry the call.');
         return;
       }
 
-      const agent = await prisma.agent.findFirst({ where: { id: agentId, workspaceId } });
+      // ── Server-side startup, on its own clock ───────────────────────────
+      //
+      // Two remote database round trips (the agent row, then the wallet gate).
+      // Both were previously unguarded: a throw here — a connection-pool
+      // timeout is the common one — rejected this async handler with nothing
+      // sent, so the socket simply died and the browser reported a generic
+      // failure. Now it is bounded, reported, and measured.
+      const startupAt = Date.now();
+      startupTimer = setTimeout(() => {
+        if (authenticated) return;
+        logger.error(
+          { workspaceId, agentId, waitedMs: Date.now() - startupAt },
+          'Modular web call gave up waiting on its own startup (database slow or unreachable)',
+        );
+        refuse(
+          4503,
+          'BACKEND_SLOW',
+          'The service could not get ready in time — the database is not responding. Please try again in a moment.',
+        );
+      }, STARTUP_TIMEOUT_MS);
+
+      let agent;
+      try {
+        agent = await prisma.agent.findFirst({ where: { id: agentId, workspaceId } });
+      } catch (err) {
+        // The exact failure behind the reported bug: "Timed out fetching a new
+        // connection from the connection pool", thrown into a handler with no
+        // catch, killing the socket in silence.
+        logger.error({ err, workspaceId, agentId }, 'Modular web call could not load the agent');
+        refuse(4503, 'BACKEND_UNAVAILABLE', 'Could not reach the database to start this call. Please try again in a moment.');
+        return;
+      }
+      if (startupTimer === null) return; // startup already gave up; socket is closing
       if (!agent) {
-        ws.close(4004, 'Agent not found in this workspace');
+        refuse(4004, 'AGENT_NOT_FOUND', 'This agent no longer exists in this workspace.');
         return;
       }
 
@@ -401,36 +502,62 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
       // no provider spend either. The budget is the other half of the same job:
       // passing the gate only means the call could START, so it also hangs up
       // when the balance is spent. See callBudget.js.
-      const gate = await openCallBudget({
-        workspaceId,
-        type: 'WEB_CALL',
-        label: 'modular web call',
-        onWarn: (secondsLeft) => {
-          send({
-            type: 'error',
-            code: 'BALANCE_LOW',
-            message: `Your wallet balance runs out in about ${secondsLeft} seconds. Add funds to keep talking.`,
-          });
-        },
-        onExpire: () => {
-          send({
-            type: 'error',
-            code: 'INSUFFICIENT_BALANCE',
-            message: 'Your wallet balance has run out. Add funds to place more calls.',
-          });
-          ws.close(CLOSE_INSUFFICIENT_BALANCE, 'INSUFFICIENT_BALANCE');
-        },
-      });
+      const gateAt = Date.now();
+      let gate;
+      try {
+        gate = await openCallBudget({
+          workspaceId,
+          type: 'WEB_CALL',
+          label: 'modular web call',
+          onWarn: (secondsLeft) => {
+            send({
+              type: 'error',
+              code: 'BALANCE_LOW',
+              message: `Your wallet balance runs out in about ${secondsLeft} seconds. Add funds to keep talking.`,
+            });
+          },
+          onExpire: () => {
+            send({
+              type: 'error',
+              code: 'INSUFFICIENT_BALANCE',
+              message: 'Your wallet balance has run out. Add funds to place more calls.',
+            });
+            ws.close(CLOSE_INSUFFICIENT_BALANCE, 'INSUFFICIENT_BALANCE');
+          },
+        });
+      } catch (err) {
+        // A FAILED gate is not a REFUSED gate, and the difference decides who is
+        // at fault. This one means we could not read the wallet at all, so the
+        // caller is told the service is unavailable rather than that they are
+        // out of money — which would be both wrong and, for a paying customer
+        // sitting on a healthy balance, alarming.
+        logger.error({ err, workspaceId, agentId, waitedMs: Date.now() - gateAt },
+          'Modular web call could not verify the wallet balance');
+        refuse(4503, 'BACKEND_UNAVAILABLE', 'Could not verify your balance to start this call. Please try again in a moment.');
+        return;
+      }
+      if (startupTimer === null) return; // startup already gave up; socket is closing
       budget = gate.budget;
       if (!gate.allowed) {
         logger.info({ workspaceId, agentId, code: gate.code }, `Modular web call blocked: ${gate.code}`);
-        send({ type: 'error', code: gate.code, message: gate.message });
-        ws.close(CLOSE_INSUFFICIENT_BALANCE, gate.code);
+        refuse(CLOSE_INSUFFICIENT_BALANCE, gate.code, gate.message);
         return;
       }
 
       authenticated = true;
-      clearTimeout(authTimer);
+      clearAuthTimer();
+      clearStartupTimer();
+      // Startup is remote database work on every call, and it is the step that
+      // silently grew until it blew the old timeout. Logged whenever it is slow
+      // so the drift is visible BEFORE it starts refusing calls, rather than
+      // being reconstructed from a database probe afterwards.
+      const startupMs = Date.now() - startupAt;
+      if (startupMs >= STARTUP_SLOW_MS) {
+        logger.warn(
+          { workspaceId, agentId, startupMs, gateMs: Date.now() - gateAt, budgetMs: STARTUP_TIMEOUT_MS },
+          'Modular web call was slow to become ready',
+        );
+      }
       // Tell the client whether model-based endpointing is actually available.
       // Its RMS VAD is a BACKSTOP when it is, and the sole endpointer when it is
       // not, and those want very different timeouts: a backstop must sit well
