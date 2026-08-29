@@ -80,8 +80,15 @@ const spend = (minMinutes: number, maxMinutes: number | null, rate: number) => (
     : `${mins(minMinutes)}–${mins(maxMinutes)} min = ${inr(minMinutes * rate)}–${inr(maxMinutes * rate)} / month`
 );
 
+/** A bound as an input value. Empty for the open-ended end, and for absent. */
+const bounded = (n: number | null | undefined) => (Number.isFinite(n) ? String(n) : '');
+
 /** "3 clients" / "1 client", for the tier row and its warnings. */
 const clientCount = (n: number) => (n === 1 ? '1 client' : `${n} clients`);
+
+/** A bucket whose band this build can actually reason about. */
+const hasReadableBand = (b: Bucket) =>
+  Number.isFinite(b.minMinutes) && (b.maxMinutes === null || Number.isFinite(b.maxMinutes));
 
 /**
  * Whether the offered bands tile the whole range — no gap, no overlap.
@@ -93,9 +100,18 @@ const clientCount = (n: number) => (n === 1 ? '1 client' : `${n} clients`);
  * find out now rather than when a customer falls in it.
  *
  * Retired tiers are excluded: they are not offered, so they cannot leave a hole.
+ *
+ * SAYS NOTHING RATHER THAN GUESSING. A server still on the pre-band shape sends
+ * tiers with no bounds at all, and this used to walk straight into them and
+ * throw — which, with no error boundary over the admin console, blanked the
+ * entire page over a diagnostic that is not even load-bearing. A band it cannot
+ * read is a band it cannot judge, so it reports nothing at all.
  */
 const bandGaps = (buckets: Bucket[]): string[] => {
-  const offered = buckets.filter((b) => b.active).sort((a, b) => a.minMinutes - b.minMinutes);
+  const active = buckets.filter((b) => b.active);
+  if (!active.every(hasReadableBand)) return [];
+
+  const offered = [...active].sort((a, b) => a.minMinutes - b.minMinutes);
   if (offered.length === 0) return [];
 
   const problems: string[] = [];
@@ -177,8 +193,11 @@ function BucketRow({ bucket, busy, onSave }: {
   bucket: Bucket; busy: boolean; onSave: (patch: BucketPatch) => void;
 }) {
   const [label, setLabel] = useState(bucket.label);
-  const [from, setFrom] = useState(String(bucket.minMinutes));
-  const [to, setTo] = useState(bucket.maxMinutes === null ? '' : String(bucket.maxMinutes));
+  // Number.isFinite guards rather than a plain String(): a server on the older
+  // bucket shape sends no bounds, and String(undefined) would put the literal
+  // text "undefined" in a number field.
+  const [from, setFrom] = useState(bounded(bucket.minMinutes));
+  const [to, setTo] = useState(bounded(bucket.maxMinutes));
   const [rate, setRate] = useState(String(bucket.perMinuteInr));
   const [active, setActive] = useState(bucket.active);
 
@@ -186,8 +205,8 @@ function BucketRow({ bucket, busy, onSave }: {
   // server actually stored rather than what was typed at it.
   useEffect(() => {
     setLabel(bucket.label);
-    setFrom(String(bucket.minMinutes));
-    setTo(bucket.maxMinutes === null ? '' : String(bucket.maxMinutes));
+    setFrom(bounded(bucket.minMinutes));
+    setTo(bounded(bucket.maxMinutes));
     setRate(String(bucket.perMinuteInr));
     setActive(bucket.active);
   }, [bucket.label, bucket.minMinutes, bucket.maxMinutes, bucket.perMinuteInr, bucket.active]);
@@ -197,8 +216,15 @@ function BucketRow({ bucket, busy, onSave }: {
   // An empty ceiling is the open-ended top bracket, not a missing field.
   const parsedTo = to.trim() === '' ? null : Number(to);
   const trimmedLabel = label.trim();
+  const count = Number.isFinite(bucket.workspaceCount) ? bucket.workspaceCount : 0;
 
-  const valid = Number.isFinite(parsedRate) && parsedRate > 0
+  // The empty floor has to be rejected on its own, because `Number('')` is 0
+  // and zero is a legal floor — without this an emptied field reads as a band
+  // starting at 0, and the row would offer to SAVE that. Mirrors the identical
+  // guard in parseMinMinutes on the server; the ceiling is deliberately the
+  // opposite, where empty means the open-ended top bracket.
+  const valid = from.trim() !== ''
+    && Number.isFinite(parsedRate) && parsedRate > 0
     && Number.isInteger(parsedFrom) && parsedFrom >= 0
     && (parsedTo === null || (Number.isInteger(parsedTo) && parsedTo > parsedFrom))
     && trimmedLabel.length > 0;
@@ -213,7 +239,7 @@ function BucketRow({ bucket, busy, onSave }: {
   if (active !== bucket.active) patch.active = active;
 
   const dirty = valid && Object.keys(patch).length > 0;
-  const repricing = patch.perMinuteInr !== undefined && bucket.workspaceCount > 0;
+  const repricing = patch.perMinuteInr !== undefined && count > 0;
   const retiring = patch.active === false;
 
   return (
@@ -254,7 +280,7 @@ function BucketRow({ bucket, busy, onSave }: {
         </span>
 
         <span style={{ color: 'var(--tx-3)' }}>
-          {bucket.workspaceCount === 0 ? 'No clients' : clientCount(bucket.workspaceCount)}
+          {count === 0 ? 'No clients' : clientCount(count)}
         </span>
 
         {/*
@@ -277,10 +303,10 @@ function BucketRow({ bucket, busy, onSave }: {
           next call is billed differently. */}
       {(repricing || retiring) && (
         <p style={{ margin: 0, fontSize: 12, color: 'var(--warn, var(--tx-2))', lineHeight: 1.5 }}>
-          {repricing && `Saving reprices ${clientCount(bucket.workspaceCount)} from their next call. `}
-          {retiring && (bucket.workspaceCount === 0
+          {repricing && `Saving reprices ${clientCount(count)} from their next call. `}
+          {retiring && (count === 0
             ? 'Retiring hides this tier from the picker.'
-            : `Retiring hides this tier from the picker; the ${clientCount(bucket.workspaceCount)} on it stay at this price until reassigned.`)}
+            : `Retiring hides this tier from the picker; the ${clientCount(count)} on it stay at this price until reassigned.`)}
         </p>
       )}
 
