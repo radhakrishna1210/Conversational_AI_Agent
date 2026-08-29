@@ -1,6 +1,6 @@
 import { useParams, useNavigate } from 'react-router-dom';
 
-import { useEffect, useState, useRef } from 'react';
+import { useEffect, useState, useRef, useMemo } from 'react';
 import { AgentConfig, getDefaultFlowItems } from '../lib/agentStore';
 
 import { whapi, getAuth } from '../lib/whapi';
@@ -17,7 +17,7 @@ import { fetchModelCatalog, type ModelCatalog } from '../lib/modelCatalog';
 import {
   ArrowLeft, Sparkles, Rocket, Save, Link2, MessageSquare, Globe, Phone,
   PhoneIncoming, PhoneOutgoing, Languages as LanguagesIcon, AudioLines, Cpu,
-  Volume2, MessageSquareText, ChevronDown, Loader2, Check
+  Volume2, MessageSquareText, ChevronDown, Loader2, Check, X
 } from 'lucide-react';
 
 
@@ -211,6 +211,10 @@ export default function EditAgent() {
   const [speakingRate, setSpeakingRate] = useState(1.0);
   const [ambientSound, setAmbientSound] = useState('None');
   const [showModelModal, setShowModelModal] = useState(false);
+  // Filter text for the model picker. Lives here rather than inside the modal
+  // so opening it can reset the box — a stale query from last time reads as an
+  // empty catalogue.
+  const [modelQuery, setModelQuery] = useState('');
   const [showTranscriptionModal, setShowTranscriptionModal] = useState(false);
   const [sttProvider, setSttProvider] = useState('Sarvam');
   const [sttSilenceTimeoutMs, setSttSilenceTimeoutMs] = useState(470);
@@ -387,6 +391,35 @@ export default function EditAgent() {
     } catch (e) { console.error('KB load failed', e); }
   };
   useEffect(() => { refreshKb(); /* eslint-disable-line react-hooks/exhaustive-deps */ }, [agentId]);
+
+  // Escape closes the model picker. It matters more here than on a typical
+  // modal: the panel can outgrow a short viewport, and the close button is the
+  // first thing to leave the screen when it does.
+  useEffect(() => {
+    if (!showModelModal) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setShowModelModal(false); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showModelModal]);
+
+  // Opening the picker starts from a clean search box.
+  useEffect(() => { if (showModelModal) setModelQuery(''); }, [showModelModal]);
+
+  // Models grouped by the provider that serves them, filtered by the search
+  // box. Catalogue order is preserved inside each group, and a group only
+  // appears when it still has a match — so an empty result is one clear message
+  // rather than five empty headings.
+  const visibleModelGroups = useMemo(() => {
+    const q = modelQuery.trim().toLowerCase();
+    const groups = new Map<string, ModelCatalog['llm']>();
+    for (const m of modelCatalog?.llm ?? []) {
+      if (q && !`${m.label} ${m.provider}`.toLowerCase().includes(q)) continue;
+      const key = m.provider || 'Other';
+      if (!groups.has(key)) groups.set(key, []);
+      groups.get(key)!.push(m);
+    }
+    return [...groups.entries()];
+  }, [modelCatalog, modelQuery]);
 
   const loadRecentCalls = async () => {
     setCallsLoading(true);
@@ -2886,44 +2919,115 @@ export default function EditAgent() {
 
       {/* AI Model Configuration Modal */}
       {showModelModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: 'var(--s1)', borderRadius: '8px', padding: '30px', maxWidth: '500px', width: '90%' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h2 style={{ fontSize: '18px', fontWeight: '600', margin: 0 }}>AI Model Configuration</h2>
-              <button onClick={() => setShowModelModal(false)} style={{ background: 'none', border: 'none', color: 'var(--tx-2)', cursor: 'pointer', fontSize: '24px' }}>X</button>
+        // Backdrop closes the picker. It has to, because the panel can be taller
+        // than the viewport on a short window and the close button is then the
+        // first thing to go off-screen — which is how this became a trap rather
+        // than just an ugly list.
+        <div
+          onClick={() => setShowModelModal(false)}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '24px' }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              background: 'var(--s1)',
+              borderRadius: '8px',
+              maxWidth: '520px',
+              width: '100%',
+              // THE BUG. Without a ceiling the panel grew to fit every model in
+              // the catalogue, and a flex container centring an over-tall child
+              // pushes half the overflow ABOVE the top of the screen, where it
+              // cannot be scrolled to. The title and the close button were up
+              // there. Cap the panel and scroll the LIST instead, so the header
+              // stays put no matter how many models the platform enables.
+              maxHeight: 'min(85vh, 680px)',
+              display: 'flex',
+              flexDirection: 'column',
+              overflow: 'hidden',
+            }}
+          >
+            <div style={{ flex: 'none', padding: '24px 24px 0' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', marginBottom: '4px' }}>
+                <h2 style={{ fontSize: '18px', fontWeight: '600', margin: 0 }}>AI Model</h2>
+                <button
+                  onClick={() => setShowModelModal(false)}
+                  aria-label="Close"
+                  style={{ background: 'none', border: 'none', color: 'var(--tx-2)', cursor: 'pointer', padding: '2px', display: 'flex', lineHeight: 0 }}
+                >
+                  <X size={20} />
+                </button>
+              </div>
+              <p style={{ fontSize: '12px', color: 'var(--tx-2)', margin: '0 0 16px' }}>
+                The model that writes this agent&apos;s replies. Currently <span style={{ color: 'var(--tx)', fontWeight: 600 }}>{aiModel || 'not set'}</span>.
+              </p>
+              {/* Worth its place at seventeen models across five providers — the
+                  flat alphabetical-ish list meant hunting for a known name. */}
+              {(modelCatalog?.llm.length ?? 0) > 8 && (
+                <input
+                  autoFocus
+                  value={modelQuery}
+                  onChange={e => setModelQuery(e.target.value)}
+                  placeholder="Search models"
+                  style={{ width: '100%', padding: '9px 12px', background: 'var(--bg-primary)', border: '1px solid var(--line-2)', borderRadius: '6px', color: 'var(--tx)', outline: 'none', fontSize: '13px', marginBottom: '16px' }}
+                />
+              )}
             </div>
-            <div style={{ display: 'grid', gap: '12px', marginBottom: '20px' }}>
+
+            <div style={{ overflowY: 'auto', padding: '0 24px 24px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
               {!modelCatalog && <p style={{ fontSize: '13px', color: 'var(--tx-2)', margin: 0 }}>Loading available models…</p>}
               {modelCatalog?.llm.length === 0 && (
                 <p style={{ fontSize: '13px', color: 'var(--tx-2)', margin: 0, lineHeight: 1.6 }}>
                   No AI models are available on this platform right now. Contact your administrator.
                 </p>
               )}
-              {modelCatalog?.llm.map(model => {
-                const selected = aiModel.toLowerCase() === model.value.toLowerCase();
-                return (
-                  <button
-                    key={model.value}
-                    onClick={() => { setAiModel(model.value); setShowModelModal(false); handleSave({ aiModel: model.value }); }}
-                    style={{
-                      padding: '12px',
-                      background: selected ? 'var(--cyan)' : 'var(--bg-primary)',
-                      color: selected ? '#000' : 'var(--tx)',
-                      border: selected ? 'none' : '1px solid var(--line-2)',
-                      borderRadius: '6px',
-                      cursor: 'pointer',
-                      fontSize: '13px',
-                      textAlign: 'left',
-                      fontWeight: selected ? '600' : '400'
-                    }}
-                  >
-                    {model.label}
-                    <span style={{ color: selected ? '#04231f' : 'var(--tx-2)', fontSize: '11px', marginLeft: '8px' }}>
-                      {model.provider}
-                    </span>
-                  </button>
-                );
-              })}
+              {modelCatalog && modelCatalog.llm.length > 0 && visibleModelGroups.length === 0 && (
+                <p style={{ fontSize: '13px', color: 'var(--tx-2)', margin: 0 }}>
+                  No models match “{modelQuery}”.
+                </p>
+              )}
+              {visibleModelGroups.map(([provider, models]) => (
+                <div key={provider}>
+                  {/* Grouping is the information, not decoration: which provider
+                      serves a model decides its cost, its latency and which API
+                      key has to be configured for it to work at all. */}
+                  <div style={{ fontSize: '10.5px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--tx-2)', marginBottom: '8px' }}>
+                    {provider}
+                  </div>
+                  <div style={{ display: 'grid', gap: '8px' }}>
+                    {models.map(model => {
+                      const selected = aiModel.toLowerCase() === model.value.toLowerCase();
+                      return (
+                        <button
+                          key={model.value}
+                          onClick={() => { setAiModel(model.value); setShowModelModal(false); handleSave({ aiModel: model.value }); }}
+                          style={{
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'space-between',
+                            gap: '12px',
+                            padding: '11px 13px',
+                            background: selected ? '#0a2e30' : 'var(--bg-primary)',
+                            color: 'var(--tx)',
+                            border: `1px solid ${selected ? 'var(--cyan)' : 'var(--line-2)'}`,
+                            borderRadius: '6px',
+                            cursor: 'pointer',
+                            fontSize: '13px',
+                            textAlign: 'left',
+                            fontWeight: selected ? 600 : 400,
+                            width: '100%',
+                          }}
+                        >
+                          <span>{model.label}</span>
+                          {/* Colour alone carried the selected state before. A
+                              check reads at a glance and survives a colourblind
+                              viewer. */}
+                          {selected && <Check size={16} style={{ color: 'var(--cyan)', flex: 'none' }} />}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         </div>
@@ -2932,7 +3036,7 @@ export default function EditAgent() {
       {/* Transcription Configuration Modal (Speech-to-Text) */}
       {showTranscriptionModal && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--s1)', borderRadius: '8px', padding: '30px', maxWidth: '900px', width: '90%' }}>
+          <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--s1)', borderRadius: '8px', padding: '30px', maxWidth: '900px', width: '90%', maxHeight: '85vh', overflowY: 'auto' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
               <h2 style={{ fontSize: '18px', fontWeight: '600', margin: 0 }}>Speech-to-Text Configuration</h2>
               <button onClick={() => setShowTranscriptionModal(false)} style={{ background: 'none', border: 'none', color: 'var(--tx-2)', cursor: 'pointer', fontSize: '24px' }}>X</button>
