@@ -1,7 +1,10 @@
 import fetch from 'node-fetch';
 
 async function testRawApi() {
-  const apiKey = 'AIzaSyDAhaGWpmOymLtg7YVvRylorgbmZ8tHKtw';
+  // Read from the environment. A live key used to sit here as a literal and
+  // shipped to GitHub in the first commit (AUDIT_REPORT A-08) — rotate it.
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) { console.error('Set GEMINI_API_KEY'); process.exit(1); }
   const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
 
   
