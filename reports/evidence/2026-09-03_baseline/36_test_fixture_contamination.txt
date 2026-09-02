@@ -1,0 +1,12 @@
+workspaces total 182
+workspaces named __test__*/Test*/*test* 131
+workspaces with slug starting test 3
+plans total 165
+plans named __test__*/TestPlan* 155
+users total 65
+users with test-looking email (test@/example.com/+test) 37
+wallets total / sum [137,330835082]
+wallets of test-named workspaces / sum [105,299981445]
+call logs in test-named workspaces 147
+subscriptions on __test__/TestPlan plans 40
+invoices in test-named workspaces 44

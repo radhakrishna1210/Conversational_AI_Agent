@@ -1,0 +1,92 @@
+
+> conversational-ai-backend@1.0.0 test:ws
+> node --test "src/ws/__tests__/*.test.js"
+
+✔ inbound frames are placed at arrival time (15.7097ms)
+✔ a burst of outbound frames is spread across playout time, not stacked (0.7868ms)
+✔ frame duration follows byte length, not a fixed frame size (0.4207ms)
+✔ the playhead restarts from now after the carrier has drained (0.3095ms)
+✔ outbound audio still buffered is not restarted from now (2.1558ms)
+✔ barge drops buffered audio at the moment of interruption (0.5717ms)
+✔ audio after a barge is placed from the interruption, not the old playhead (0.3237ms)
+✔ empty and missing frames are ignored (0.3428ms)
+✔ save is guarded, because bridge cleanup runs more than once (13.2548ms)
+✔ a call with no log id renders nothing (1.6312ms)
+✔ PHONE_RECORDING=off makes the tap inert (0.8953ms)
+{"level":30,"time":1788382168624,"pid":23132,"hostname":"LAPTOP-DQ9BS67C","msg":"✅ Redis cache active"}
+{"level":40,"time":1788382168625,"pid":23132,"hostname":"LAPTOP-DQ9BS67C","msg":"⚠️ OPENAI_API_KEY not configured. OpenAI service will not work."}
+{"level":40,"time":1788382168625,"pid":23132,"hostname":"LAPTOP-DQ9BS67C","msg":"⚠️ Azure OpenAI credentials not configured. Azure service will not work."}
+▶ twilio carrier envelope
+  ✔ reads the stream id and the call log id from start (11.5053ms)
+  ✔ sends audio as a media event keyed by streamSid (1.2196ms)
+  ✔ flushes with clear (0.1926ms)
+✔ twilio carrier envelope (14.2686ms)
+▶ plivo carrier envelope
+  ✔ reads streamId — not streamSid, which Plivo never sends (0.2342ms)
+  ✔ returns no callLogId, leaving the socket-URL one in place (0.2022ms)
+  ✔ sends audio as playAudio with the format on every frame (0.1996ms)
+  ✔ the declared format matches the Stream element constants (0.1195ms)
+  ✔ flushes with clearAudio keyed by streamId (0.148ms)
+✔ plivo carrier envelope (1.2658ms)
+▶ the two envelopes really are different
+  ✔ audio events do not share an event name (0.2893ms)
+  ✔ flush events do not share an event name (0.2564ms)
+✔ the two envelopes really are different (0.8086ms)
+{"level":50,"time":1788382168747,"pid":23132,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":50,"time":1788382168863,"pid":23132,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":50,"time":1788382169075,"pid":23132,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":50,"time":1788382169391,"pid":23132,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":40,"time":1788382169391,"pid":23132,"hostname":"LAPTOP-DQ9BS67C","msg":"Redis connection failed after 4 attempts. Falling back to memory mode."}
+{"level":40,"time":1788382169392,"pid":23132,"hostname":"LAPTOP-DQ9BS67C","msg":"Redis connection failed after 4 attempts. Falling back to memory mode."}
+{"level":30,"time":1788382168624,"pid":21184,"hostname":"LAPTOP-DQ9BS67C","msg":"✅ Redis cache active"}
+{"level":40,"time":1788382168626,"pid":21184,"hostname":"LAPTOP-DQ9BS67C","msg":"⚠️ OPENAI_API_KEY not configured. OpenAI service will not work."}
+{"level":40,"time":1788382168626,"pid":21184,"hostname":"LAPTOP-DQ9BS67C","msg":"⚠️ Azure OpenAI credentials not configured. Azure service will not work."}
+▶ piopiy inbound audio — envelopes that carry audio
+  ✔ binary frames are the audio, with no envelope to misread (11.5868ms)
+  ✔ reads data.audioData — the mirror of the frame we send (0.6716ms)
+  ✔ reads a top-level audioData (0.1763ms)
+  ✔ reads media.payload, the shape every other carrier here uses (0.154ms)
+  ✔ reads media.audioData (0.1618ms)
+  ✔ reads a string payload or a string data field (0.1526ms)
+✔ piopiy inbound audio — envelopes that carry audio (14.4284ms)
+▶ piopiy inbound audio — frames that carry none
+  ✔ a control message yields no audio but keeps its envelope for the log (0.7374ms)
+  ✔ an object data field is not mistaken for base64 (0.2858ms)
+  ✔ non-JSON text is ignored rather than throwing mid-call (0.228ms)
+  ✔ an empty audioData is treated as no audio, not an empty buffer (0.2606ms)
+✔ piopiy inbound audio — frames that carry none (2.5368ms)
+{"level":50,"time":1788382168749,"pid":21184,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":50,"time":1788382168864,"pid":21184,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":50,"time":1788382169076,"pid":21184,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":50,"time":1788382169392,"pid":21184,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":40,"time":1788382169392,"pid":21184,"hostname":"LAPTOP-DQ9BS67C","msg":"Redis connection failed after 4 attempts. Falling back to memory mode."}
+{"level":40,"time":1788382169393,"pid":21184,"hostname":"LAPTOP-DQ9BS67C","msg":"Redis connection failed after 4 attempts. Falling back to memory mode."}
+▶ turn-timing frame validation
+  ✔ accepts a well-formed frame and rounds to whole ms (1.4853ms)
+  ✔ refuses frames without a turnId or with a malformed one (0.2494ms)
+  ✔ drops implausible numbers individually, and the frame if nothing usable remains (0.2791ms)
+  ✔ is defensive about non-object input (0.1633ms)
+  ✔ filler is only true when literally true (0.1493ms)
+✔ turn-timing frame validation (4.3921ms)
+{"level":40,"time":1788382168783,"pid":2324,"hostname":"LAPTOP-DQ9BS67C","msg":"⚠️ Redis unavailable, cache using memory fallback"}
+{"level":40,"time":1788382168784,"pid":2324,"hostname":"LAPTOP-DQ9BS67C","msg":"⚠️ OPENAI_API_KEY not configured. OpenAI service will not work."}
+{"level":40,"time":1788382168785,"pid":2324,"hostname":"LAPTOP-DQ9BS67C","msg":"⚠️ Azure OpenAI credentials not configured. Azure service will not work."}
+{"level":40,"time":1788382169293,"pid":2324,"hostname":"LAPTOP-DQ9BS67C","msg":"Modular web call auth failed: jwt malformed"}
+{"level":40,"time":1788382169294,"pid":2324,"hostname":"LAPTOP-DQ9BS67C","msg":"Modular web call auth failed: jwt malformed"}
+▶ web call refusals always tell the caller why
+  ✔ a client that never authenticates is told so, not just disconnected (418.0611ms)
+  ✔ a malformed first frame is refused with a reason (2.0068ms)
+  ✔ a bad token says the session expired, and never reaches the database (1.7682ms)
+{"level":40,"time":1788382169708,"pid":2324,"hostname":"LAPTOP-DQ9BS67C","msg":"Modular web call auth failed: jwt malformed"}
+  ✔ the client deadline is released the moment its auth frame lands (413.5949ms)
+  ✔ every refusal carries both a code and a human sentence (1.3172ms)
+✔ web call refusals always tell the caller why (1216.5815ms)
+ℹ tests 41
+ℹ suites 7
+ℹ pass 41
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1716.2513
+exit=0

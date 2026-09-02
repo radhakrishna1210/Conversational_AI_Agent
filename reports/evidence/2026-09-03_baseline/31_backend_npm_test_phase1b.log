@@ -1,0 +1,1316 @@
+
+> conversational-ai-backend@1.0.0 test
+> node --test "src/services/**/__tests__/*.test.js" "src/constants/__tests__/*.test.js" "src/lib/__tests__/*.test.js"
+
+▶ thinkingConfigFor — "no reasoning pass", spelled per model
+  ✔ models that take a budget get a budget (6.8471ms)
+  ✔ models that reject a budget but think by default get a level (0.4912ms)
+  ✔ models that already default to no thinking are told nothing (0.4229ms)
+  ✔ an unknown model is told nothing rather than guessed at (0.262ms)
+  ✔ no thinkingBudget asked for means no thinkingConfig sent (0.4691ms)
+  ✔ a non-zero budget is passed on where supported and dropped where not (0.3974ms)
+✔ thinkingConfigFor — "no reasoning pass", spelled per model (12.4687ms)
+▶ model mapping
+  ✔ the retired 2.5 lite endpoint resolves onto a live model (2.1218ms)
+  ✔ the default model is one the mapping actually knows (0.7963ms)
+  ✔ every supported model has a thinking answer that does not throw (0.4029ms)
+✔ model mapping (4.3099ms)
+▶ latency record shape
+  ✔ stamps ts first, keeps every caller field, appends the lag snapshot (4.5964ms)
+  ✔ a record without turnId still serialises (older call sites) (0.9588ms)
+✔ latency record shape (8.5151ms)
+▶ event-loop lag sampler
+  ✔ reports nulls before any sample, then integers in ms, and resets between snapshots (188.8593ms)
+✔ event-loop lag sampler (190.7376ms)
+▶ parseAppointmentDate
+  ✔ preserves a naive wall clock without converting it (55.0773ms)
+  ✔ gives the same wall clock regardless of the host timezone (34.6985ms)
+  ✔ accepts the looser forms a model may emit (0.6524ms)
+  ✔ treats an explicit offset as a real instant (7.0104ms)
+  ✔ rejects an impossible date instead of rolling it over (2.0994ms)
+  ✔ rejects ambiguous and unparseable values rather than guessing (0.6618ms)
+  ✔ reports an empty extraction distinctly from a bad one (1.2295ms)
+  ✔ accepts a Date instance as an instant (0.5324ms)
+✔ parseAppointmentDate (109.5566ms)
+▶ combineDateAndTime
+  ✔ accepts the time formats a model emits (1.5967ms)
+  ✔ accepts a full ISO datetime as the time source (0.8984ms)
+  ✔ returns null rather than guessing at unusable input (0.7977ms)
+✔ combineDateAndTime (4.2764ms)
+▶ resolveAppointmentStart
+  ✔ treats a midnight date stamp as "no time given" and uses the time variable (1.9521ms)
+  ✔ keeps a real (non-midnight) time on the date variable (0.6946ms)
+  ✔ still books midnight when that is genuinely all that was said (0.3301ms)
+  ✔ joins a date + time pair with no configuration at all (0.3249ms)
+  ✔ honours an explicitly configured date variable (0.3768ms)
+  ✔ never books against a date of birth (0.2039ms)
+  ✔ prefers the appointment pair over an unrelated one (0.6008ms)
+  ✔ passes through an already-combined variable (0.3465ms)
+  ✔ returns null when nothing usable was extracted (0.2397ms)
+  ✔ reports which variables it used, for diagnosing a wrong booking (0.2629ms)
+✔ resolveAppointmentStart (6.1256ms)
+▶ wallToInstant
+  ✔ resolves a wall clock in the given zone (87.739ms)
+  ✔ is independent of the host timezone (6.4695ms)
+  ✔ handles a zone with DST (1.8769ms)
+  ✔ produces a window whose end is after its start (1.5085ms)
+✔ wallToInstant (98.2464ms)
+{"level":30,"time":1788381400378,"pid":10744,"hostname":"LAPTOP-DQ9BS67C","msg":"✅ Redis cache active"}
+{"level":40,"time":1788381400380,"pid":10744,"hostname":"LAPTOP-DQ9BS67C","msg":"⚠️ OPENAI_API_KEY not configured. OpenAI service will not work."}
+{"level":40,"time":1788381400380,"pid":10744,"hostname":"LAPTOP-DQ9BS67C","msg":"⚠️ Azure OpenAI credentials not configured. Azure service will not work."}
+▶ system prompt names the greeting that was actually spoken
+  ✔ uses the per-direction inbound greeting, not the legacy column (27.4616ms)
+  ✔ uses the per-direction outbound greeting for an outbound agent (0.7439ms)
+  ✔ an explicit spokenWelcome from the bridge wins (0.7254ms)
+  ✔ never emits an empty greeting rule (1.5925ms)
+  ✔ still honours the legacy column when no per-direction greeting is set (0.6128ms)
+✔ system prompt names the greeting that was actually spoken (34.2587ms)
+{"level":50,"time":1788381400533,"pid":10744,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":50,"time":1788381400647,"pid":10744,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":50,"time":1788381400865,"pid":10744,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":50,"time":1788381401172,"pid":10744,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":40,"time":1788381401172,"pid":10744,"hostname":"LAPTOP-DQ9BS67C","msg":"Redis connection failed after 4 attempts. Falling back to memory mode."}
+{"level":40,"time":1788381401172,"pid":10744,"hostname":"LAPTOP-DQ9BS67C","msg":"Redis connection failed after 4 attempts. Falling back to memory mode."}
+▶ backoffDelay
+  ✔ grows exponentially from the first failure (2.1105ms)
+  ✔ is capped, so a long outage never becomes a permanent one (0.8249ms)
+  ✔ a zero or negative count still yields the base delay, never zero (0.5134ms)
+✔ backoffDelay (5.7646ms)
+▶ failure tracking
+  ✔ one failure stops the next tick from re-queueing (0.8293ms)
+  ✔ consecutive failures push the retry further out each time (2.1472ms)
+  ✔ a success forgives the integration completely (0.5251ms)
+  ✔ backoff is per integration, not global (0.4621ms)
+  ✔ the window expires on its own (0.4398ms)
+  ✔ backingOffIds lists exactly who is waiting, for the job runner (0.5984ms)
+  ✔ a missing integration id is ignored rather than tracked as "" (2.3152ms)
+✔ failure tracking (8.6046ms)
+▶ resetIntegrationBackoff
+  ✔ reconnecting clears the penalty earned by the old credentials (0.4369ms)
+  ✔ clears everything when called with no id (0.2265ms)
+✔ resetIntegrationBackoff (0.9596ms)
+▶ integrationBackoffState
+  ✔ reports why an integration is not syncing (0.3605ms)
+✔ integrationBackoffState (0.4855ms)
+▶ errorMessage
+  ✔ unwraps the Google error shape that caused the outage (6.569ms)
+  ✔ recovers a message from an Error already ruined by the old code (0.7808ms)
+  ✔ falls through to `cause` when the message is unusable (0.4877ms)
+  ✔ handles the OAuth2 error shape (0.5485ms)
+  ✔ never returns "[object Object]", whatever it is handed (1.3318ms)
+  ✔ never returns empty, so a failed row is never mistaken for a clean one (1.9793ms)
+  ✔ survives a circular object instead of throwing inside a catch block (1.8872ms)
+  ✔ clips a runaway payload rather than storing all of it (1.8214ms)
+  ✔ passes plain strings and normal Errors straight through (1.0089ms)
+✔ errorMessage (22.8013ms)
+▶ apiError
+  ✔ builds an Error whose message is readable, not "[object Object]" (0.7609ms)
+  ✔ uses the fallback when the body says nothing (0.3545ms)
+✔ apiError (1.5859ms)
+{"level":30,"time":1788381400437,"pid":26788,"hostname":"LAPTOP-DQ9BS67C","msg":"✅ Redis cache active"}
+{"level":40,"time":1788381400439,"pid":26788,"hostname":"LAPTOP-DQ9BS67C","msg":"⚠️ OPENAI_API_KEY not configured. OpenAI service will not work."}
+{"level":40,"time":1788381400439,"pid":26788,"hostname":"LAPTOP-DQ9BS67C","msg":"⚠️ Azure OpenAI credentials not configured. Azure service will not work."}
+▶ stripInboundThanks — rebuilding an outbound opener
+  ✔ keeps the company that was hidden inside the thanks clause (46.7136ms)
+  ✔ never leaves the thanks behind, whatever else it does (4.0164ms)
+  ✔ does not introduce the agent twice (7.8015ms)
+  ✔ a department is not a company (3.5559ms)
+  ✔ with no persona and no company it only removes the contradiction (0.6916ms)
+  ✔ a greeting that never thanked anyone is left alone apart from the opener (0.424ms)
+  ✔ the remainder starts as its own sentence (1.2573ms)
+  ✔ the opener does not say hello twice (1.0341ms)
+  ✔ a dangling conjunction left by the removal is cleaned up (3.6183ms)
+  ✔ a persona containing regex metacharacters does not throw (2.7164ms)
+✔ stripInboundThanks — rebuilding an outbound opener (76.9386ms)
+▶ isRateLimited
+  ✔ recognises how each provider says "over quota" (1.9374ms)
+  ✔ does not mistake other failures for a quota problem (0.5555ms)
+  ✔ a missing or empty error is not a rate limit (0.3408ms)
+✔ isRateLimited (3.3713ms)
+▶ welcomeTextFor — which greeting this call opens with
+  ✔ prefers the per-direction field for the direction of THIS call (0.6931ms)
+  ✔ this call direction outranks the agent's configured one (0.2081ms)
+  ✔ unknown direction falls back to the agent's configured side (0.2364ms)
+  ✔ an agent that only ever had welcomeMessage is unchanged (0.156ms)
+  ✔ a blank or whitespace-only per-direction field is not a greeting (0.1632ms)
+  ✔ never returns empty — dead air on answer is the worst outcome (0.6322ms)
+  ✔ the stored text is returned verbatim, not rewritten (0.1712ms)
+✔ welcomeTextFor — which greeting this call opens with (2.717ms)
+{"level":50,"time":1788381400635,"pid":26788,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":50,"time":1788381400751,"pid":26788,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":50,"time":1788381400956,"pid":26788,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":50,"time":1788381401270,"pid":26788,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":40,"time":1788381401270,"pid":26788,"hostname":"LAPTOP-DQ9BS67C","msg":"Redis connection failed after 4 attempts. Falling back to memory mode."}
+{"level":40,"time":1788381401271,"pid":26788,"hostname":"LAPTOP-DQ9BS67C","msg":"Redis connection failed after 4 attempts. Falling back to memory mode."}
+{"level":30,"time":1788381400400,"pid":16724,"hostname":"LAPTOP-DQ9BS67C","msg":"✅ Redis cache active"}
+{"level":40,"time":1788381400402,"pid":16724,"hostname":"LAPTOP-DQ9BS67C","msg":"⚠️ OPENAI_API_KEY not configured. OpenAI service will not work."}
+{"level":40,"time":1788381400402,"pid":16724,"hostname":"LAPTOP-DQ9BS67C","msg":"⚠️ Azure OpenAI credentials not configured. Azure service will not work."}
+▶ personaNameFromLabel
+  ✔ takes the leading name out of a "<Name> - <Role>" label (47.1971ms)
+  ✔ does NOT split a plain multi-word campaign label (0.7464ms)
+  ✔ rejects a role word even when it leads a separated label (0.485ms)
+  ✔ rejects junk (0.5599ms)
+✔ personaNameFromLabel (67.7969ms)
+▶ getPersonaName
+  ✔ speaks the stored personaName above everything else (1.4133ms)
+  ✔ speaks the leading name of a "<Name> - <Role>" agent (the reported bug) (0.6025ms)
+  ✔ speaks a bare human agent name as-is (0.6279ms)
+  ✔ ignores a junk stored personaName and falls back (0.6985ms)
+  ✔ survives malformed settings JSON (1.0161ms)
+  ✔ derives a name only for a genuine campaign label (1.2887ms)
+  ✔ is stable for the same agent and gender-matched to the voice (1.5753ms)
+  ✔ spreads derived names across the pool instead of clustering (1.1933ms)
+  ✔ never returns undefined for any id (1.2469ms)
+✔ getPersonaName (11.1781ms)
+▶ agentNameIsPersona
+  ✔ accepts a bare human name and rejects labels/roles/mash (4.8404ms)
+✔ agentNameIsPersona (5.3594ms)
+{"level":50,"time":1788381400594,"pid":16724,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":50,"time":1788381400703,"pid":16724,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":50,"time":1788381400911,"pid":16724,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":50,"time":1788381401216,"pid":16724,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":40,"time":1788381401217,"pid":16724,"hostname":"LAPTOP-DQ9BS67C","msg":"Redis connection failed after 4 attempts. Falling back to memory mode."}
+{"level":40,"time":1788381401218,"pid":16724,"hostname":"LAPTOP-DQ9BS67C","msg":"Redis connection failed after 4 attempts. Falling back to memory mode."}
+✔ collects enabled definitions and tracks configs (7.4117ms)
+✔ formats valid turns (0.8741ms)
+✔ materializes requested values and nulls missing ones (1.3923ms)
+{"level":30,"time":1788381400475,"pid":10124,"hostname":"LAPTOP-DQ9BS67C","msg":"✅ Redis cache active"}
+{"level":40,"time":1788381400477,"pid":10124,"hostname":"LAPTOP-DQ9BS67C","msg":"⚠️ OPENAI_API_KEY not configured. OpenAI service will not work."}
+{"level":40,"time":1788381400477,"pid":10124,"hostname":"LAPTOP-DQ9BS67C","msg":"⚠️ Azure OpenAI credentials not configured. Azure service will not work."}
+▶ buildRuntimeMessages — cacheable shape
+  ✔ KB body is NOT in the system prompt (31.6755ms)
+  ✔ KB is the first conversation turn, followed by an acknowledgement (4.1506ms)
+  ✔ prior turns follow the KB, in order, as real turns (5.0698ms)
+  ✔ system prompt is IDENTICAL as the conversation grows (0.8287ms)
+  ✔ affect goes on the current turn, never the system prompt (1.2542ms)
+  ✔ two different calls to the same agent share a byte-identical prefix (0.9267ms)
+  ✔ no KB configured — no KB turn, and the prompt says so (0.5858ms)
+✔ buildRuntimeMessages — cacheable shape (48.2025ms)
+▶ buildRuntimeMessages — providers without structured history
+  ✔ falls back to the transcript-in-system-prompt shape (0.8869ms)
+  ✔ affect still reaches a legacy provider (0.6362ms)
+✔ buildRuntimeMessages — providers without structured history (2.2301ms)
+▶ buildAgentSystemPrompt — kbInline
+  ✔ bundled realtime engines keep the KB inline (0.8148ms)
+  ✔ non-inline still instructs the model to ground answers in the KB (0.5172ms)
+✔ buildAgentSystemPrompt — kbInline (1.8063ms)
+{"level":50,"time":1788381400662,"pid":10124,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":50,"time":1788381400770,"pid":10124,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":50,"time":1788381400987,"pid":10124,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":50,"time":1788381401302,"pid":10124,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":40,"time":1788381401302,"pid":10124,"hostname":"LAPTOP-DQ9BS67C","msg":"Redis connection failed after 4 attempts. Falling back to memory mode."}
+{"level":40,"time":1788381401304,"pid":10124,"hostname":"LAPTOP-DQ9BS67C","msg":"Redis connection failed after 4 attempts. Falling back to memory mode."}
+✔ a name written by recordingFilename round-trips back to its call id (301.8614ms)
+✔ legacy names carry no call id (3.1387ms)
+{"level":30,"time":1788381400045,"pid":13204,"hostname":"LAPTOP-DQ9BS67C","callId":"cmtd07o4i0032hysygstrfy8r","filename":"cmtd07o4i0032hysygstrfy8r--1787924793904-abc123.webm","msg":"Reattached a stranded call recording"}
+✔ attaches a stranded recording to the call it names (12.2865ms)
+{"level":30,"time":1788381400054,"pid":13204,"hostname":"LAPTOP-DQ9BS67C","callId":"cmtd07o4i0032hysygstrfy8r","filename":"cmtd07o4i0032hysygstrfy8r--1787924793904-abc123.wav","msg":"Reattached a stranded call recording"}
+✔ a .wav from the phone bridge is attached with the right mime (8.9774ms)
+✔ never overwrites a recording the call already has (41.7563ms)
+✔ leaves a file that could still be uploading (64.8097ms)
+{"level":30,"time":1788381400198,"pid":13204,"hostname":"LAPTOP-DQ9BS67C","callId":"cmtd07o4i0032hysygstrfy8r","filename":"cmtd07o4i0032hysygstrfy8r--1787924793904-newer.webm","msg":"Reattached a stranded call recording"}
+✔ when one call left several files, the newest wins (35.8638ms)
+✔ ignores files whose call no longer exists (5.9272ms)
+{"level":30,"time":1788381400210,"pid":13204,"hostname":"LAPTOP-DQ9BS67C","callId":"cmtd07o4i0032hysygstrfy8r","filename":"cmtd07o4i0032hysygstrfy8r--1787924793904-abc123.webm","msg":"Reattached a stranded call recording"}
+✔ running twice changes nothing the first run did not (6.4753ms)
+✔ an empty or missing directory is not an error (7.6387ms)
+✔ deletes audio older than the window and clears the pointer, keeping the call log (315.5704ms)
+✔ keeps audio inside the window (63.2186ms)
+✔ reclaims an orphaned file no row points at (41.5727ms)
+✔ spares an unreferenced file still inside the orphan grace period (29.2897ms)
+✔ an aged file that a row still references is not treated as an orphan (11.6911ms)
+✔ days=0 disables deletion entirely (19.6016ms)
+✔ a missing file does not fail the sweep (11.9852ms)
+▶ normalizeSttPreference
+  ✔ recognises the catalogue values the editor actually stores (1.9079ms)
+  ✔ is case- and shape-insensitive, which is why the old match failed (25.7493ms)
+  ✔ returns null for a provider this fallback cannot do (0.8098ms)
+  ✔ handles an unset or malformed setting without throwing (0.6927ms)
+✔ normalizeSttPreference (39.2782ms)
+{"level":30,"time":1788381400741,"pid":10640,"hostname":"LAPTOP-DQ9BS67C","msg":"✅ Redis cache active"}
+{"level":40,"time":1788381400743,"pid":10640,"hostname":"LAPTOP-DQ9BS67C","msg":"⚠️ OPENAI_API_KEY not configured. OpenAI service will not work."}
+{"level":40,"time":1788381400743,"pid":10640,"hostname":"LAPTOP-DQ9BS67C","msg":"⚠️ Azure OpenAI credentials not configured. Azure service will not work."}
+▶ windowHistory
+  ✔ keeps a whole ordinary call, not the last six exchanges (19.7941ms)
+  ✔ drops oldest first when the message cap binds (0.511ms)
+  ✔ drops oldest first when the character budget binds (0.42ms)
+  ✔ keeps the newest message even when it alone exceeds the budget (0.2412ms)
+  ✔ never drops a leading assistant turn: that is the greeting (0.2159ms)
+  ✔ keeps the newest turns when the cap binds, whatever role leads (0.2315ms)
+  ✔ never empties the window for a non-empty conversation (0.1832ms)
+✔ windowHistory (24.6445ms)
+{"level":50,"time":1788381400825,"pid":10640,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":50,"time":1788381400942,"pid":10640,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":50,"time":1788381401159,"pid":10640,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":40,"time":1788381401483,"pid":10640,"hostname":"LAPTOP-DQ9BS67C","msg":"Redis connection failed after 4 attempts. Falling back to memory mode."}
+{"level":50,"time":1788381401487,"pid":10640,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":40,"time":1788381401490,"pid":10640,"hostname":"LAPTOP-DQ9BS67C","msg":"Redis connection failed after 4 attempts. Falling back to memory mode."}
+{"level":30,"time":1788381400081,"pid":13012,"hostname":"LAPTOP-DQ9BS67C","label":"call","maxSeconds":0.05,"ranForSec":0,"msg":"Call budget exhausted — ending the call before the wallet goes negative"}
+✔ the call is ended once the budget runs out (138.066ms)
+✔ an ended call stops its timer, so a hangup cannot fire a late expiry (127.6735ms)
+{"level":30,"time":1788381400499,"pid":13012,"hostname":"LAPTOP-DQ9BS67C","label":"call","maxSeconds":0.2,"ranForSec":0,"msg":"Call budget exhausted — ending the call before the wallet goes negative"}
+✔ the caller is warned before the cutoff, not only at it (319.1104ms)
+{"level":30,"time":1788381400667,"pid":13012,"hostname":"LAPTOP-DQ9BS67C","label":"call","maxSeconds":0.05,"ranForSec":0,"msg":"Call budget exhausted — ending the call before the wallet goes negative"}
+✔ a budget shorter than the warning lead still ends the call (122.0753ms)
+✔ an unbounded budget never ends the call (83.7747ms)
+{"level":30,"time":1788381401199,"pid":13012,"hostname":"LAPTOP-DQ9BS67C","label":"call","maxSeconds":0.08,"ranForSec":0,"msg":"Call budget exhausted — ending the call before the wallet goes negative"}
+✔ a mid-call top-up extends the deadline (519.9005ms)
+{"level":30,"time":1788381401390,"pid":13012,"hostname":"LAPTOP-DQ9BS67C","label":"call","maxSeconds":0.05,"ranForSec":0,"msg":"Call budget exhausted — ending the call before the wallet goes negative"}
+{"level":40,"time":1788381401391,"pid":13012,"hostname":"LAPTOP-DQ9BS67C","label":"call","err":"socket already gone","msg":"Call budget expiry handler failed"}
+✔ a throwing hangup handler does not take the process down (136.2184ms)
+✔ FX default matches the rate card doc (5.6939ms)
+✔ minor units round half-up symmetrically across zero (0.6261ms)
+✔ a debit and its mirror refund net to exactly zero (0.8683ms)
+✔ minor units are always integers (0.5122ms)
+✔ degenerate inputs never produce NaN money (0.4642ms)
+✔ USD converts to paise at the configured rate (0.3741ms)
+✔ billing is per SECOND by default, not per whole minute (0.4894ms)
+✔ one extra second costs one extra second, not one extra minute (0.7475ms)
+✔ a call that never connected is free (7.0913ms)
+✔ a negative duration fails closed, never a negative charge (1.122ms)
+✔ a coarser billing increment is honoured when configured (0.6502ms)
+✔ affordable seconds never exceed what the balance covers (2.8205ms)
+✔ a missing plan falls back to the most expensive rate, never to free (0.5418ms)
+✔ call charge uses the customer rate card, and records the rate applied (0.2938ms)
+✔ charges are always non-negative (0.2528ms)
+✔ upgrade at the exact midpoint charges half the difference (1.0273ms)
+✔ downgrade at the midpoint yields a credit (negative amount) (0.4078ms)
+✔ a change on the first instant prorates the full period (0.2732ms)
+✔ a change at the very end prorates to nothing (0.2417ms)
+✔ proration clamps outside the period instead of extrapolating (0.3726ms)
+✔ proration uses real period length, not an assumed 30-day month (0.3685ms)
+✔ a zero-length period does not divide by zero (0.6116ms)
+✔ a native INR price is used verbatim, not re-derived from USD (0.9376ms)
+✔ a plan without an INR price still falls back to USD x FX (0.4835ms)
+✔ a native INR price is immune to an FX change (0.705ms)
+✔ a zero INR price is honoured, not treated as missing (0.4094ms)
+✔ the per-minute rate prefers the native INR figure (0.3025ms)
+✔ a call is charged at the native INR rate (0.3114ms)
+✔ proration works on native INR plans (0.349ms)
+✔ a null/undefined INR price must NOT be coerced to free (0.5971ms)
+✔ a null per-minute INR rate falls back rather than billing nothing (0.2674ms)
+▶ nextRenewalFrom
+  ✔ advances one calendar month on an ordinary date (7.6145ms)
+  ✔ clamps to the last day when the next month is shorter (0.8235ms)
+  ✔ handles a leap February (0.4169ms)
+  ✔ rolls the year over (0.3867ms)
+  ✔ always moves strictly forward — a date that did not advance would bill in a loop (0.8364ms)
+  ✔ never lands twice in the same billing month (0.6188ms)
+✔ nextRenewalFrom (14.7976ms)
+▶ billingMonth
+  ✔ is zero-padded and UTC, so a sweep near midnight cannot straddle months (0.3674ms)
+✔ billingMonth (0.7281ms)
+▶ ledger keys
+  ✔ a rental key is unique per number per month (0.7777ms)
+  ✔ the same number and month always produce the same key (0.5212ms)
+  ✔ setup is keyed per number, with no month — it can only ever happen once (0.6869ms)
+  ✔ setup and rental keys can never collide (0.3249ms)
+✔ ledger keys (3.2389ms)
+▶ non-payment policy
+  ✔ there is a grace period, and it is more than a day (0.4671ms)
+  ✔ non-payment suspends; there is no released-for-nonpayment state (1.8494ms)
+✔ non-payment policy (2.8745ms)
+▶ ledger types
+  ✔ setup and rental are distinct types, so an invoice can tell them apart (0.3947ms)
+  ✔ neither collides with an existing type (0.2229ms)
+✔ ledger types (0.9959ms)
+▶ inrToCents
+  ✔ converts rupees to integer paise (0.3322ms)
+  ✔ rounds rather than truncating, so a fractional rupee cannot lose a paisa (0.2191ms)
+✔ inrToCents (0.7953ms)
+▶ createBucket — where the band starts
+  ✔ rejects -1 (34.8427ms)
+  ✔ rejects 1.5 (0.661ms)
+  ✔ rejects "abc" (0.3779ms)
+  ✔ rejects null (0.3075ms)
+  ✔ rejects undefined (0.4468ms)
+  ✔ rejects "" (0.3224ms)
+  ✔ rejects null (0.3555ms)
+  ✔ accepts zero, which is the bottom band floor (0.7154ms)
+✔ createBucket — where the band starts (41.764ms)
+▶ createBucket — where the band ends
+  ✔ rejects 0 (1.0706ms)
+  ✔ rejects -1 (0.6799ms)
+  ✔ rejects 1.5 (0.3778ms)
+  ✔ rejects "abc" (0.2691ms)
+  ✔ treats an omitted ceiling as the open-ended top band (0.3351ms)
+  ✔ treats an empty-string ceiling the same way, since that is what the form sends (0.2903ms)
+✔ createBucket — where the band ends (4.6866ms)
+▶ createBucket — the band has to contain something
+  ✔ rejects a ceiling below the floor (38.8691ms)
+  ✔ rejects equal bounds, because the ceiling is exclusive (0.6622ms)
+✔ createBucket — the band has to contain something (39.9125ms)
+▶ createBucket — rate
+  ✔ rejects 0 (3.719ms)
+  ✔ rejects -5 (1.962ms)
+  ✔ rejects "abc" (2.9855ms)
+  ✔ rejects null (0.3517ms)
+  ✔ rejects undefined (0.3834ms)
+  ✔ rejects "" (0.2114ms)
+✔ createBucket — rate (10.4359ms)
+▶ updateBucket — nothing to update
+  ✔ rejects an empty patch (0.6985ms)
+  ✔ rejects a patch of only undefined fields (0.907ms)
+✔ updateBucket — nothing to update (6.3866ms)
+▶ updateBucket — field guards match create
+  ✔ rejects a zero rate (0.7298ms)
+  ✔ rejects a fractional floor (0.9046ms)
+  ✔ rejects a blank label, which create instead defaults (0.4714ms)
+  ✔ rejects an inverted band given in one patch (0.3623ms)
+✔ updateBucket — field guards match create (3.5623ms)
+▶ assertDeletable — the refusal is the feature
+  ✔ refuses a tier with clients on it (0.7475ms)
+  ✔ says "1 client", not "1 clients" (0.4703ms)
+  ✔ allows a tier nobody is on (0.3927ms)
+  ✔ treats an absent count as empty rather than throwing on it (0.4329ms)
+✔ assertDeletable — the refusal is the feature (2.4214ms)
+{"level":50,"time":1788381400538,"pid":4156,"hostname":"LAPTOP-DQ9BS67C","msg":"RAZORPAY_WEBHOOK_SECRET is not set — rejecting webhook"}
+{"level":50,"time":1788381400540,"pid":4156,"hostname":"LAPTOP-DQ9BS67C","msg":"RAZORPAY_WEBHOOK_SECRET is not set — rejecting webhook"}
+{"level":50,"time":1788381400540,"pid":4156,"hostname":"LAPTOP-DQ9BS67C","msg":"RAZORPAY_WEBHOOK_SECRET is not set — rejecting webhook"}
+✔ configuration flag reflects the env (3.5638ms)
+✔ a genuine checkout signature verifies (4.6427ms)
+✔ a tampered checkout signature is rejected (1.3102ms)
+✔ swapping order and payment ids is rejected (0.96ms)
+✔ missing checkout fields are rejected, never treated as valid (0.8487ms)
+✔ a genuine webhook signature verifies over the raw bytes (1.0424ms)
+✔ webhook verification is byte-exact, not structural (4.823ms)
+✔ a webhook signed with the CHECKOUT secret is rejected (0.9937ms)
+✔ a modified webhook body is rejected (0.8863ms)
+✔ an UNSET webhook secret fails CLOSED (3.2119ms)
+✔ missing signature or body is rejected (0.9335ms)
+✔ string and Buffer bodies verify identically (0.7511ms)
+✔ safeCompare is length-safe and value-correct (0.4506ms)
+﹣ a completed call is charged at the platform wallet rate (5.6688ms) # SKIP
+﹣ one extra second is charged as a second, not as a whole minute (1.0504ms) # SKIP
+﹣ settling the same call twice charges once (0.2089ms) # SKIP
+﹣ CONCURRENT settlements of one call charge once (0.17ms) # SKIP
+﹣ chat sessions are never billed (0.293ms) # SKIP
+﹣ a zero-duration call is free (0.2008ms) # SKIP
+﹣ usage is recorded even when the wallet cannot cover it (0.1975ms) # SKIP
+﹣ every billed minute hits the wallet, even with a subscription row present (0.1546ms) # SKIP
+﹣ a call the browser never ended is finalized and billed server-side (0.2335ms) # SKIP
+﹣ the backstop bills the call, not the grace period before it runs (0.3296ms) # SKIP
+﹣ the backstop stands down when the browser ended the call itself (0.2902ms) # SKIP
+﹣ two backstops on one call finalize it once (0.1723ms) # SKIP
+﹣ the backstop is inert without a call log (0.1008ms) # SKIP
+﹣ a funded workspace may start a call (0.1775ms) # SKIP
+﹣ an empty wallet blocks new calls with a clear reason (0.0855ms) # SKIP
+﹣ a balance too small for a usable call blocks rather than cutting off mid-greeting (0.2673ms) # SKIP
+﹣ the gate returns a spend budget the balance can actually cover (0.1174ms) # SKIP
+﹣ concurrent calls are NOT limited (0.1829ms) # SKIP
+﹣ chat is never gated on balance (0.1151ms) # SKIP
+﹣ agent creation is NOT limited (0.1551ms) # SKIP
+﹣ a stale cancelled subscription does NOT block calls (0.0791ms) # SKIP
+﹣ subscribing charges the wallet and issues an invoice (8.7138ms) # SKIP
+﹣ subscribing twice to the same plan does not double-charge (0.3622ms) # SKIP
+﹣ an upgrade applies immediately and is prorated (0.2231ms) # SKIP
+﹣ a downgrade is DEFERRED to the period boundary (3.6851ms) # SKIP
+﹣ renewal applies a pending downgrade and resets minutes (0.4856ms) # SKIP
+﹣ renewal is idempotent per period (0.312ms) # SKIP
+﹣ renewal without funds goes past_due, not cancelled (0.28ms) # SKIP
+﹣ cancel defaults to end-of-period and keeps access (0.1791ms) # SKIP
+﹣ immediate cancel ends access now (0.2937ms) # SKIP
+﹣ a scheduled cancellation ends the subscription at renewal (0.8083ms) # SKIP
+﹣ resume undoes a pending cancellation (0.4265ms) # SKIP
+﹣ quoting a new plan works on an empty wallet (0.3548ms) # SKIP
+﹣ quoting never spends or reserves balance (0.1407ms) # SKIP
+﹣ a free plan needs no payment (0.3068ms) # SKIP
+﹣ quoting an upgrade returns the prorated amount, not the full price (0.1258ms) # SKIP
+﹣ quoting a downgrade collects nothing and is deferred (0.1167ms) # SKIP
+﹣ re-quoting the current plan is a no-op (0.2325ms) # SKIP
+﹣ the paid-purchase flow nets to zero on the wallet (0.0972ms) # SKIP
+﹣ an unknown or inactive plan is refused before any payment (0.093ms) # SKIP
+﹣ the first gateway charge activates the plan on an empty wallet (0.1489ms) # SKIP
+﹣ a replayed subscription.charged does NOT grant a second month (0.1112ms) # SKIP
+﹣ a genuine second cycle extends the period by another month (0.1231ms) # SKIP
+﹣ renewal chains from the previous boundary, so the date does not drift (0.0928ms) # SKIP
+﹣ a charge for an unknown gateway subscription is ignored (0.099ms) # SKIP
+﹣ halted goes past_due, keeping the customer recoverable (0.0898ms) # SKIP
+﹣ gateway cancellation ends the subscription and clears auto-renew (0.0931ms) # SKIP
+﹣ a long-lapsed subscription rolls forward to a LIVE period, keeping the billing day (0.0741ms) # SKIP
+﹣ credits and debits produce a balanced ledger (0.9596ms) # SKIP
+﹣ a replayed idempotency key charges exactly once (0.1934ms) # SKIP
+﹣ SIMULTANEOUS replays of one key still charge once (0.0884ms) # SKIP
+﹣ concurrent DISTINCT debits do not lose an update (0.1289ms) # SKIP
+﹣ a debit past the balance floor is refused (0.0937ms) # SKIP
+﹣ allowNegative records usage for a call that already happened (1.8851ms) # SKIP
+﹣ overdraftLimitCents permits invoice-terms accounts (0.7494ms) # SKIP
+﹣ invalid mutations are rejected before touching the ledger (0.2129ms) # SKIP
+﹣ auditWallet detects a balance mutated outside the ledger (0.3242ms) # SKIP
+▶ pickRate — precedence
+  ✔ falls back to the platform rate when nothing is set (17.6406ms)
+  ✔ uses the assigned bucket when there is no override (0.2702ms)
+  ✔ lets the override beat the bucket — the whole reason it exists (0.1534ms)
+  ✔ lets the override beat the platform rate with no bucket assigned (0.1468ms)
+  ✔ treats a null workspace as the platform rate rather than throwing (0.1442ms)
+✔ pickRate — precedence (21.5892ms)
+▶ pickRate — refuses to make calls free by accident
+  ✔ ignores an override of 0 and uses the bucket (0.3163ms)
+  ✔ ignores a bucket rate of 0 and uses the platform rate (0.1805ms)
+  ✔ ignores an override of -5 and uses the bucket (0.1526ms)
+  ✔ ignores a bucket rate of -5 and uses the platform rate (0.1054ms)
+  ✔ ignores an override of null and uses the bucket (0.1649ms)
+  ✔ ignores a bucket rate of null and uses the platform rate (0.1121ms)
+  ✔ ignores an override of null and uses the bucket (0.1084ms)
+  ✔ ignores a bucket rate of null and uses the platform rate (0.0868ms)
+  ✔ ignores an override of undefined and uses the bucket (0.0691ms)
+  ✔ ignores a bucket rate of undefined and uses the platform rate (0.1255ms)
+  ✔ ignores an override of "" and uses the bucket (0.0792ms)
+  ✔ ignores a bucket rate of "" and uses the platform rate (0.0326ms)
+✔ pickRate — refuses to make calls free by accident (2.1223ms)
+▶ pickRate — the seeded tiers
+  ✔ charges ₹12/min on the 2000 bucket (0.1792ms)
+  ✔ charges ₹10/min on the 5000 bucket (0.0416ms)
+  ✔ charges ₹6/min on the 15000 bucket (0.0333ms)
+  ✔ an unassigned workspace pays the same as the entry tier (0.0833ms)
+  ✔ carries the platform USD fallback through every branch (0.0982ms)
+✔ pickRate — the seeded tiers (0.6212ms)
+✔ WAV duration comes from the header, exactly (2.8592ms)
+✔ WAV parsing walks the chunk list rather than assuming the layout (0.4687ms)
+✔ WAV parsing rejects non-RIFF bytes rather than guessing (0.1804ms)
+✔ MP3 duration is summed from frame headers (1.821ms)
+✔ MP3 parsing skips an ID3v2 tag instead of hunting through it (0.4968ms)
+✔ measure rounds UP — a 30.2s clip must never be priced as 30s (1.0261ms)
+✔ measure takes the longer of parsed and browser-reported (0.4118ms)
+✔ measure falls back to sniffing when the MIME type is wrong (0.2656ms)
+✔ unreadable audio measures 0, so the caller can refuse it (0.4661ms)
+▶ parsePeId
+  ✔ identifies the issuing portal from the prefix (1.658ms)
+  ✔ tolerates spaces and hyphens from copy-paste (0.2977ms)
+  ✔ rejects wrong lengths and says which way it is wrong (0.4447ms)
+  ✔ rejects non-numeric input (0.317ms)
+  ✔ accepts an unknown prefix but warns (0.2983ms)
+✔ parsePeId (4.9731ms)
+▶ classifyNumberSeries
+  ✔ recognises the two series that are decidable from the digits (1.063ms)
+  ✔ flags a plain mobile CLI, which is never compliant for commercial outbound (0.5994ms)
+  ✔ returns UNKNOWN where landline and mobile ranges overlap (0.5194ms)
+  ✔ returns null for non-Indian numbers — DLT does not apply (0.5115ms)
+✔ classifyNumberSeries (4.6754ms)
+▶ isIndianNumber
+  ✔ only +91 E.164 counts (0.8437ms)
+✔ isIndianNumber (1.1638ms)
+▶ seriesPermitsUseCase
+  ✔ promotional traffic requires a 140-series number (0.52ms)
+  ✔ service/transactional traffic accepts landline or 1600 (0.287ms)
+  ✔ a mobile or unknown series permits nothing (0.313ms)
+  ✔ an undeclared use case permits nothing (0.1433ms)
+✔ seriesPermitsUseCase (1.6235ms)
+▶ evaluateCompliance
+  ✔ a fully onboarded workspace is ready with nothing blocking (1.2955ms)
+  ✔ an empty workspace is not ready and reports every step as todo (0.1919ms)
+  ✔ a suspended workspace is never ready, however complete the checklist (0.2068ms)
+  ✔ either business-registration document satisfies the group (0.1606ms)
+  ✔ an uploaded but unreviewed document is waiting, not complete (0.1827ms)
+  ✔ a rejected document asks the client to re-upload (0.1232ms)
+  ✔ a verified PE without TM binding still blocks (0.0803ms)
+  ✔ a PE ID that is recorded but not yet confirmed is waiting (0.1445ms)
+  ✔ a landline number cannot carry promotional traffic (0.1995ms)
+  ✔ a 140 number cannot carry service/transactional traffic either (0.1194ms)
+  ✔ a released number does not count as assigned (0.113ms)
+  ✔ a number suspended for non-payment says so, instead of reading as "not provisioned yet" (0.108ms)
+  ✔ a correct number whose header is unregistered still blocks (0.1188ms)
+  ✔ a template that is only submitted is not an approved template (0.0716ms)
+  ✔ a rejected carrier application surfaces the carrier reason (0.0937ms)
+  ✔ the checklist is stable in shape so the UI can render it directly (0.1593ms)
+✔ evaluateCompliance (3.8617ms)
+▶ describeSeries
+  ✔ names every series in language an operator would use (0.1176ms)
+✔ describeSeries (0.1768ms)
+{"level":40,"time":1788381400982,"pid":23148,"hostname":"LAPTOP-DQ9BS67C","msg":"Plivo 503 on GET /Subaccount/; retrying in 500ms (attempt 1/3)"}
+▶ plivo V3 signing string
+  ✔ POST with neither query nor params gets no "?" (1.6038ms)
+  ✔ POST with params but no query gets a BARE "?" before the params (0.3517ms)
+  ✔ POST with query but no params gets no "." separator (0.2171ms)
+  ✔ POST with BOTH query and params gets a "." between them (0.1746ms)
+  ✔ params are sorted by key, and appended as key+value with no separator (0.2183ms)
+  ✔ array values are sorted within the key (0.1822ms)
+  ✔ GET sorts the query string and ignores the POST-param quirks (0.1986ms)
+  ✔ an unsupported method is rejected rather than silently signed (0.6354ms)
+✔ plivo V3 signing string (5.5663ms)
+▶ plivo V3 signature validation
+  ✔ accepts a correctly signed request (1.2011ms)
+  ✔ accepts when one of several comma-separated signatures matches (0.5402ms)
+  ✔ rejects: tampered params (0.6039ms)
+  ✔ rejects: replayed with a different nonce (0.4241ms)
+  ✔ rejects: signed with the wrong token (0.472ms)
+  ✔ rejects: delivered to a different URL (0.2912ms)
+  ✔ rejects: missing signature (0.2722ms)
+  ✔ rejects: missing nonce (0.2591ms)
+  ✔ rejects: missing token (0.2176ms)
+  ✔ a signature of the wrong length does not throw (0.3992ms)
+✔ plivo V3 signature validation (5.5492ms)
+▶ plivo client configuration
+  ✔ reports unconfigured when either credential is missing (1.0777ms)
+✔ plivo client configuration (1.1791ms)
+▶ plivoRequest
+  ✔ sends basic auth and builds the account-scoped URL (0.9801ms)
+  ✔ refuses to call without credentials rather than sending an unauthenticated request (0.5216ms)
+  ✔ does NOT retry a non-idempotent POST on a 5xx (0.535ms)
+{"level":40,"time":1788381401489,"pid":23148,"hostname":"LAPTOP-DQ9BS67C","msg":"Plivo 503 on GET /Subaccount/; retrying in 1000ms (attempt 2/3)"}
+{"level":40,"time":1788381402504,"pid":23148,"hostname":"LAPTOP-DQ9BS67C","msg":"Plivo 429 on POST /Subaccount/; retrying in 500ms (attempt 1/3)"}
+  ✔ retries a GET on a 5xx and returns the eventual success (1521.2177ms)
+  ✔ retries a 429 even on a non-idempotent POST (501.9413ms)
+  ✔ does not retry a 4xx (1.2968ms)
+  ✔ leaves Content-Type unset for multipart so fetch can add the boundary (32.9695ms)
+  ✔ a non-JSON error body still produces a useful PlivoError (1.131ms)
+✔ plivoRequest (2061.7279ms)
+▶ matchRequirementsToDocuments
+  ✔ maps the registration certificate and GST to the right document types (4.0449ms)
+  ✔ accepts Udyam in place of a Certificate of Incorporation (0.5974ms)
+  ✔ falls back to the business_name data field when Plivo rewords the labels (0.4186ms)
+  ✔ reports rather than guesses when a required document was never uploaded (0.8524ms)
+  ✔ never substitutes GST for the registration certificate (0.4175ms)
+  ✔ tolerates the response shape being an array or hung off another key (0.3718ms)
+  ✔ reports a requirement carrying no document_type_id (0.358ms)
+✔ matchRequirementsToDocuments (17.3489ms)
+▶ buildComplianceForm
+  ✔ indexes each file to its own position in the documents array (34.7725ms)
+  ✔ sends business_name only on the requirement that asked for it (1.6621ms)
+  ✔ sends the entity name verbatim, not normalized (1.7277ms)
+  ✔ the alias carries the workspace id and stays inside Plivos 99-char cap (2.9628ms)
+  ✔ a JSON data part is sent as one field, not spread across the form (3.7689ms)
+  ✔ refuses a document whose bytes are gone rather than filing without it (3.1985ms)
+✔ buildComplianceForm (49.2135ms)
+▶ buildEndUser
+  ✔ emits FLAT address fields, not a nested address object (0.2002ms)
+  ✔ defaults country to IN when the address omits it (0.1084ms)
+✔ buildEndUser (0.4413ms)
+▶ parseAddress
+  ✔ treats null, empty and corrupt JSON alike as not-filled-in (0.1503ms)
+✔ parseAddress (0.2177ms)
+▶ business name handling
+  ✔ normalizeBusinessName only ever compares, never rewrites for the wire (0.2069ms)
+  ✔ warns about the punctuation mismatch that causes most rejections (0.2623ms)
+  ✔ warns about stray whitespace (0.2014ms)
+  ✔ is advisory only — a clean name produces no warnings (0.0918ms)
+✔ business name handling (0.9035ms)
+▶ Plivo compliance status mapping
+  ✔ draft and submitted are both still "under review" to us (0.0873ms)
+  ✔ only "accepted" approves (0.1226ms)
+  ✔ suspended and expired are revoking, not merely rejected (0.0757ms)
+  ✔ every Plivo status we know of has a mapping (0.0598ms)
+✔ Plivo compliance status mapping (0.4544ms)
+▶ numberTypeForUseCase
+  ✔ both Indian use cases resolve to local (0.1295ms)
+  ✔ an undeclared use case resolves to nothing, so submission is refused (0.0566ms)
+✔ numberTypeForUseCase (0.2671ms)
+▶ complianceCallbackUrl
+  ✔ an explicit PLIVO_WEBHOOK_URL wins, byte for byte (0.1991ms)
+  ✔ derives from the public base when no explicit URL is set (0.1824ms)
+  ✔ tracks publicHttpBase exactly, and is empty when it is (0.7027ms)
+✔ complianceCallbackUrl (1.3695ms)
+▶ searchPatternFor
+  ✔ forces 140 for a promotional workspace even with no pattern given (1.8569ms)
+  ✔ refuses a promotional search that would surface non-140 numbers (0.5259ms)
+  ✔ allows a narrower 140 pattern (0.3107ms)
+  ✔ refuses a 140 search for a transactional workspace (0.5648ms)
+  ✔ passes an STD code through for a transactional workspace (0.2611ms)
+  ✔ strips non-digits rather than passing them to the carrier (0.2256ms)
+  ✔ refuses entirely when no use case is declared (0.2788ms)
+✔ searchPatternFor (7.0145ms)
+▶ seriesForRentedNumber
+  ✔ records a transactional landline as TRANSACTIONAL_LANDLINE, not UNKNOWN (1.5537ms)
+  ✔ lets the digits win where they are decidable (0.7563ms)
+  ✔ refuses a landline for a promotional workspace (0.2736ms)
+  ✔ refuses a 140 for a transactional workspace (0.1618ms)
+  ✔ refuses a mobile number for either use case, by name (0.3045ms)
+  ✔ refuses a non-Indian number (0.1003ms)
+  ✔ never returns a series the use case does not permit (0.2612ms)
+✔ seriesForRentedNumber (4.0653ms)
+▶ normalizeSearchResult
+  ✔ puts the plus back on — Plivo returns bare digits, VoiceNumber stores E.164 (0.3879ms)
+  ✔ carries the series it would be recorded under (0.123ms)
+  ✔ marks an unusable number with its reason rather than dropping it silently (0.0784ms)
+  ✔ exposes the carrier rental as carrier cost, not as a client price (0.0812ms)
+  ✔ survives a response missing every optional field (0.0741ms)
+  ✔ an empty response object yields no phone number, so the caller filters it out (0.0559ms)
+✔ normalizeSearchResult (1.0356ms)
+✔ a late flush cannot swallow the next turn's words (3.3525ms)
+✔ a flush that never completes stops stealing words once it times out (42.8358ms)
+✔ the cancelled turn's trailing words do not become the next turn's transcript (0.7014ms)
+✔ a finalize for a superseded turn is a no-op (0.3789ms)
+✔ the normal single-turn path still returns the transcript (0.5938ms)
+✔ words arriving DURING the flush still belong to the flushed turn (0.29ms)
+✔ speech_final alone does NOT end the turn immediately (2.8181ms)
+✔ an unchallenged speech_final commits after the grace window (106.6131ms)
+✔ resuming speech during the grace window cancels the end of turn (138.3261ms)
+✔ speech_final can re-arm after being cancelled (209.2567ms)
+✔ the transcript carried WITH speech_final does not cancel its own candidate (108.3518ms)
+✔ UtteranceEnd commits immediately, with no grace window (1.4642ms)
+✔ UtteranceEnd supersedes a pending speech_final candidate (fires once) (107.3001ms)
+✔ beginTurn drops a stale candidate from the previous turn (97.052ms)
+{"level":30,"time":1788381402048,"pid":19484,"hostname":"LAPTOP-DQ9BS67C","msg":"Deepgram: dropping low-confidence final (0.10 < 0.35): \"noise driven guess\""}
+✔ close() drops a pending candidate (100.2095ms)
+✔ grace of 0 restores immediate commit on speech_final (1.0801ms)
+✔ low-confidence finals are dropped (3.0249ms)
+✔ a final with no confidence field is trusted (0.5654ms)
+✔ interim results are never harvested (0.5322ms)
+✔ finalize times out cleanly when from_finalize never arrives (39.2897ms)
+✔ looksUnfinished: dangling words are not turn endings (3.7781ms)
+✔ looksUnfinished: complete thoughts still end the turn fast (0.4424ms)
+✔ speech_final on a dangling tail waits longer than the normal grace (392.94ms)
+✔ a completed thought still commits on the fast path (135.8277ms)
+✔ resuming speech cancels the pending end of turn (323.5716ms)
+✔ UtteranceEnd defers on a dangling tail instead of committing at once (335.1825ms)
+✔ UtteranceEnd commits immediately on a complete thought (1.1778ms)
+✔ a new turn is not judged by the previous turn's last words (133.1555ms)
+✔ looksUnfinished: a bare fragment word is not a turn (0.8052ms)
+✔ looksUnfinished: one-word answers still commit fast (0.4735ms)
+✔ looksUnfinished: the reported Hindi fragment defers (0.212ms)
+✔ published commit budget covers the longest grace window (0.557ms)
+✔ phone audio gets the narrowband model, browser audio does not (1.9397ms)
+✔ code-switching beats the phone model, because there is no phonecall variant (0.2273ms)
+✔ each model is independently overridable from the environment (0.2462ms)
+✔ a committed turn resolves without sending Finalize (0.3961ms)
+✔ an UNcommitted turn still flushes — the web path is unchanged (0.3476ms)
+✔ a pending end-of-turn candidate resolves without sending Finalize (0.3027ms)
+✔ speech resuming after speech_final puts the flush back (0.4042ms)
+✔ beginTurn clears the committed flag, so the next turn flushes again (0.4462ms)
+✔ a non-English phone call does NOT get the English-only phonecall model (0.2742ms)
+✔ non-English uses a model that serves it on the browser too (0.6361ms)
+✔ the non-English model is overridable, so a deployment can pin it back (0.3115ms)
+▶ hasTranscript
+  ✔ false when the caller really was silent (0.8624ms)
+  ✔ true as soon as there are words (0.2798ms)
+  ✔ whitespace-only finals are not speech (0.2417ms)
+  ✔ finds words even when earlier finals are blank (0.307ms)
+  ✔ does NOT consume the transcript — the override still has words to run (0.212ms)
+✔ hasTranscript (3.2889ms)
+✔ digital silence is not speech (24.0978ms)
+✔ near-silence with dither is not speech (16.2803ms)
+✔ steady broadband room noise is not speech, even when loud (10.5765ms)
+✔ every REAL ambience preset is not speech (BUG-003 interaction) (157.0688ms)
+✔ steady mains-frequency hum is not speech, at any level (12.5134ms)
+✔ an office noise bed (hum + hiss) is not speech (13.6462ms)
+✔ distant babble is not speech (hardest negative case) (24.0736ms)
+✔ a single transient (keystroke / chair creak) is not speech (5.3742ms)
+✔ several scattered transients still are not speech (41.1387ms)
+✔ normal speech is detected (19.4926ms)
+✔ quiet speech over room noise is still detected (23.7211ms)
+✔ a short single word is detected (4.0779ms)
+✔ speech with a long silent lead-in and tail is detected (15.8231ms)
+✔ agent TTS echo residual is not speech (22.1659ms)
+✔ degenerate inputs do not throw (0.3548ms)
+✔ unambiguous artifacts are flagged even when the audio had speech (2.9841ms)
+✔ ambiguous backchannels are flagged ONLY when the audio was silent (0.5263ms)
+✔ real caller utterances are never flagged (0.2962ms)
+✔ empty and whitespace-only transcripts are flagged (0.1356ms)
+✔ a loud microphone alone is NOT agitation (1.009ms)
+✔ loud AND fast still reads as agitated (0.4066ms)
+✔ the reported turn is not classified as frustrated (0.2429ms)
+✔ quiet speech is still detected (0.2153ms)
+✔ a verbatim Hindi echo is caught (2.2669ms)
+✔ re-segmented echo is left to the ACOUSTIC gate, not this one (1.9161ms)
+✔ an English echo of the agent is caught (0.4698ms)
+✔ a genuine reply to the agent is NOT treated as echo (1.4881ms)
+✔ short acknowledgements are never treated as echo (0.6458ms)
+✔ no agent text yet means nothing can be echo (0.2603ms)
+✔ the reported mixed echo is trimmed, not discarded (5.4352ms)
+✔ an English tail is trimmed (0.905ms)
+✔ a caller quoting the MIDDLE of the question is left alone (0.4586ms)
+✔ a single shared word at the boundary is not trimmed (0.2386ms)
+✔ never strips the whole turn away (1.7962ms)
+✔ no previous agent turn means nothing to trim (0.4133ms)
+▶ stripOverlapEcho
+  ✔ strips a whole echoed reply and keeps the one word the caller said (2.5158ms)
+  ✔ strips an echoed run from the MIDDLE of the reply, not just the end (0.512ms)
+  ✔ a transcript that is entirely echo comes back empty (0.2503ms)
+  ✔ leaves a transcript that shares nothing with the agent alone (0.1383ms)
+  ✔ one shared word is coincidence, not echo, and is never stripped (0.1397ms)
+  ✔ matching ignores case and punctuation, as the transcripts differ in both (0.2044ms)
+  ✔ a single-token transcript is returned untouched (0.1355ms)
+  ✔ empty inputs are pass-throughs, not throws (0.1196ms)
+  ✔ what survives is not itself judged an echo — the two gates agree (0.1839ms)
+  ✔ is bounded against a pathological transcript (1.6471ms)
+✔ stripOverlapEcho (7.1579ms)
+▶ analyzeSpeech — low speech duty cycle
+  ✔ a 1s reply after an 8s agent turn is speech (40.5961ms)
+  ✔ a 400ms reply after an 8s agent turn is speech (16.803ms)
+  ✔ a 250ms reply after a 15s agent turn is speech (30.6643ms)
+  ✔ the loud level reflects the speech, not the silence around it (22.2301ms)
+✔ analyzeSpeech — low speech duty cycle (113.9596ms)
+▶ analyzeSpeech — still rejects what it always rejected
+  ✔ pure silence is not speech (9.5803ms)
+  ✔ steady broadband noise is not speech (8.9995ms)
+  ✔ a lone transient does not become a turn (13.8008ms)
+✔ analyzeSpeech — still rejects what it always rejected (33.4782ms)
+▶ toSarvamLanguage
+  ✔ maps the display names the editor actually stores (2.5539ms)
+  ✔ never returns a value Sarvam would reject (1.3658ms)
+  ✔ a language Sarvam does not serve becomes auto-detect, not a 400 (0.5891ms)
+  ✔ passes an Indian locale straight through, normalising its case (0.5805ms)
+  ✔ promotes a bare code only when the table knows that language (0.3636ms)
+✔ toSarvamLanguage (8.8941ms)
+▶ toDeepgramLanguage
+  ✔ still behaves as it did before the table was shared (1.2517ms)
+  ✔ an unknown language is undefined, so the caller can omit the param (0.5682ms)
+✔ toDeepgramLanguage (2.3506ms)
+▶ the shared table
+  ✔ every entry serves at least one provider (2.8858ms)
+  ✔ every Sarvam code is an Indian locale or the auto-detect value (2.8054ms)
+  ✔ the editor’s four options are all present (2.5029ms)
+✔ the shared table (12.0464ms)
+▶ mediaStreamUrl — call direction on the socket URL
+  ✔ twilio: omits direction when the caller does not know it (2.2121ms)
+  ✔ twilio: carries an OUTBOUND dial through to the bridge (3.8488ms)
+  ✔ twilio: adding direction does not drop the provider's own query params (2.1312ms)
+  ✔ plivo: omits direction when the caller does not know it (1.0273ms)
+  ✔ plivo: carries an OUTBOUND dial through to the bridge (0.5927ms)
+  ✔ plivo: adding direction does not drop the provider's own query params (0.3937ms)
+  ✔ piopiy: omits direction when the caller does not know it (0.6834ms)
+  ✔ piopiy: carries an OUTBOUND dial through to the bridge (0.3375ms)
+  ✔ piopiy: adding direction does not drop the provider's own query params (0.458ms)
+✔ mediaStreamUrl — call direction on the socket URL (21.7684ms)
+▶ plivo placeCall — direction survives the answer-URL hop
+  ✔ an OUTBOUND dial reaches the answer URL (3.9207ms)
+  ✔ no direction means no parameter, not a guessed one (0.9673ms)
+✔ plivo placeCall — direction survives the answer-URL hop (5.5765ms)
+▶ carrier documents survive a two-parameter stream URL
+  ✔ plivo: <Stream> escapes the ampersand instead of emitting it raw (1.0541ms)
+  ✔ twilio: the Stream url attribute escapes the ampersand (0.6406ms)
+  ✔ piopiy: the PCMO document keeps the URL intact (0.8034ms)
+✔ carrier documents survive a two-parameter stream URL (2.9583ms)
+▶ engine on the media stream URL
+  ✔ twilio: engine is absent unless the dialler supplies it (0.4406ms)
+  ✔ twilio: engine is emitted, lower-cased (0.3328ms)
+  ✔ twilio: direction and engine coexist without breaking the query string (0.3651ms)
+  ✔ plivo: engine is absent unless the dialler supplies it (0.1559ms)
+  ✔ plivo: engine is emitted, lower-cased (0.1427ms)
+  ✔ plivo: direction and engine coexist without breaking the query string (0.146ms)
+  ✔ plivo: callLogId can still be appended on top of both (0.3088ms)
+  ✔ plivo: the three-parameter URL survives into the stream XML escaped (0.4911ms)
+  ✔ twilio: the three-parameter URL survives into the TwiML escaped (0.5114ms)
+✔ engine on the media stream URL (3.6888ms)
+✔ allows calls below the ceiling and refuses at it (26.6539ms)
+✔ holds back a safety buffer from the carrier ceiling (0.8277ms)
+✔ releasing a slot lets the next call through (0.7816ms)
+✔ acquire is idempotent — a repeated call log id is one slot (0.504ms)
+✔ a null call log id takes no slot (0.3858ms)
+✔ the per-workspace cap stops one tenant taking the whole pool (1.2355ms)
+✔ the global ceiling still binds when every tenant is under its own cap (0.716ms)
+✔ snapshot reports per-workspace usage (1.9675ms)
+✔ limits are validated before anything is written (2.3705ms)
+✔ a raised ceiling frees the calls that were queued behind the old one (3.0574ms)
+▶ piopiy.provider — number normalization
+  ✔ strips a leading plus and returns a number, because the API type-checks it (3.128ms)
+  ✔ accepts a number already stored without the plus (0.9239ms)
+  ✔ returns null rather than NaN for anything that is not a plain number (1.008ms)
+✔ piopiy.provider — number normalization (8.0292ms)
+▶ piopiy.provider — sample rate
+  ✔ defaults to 8000, the rate the phone leg carries anyway (1.3819ms)
+  ✔ accepts 16000 (1.4238ms)
+  ✔ falls back to 8000 on a rate PIOPIY would reject (0.9254ms)
+✔ piopiy.provider — sample rate (4.6097ms)
+▶ piopiy.provider — readiness
+  ✔ not ready without credentials (1.3697ms)
+  ✔ names the v3-token mistake specifically, because the two credentials look alike (0.7124ms)
+  ✔ a v3 token alongside valid v2 credentials is simply ignored (1.2774ms)
+  ✔ names a half-filled pair rather than reporting "not configured" (0.9739ms)
+  ✔ the half-pair message wins over the v3-token message (0.7879ms)
+  ✔ not ready without a caller ID (0.9953ms)
+  ✔ refuses an unusable caller ID before dialling (1.3294ms)
+  ✔ ready with credentials and a caller ID (0.7812ms)
+✔ piopiy.provider — readiness (9.5754ms)
+▶ piopiy.provider — conversation document
+  ✔ is a PCMO array holding one stream action (1.3514ms)
+  ✔ pins the call log id to the stream URL, which is what the bridge reads (3.377ms)
+  ✔ adds no hangup action after the stream (1.3431ms)
+  ✔ never emits listen_mode "both", which would feed the agent its own voice (1.146ms)
+  ✔ throws rather than dialling into a call with nowhere to stream (1.4168ms)
+✔ piopiy.provider — conversation document (9.4994ms)
+▶ piopiy.provider — greeting document
+  ✔ speaks the greeting then hangs up, so the line is not held open (3.0918ms)
+  ✔ omits the closing action when there is no closing line (0.9292ms)
+  ✔ refuses an empty greeting rather than dialling a lead to say nothing (0.703ms)
+✔ piopiy.provider — greeting document (5.1496ms)
+▶ piopiy.provider — broadcast document
+  ✔ plays the file then hangs up (4.0057ms)
+  ✔ a repeat is repeated actions, because PCMO has no loop attribute (1.8459ms)
+  ✔ clamps the repeat count (2.0132ms)
+  ✔ refuses a URL the carrier could not fetch (2.8014ms)
+✔ piopiy.provider — broadcast document (11.6211ms)
+▶ piopiy.provider — placeCall
+  ✔ posts to the India endpoint for a +91 destination (4.732ms)
+  ✔ posts to the global endpoint for a non-India destination (1.7217ms)
+  ✔ sends the PCMO as a parsed array, not the JSON string the builder returned (1.1622ms)
+  ✔ carries the per-call identity in extra_params, which the CDR echoes back (1.1554ms)
+  ✔ sends numbers, not strings, and without the plus (1.1454ms)
+  ✔ applies PIOPIY_TIME_LIMIT_SEC as the duration ceiling (1.1953ms)
+  ✔ refuses a destination that is not dialable, before spending a request (0.8066ms)
+  ✔ treats a non-200 cmi_code on an HTTP 200 as a rejection (1.0621ms)
+  ✔ surfaces an unreachable carrier as a 502 rather than throwing (1.1668ms)
+✔ piopiy.provider — placeCall (15.2435ms)
+▶ piopiy.provider — capability flags
+  ✔ refuses the modular pipeline, which is µ-law and has no bridge here (0.7386ms)
+  ✔ supports greeting mode, because PCMO has a speak action (0.5484ms)
+  ✔ supports broadcast, because PCMO has a play action (0.5252ms)
+  ✔ delivers its document inline, so there is no answer endpoint to serve (0.5537ms)
+✔ piopiy.provider — capability flags (2.8201ms)
+▶ plivo.provider — answer URL derivation
+  ✔ derives an https answer URL from the wss backend URL (4.8046ms)
+  ✔ an explicit PLIVO_ANSWER_URL wins verbatim, minus a trailing slash (1.6283ms)
+  ✔ is empty when neither is set, rather than producing a broken URL (1.8783ms)
+✔ plivo.provider — answer URL derivation (12.3933ms)
+▶ plivo.provider — readiness
+  ✔ not ready without credentials (7.8761ms)
+  ✔ not ready without a caller ID (1.5143ms)
+  ✔ not ready without any answer URL (1.2382ms)
+  ✔ ready when configured, and spreads credentials flat (0.8977ms)
+✔ plivo.provider — readiness (12.9874ms)
+▶ plivo.provider — documents are URLs, not markup
+  ✔ conversation doc is the answer URL in conversation mode (1.2045ms)
+  ✔ conversation doc does not carry the stream URL (6.0244ms)
+  ✔ greeting doc carries the closing line but not the greeting (4.3627ms)
+  ✔ a long closing line is capped rather than blowing up the URL (2.144ms)
+  ✔ refuses to build a document with no answer URL configured (13.293ms)
+✔ plivo.provider — documents are URLs, not markup (28.7163ms)
+▶ plivo.provider — XML
+  ✔ stream XML is bidirectional and keeps the call alive (2.3364ms)
+  ✔ stream XML declares the same format the handler sends (0.4982ms)
+  ✔ greeting XML speaks, pauses, then speaks the closing line (0.7416ms)
+  ✔ greeting XML omits the pause when there is no closing line (2.2252ms)
+  ✔ greeting XML names a fully-qualified Polly voice (5.2494ms)
+  ✔ greeting XML neutralises XML metacharacters in spoken text (0.8754ms)
+✔ plivo.provider — XML (16.7765ms)
+▶ plivo.provider — placeCall
+  ✔ posts JSON to the Call endpoint and normalizes the id (2.9227ms)
+  ✔ leaves an already-bare number alone (2.949ms)
+  ✔ appends the per-call context to the answer URL (2.9029ms)
+  ✔ derives a hangup URL carrying the same call log id (1.6459ms)
+  ✔ a 400 names the India compliance cause rather than guessing (3.2036ms)
+  ✔ a network failure is reported, not thrown (1.4674ms)
+✔ plivo.provider — placeCall (16.6476ms)
+▶ preset table
+  ✔ matches the client list exactly (3.2034ms)
+✔ preset table (5.7279ms)
+▶ G.711 mu-law companding
+  ✔ is decode-stable across all 256 codes (1.3975ms)
+  ✔ saturates instead of wrapping past full scale (0.4742ms)
+  ✔ never yields a negative zero through the LUT path (0.3978ms)
+  ✔ round-trips a buffer through decode/encode within one code (1.0687ms)
+✔ G.711 mu-law companding (4.1607ms)
+▶ bed synthesis
+  ✔ returns null for None/unknown — the single off-switch (1.0177ms)
+  ✔ renders every preset in an audible-but-unobtrusive level band (169.9225ms)
+  ✔ caches: the same preset returns the identical buffer (0.4106ms)
+  ✔ is deterministic for a given seed (1.5371ms)
+  ✔ has no click at the loop seam (86.6307ms)
+✔ bed synthesis (260.4116ms)
+▶ frame source
+  ✔ yields fixed-size frames indefinitely, wrapping the loop (7.1184ms)
+  ✔ keeps producing signal after wrapping (does not run into silence) (4.6999ms)
+✔ frame source (13.0642ms)
+▶ mixUlawFrame
+  ✔ emits bed-only when the engine is idle (1.0933ms)
+  ✔ preserves engine speech when mixing (bed is far below it) (1.4008ms)
+  ✔ does not clip when speech is already at full scale (1.1369ms)
+  ✔ always returns exactly one Twilio frame (0.6446ms)
+✔ mixUlawFrame (4.9594ms)
+▶ ambiencePump
+  ✔ returns null for a non-synthesizable preset so the caller keeps passthrough (2.6293ms)
+  ✔ emits realtime-paced 160-byte frames (1039.4665ms)
+  ✔ plays the bed continuously while the engine is idle (203.9167ms)
+  ✔ mixes engine audio in, at engine level (215.2327ms)
+  ✔ flush() drops queued speech so barge-in cannot resurrect it (216.4294ms)
+  ✔ caps the queue instead of growing without bound (25.5455ms)
+  ✔ stop() is idempotent and silences the pump (224.5903ms)
+  ✔ does not leak a timer across many start/stop cycles (63.5485ms)
+  ✔ stops itself when the socket keeps rejecting frames (151.8849ms)
+  ✔ ignores push() before start and after stop (1.2146ms)
+  ✔ marks bed-only frames as speech:false and mixed frames as speech:true (412.986ms)
+✔ ambiencePump (2562.3852ms)
+▶ bargeThreshold levels
+  ✔ lets a caller at nominal telephony level be heard over the agent (5.4366ms)
+  ✔ keeps both floors inside the telephony VAD band (0.6215ms)
+  ✔ asks less of overlap recovery than of barge-in (0.3102ms)
+  ✔ lets the measured line win on a noisy line — the whole point (0.519ms)
+  ✔ crosses over from floor to measured somewhere a real line reaches (0.3139ms)
+  ✔ survives a nonsense noise floor without dropping its guard (0.3322ms)
+  ✔ round-trips its own dB helpers (0.2879ms)
+✔ bargeThreshold levels (10.8203ms)
+✔ produces a valid PCM16 mono WAV header at 8kHz (4.2873ms)
+✔ places audio at its stated offset, leaving silence in the gaps (4.4922ms)
+✔ outbound written at playout time does not stack into the send moment (8.7981ms)
+✔ overlapping speech is summed, not replaced (1.7724ms)
+✔ summing does not wrap around on loud simultaneous speech (2.1967ms)
+✔ dropOutboundAfter removes barged audio the caller never heard (4.3921ms)
+✔ dropOutboundAfter leaves caller audio untouched (2.2845ms)
+✔ frames are copied, so a reused caller buffer cannot corrupt the recording (0.8604ms)
+✔ reports no audio for a call where nothing was captured (0.6487ms)
+✔ refuses writes past the length cap instead of growing without bound (1.1775ms)
+✔ encodeWav round-trips sample values (2.0519ms)
+✔ mu-law decode of silence is silent (0.5487ms)
+▶ resolveCloner
+  ✔ defaults to Fish Audio when both providers are usable (28.0838ms)
+  ✔ VOICE_CLONE_PROVIDER pins the choice (1.3571ms)
+  ✔ an explicit request beats the env pin (1.265ms)
+  ✔ a pin to a provider without a key falls through instead of failing (1.2381ms)
+  ✔ never clones to a provider Super Admin switched off (1.1944ms)
+  ✔ reports the model that will run at call time (3.4483ms)
+  ✔ the free-tier suffix is never shown, but is still what runs (2.2525ms)
+  ✔ publicModelName leaves everything else alone (2.6858ms)
+  ✔ no keys at all means sample-only, not a silent wrong provider (1.0271ms)
+✔ resolveCloner (48.0987ms)
+▶ clonedVoiceFilter
+  ✔ matches this workspace's clones on either cloning provider (21.6352ms)
+  ✔ a provider tab shows only the clones that provider will speak (0.5745ms)
+  ✔ never exposes clones without a workspace to scope them to (0.4276ms)
+✔ clonedVoiceFilter (25.3664ms)
+▶ pageAcrossGroups — clones lead, library follows
+  ✔ page 1 with few clones is clones then library (0.7724ms)
+  ✔ a page straddling the boundary takes the rest of the clones (0.6163ms)
+  ✔ pages past the clones read the library from the right offset (0.6117ms)
+  ✔ no clones at all leaves library paging untouched (0.4039ms)
+✔ pageAcrossGroups — clones lead, library follows (3.5371ms)
+▶ resolveSynthesisTarget — what the pipeline will actually call
+  ✔ a trained clone is spoken by its host provider, not by "Custom" (1.2342ms)
+  ✔ a sample-only voice refuses to synthesize instead of speaking wrong (1.3308ms)
+✔ resolveSynthesisTarget — what the pipeline will actually call (3.5478ms)
+▶ opening hesitation
+  ✔ keeps one, and gives it the pause the prompt asks for (8.1114ms)
+  ✔ collapses a stacked opener to a single marker (0.961ms)
+  ✔ drops a filler that sits in front of a price (0.9994ms)
+  ✔ drops a filler in front of a number written with a symbol (3.3217ms)
+  ✔ re-capitalizes the reply after removing the opener (1.1594ms)
+  ✔ does not promote a second filler after the budget refuses the first (1.1649ms)
+  ✔ capitalizes the opener it keeps, not the one the model wrote first (0.708ms)
+  ✔ strips fillers entirely when the toggle is off (0.4906ms)
+✔ opening hesitation (21.0234ms)
+▶ discourse markers
+  ✔ keeps one the model punctuated as a marker (2.3622ms)
+  ✔ LEAVES AN ADVERB ALONE — "Right away" is not a discourse marker (1.2938ms)
+  ✔ does not treat a word merely STARTING with a marker as one (0.653ms)
+✔ discourse markers (5.3578ms)
+▶ mid-sentence fillers
+  ✔ removes them — hesitation is turn-initial only (0.8037ms)
+  ✔ does not eat a unit that merely looks like a filler (0.5125ms)
+✔ mid-sentence fillers (1.6983ms)
+▶ break tags
+  ✔ clamps an over-long pause to something usable on a call (0.7282ms)
+  ✔ raises a too-short pause to the floor (0.2876ms)
+  ✔ caps how many survive in one reply (0.2943ms)
+  ✔ converts pauses to commas for a provider that cannot parse SSML (0.2675ms)
+  ✔ never emits a tag split across two LLM deltas (0.5715ms)
+  ✔ holds a partial tag that never completes rather than speaking it (0.2913ms)
+  ✔ strips markup from text a human will read (0.2343ms)
+✔ break tags (3.1918ms)
+▶ filler budget
+  ✔ rations hesitations to roughly one every few turns (0.925ms)
+  ✔ stops entirely once the per-call cap is spent (0.912ms)
+  ✔ spends the turn when the transport plays its audio ack (0.9111ms)
+  ✔ does not ack on consecutive turns either (0.358ms)
+  ✔ never repeats the same hesitation sound back-to-back (0.2515ms)
+✔ filler budget (3.9964ms)
+▶ injection
+  ✔ adds an opener to replies the model wrote flat — the whole point (4.7525ms)
+  ✔ never injects in front of a price (2.0644ms)
+  ✔ never injects a HESITATION in front of a confirmation (0.9572ms)
+  ✔ leaves a reply that already opens conversationally alone (3.8735ms)
+  ✔ reads as one sentence, not two clipped ones (1.1289ms)
+  ✔ keeps a capital it cannot vouch for behind a full stop (0.6025ms)
+  ✔ respects the toggle: no hesitation words when allowFiller is off (1.8381ms)
+  ✔ shares one budget with the keep path instead of doubling the rate (1.3751ms)
+  ✔ does nothing without a call-scoped budget — rate needs state (1.1795ms)
+  ✔ does not inject when the model wrote a marker the budget refused (0.6724ms)
+  ✔ draws from the Hindi list for a Devanagari reply (3.6652ms)
+  ✔ does not repeat the same opener back to back (1.3813ms)
+  ✔ converts the injected pause to a comma for a voice without SSML (0.3965ms)
+✔ injection (26.4492ms)
+▶ Hindi words that merely look like fillers
+  ✔ does not eat हम — it is the pronoun "we", not a hesitation (0.3439ms)
+  ✔ does not eat हम mid-sentence either (0.2206ms)
+  ✔ still strips the real hesitation हम्म (0.4071ms)
+✔ Hindi words that merely look like fillers (1.2637ms)
+▶ streaming
+  ✔ produces the same text however the deltas are chopped up (0.9043ms)
+  ✔ handles a reply shorter than the head buffer (0.3506ms)
+  ✔ handles an empty reply (0.2774ms)
+  ✔ keeps Devanagari replies intact (0.199ms)
+  ✔ strips a Hindi hesitation opener when the budget says no (0.2947ms)
+✔ streaming (2.5003ms)
+▶ echoCanceller
+  ✔ is a passthrough while the agent is not speaking (17.1632ms)
+  ✔ cancels our own echo once it has locked on (107.1004ms)
+  ✔ keeps the caller's speech when they talk over us — and says so (54.5495ms)
+  ✔ never returns audio louder than what arrived (39.277ms)
+  ✔ can be switched off without a release (4.1565ms)
+✔ echoCanceller (225.0908ms)
+▶ FishAudioTtsStream
+  ✔ buffers sub-word deltas and emits whole sentences only (5.6521ms)
+  ✔ emits nothing until a sentence completes (0.9074ms)
+  ✔ flushes after each sentence when FISH_WS_FLUSH is not disabled (0.788ms)
+  ✔ omits flush frames when FISH_WS_FLUSH=false (0.7045ms)
+  ✔ speaks the unterminated tail on end(), then stops (0.5877ms)
+  ✔ does not synthesize a short hesitation opener on its own (1.0864ms)
+  ✔ still releases a normal first sentence immediately (latency guard) (0.6565ms)
+  ✔ ignores text pushed after end() (0.4288ms)
+  ✔ queues text sent before the socket opens (0.4054ms)
+  ✔ strips markdown that would otherwise be read aloud (0.6002ms)
+  ✔ emits done exactly once (0.5162ms)
+  ✔ reports no token streaming without a key (0.5404ms)
+✔ FishAudioTtsStream (16.5013ms)
+{"level":40,"time":1788381402256,"pid":384,"hostname":"LAPTOP-DQ9BS67C","msg":"Fish Audio pinned voice abc123 lookup failed (HTTP 404) — using the FISH_VOICE_IDS fields"}
+{"level":40,"time":1788381402266,"pid":384,"hostname":"LAPTOP-DQ9BS67C","msg":"Fish Audio model nope lookup failed (HTTP 404)"}
+▶ Fish Audio voice catalogue
+  ✔ sweeps the public library per language when nothing is pinned (4.9015ms)
+  ✔ pages through the library until FISH_VOICE_LIMIT is met (8.3265ms)
+  ✔ stops paging as soon as the API says there is no more (2.1365ms)
+  ✔ serves ONLY the pinned voices plus own models when FISH_VOICE_IDS is set (3.6714ms)
+  ✔ lets the typed label and language override what the API reports (1.6162ms)
+  ✔ keeps a pinned voice whose metadata lookup fails (3.6202ms)
+  ✔ still throws when every call fails and nothing is pinned (2.0961ms)
+✔ Fish Audio voice catalogue (29.9939ms)
+▶ Fish Audio library search
+  ✔ queries by title and normalises the hits (2.8821ms)
+  ✔ does not call the API for an empty query (0.5417ms)
+  ✔ returns null rather than throwing when an id is not in the library (1.2673ms)
+✔ Fish Audio library search (5.5307ms)
+▶ Fish Audio telephony output
+  ✔ asks for raw PCM at the carrier rate when the bridge requests it (2.2831ms)
+  ✔ defaults raw PCM to the line rate when the caller names none (1.4702ms)
+  ✔ still defaults to MP3 when no format is requested (2.6936ms)
+  ✔ honours an explicit rate only for raw PCM (0.9212ms)
+✔ Fish Audio telephony output (8.5615ms)
+▶ frameClock
+  ✔ ticks every subscriber (268.3662ms)
+  ✔ one throwing subscriber does not stop the others (259.4993ms)
+  ✔ unsubscribe stops that subscriber and is idempotent (315.1113ms)
+  ✔ the timer is released once the last subscriber leaves (1.1354ms)
+✔ frameClock (849.176ms)
+▶ Google Provider – DTO mapping (unit)
+  ✔ maps all raw voices to DTOs (1.8986ms)
+  ✔ first voice has correct providerVoiceId (0.4405ms)
+  ✔ second voice language is French (0.2749ms)
+  ✔ second voice accent is French (region FR) (0.2854ms)
+  ✔ second voice category is Standard (0.2878ms)
+  ✔ metadata is valid JSON with locale field (0.4373ms)
+✔ Google Provider – DTO mapping (unit) (6.0938ms)
+▶ parseGoogleLocale edge cases
+  ✔ handles null input (0.4559ms)
+  ✔ handles bare language code without region (0.4091ms)
+  ✔ yue → Cantonese (0.3814ms)
+✔ parseGoogleLocale edge cases (1.842ms)
+{"level":40,"time":1788381402613,"pid":25160,"hostname":"LAPTOP-DQ9BS67C","msg":"Greeting audio for voice voice_a is 2000000 bytes — not caching (over 1500000). Check that this voice is emitting a telephony format."}
+✔ a stored greeting comes back for the same voice, text and format (31.5192ms)
+✔ a different FORMAT is a miss, not a wrong-format hit (1.2649ms)
+✔ a different RATE is a miss — a format alone is not enough for raw PCM (2.8476ms)
+✔ a different PACE is a miss — it changes the bytes (2.3205ms)
+✔ a different voice and a different greeting are both misses (5.4829ms)
+✔ editing the welcome message serves the new one, never the old (1.1357ms)
+✔ an empty buffer is not stored (0.8547ms)
+✔ an implausibly large buffer is refused rather than pinned (3.5174ms)
+✔ the cache is bounded, and evicts least-recently-USED rather than oldest (10.9712ms)
+✔ greetingSynthesisOpts states a rate for PCM only (7.3385ms)
+▶ noInputPromptFor
+  ✔ speaks the agent's configured language, in its own script (1.8677ms)
+  ✔ takes the first language when several are configured (0.4644ms)
+  ✔ escalates: each attempt is a different line (0.4965ms)
+  ✔ stops asking rather than looping forever (0.2974ms)
+  ✔ an unsupported language still gets a spoken line, not silence (0.4036ms)
+  ✔ English variants and multi resolve to English (0.3663ms)
+  ✔ no language configured is not a crash (0.3128ms)
+  ✔ a zero or negative attempt yields nothing (0.3314ms)
+✔ noInputPromptFor (8.2437ms)
+▶ noInputDelayMs
+  ✔ waits longer before each successive prompt (0.5786ms)
+  ✔ the first prompt is soon enough to break dead air, late enough to be polite (0.3256ms)
+  ✔ an override still produces an increasing sequence (0.273ms)
+✔ noInputDelayMs (1.612ms)
+▶ frame geometry
+  ✔ every frame is a whole multiple of 320 bytes, at every supported rate (10.8654ms)
+  ✔ an unaligned frameMs rounds DOWN rather than padding every frame (1.5068ms)
+  ✔ the tick derives from the frame actually emitted, not the requested ms (1.3831ms)
+✔ frame geometry (16.8743ms)
+▶ pacing
+  ✔ a burst of engine audio goes out at realtime, not all at once (6.3235ms)
+  ✔ media metadata increments monotonically from 1 (0.7856ms)
+  ✔ nothing is emitted before start or after stop (0.8788ms)
+  ✔ stop() is idempotent, because cleanup() is reachable twice (0.623ms)
+✔ pacing (9.2338ms)
+▶ utterance tails
+  ✔ a partial tail is padded to alignment and sent once the audio stops (0.5672ms)
+  ✔ a tail that is merely mid-stream waits for its rest instead of fragmenting (0.7739ms)
+✔ utterance tails (1.6237ms)
+▶ barge-in and overrun
+  ✔ flush() drops audio the caller interrupted (2.7566ms)
+  ✔ an over-full queue drops the OLDEST audio, keeping the freshest (5.5388ms)
+  ✔ a socket that throws on every frame stops the pacer instead of looping (3.0532ms)
+✔ barge-in and overrun (11.8148ms)
+▶ playout window
+  ✔ is silent before anything is spoken (2.6475ms)
+  ✔ stays speaking after generation ends, until the carrier drains (1.1777ms)
+  ✔ the echo grace runs from the utterance, not from each sentence (0.6717ms)
+  ✔ a new utterance after real silence does restart the grace (0.4703ms)
+  ✔ a gap in the audio is not credited as buffered playout (0.2313ms)
+  ✔ stop() ends playback immediately — the carrier was flushed too (0.3416ms)
+  ✔ speaks again after a barge (0.3289ms)
+  ✔ defaults to the carrier frame size when none is given (0.521ms)
+✔ playout window (9.6518ms)
+{"level":40,"time":1788381402583,"pid":1748,"hostname":"LAPTOP-DQ9BS67C","msg":"Sarvam speaker discovery yielded nothing for bulbul:v3 — using the last known roster"}
+▶ Sarvam speaker roster
+  ✔ offers only speakers that appear in BOTH lists (5.1731ms)
+  ✔ caches the roster so the picker does not re-probe on every call (1.4312ms)
+  ✔ falls back to the last known roster when neither list can be parsed (3.7559ms)
+  ✔ searches the roster by name and imports case-insensitively (2.5842ms)
+  ✔ keeps curated metadata and leaves the rest unguessed (1.5963ms)
+✔ Sarvam speaker roster (17.5934ms)
+▶ createSegmentOrder
+  ✔ a later segment waits even when it finishes synthesizing first (4.9857ms)
+  ✔ the first segment is never made to wait (0.5084ms)
+  ✔ a failed segment still hands the wire on (0.4298ms)
+  ✔ three segments keep reply order under mixed timings (0.6364ms)
+  ✔ a segment claimed later still lands last (0.4653ms)
+✔ createSegmentOrder (9.8159ms)
+▶ sentenceBuffer
+  ✔ holds text until a terminator arrives (1.2579ms)
+  ✔ never splits mid-word across sub-word deltas (1.5238ms)
+  ✔ cuts at the LAST terminator, releasing several sentences at once (0.2989ms)
+  ✔ treats the Hindi danda as a terminator (0.4873ms)
+  ✔ releases at a word break past maxLen when unpunctuated (0.7501ms)
+  ✔ does not release a short unpunctuated buffer (0.4423ms)
+  ✔ empty input is safe (0.4655ms)
+  ✔ cleanForSpeech strips markdown and collapses whitespace (0.6197ms)
+✔ sentenceBuffer (12.8682ms)
+✔ resamplePcm16 returns the same buffer when rates match (2.2962ms)
+✔ resamplePcm16 downsamples 24k to 8k at exactly one third the length (0.5704ms)
+✔ resamplePcm16 never reads past the end (no NaN at the boundary) (0.2875ms)
+✔ resamplePcm16 handles empty input (0.243ms)
+✔ bufferToPcm16 drops a trailing half sample rather than throwing (0.4191ms)
+✔ parseWavOrRaw reads the declared sample rate and strips the header (1.6552ms)
+✔ parseWavOrRaw walks past a LIST chunk to find data (0.5594ms)
+✔ parseWavOrRaw passes raw PCM through and reports no sample rate (0.2931ms)
+✔ pcmToTelephonyUlaw prefers the WAV header rate over the caller default (3.6111ms)
+✔ pcmToTelephonyUlaw falls back to the supplied rate for raw PCM (2.6592ms)
+✔ createFrameSplitter emits only whole 20ms frames and holds the remainder (0.7267ms)
+✔ createFrameSplitter joins a sample split across two chunks (0.3008ms)
+✔ createFrameSplitter flush pads with mu-law silence, not zeroes (0.374ms)
+✔ createFrameSplitter reset drops buffered audio for barge-in (0.2609ms)
+✔ telephony capability is case-insensitive and rejects unknowns (0.4554ms)
+✔ ElevenLabs is native mu-law (0.4651ms)
+✔ Sarvam is native mu-law (0.1927ms)
+✔ a native bridge only plays segments synthesized in its own format (0.2456ms)
+✔ providers that ignore opts.audioFormat are NOT advertised as capable (0.4634ms)
+▶ Fish Audio on a carrier
+  ✔ is telephony-capable via raw PCM at the line rate (0.4915ms)
+  ✔ refuses a segment that came back in the wrong format on a pcm bridge (0.3054ms)
+✔ Fish Audio on a carrier (1.5476ms)
+▶ createPcmUlawConverter
+  ✔ matches whole-buffer conversion when chunks split mid-sample (3.8583ms)
+  ✔ survives a Buffer whose byteOffset is odd (1.0728ms)
+  ✔ holds a lone byte back rather than emitting a bogus sample (0.4537ms)
+  ✔ drops the carry on reset so one segment cannot bleed into the next (0.3052ms)
+✔ createPcmUlawConverter (6.4873ms)
+▶ synthesisProviderForVoice
+  ✔ sees past the synthetic Custom provider to the clone host (9.7305ms)
+  ✔ a catalogue voice is its own provider (0.2118ms)
+  ✔ a clone that never finished training can synthesize nothing (0.138ms)
+  ✔ no voice row at all falls back to the configured provider (0.1279ms)
+✔ synthesisProviderForVoice (11.321ms)
+▶ telephonyFormatForVoice
+  ✔ a Fish-hosted clone gets Fish Audio's telephony format, not null (0.9778ms)
+  ✔ an ElevenLabs-hosted clone gets native mu-law (0.2171ms)
+  ✔ a genuinely MP3-only provider is still refused (0.1315ms)
+  ✔ an untrained clone is refused, whatever the fallback says (0.1646ms)
+✔ telephonyFormatForVoice (1.8308ms)
+▶ voiceSupportsTelephony
+  ✔ agrees with telephonyFormatForVoice on every case (0.5505ms)
+✔ voiceSupportsTelephony (0.7406ms)
+▶ turnEndProfileFor
+  ✔ an agent with no setting behaves exactly as it does today (4.5925ms)
+  ✔ an explicit choice beats the environment (1.6665ms)
+  ✔ the environment still tunes agents that have not chosen (1.574ms)
+  ✔ an unknown or malformed setting falls back rather than throwing (1.4084ms)
+  ✔ a blank or zero env value cannot collapse the window to nothing (0.9913ms)
+  ✔ the returned profile is a copy, so a caller cannot corrupt the table (0.7355ms)
+  ✔ profiles are ordered fastest-first and strictly increasing (0.9372ms)
+✔ turnEndProfileFor (17.2881ms)
+▶ maxCommitMsFor
+  ✔ is the WORST case, which is what the browser backstop must clear (0.6032ms)
+  ✔ every profile publishes a commit point the client can sit above (0.3434ms)
+✔ maxCommitMsFor (2.9756ms)
+✔ a burst is emitted at realtime, not as fast as it was pushed (2.0688ms)
+✔ every emitted frame is exactly 160 bytes (0.4241ms)
+✔ a short tail is padded with mu-law silence, not zeroes (0.2181ms)
+✔ a mid-stream partial frame waits one tick for the rest of itself (0.2332ms)
+✔ flush drops queued audio so a barge-in cannot resurrect the sentence (0.276ms)
+✔ an event-loop stall resyncs instead of bursting the backlog (0.2808ms)
+✔ stop is idempotent and halts emission (0.3834ms)
+✔ a socket that throws on every frame makes the pacer give up (0.4114ms)
+✔ the queue is bounded, and drops the oldest audio rather than the newest (0.6549ms)
+▶ parseGoogleLocale
+  ✔ parses "en-IN" → English / Indian (0.8307ms)
+  ✔ parses "en-US" → English / American (0.1869ms)
+  ✔ parses "hi-IN" → Hindi / Indian (0.1449ms)
+  ✔ handles unknown codes gracefully (0.0945ms)
+  ✔ handles empty string (0.0991ms)
+✔ parseGoogleLocale (3.6044ms)
+▶ fromGoogleVoice
+  ✔ maps providerVoiceId to voice name (0.3347ms)
+  ✔ normalises gender to lowercase (0.1691ms)
+  ✔ defaults missing gender to neutral (0.1897ms)
+  ✔ detects Chirp HD category (0.1643ms)
+  ✔ detects WaveNet category (0.3029ms)
+  ✔ sets language and accent from locale (0.2085ms)
+  ✔ stores raw locale in metadata (0.2056ms)
+✔ fromGoogleVoice (2.0584ms)
+▶ fromElevenLabsVoice
+  ✔ maps voice_id to providerVoiceId (0.3589ms)
+  ✔ extracts language from labels (0.1101ms)
+  ✔ extracts accent from labels (0.0731ms)
+  ✔ extracts gender from labels (0.0631ms)
+  ✔ normalises a Voice Library Indian voice to canonical labels (0.0819ms)
+  ✔ matches Google labels for an Indian-accented English voice (0.0907ms)
+  ✔ sets category (0.0559ms)
+  ✔ stores preview_url in metadata (0.0916ms)
+  ✔ handles missing labels gracefully (0.0742ms)
+✔ fromElevenLabsVoice (1.2608ms)
+▶ normalizeLanguage
+  ✔ maps codes, locales and names to one canonical name (0.315ms)
+  ✔ title-cases unknown values instead of dropping them (0.2527ms)
+  ✔ returns null for empty input (0.0971ms)
+✔ normalizeLanguage (0.8486ms)
+▶ normalizeAccent
+  ✔ maps names, region codes and locales to one canonical name (0.1626ms)
+  ✔ title-cases unknown values (0.14ms)
+  ✔ returns null for empty input (0.0678ms)
+✔ normalizeAccent (0.4976ms)
+▶ normalizeGender
+  ✔ lowercases every provider spelling (0.122ms)
+  ✔ returns null for empty input (0.0732ms)
+✔ normalizeGender (0.2881ms)
+▶ fromFishAudioVoice
+  ✔ maps _id/title and canonicalises language + accent from a locale (0.5441ms)
+  ✔ never derives an accent from a BARE language code (0.2842ms)
+  ✔ files a MULTILINGUAL voice under a preferred language, not just the first (0.2407ms)
+  ✔ falls back to the first language when no preference matches (0.1143ms)
+  ✔ still derives an accent from a real locale or explicit field (0.1353ms)
+  ✔ reads gender from a tag when there is no gender field (0.4657ms)
+  ✔ leaves gender null rather than guessing when no signal exists (0.3906ms)
+  ✔ marks non-public models as custom (clones land here) (0.199ms)
+  ✔ tolerates a nearly empty model row (0.1678ms)
+  ✔ emits parseable JSON metadata (0.2251ms)
+✔ fromFishAudioVoice (3.3191ms)
+▶ fromFishAudioVoice language filing
+  ✔ files a multilingual voice under its OWN primary when we serve it (0.3113ms)
+  ✔ falls back to our preference order when the voice’s primary is one we do not serve (0.1924ms)
+✔ fromFishAudioVoice language filing (0.6596ms)
+▶ VoiceDTO – syncProvider result shape
+  ✔ fromGoogleVoice returns all required DTO fields (0.8601ms)
+  ✔ fromElevenLabsVoice returns all required DTO fields (0.2781ms)
+  ✔ Google DTO metadata is serialisable JSON (0.2335ms)
+  ✔ ElevenLabs DTO metadata contains previewUrl (0.1743ms)
+✔ VoiceDTO – syncProvider result shape (2.6785ms)
+▶ Upsert key integrity
+  ✔ two voices from same provider with different IDs produce distinct composite keys (0.2182ms)
+  ✔ same voice name maps to same providerVoiceId on each call (idempotent) (0.1221ms)
+✔ Upsert key integrity (0.5129ms)
+ℹ tests 956
+ℹ suites 140
+ℹ pass 899
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 57
+ℹ todo 0
+ℹ duration_ms 5176.1779
+exit=0

@@ -1,0 +1,5 @@
+Environment variables loaded from .env
+Prisma schema loaded from prisma\schema.prisma
+Datasource "db": PostgreSQL database "postgres", schema "public" at "aws-1-ap-southeast-1.pooler.supabase.com:5432"
+17 migrations found in prisma/migrations
+Database schema is up to date!
