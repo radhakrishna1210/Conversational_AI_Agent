@@ -8,24 +8,18 @@ import 'express-async-errors';
 
 import { env } from './config/env.js';
 import { cspDirectives } from './config/csp.js';
+import { buildCorsOptions } from './config/cors.js';
 import routes from './routes/index.js';
 import { errorHandler } from './middleware/errorHandler.js';
 import logger from './lib/logger.js';
 
 const app = express();
 
-const clientUrls = env.CLIENT_URL ? env.CLIENT_URL.split(',').map(url => url.trim()) : [];
-const localDevOrigins = ['http://localhost:5173', 'http://localhost:5174'];
-const allowedOrigins = [...new Set([...clientUrls, ...(env.NODE_ENV !== 'production' ? localDevOrigins : [])])].filter(Boolean);
-app.use(cors({
-  origin: (origin, callback) => {
-    if (!origin || allowedOrigins.includes(origin)) return callback(null, true);
-    callback(new Error(`CORS: origin ${origin} not allowed`));
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-}));
+// Origin policy lives in config/cors.js (tested). A disallowed origin gets no
+// CORS headers rather than an exception: the old inline callback threw, and
+// every request with an unlisted Origin — preflight or plain GET — came back
+// as HTTP 500 with the rejection reason in the body.
+app.use(cors(buildCorsOptions({ clientUrl: env.CLIENT_URL, nodeEnv: env.NODE_ENV })));
 
 // In production this process also serves the built SPA (see the static handler
 // below), so this Content-Security-Policy governs the real page. Every directive
