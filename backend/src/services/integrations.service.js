@@ -6,6 +6,7 @@ import logger from '../lib/logger.js';
 import { errorMessage, apiError } from './integrationError.js';
 import { resetIntegrationBackoff } from './integrationBackoff.js';
 import { broadcastIntegrationEvent } from '../lib/integrationEvents.js';
+import { assertPublicHttpUrl } from '../lib/safeUrl.js';
 import { INTEGRATION_ORDER, INTEGRATION_PROVIDERS } from '../constants/integrations.js';
 import { buildConnectionIdentity, isPlaceholderValue, isValidWebhookUrl, normalizeIntegrationName, normalizeWebhookUrl, validateIntegrationCredentials, validateWebhookProviderUrl } from './integrationConnectionUtils.js';
 
@@ -653,6 +654,10 @@ export const testCustomApi = async (workspaceId, payload) => {
   if (cfg.authType === 'bearer'  && cfg.authValueCipher) headers.Authorization = `Bearer ${decryptToken(cfg.authValueCipher)}`;
   if (cfg.authType === 'api_key' && cfg.authValueCipher) headers['X-API-Key']   = decryptToken(cfg.authValueCipher);
 
+  // SSRF: z.string().url() accepted http://127.0.0.1:6379/ and the cloud
+  // metadata address. Refuse anything local/private, after resolving the
+  // hostname, immediately before the request is made (lib/safeUrl.js).
+  await assertPublicHttpUrl(url.toString());
   const res  = await fetch(url.toString(), { method: cfg.method, headers: { 'Content-Type': 'application/json', ...headers }, body: ['GET','DELETE'].includes(cfg.method) ? undefined : (cfg.bodyTemplate ?? undefined) });
   const text = await res.text();
 
