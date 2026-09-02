@@ -45,6 +45,9 @@ import { createFillerBudget } from '../services/voice/disfluency.js';
 import { openCallBudget } from '../services/billing/callBudget.js';
 import { finalizeAbandonedCall } from './callFinalizer.js';
 import { startHeartbeat } from './socketHeartbeat.js';
+import { randomUUID } from 'node:crypto';
+import { logTurnLatency } from '../lib/latencyLog.js';
+import { parseTurnTiming } from './turnTiming.js';
 
 /**
  * How long the browser gets to send its `auth` frame.
@@ -173,6 +176,12 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
   // same moment as the commit would run the turn twice.
   let segmentSeq = 0;
   let turnStartedForSegment = -1;
+  // One id per turn, `<call>:<segment>`. It rides on every latency record
+  // this turn produces (pipeline here, 'audible' from the browser) and on the
+  // audio-start/done frames, so the three can be joined offline. Without it
+  // the log could say how fast the server was and never what the caller heard.
+  const callTag = randomUUID().slice(0, 8);
+  let turnId = null;
   // History as of this listening segment's start. `undefined` means the client
   // is an older build that does not send it yet — the server then waits for
   // 'end-turn' exactly as before, so an unpatched client keeps working.
@@ -312,7 +321,9 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
     // Marks "the caller is judged done speaking" (client sent end-turn) — the same
     // reference point modularMediaBridge.js uses for its preLlmMs, so the two
     // channels are directly comparable in logs/latency.log.
-    const turnEndDetectedAt = Date.now();
+    // performance.now(): monotonic. Date.now() moves with NTP/clock changes,
+    // which on a long call turns into negative or wildly large durations.
+    const turnEndDetectedAt = performance.now();
     const pcm = Buffer.concat(frames);
     frames = [];
     capturing = false;
@@ -325,9 +336,9 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
     // Captured before finalizeTurn, which can mark the session dead.
     const dgListened = Boolean(dgSession?.isConnected);
     if (dgSession) {
-      const dgStart = Date.now();
+      const dgStart = performance.now();
       try { streamedText = await dgSession.finalizeTurn(1200, dgTurnSeq); } catch { /* fall back to batch */ }
-      const dgMs = Date.now() - dgStart;
+      const dgMs = Math.round(performance.now() - dgStart);
       if (dgMs > 500) logger.info(`Deepgram finalize took ${dgMs}ms`);
       // An empty streaming transcript degrades the turn to batch STT (slower AND
       // less accurate). It used to be invisible — surface it, with the audio
@@ -446,7 +457,8 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
           audioHadSpeech: speech.hasSpeech,
           fillerBudget,
           channel: 'web',
-          preLlmMs: Date.now() - turnEndDetectedAt,
+          turnId,
+          preLlmMs: Math.round(performance.now() - turnEndDetectedAt),
           // The wait BEFORE this turn began: Deepgram's VAD timeout plus the
           // confirmation grace. It is real dead air the caller sits through,
           // and until now it appeared in no metric at all — so every latency
@@ -460,7 +472,7 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
               if (e.userText) send({ type: 'transcript', role: 'user', text: e.userText, done: true });
             } else if (e.type === 'audio-start') {
               // JSON control frame opens the stream; chunks follow as binary.
-              send({ type: 'audio-start', contentType: e.contentType });
+              send({ type: 'audio-start', contentType: e.contentType, turnId, filler: e.filler === true });
             } else if (e.type === 'audio-chunk') {
               // Forward the raw audio as an efficient binary frame (no base64
               // bloat over the wire) — the client appends it to a MediaSource.
@@ -471,7 +483,7 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
               if (e.text) send({ type: 'transcript', role: 'assistant', text: e.text, done: true });
               send({ type: 'audio-end' });
             } else if (e.type === 'done') {
-              send({ type: 'done', reply: e.reply ?? null, timings: e.timings ?? null });
+              send({ type: 'done', turnId, reply: e.reply ?? null, timings: e.timings ?? null });
             }
           },
         }
@@ -742,6 +754,7 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
         // A new listening segment. Whoever ends it — the server's own commit or
         // the browser's backstop — runs the turn exactly once against this id.
         segmentSeq += 1;
+        turnId = `${callTag}:${segmentSeq}`;
         turnStartedForSegment = -1;
         // The conversation as it stands right now. Nothing can change it while
         // the caller is speaking, so this is the same history 'end-turn' would
@@ -820,6 +833,17 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
           callLogId = msg.callLogId;
         }
         break;
+      case 'turn-timing': {
+        // The browser measured end-of-speech -> its <audio> 'playing' event.
+        // The only record of what a person actually heard; see turnTiming.js
+        // for why a caller-supplied number is validated this hard.
+        const timing = parseTurnTiming(msg);
+        if (!timing) break;
+        const record = { kind: 'audible', channel: 'web', agentId, ...timing };
+        logger.info(record, 'Web call audible latency');
+        logTurnLatency(record);
+        break;
+      }
       case 'barge':
         // Caller cut in. Stop the in-flight reply; the client has already
         // flushed its own playback locally.
