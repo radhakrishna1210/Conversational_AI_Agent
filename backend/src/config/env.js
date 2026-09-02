@@ -107,6 +107,29 @@ export const env = {
   GENESYS_REDIRECT_URI: optional('GENESYS_REDIRECT_URI'),
   GENESYS_REGION: optional('GENESYS_REGION', 'mypurecloud.com'),
 
+  ZOHO_CLIENT_ID: optional('ZOHO_CLIENT_ID'),
+  ZOHO_CLIENT_SECRET: optional('ZOHO_CLIENT_SECRET'),
+  ZOHO_REDIRECT_URI: optional('ZOHO_REDIRECT_URI'),
+  // Which Zoho data center's accounts server issues the auth/token — the org
+  // that registered the account picked one at signup (.com/.eu/.in/.com.cn/
+  // .jp/.au) and it never changes. The CRM API host itself is different again
+  // and comes back per-connection as `api_domain` in the token response —
+  // stored in Integration.metadata, NOT here, since it can differ per workspace.
+  ZOHO_ACCOUNTS_BASE_URL: optional('ZOHO_ACCOUNTS_BASE_URL', 'https://accounts.zoho.com'),
+
+  // Notion access tokens never expire and Notion issues no refresh_token —
+  // there is deliberately no NOTION-equivalent of a refresh flow to configure.
+  NOTION_CLIENT_ID: optional('NOTION_CLIENT_ID'),
+  NOTION_CLIENT_SECRET: optional('NOTION_CLIENT_SECRET'),
+  NOTION_REDIRECT_URI: optional('NOTION_REDIRECT_URI'),
+  // Force which database post-call pages get created in, bypassing
+  // resolveTargetDatabaseId's auto-discovery/cache entirely (notion.service.js).
+  // With multiple databases shared to the integration, Notion's search API
+  // gives no control over which one comes back first — this is the escape
+  // hatch when that guess is wrong. Workspace-wide, not per-workspace: fine
+  // for a single-tenant dev setup, not something to rely on multi-tenant.
+  NOTION_DATABASE_ID: optional('NOTION_DATABASE_ID'),
+
   CAL_API_BASE_URL: optional('CAL_API_BASE_URL', 'https://api.cal.com'),
   CALENDLY_API_BASE_URL: optional('CALENDLY_API_BASE_URL', 'https://api.calendly.com'),
   SALESFORCE_INSTANCE_URL: optional('SALESFORCE_INSTANCE_URL'),

@@ -124,6 +124,30 @@ const PROVIDERS: ProviderMeta[] = [
     docsUrl: 'https://omnidim.io/docs/guides/salesforce-integration',
   },
   {
+    key: 'zoho', name: 'Zoho CRM', category: 'Post Call', tab: 'calendar', connectType: 'oauth',
+    logo: '🟠', accent: '#E42527', tint: 'rgba(228,37,39,0.12)',
+    description: 'Push call transcripts, leads, and deals to your Zoho CRM.',
+    modalDescription: 'Connect Zoho CRM to automatically log calls, update leads, and manage deals post-call.',
+    connectLabel: 'Connect with Zoho CRM',
+    dashboardUrl: 'https://crm.zoho.com',
+    connectFields: [
+      { name: 'description', label: 'Description', placeholder: 'Log call outcomes and update CRM records automatically.', type: 'textarea', optional: true },
+    ],
+    docsUrl: 'https://omnidim.io/docs/guides/zoho-integration',
+  },
+  {
+    key: 'notion', name: 'Notion', category: 'Post Call', tab: 'calendar', connectType: 'oauth',
+    logo: '⬛', accent: '#000000', tint: 'rgba(0,0,0,0.12)',
+    description: 'Log call summaries and extracted data into a Notion database.',
+    modalDescription: 'Connect Notion to automatically log call summaries and extracted variables into pages or a database you pick.',
+    connectLabel: 'Connect with Notion',
+    dashboardUrl: 'https://www.notion.so',
+    connectFields: [
+      { name: 'description', label: 'Description', placeholder: 'Log call summaries into Notion after each call.', type: 'textarea', optional: true },
+    ],
+    docsUrl: 'https://omnidim.io/docs/guides/notion-integration',
+  },
+  {
     key: 'hubspot', name: 'HubSpot', category: 'Post Call', tab: 'calendar', connectType: 'apikey',
     logo: '🔶', accent: '#FF7A59', tint: 'rgba(255,122,89,0.12)',
     description: 'Sync contacts, notes, and follow-up workflows post-call.',
@@ -391,7 +415,7 @@ function ConnectModal({ provider, oauthAvailable, onClose, onConnected }: {
                 disabled={saving}
                 style={{ padding: '14px', borderRadius: '11px', border: 'none', background: provider.accent, color: '#fff', fontFamily: 'var(--ff-d)', fontSize: '15px', fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}
               >
-                {saving ? <><Loader2 size={16} className="animate-spin" /> Redirecting…</> : <>Sign in with Google</>}
+                {saving ? <><Loader2 size={16} className="animate-spin" /> Redirecting…</> : <>{provider.connectLabel}</>}
               </button>
               <button onClick={() => setShowManual(true)} style={{ background: 'transparent', border: 'none', color: 'var(--tx-2)', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline' }}>
                 Or enter access token manually

@@ -93,6 +93,57 @@ export const INTEGRATION_PROVIDERS = {
     oauth: null,
     syncEndpoint: '/services/data/v60.0/query?q=SELECT%20Id,Name,Email%20FROM%20Lead%20LIMIT%20100',
   },
+  zoho: {
+    key: 'zoho',
+    name: 'Zoho CRM',
+    category: 'Post Call',
+    connectType: 'oauth',
+    oauth: {
+      // {accountsBase} is resolved from ZOHO_ACCOUNTS_BASE_URL (env.js) at
+      // request time — see zohoAccountsBase() in integrations.service.js.
+      // Zoho orgs live on one specific data center (.com/.eu/.in/.com.cn/.jp/
+      // .au, picked at signup) and a client_id registered there is invisible
+      // to every other DC's accounts server. Hardcoding accounts.zoho.com here
+      // silently broke every non-.com org with Zoho's "invalid_client" error.
+      authorizationUrl: '{accountsBase}/oauth/v2/auth',
+      tokenUrl: '{accountsBase}/oauth/v2/token',
+      scope: ['ZohoCRM.modules.ALL', 'ZohoCRM.settings.READ'],
+      clientIdEnv: 'ZOHO_CLIENT_ID',
+      clientSecretEnv: 'ZOHO_CLIENT_SECRET',
+      redirectUriEnv: 'ZOHO_REDIRECT_URI',
+      // access_type=offline + prompt=consent are what make Zoho actually
+      // include a refresh_token in the response — omit either and it silently
+      // issues an access-only grant that dies in ~1h with no way to renew it.
+      extraParams: { access_type: 'offline', prompt: 'consent' },
+    },
+    // Real CRM calls go to metadata.apiDomain (returned per-connection at
+    // token exchange — see completeOAuthCallback), NOT a fixed host: Zoho's
+    // API domain depends on which data center the org signed up in.
+    syncEndpoint: '/crm/v3/Leads?per_page=1',
+  },
+  notion: {
+    key: 'notion',
+    name: 'Notion',
+    category: 'Post Call',
+    connectType: 'oauth',
+    oauth: {
+      authorizationUrl: 'https://api.notion.com/v1/oauth/authorize',
+      tokenUrl: 'https://api.notion.com/v1/oauth/token',
+      // Notion has no OAuth `scope` concept — access is whatever capabilities
+      // the integration was given in Notion's own dashboard, plus whichever
+      // pages the user picks on the consent screen. Nothing to request here.
+      scope: [],
+      clientIdEnv: 'NOTION_CLIENT_ID',
+      clientSecretEnv: 'NOTION_CLIENT_SECRET',
+      redirectUriEnv: 'NOTION_REDIRECT_URI',
+      extraParams: { owner: 'user' },
+      // Notion's token endpoint wants HTTP Basic auth (client_id:client_secret)
+      // + a JSON body, not client_id/secret as form fields like every other
+      // provider here — exchangeCode() branches on this flag.
+      tokenAuthMethod: 'basic_json',
+    },
+    syncEndpoint: '/v1/users/me',
+  },
   hubspot: {
     key: 'hubspot',
     name: 'HubSpot',
@@ -208,6 +259,8 @@ export const INTEGRATION_ORDER = [
   'cal',
   'calendly',
   'salesforce',
+  'zoho',
+  'notion',
   'hubspot',
   'slack',
   'twilio',
