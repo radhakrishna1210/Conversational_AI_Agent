@@ -1,0 +1,112 @@
+
+> conversational-ai-backend@1.0.0 test:ws
+> node --test "src/ws/__tests__/*.test.js"
+
+✔ inbound frames are placed at arrival time (17.2229ms)
+✔ a burst of outbound frames is spread across playout time, not stacked (0.5649ms)
+✔ frame duration follows byte length, not a fixed frame size (0.2632ms)
+✔ the playhead restarts from now after the carrier has drained (0.1727ms)
+✔ outbound audio still buffered is not restarted from now (0.2261ms)
+✔ barge drops buffered audio at the moment of interruption (0.5359ms)
+✔ audio after a barge is placed from the interruption, not the old playhead (0.3074ms)
+✔ empty and missing frames are ignored (0.5453ms)
+✔ save is guarded, because bridge cleanup runs more than once (8.5002ms)
+✔ a call with no log id renders nothing (0.9072ms)
+✔ PHONE_RECORDING=off makes the tap inert (0.6472ms)
+{"level":30,"time":1788379739715,"pid":3680,"hostname":"LAPTOP-DQ9BS67C","msg":"✅ Redis cache active"}
+{"level":40,"time":1788379739715,"pid":3680,"hostname":"LAPTOP-DQ9BS67C","msg":"⚠️ OPENAI_API_KEY not configured. OpenAI service will not work."}
+{"level":40,"time":1788379739715,"pid":3680,"hostname":"LAPTOP-DQ9BS67C","msg":"⚠️ Azure OpenAI credentials not configured. Azure service will not work."}
+▶ twilio carrier envelope
+  ✔ reads the stream id and the call log id from start (14.1955ms)
+  ✔ sends audio as a media event keyed by streamSid (0.941ms)
+  ✔ flushes with clear (0.1693ms)
+✔ twilio carrier envelope (16.4372ms)
+▶ plivo carrier envelope
+  ✔ reads streamId — not streamSid, which Plivo never sends (0.2182ms)
+  ✔ returns no callLogId, leaving the socket-URL one in place (0.1367ms)
+  ✔ sends audio as playAudio with the format on every frame (0.1965ms)
+  ✔ the declared format matches the Stream element constants (0.1504ms)
+  ✔ flushes with clearAudio keyed by streamId (0.1536ms)
+✔ plivo carrier envelope (1.199ms)
+▶ the two envelopes really are different
+  ✔ audio events do not share an event name (0.2606ms)
+  ✔ flush events do not share an event name (0.1781ms)
+✔ the two envelopes really are different (0.6208ms)
+{"level":50,"time":1788379739854,"pid":3680,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":50,"time":1788379739965,"pid":3680,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":50,"time":1788379740179,"pid":3680,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":50,"time":1788379740499,"pid":3680,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":40,"time":1788379740499,"pid":3680,"hostname":"LAPTOP-DQ9BS67C","msg":"Redis connection failed after 4 attempts. Falling back to memory mode."}
+{"level":40,"time":1788379740500,"pid":3680,"hostname":"LAPTOP-DQ9BS67C","msg":"Redis connection failed after 4 attempts. Falling back to memory mode."}
+{"level":30,"time":1788379739715,"pid":4292,"hostname":"LAPTOP-DQ9BS67C","msg":"✅ Redis cache active"}
+{"level":40,"time":1788379739716,"pid":4292,"hostname":"LAPTOP-DQ9BS67C","msg":"⚠️ OPENAI_API_KEY not configured. OpenAI service will not work."}
+{"level":40,"time":1788379739716,"pid":4292,"hostname":"LAPTOP-DQ9BS67C","msg":"⚠️ Azure OpenAI credentials not configured. Azure service will not work."}
+▶ piopiy inbound audio — envelopes that carry audio
+  ✔ binary frames are the audio, with no envelope to misread (16.4263ms)
+  ✔ reads data.audioData — the mirror of the frame we send (0.5678ms)
+  ✔ reads a top-level audioData (0.1536ms)
+  ✔ reads media.payload, the shape every other carrier here uses (0.1523ms)
+  ✔ reads media.audioData (0.1394ms)
+  ✔ reads a string payload or a string data field (0.1351ms)
+✔ piopiy inbound audio — envelopes that carry audio (18.7855ms)
+▶ piopiy inbound audio — frames that carry none
+  ✔ a control message yields no audio but keeps its envelope for the log (0.3362ms)
+  ✔ an object data field is not mistaken for base64 (0.1649ms)
+  ✔ non-JSON text is ignored rather than throwing mid-call (0.1642ms)
+  ✔ an empty audioData is treated as no audio, not an empty buffer (0.206ms)
+✔ piopiy inbound audio — frames that carry none (1.1409ms)
+{"level":50,"time":1788379739864,"pid":4292,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":50,"time":1788379739983,"pid":4292,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":50,"time":1788379740197,"pid":4292,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":50,"time":1788379740516,"pid":4292,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":40,"time":1788379740518,"pid":4292,"hostname":"LAPTOP-DQ9BS67C","msg":"Redis connection failed after 4 attempts. Falling back to memory mode."}
+{"level":40,"time":1788379740520,"pid":4292,"hostname":"LAPTOP-DQ9BS67C","msg":"Redis connection failed after 4 attempts. Falling back to memory mode."}
+▶ web call refusals always tell the caller why
+  ✖ a client that never authenticates is told so, not just disconnected
+  ✖ a malformed first frame is refused with a reason
+  ✖ a bad token says the session expired, and never reaches the database
+  ✖ the client deadline is released the moment its auth frame lands
+  ✖ every refusal carries both a code and a human sentence
+✖ web call refusals always tell the caller why (153.3254ms)
+ℹ tests 36
+ℹ suites 6
+ℹ pass 31
+ℹ fail 0
+ℹ cancelled 5
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 1467.4001
+
+✖ failing tests:
+
+test at src\ws\__tests__\webCallAuthRefusal.test.js:54:3
+✖ a client that never authenticates is told so, not just disconnected
+  'test did not finish before its parent and was cancelled'
+
+test at src\ws\__tests__\webCallAuthRefusal.test.js:67:3
+✖ a malformed first frame is refused with a reason
+  'test did not finish before its parent and was cancelled'
+
+test at src\ws\__tests__\webCallAuthRefusal.test.js:79:3
+✖ a bad token says the session expired, and never reaches the database
+  'test did not finish before its parent and was cancelled'
+
+test at src\ws\__tests__\webCallAuthRefusal.test.js:92:3
+✖ the client deadline is released the moment its auth frame lands
+  'test did not finish before its parent and was cancelled'
+
+test at src\ws\__tests__\webCallAuthRefusal.test.js:113:3
+✖ every refusal carries both a code and a human sentence
+  'test did not finish before its parent and was cancelled'
+
+test at src\ws\__tests__\webCallAuthRefusal.test.js:53:1
+✖ web call refusals always tell the caller why (153.3254ms)
+  Error: Missing required env var: DATABASE_URL
+      at required (file:///D:/krishna_thete/HM-Voice-agent/backend/src/config/env.js:3:19)
+      at file:///D:/krishna_thete/HM-Voice-agent/backend/src/config/env.js:14:15
+      at file:///D:/krishna_thete/HM-Voice-agent/backend/src/config/env.js:23:3
+      at ModuleJob.run (node:internal/modules/esm/module_job:439:25)
+      at async node:internal/modules/esm/loader:643:26
+      at async TestContext.<anonymous> (file:///D:/krishna_thete/HM-Voice-agent/backend/src/ws/__tests__/webCallAuthRefusal.test.js:27:38)
+      at async TestHook.run (node:internal/test_runner/test:1389:7)
+exit=1

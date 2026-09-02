@@ -1,0 +1,7 @@
+
+> omnidimension-clone-react@0.0.0 lint
+> eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0
+
+'eslint' is not recognized as an internal or external command,
+operable program or batch file.
+exit=1

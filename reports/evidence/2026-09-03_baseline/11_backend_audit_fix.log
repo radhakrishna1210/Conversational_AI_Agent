@@ -1,0 +1,35 @@
+
+changed 5 packages, and audited 327 packages in 5s
+
+45 packages are looking for funding
+  run `npm fund` for details
+
+# npm audit report
+
+qs  2.2.5 - 6.15.3
+Severity: moderate
+qs array-limit bypass via bracket-key comma parsing - https://github.com/advisories/GHSA-x5fp-wj9c-mxmx
+qs: Denial of Service via Attacker Controlled isBuffer - https://github.com/advisories/GHSA-4mjr-xmp4-gh2g
+fix available via `npm audit fix`
+node_modules/qs
+  body-parser  1.20.5 - 1.20.6
+  Depends on vulnerable versions of qs
+  node_modules/body-parser
+  express  4.22.2
+  Depends on vulnerable versions of body-parser
+  Depends on vulnerable versions of qs
+  node_modules/express
+
+3 moderate severity vulnerabilities
+
+To address all issues, run:
+  npm audit fix
+npm warn allow-scripts 5 packages have install scripts not yet covered by allowScripts:
+npm warn allow-scripts   @prisma/client@5.22.0 (postinstall: node scripts/postinstall.js)
+npm warn allow-scripts   @prisma/engines@5.22.0 (postinstall: node scripts/postinstall.js)
+npm warn allow-scripts   msgpackr-extract@3.0.4 (install: node-gyp rebuild)
+npm warn allow-scripts   prisma@5.22.0 (preinstall: node scripts/preinstall-entry.js)
+npm warn allow-scripts   protobufjs@7.6.6 (postinstall: node scripts/postinstall)
+npm warn allow-scripts
+npm warn allow-scripts Run `npm approve-scripts --allow-scripts-pending` to review, or `npm approve-scripts <pkg>` to allow.
+exit=1

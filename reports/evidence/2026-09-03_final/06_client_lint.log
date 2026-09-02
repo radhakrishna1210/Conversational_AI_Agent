@@ -1,0 +1,180 @@
+
+> omnidimension-clone-react@0.0.0 lint
+> eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0
+
+
+D:\krishna_thete\HM-Voice-agent\client\src\components\ChatComponent.tsx
+  93:6  warning  React Hook useEffect has missing dependencies: 'agentId' and 'messages.length'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+
+D:\krishna_thete\HM-Voice-agent\client\src\components\DashboardLayout.tsx
+  127:23  error  Empty block statement  no-empty
+  136:19  error  Empty block statement  no-empty
+  149:21  error  Empty block statement  no-empty
+
+D:\krishna_thete\HM-Voice-agent\client\src\components\VoiceAssistant.tsx
+  98:6  warning  React Hook useEffect has missing dependencies: 'isRecording', 'selectedVoice', and 'status'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+
+D:\krishna_thete\HM-Voice-agent\client\src\components\VoiceConfigModal.tsx
+  181:19  error    '_currentVoiceId' is defined but never used                                                                                               @typescript-eslint/no-unused-vars
+  239:6   warning  React Hook useEffect has a missing dependency: 'providerTabs'. Either include it or remove the dependency array                           react-hooks/exhaustive-deps
+  239:23  warning  React Hook useEffect has a complex expression in the dependency array. Extract it to a separate variable so it can be statically checked  react-hooks/exhaustive-deps
+
+D:\krishna_thete\HM-Voice-agent\client\src\components\broadcast\BroadcastDetail.tsx
+  54:32  warning  React Hook useEffect has a missing dependency: 'load'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+  64:6   warning  React Hook useEffect has a missing dependency: 'load'. Either include it or remove the dependency array  react-hooks/exhaustive-deps
+
+D:\krishna_thete\HM-Voice-agent\client\src\components\broadcast\RecordingStudio.tsx
+   76:6   warning  React Hook useEffect has missing dependencies: 'voiceId' and 'voices.length'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+  348:18  error    Definition for rule 'jsx-a11y/media-has-caption' was not found                                                                    jsx-a11y/media-has-caption
+
+D:\krishna_thete\HM-Voice-agent\client\src\components\campaign\steps\Step5ReplyFlows.tsx
+  164:10  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+D:\krishna_thete\HM-Voice-agent\client\src\components\home\VoiceCore.tsx
+  142:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+D:\krishna_thete\HM-Voice-agent\client\src\components\ui\badge.tsx
+  29:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+D:\krishna_thete\HM-Voice-agent\client\src\components\ui\button.tsx
+  47:18  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+D:\krishna_thete\HM-Voice-agent\client\src\components\ui\chart.tsx
+  62:55  error  '_' is defined but never used  @typescript-eslint/no-unused-vars
+
+D:\krishna_thete\HM-Voice-agent\client\src\components\ui\form.tsx
+  129:10  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+D:\krishna_thete\HM-Voice-agent\client\src\components\ui\navigation-menu.tsx
+  111:3  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+D:\krishna_thete\HM-Voice-agent\client\src\components\ui\sidebar.tsx
+  636:3  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+D:\krishna_thete\HM-Voice-agent\client\src\components\ui\sonner.tsx
+  27:19  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+D:\krishna_thete\HM-Voice-agent\client\src\components\ui\toggle.tsx
+  37:18  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+D:\krishna_thete\HM-Voice-agent\client\src\hooks\useTheme.tsx
+  57:17  warning  Fast refresh only works when a file only exports components. Use a new file to share constants or functions between components  react-refresh/only-export-components
+
+D:\krishna_thete\HM-Voice-agent\client\src\lib\adminApi.ts
+  17:38  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+D:\krishna_thete\HM-Voice-agent\client\src\lib\authStorage.ts
+  38:65  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+D:\krishna_thete\HM-Voice-agent\client\src\lib\whapi.ts
+  25:15  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  29:13  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  65:26  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  65:50  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  66:17  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  67:52  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  84:17  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  84:53  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+D:\krishna_thete\HM-Voice-agent\client\src\pages\AdminBilling.tsx
+  104:46  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  127:55  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  153:48  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  188:45  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  251:44  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  287:10  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+D:\krishna_thete\HM-Voice-agent\client\src\pages\AdminCallLogs.tsx
+  32:33  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+D:\krishna_thete\HM-Voice-agent\client\src\pages\AdminPanel.tsx
+   937:36  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   956:21  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  1607:40  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+D:\krishna_thete\HM-Voice-agent\client\src\pages\Analytics.tsx
+   97:88  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   98:83  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  107:49  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  121:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  122:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  123:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  124:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  125:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  126:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  127:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  128:19  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  138:17  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  220:54  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+D:\krishna_thete\HM-Voice-agent\client\src\pages\ApiKeys.tsx
+  165:141  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+D:\krishna_thete\HM-Voice-agent\client\src\pages\CallLogs.tsx
+   84:35   error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+   89:17   error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  172:125  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+D:\krishna_thete\HM-Voice-agent\client\src\pages\Dashboard.tsx
+  152:37  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  188:22  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  203:42  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+D:\krishna_thete\HM-Voice-agent\client\src\pages\EditAgent.tsx
+   308:58  error    Unexpected any. Specify a different type                                                                                                          @typescript-eslint/no-explicit-any
+   390:6   warning  React Hook useEffect has missing dependencies: 'spreadsheets.length' and 'spreadsheetsState'. Either include them or remove the dependency array  react-hooks/exhaustive-deps
+   532:15  error    Unexpected any. Specify a different type                                                                                                          @typescript-eslint/no-explicit-any
+   850:50  error    Unexpected any. Specify a different type                                                                                                          @typescript-eslint/no-explicit-any
+   869:45  error    Unexpected any. Specify a different type                                                                                                          @typescript-eslint/no-explicit-any
+   871:23  error    Unexpected any. Specify a different type                                                                                                          @typescript-eslint/no-explicit-any
+   874:23  error    Unexpected any. Specify a different type                                                                                                          @typescript-eslint/no-explicit-any
+   876:46  error    Unexpected any. Specify a different type                                                                                                          @typescript-eslint/no-explicit-any
+   882:35  error    Unexpected any. Specify a different type                                                                                                          @typescript-eslint/no-explicit-any
+   887:43  error    Unexpected any. Specify a different type                                                                                                          @typescript-eslint/no-explicit-any
+   892:47  error    Unexpected any. Specify a different type                                                                                                          @typescript-eslint/no-explicit-any
+   893:39  error    Unexpected any. Specify a different type                                                                                                          @typescript-eslint/no-explicit-any
+   894:39  error    Unexpected any. Specify a different type                                                                                                          @typescript-eslint/no-explicit-any
+   895:42  error    Unexpected any. Specify a different type                                                                                                          @typescript-eslint/no-explicit-any
+   896:36  error    Unexpected any. Specify a different type                                                                                                          @typescript-eslint/no-explicit-any
+   897:37  error    Unexpected any. Specify a different type                                                                                                          @typescript-eslint/no-explicit-any
+   898:43  error    Unexpected any. Specify a different type                                                                                                          @typescript-eslint/no-explicit-any
+   899:36  error    Unexpected any. Specify a different type                                                                                                          @typescript-eslint/no-explicit-any
+   900:37  error    Unexpected any. Specify a different type                                                                                                          @typescript-eslint/no-explicit-any
+   902:44  error    Unexpected any. Specify a different type                                                                                                          @typescript-eslint/no-explicit-any
+   911:31  error    Unexpected any. Specify a different type                                                                                                          @typescript-eslint/no-explicit-any
+   913:38  error    Unexpected any. Specify a different type                                                                                                          @typescript-eslint/no-explicit-any
+   915:36  error    Unexpected any. Specify a different type                                                                                                          @typescript-eslint/no-explicit-any
+   916:44  error    Unexpected any. Specify a different type                                                                                                          @typescript-eslint/no-explicit-any
+   917:36  error    Unexpected any. Specify a different type                                                                                                          @typescript-eslint/no-explicit-any
+   941:6   warning  React Hook useEffect has a missing dependency: 'prefetchWelcomeAudio'. Either include it or remove the dependency array                           react-hooks/exhaustive-deps
+  1137:5   error    Unused eslint-disable directive (no problems were reported from 'react-hooks/exhaustive-deps')
+  1138:6   warning  React Hook useEffect has a missing dependency: 'translateOffLanguageWelcomes'. Either include it or remove the dependency array                   react-hooks/exhaustive-deps
+  1250:6   warning  React Hook useEffect has a missing dependency: 'handleSave'. Either include it or remove the dependency array                                     react-hooks/exhaustive-deps
+  1635:19  error    Unexpected any. Specify a different type                                                                                                          @typescript-eslint/no-explicit-any
+  1732:19  error    Unexpected any. Specify a different type                                                                                                          @typescript-eslint/no-explicit-any
+  2482:19  error    Unexpected any. Specify a different type                                                                                                          @typescript-eslint/no-explicit-any
+  2539:21  error    Unexpected any. Specify a different type                                                                                                          @typescript-eslint/no-explicit-any
+  2823:19  error    Unexpected any. Specify a different type                                                                                                          @typescript-eslint/no-explicit-any
+  2952:43  warning  React Hook useEffect has a missing dependency: 'cleanupWebCall'. Either include it or remove the dependency array                                 react-hooks/exhaustive-deps
+  2960:19  error    Unexpected any. Specify a different type                                                                                                          @typescript-eslint/no-explicit-any
+
+D:\krishna_thete\HM-Voice-agent\client\src\pages\Integrations.tsx
+   26:82  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  301:34  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  312:17  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  337:39  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  345:17  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  491:17  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  538:17  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+  547:17  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+D:\krishna_thete\HM-Voice-agent\client\src\services\audioPlayer.ts
+  38:66  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+D:\krishna_thete\HM-Voice-agent\client\src\services\ttsSocket.ts
+  17:37  error  Unexpected any. Specify a different type  @typescript-eslint/no-explicit-any
+
+✖ 109 problems (87 errors, 22 warnings)
+  1 error and 0 warnings potentially fixable with the `--fix` option.
+
+exit=1

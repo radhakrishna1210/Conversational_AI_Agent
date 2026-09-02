@@ -1,0 +1,21 @@
+=== read-only, unauthenticated HTTP checks against the owner's running backend :4000 (no data created) ===
+GET /health                                                HTTP 200  0.026993s  body={"status":"ok","timestamp":"2026-09-02T20:35:51.524Z"}
+GET /api/v1/admin/audit-logs                               HTTP 401  0.005527s  body={"error":"Authentication required"}
+GET /api/v1/admin/users                                    HTTP 401  0.028106s  body={"error":"Authentication required"}
+GET /api/v1/admin/call-logs                                HTTP 401  0.005255s  body={"error":"Authentication required"}
+GET /api/v1/admin/billing/overview                         HTTP 401  0.003131s  body={"error":"Authentication required"}
+GET /api/v1/workspaces/x/agents                            HTTP 401  0.002521s  body={"error":"Authentication required"}
+GET /api/v1/auth/me                                        HTTP 401  0.001930s  body={"error":"Authentication required"}
+GET /api/v1/does-not-exist                                 HTTP 404  0.004956s  body={"error":"Not found"}
+GET /api/v1/admin/audit-logs?token=abc                     HTTP 401  0.002627s  body={"error":"Authentication required"}
+GET /api/v1/admin/audit-logs                               HTTP 401  0.003365s  body={"error":"Authentication required"}
+GET (bad bearer) /api/v1/admin/users                       HTTP 401  body={"error":"Invalid or expired token"}
+POST /api/v1/auth/login (empty body)                       HTTP 400  body={"error":"Validation failed","details":[{"path":"email","message":"Required"},{"path":"password","message":"Required"}]}
+--- security headers on /health ---
+Content-Security-Policy: default-src 'self';script-src 'self' 'unsafe-inline' https://assets.calendly.com https://checkout.razorpay.com;style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://assets.calendly.com;font-src 'self' https://fonts.gstatic.com data:;img-src 'self' data: blob: https:;media-src 'self' data: blob:;worker-src 'self' blob:;connect-src 'self' ws: wss: https:;frame-src 'self' https://calendly.com https://assets.calendly.com https://api.razorpay.com https://checkout.razorpay.com https://*.razorpay.com;child-src 'self' https://api.razorpay.com https://checkout.razorpay.com https://*.razorpay.com;form-action 'self' https://api.razorpay.com https://checkout.razorpay.com https://*.razorpay.com;object-src 'none';base-uri 'self';frame-ancestors 'self';script-src-attr 'none'
+Referrer-Policy: no-referrer
+Strict-Transport-Security: max-age=15552000; includeSubDomains
+X-Content-Type-Options: nosniff
+X-Frame-Options: SAMEORIGIN
+--- CORS preflight from an unknown origin ---
+HTTP/1.1 500 Internal Server Error
