@@ -1,0 +1,29 @@
+20260623081226_add_contact_submission            | finished |  | steps=1 | 
+20260624000000_add_report_issue                  | finished |  | steps=1 | 
+20240102000000_add_notifications                 | finished |  | steps=1 | 
+20240103000000_add_contact_appointment_report    | finished |  | steps=1 | 
+20260711000000_sprint2_files_plans_wallet_tokens | finished |  | steps=1 | 
+20260712000000_sprint3_voice_workspace           | UNFINISHED | ROLLED_BACK | steps=0 | logs=A migration failed to apply. New migrations cannot be applied before the error is recovered from. Read more about how to resolve migration issues in a productio
+20260712000000_sprint3_voice_workspace           | finished |  | steps=1 | 
+20260713000000_sprint4_calls                     | finished |  | steps=1 | 
+20260719190000_add_call_extraction               | UNFINISHED | ROLLED_BACK | steps=0 | logs=A migration failed to apply. New migrations cannot be applied before the error is recovered from. Read more about how to resolve migration issues in a productio
+20260719190000_add_call_extraction               | finished |  | steps=1 | 
+20260730120000_billing_ledger_subscriptions      | finished |  | steps=1 | 
+20260801120000_plan_inr_pricing                  | finished |  | steps=1 | 
+20260801160000_razorpay_autorenew                | finished |  | steps=1 | 
+20260804130000_admin_audit_log                   | finished |  | steps=1 | 
+20260805190000_voice_campaigns                   | finished |  | steps=1 | 
+20260809120000_workspace_roles_and_invites       | finished |  | steps=1 | 
+20260809130000_workspace_legacy_role_owner_backfill | finished |  | steps=1 | 
+20260809140000_remove_whatsapp                   | finished |  | steps=1 | 
+20260811120000_dlt_compliance                    | finished |  | steps=1 | 
+20260811160000_plivo_subaccount                  | finished |  | steps=1 | 
+20260813120000_contacts_clusters                 | finished |  | steps=1 | 
+20260813140000_retire_legacy_owner_role          | finished |  | steps=1 | 
+20260814100000_add_kb_chunks                     | finished |  | steps=1 | 
+20260816120000_voice_broadcast                   | finished |  | steps=1 | 
+20260824120000_plivo_compliance_end_user         | finished |  | steps=1 | 
+20260824160000_number_billing                    | finished |  | steps=1 | 
+20260827120000_pricing_buckets                   | finished |  | steps=1 | 
+20260829120000_pricing_bucket_ranges             | finished |  | steps=1 | 
+20260829140000_seed_pricing_bands                | finished |  | steps=1 | 

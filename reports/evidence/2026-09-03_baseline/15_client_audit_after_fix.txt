@@ -1,0 +1,3 @@
+remaining: {"info":0,"low":0,"moderate":2,"high":0,"critical":0,"total":2}
+  moderate  react-router fixAvailable={"name":"react-router-dom","version":"7.18.3","isSemVerMajor":true} | via: React Router: Open redirect via backslash in <Link> and useNavigate (CVE-2025-68
+  moderate  react-router-dom fixAvailable={"name":"react-router-dom","version":"7.18.3","isSemVerMajor":true} | via: react-router

@@ -1,0 +1,29 @@
+FINAL VERIFICATION SESSION
+start: 2026-09-02T20:49:18Z
+commit: 92d10bc926d745eaf7de0ab90053e8bebdd8dc36  branch: release/readiness-audit
+dirty: 0 tracked changes (reports/ untracked excluded)
+node: v24.19.0  npm: 11.17.0
+config fingerprint (names only): 45 env vars set; DATABASE_URL host=aws-1-ap-southeast-1.pooler.supabase.com; NODE_ENV=development
+--- commands ---
+01_backend_npm_test          exit=0  tests 992 pass 935 fail 0 cancelled 0 
+02_backend_test_ws           exit=0  tests 41 pass 41 fail 0 cancelled 0 
+03_backend_test_voice        exit=0  tests 313 pass 313 fail 0 cancelled 0 
+04_backend_test_stt          exit=0  tests 110 pass 110 fail 0 cancelled 0 
+05_client_tsc                exit=0  
+06_client_lint               exit=1  
+07_client_build              exit=0  
+08_backend_audit             exit=1  
+09_client_audit              exit=1  
+10_prisma_migrate_status     exit=0  
+--- secret scan (tracked tree) ---
+secret hits: 0 (0 expected)
+--- syntax of every changed backend file ---
+syntax: 19 ok, 0 fail
+--- latency report over the existing log (no fresh calls were placed) ---
+latency report exit=0
+--- audit summaries ---
+3 moderate severity vulnerabilities
+2 moderate severity vulnerabilities
+  1 error and 0 warnings potentially fixable with the `--fix` option.
+end: 2026-09-02T20:50:46Z
+ 27 files changed, 2637 insertions(+), 279 deletions(-)

@@ -1,0 +1,15 @@
+=== network RTT from this machine (TCP connect + TLS, 5 samples, ms) ===
+api.deepgram.com                           tcp p50= 326 max=1033 | tls p50= 618 max=2071
+generativelanguage.googleapis.com          tcp p50=  67 max= 149 | tls p50= 141 max= 441
+api.elevenlabs.io                          tcp p50=  89 max= 167 | tls p50= 216 max= 835
+api.sarvam.ai                              tcp p50=  94 max= 145 | tls p50= 187 max= 494
+api.fish.audio                             tcp p50=  84 max= 122 | tls p50= 145 max= 345
+api.cartesia.ai                            tcp p50= 124 max= 174 | tls p50= 180 max= 583
+api.groq.com                               tcp p50= 100 max= 147 | tls p50= 166 max= 239
+aws-1-ap-southeast-1.pooler.supabase.com   tcp p50= 127 max= 137 | tls p50= 237 max= 479
+spandan.mannmate.com                       tcp p50=  50 max= 290 | tls p50= 109 max= 990
+api.plivo.com                              tcp p50=  80 max= 241 | tls p50= 160 max=1137
+api.twilio.com                             tcp p50=  79 max=1659 | tls p50= 152 max=2025
+--- VPS geolocation (public IP registry, read-only) ---
+{  "ip": "62.72.12.185",  "city": "Mumbai",  "region": "Maharashtra",  "country": "IN",  "loc": "19.0728,72.8826",  "org": "AS47583 Hostinger International Limited",  "postal": "400017",  "timezone": "Asia/Kolkata",  "readme": "https://ipinfo.io/missingauth"}
+--- Supabase pooler region from hostname: ap-southeast-1 = Singapore ---

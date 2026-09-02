@@ -1,0 +1,120 @@
+prisma:query BEGIN
+prisma:query DEALLOCATE ALL
+prisma:query SELECT 1
+prisma:query COMMIT
+rt_ms SELECT 1 1255
+prisma:query BEGIN
+prisma:query DEALLOCATE ALL
+prisma:query SELECT COUNT(*) FROM (SELECT "public"."User"."id" FROM "public"."User" WHERE 1=1 OFFSET $1) AS "sub"
+prisma:query COMMIT
+users 65
+prisma:query BEGIN
+prisma:query DEALLOCATE ALL
+prisma:query SELECT COUNT(*) FROM (SELECT "public"."Workspace"."id" FROM "public"."Workspace" WHERE 1=1 OFFSET $1) AS "sub"
+prisma:query COMMIT
+workspaces 182
+prisma:query BEGIN
+prisma:query DEALLOCATE ALL
+prisma:query SELECT COUNT(*) FROM (SELECT "public"."Agent"."id" FROM "public"."Agent" WHERE 1=1 OFFSET $1) AS "sub"
+prisma:query COMMIT
+agents 136
+prisma:query BEGIN
+prisma:query DEALLOCATE ALL
+prisma:query SELECT COUNT(*), "public"."WorkspaceMember"."role" FROM "public"."WorkspaceMember" WHERE 1=1 GROUP BY "public"."WorkspaceMember"."role" OFFSET $1
+prisma:query COMMIT
+A-04 member roles [{"_count":{"_all":3},"role":"Superadmin"},{"_count":{"_all":62},"role":"Member"}]
+prisma:query BEGIN
+prisma:query DEALLOCATE ALL
+prisma:query SELECT COUNT(*), "public"."Subscription"."status", "public"."Subscription"."autoRenew" FROM "public"."Subscription" WHERE 1=1 GROUP BY "public"."Subscription"."status", "public"."Subscription"."autoRenew" OFFSET $1
+prisma:query COMMIT
+subscriptions by status/autoRenew [{"_count":{"_all":29},"status":"active","autoRenew":false},{"_count":{"_all":8},"status":"cancelled","autoRenew":false},{"_count":{"_all":4},"status":"past_due","autoRenew":false}]
+prisma:query BEGIN
+prisma:query DEALLOCATE ALL
+prisma:query SELECT COUNT(*) FROM (SELECT "public"."Subscription"."id" FROM "public"."Subscription" WHERE ("public"."Subscription"."status" = $1 AND "public"."Subscription"."currentPeriodEnd" < $2) OFFSET $3) AS "sub"
+prisma:query COMMIT
+subscriptions active & periodEnd<now (renewal-due) 0
+prisma:query BEGIN
+prisma:query DEALLOCATE ALL
+prisma:query SELECT COUNT(*) FROM (SELECT "public"."AgentCallLog"."id" FROM "public"."AgentCallLog" WHERE 1=1 OFFSET $1) AS "sub"
+prisma:query COMMIT
+A-13 calls total 646
+prisma:query BEGIN
+prisma:query DEALLOCATE ALL
+prisma:query SELECT COUNT(*) FROM (SELECT "public"."AgentCallLog"."id" FROM "public"."AgentCallLog" WHERE "public"."AgentCallLog"."actualCostMicroUsd" IS NOT NULL OFFSET $1) AS "sub"
+prisma:query COMMIT
+A-13 calls with actualCostMicroUsd 0
+prisma:query BEGIN
+prisma:query DEALLOCATE ALL
+prisma:query SELECT COUNT(*), "public"."AgentCallLog"."status" FROM "public"."AgentCallLog" WHERE 1=1 GROUP BY "public"."AgentCallLog"."status" OFFSET $1
+prisma:query COMMIT
+calls by channel/status (top) [{"_count":{"_all":19},"status":"IN_PROGRESS"},{"_count":{"_all":76},"status":"FAILED"},{"_count":{"_all":539},"status":"COMPLETED"},{"_count":{"_all":12},"status":"INITIATED"}]
+prisma:query BEGIN
+prisma:query DEALLOCATE ALL
+prisma:query SELECT COUNT(*), "public"."Invoice"."type" FROM "public"."Invoice" WHERE 1=1 GROUP BY "public"."Invoice"."type" OFFSET $1
+prisma:query COMMIT
+invoices by type [{"_count":{"_all":6},"type":"topup"},{"_count":{"_all":50},"type":"subscription"}]
+prisma:query BEGIN
+prisma:query DEALLOCATE ALL
+prisma:query SELECT COUNT(*) FROM (SELECT "public"."Invoice"."id" FROM "public"."Invoice" WHERE ("public"."Invoice"."type" = $1 AND "public"."Invoice"."paymentOrderId" IS NULL) OFFSET $2) AS "sub"
+prisma:query COMMIT
+A-15 subscription invoices w/o paymentOrderId 47
+prisma:query BEGIN
+prisma:query DEALLOCATE ALL
+prisma:query SELECT COUNT(*) FROM (SELECT "public"."Invoice"."id" FROM "public"."Invoice" WHERE "public"."Invoice"."number" IS NULL OFFSET $1) AS "sub"
+prisma:query COMMIT
+invoices with null number 2
+prisma:query BEGIN
+prisma:query DEALLOCATE ALL
+prisma:query SELECT COUNT(*) FROM (SELECT "public"."Wallet"."id" FROM "public"."Wallet" WHERE 1=1 OFFSET $1) AS "sub"
+prisma:query COMMIT
+wallets 137
+prisma:query BEGIN
+prisma:query DEALLOCATE ALL
+prisma:query SELECT COUNT(*) FROM (SELECT "public"."WalletTransaction"."id" FROM "public"."WalletTransaction" WHERE 1=1 OFFSET $1) AS "sub"
+prisma:query COMMIT
+wallet tx 642
+prisma:query BEGIN
+prisma:query DEALLOCATE ALL
+prisma:query SELECT COUNT(*) FROM (SELECT "public"."WalletTransaction"."id" FROM "public"."WalletTransaction" WHERE "public"."WalletTransaction"."idempotencyKey" IS NULL OFFSET $1) AS "sub"
+prisma:query COMMIT
+wallet tx with null idempotencyKey 0
+prisma:query BEGIN
+prisma:query DEALLOCATE ALL
+prisma:query SELECT COUNT(*), "public"."PaymentOrder"."status", "public"."PaymentOrder"."purpose" FROM "public"."PaymentOrder" WHERE 1=1 GROUP BY "public"."PaymentOrder"."status", "public"."PaymentOrder"."purpose" OFFSET $1
+prisma:query COMMIT
+payment orders by status [{"_count":{"_all":1},"status":"created","purpose":"topup"},{"_count":{"_all":3},"status":"paid","purpose":"subscription"},{"_count":{"_all":4},"status":"paid","purpose":"topup"}]
+prisma:query BEGIN
+prisma:query DEALLOCATE ALL
+prisma:query SELECT COUNT(*) FROM (SELECT "public"."RefreshToken"."id" FROM "public"."RefreshToken" WHERE "public"."RefreshToken"."revokedAt" IS NULL OFFSET $1) AS "sub"
+prisma:query COMMIT
+A-05 refresh tokens not revoked 387
+prisma:query BEGIN
+prisma:query DEALLOCATE ALL
+prisma:query SELECT COUNT(*) FROM (SELECT "public"."PricingBucket"."id" FROM "public"."PricingBucket" WHERE 1=1 OFFSET $1) AS "sub"
+prisma:query COMMIT
+pricing buckets 7
+prisma:query BEGIN
+prisma:query DEALLOCATE ALL
+prisma:query SELECT COUNT(*) FROM (SELECT "public"."Workspace"."id" FROM "public"."Workspace" WHERE "public"."Workspace"."pricingBucketId" IS NOT NULL OFFSET $1) AS "sub"
+prisma:query COMMIT
+workspaces with pricingBucketId 1
+prisma:query BEGIN
+prisma:query DEALLOCATE ALL
+prisma:query SELECT COUNT(*) FROM (SELECT "public"."Workspace"."id" FROM "public"."Workspace" WHERE "public"."Workspace"."rateOverrideInr" IS NOT NULL OFFSET $1) AS "sub"
+prisma:query COMMIT
+workspaces with rateOverrideInr 0
+prisma:query BEGIN
+prisma:query DEALLOCATE ALL
+prisma:query SELECT COUNT(*) FROM (SELECT "public"."Plan"."id" FROM "public"."Plan" WHERE 1=1 OFFSET $1) AS "sub"
+prisma:query COMMIT
+plans 165
+prisma:query BEGIN
+prisma:query DEALLOCATE ALL
+prisma:query SELECT COUNT(*) FROM (SELECT "public"."AuditLog"."id" FROM "public"."AuditLog" WHERE 1=1 OFFSET $1) AS "sub"
+prisma:query COMMIT
+audit logs 7
+prisma:query BEGIN
+prisma:query DEALLOCATE ALL
+prisma:query SELECT count(*)::int AS n, count(*) FILTER (WHERE finished_at IS NULL)::int AS unfinished FROM _prisma_migrations
+prisma:query COMMIT
+_prisma_migrations applied [{"n":29,"unfinished":2}]

@@ -1,0 +1,57 @@
+a completed call is charged at the platform wallet rate
+one extra second is charged as a second, not as a whole minute
+settling the same call twice charges once
+CONCURRENT settlements of one call charge once
+chat sessions are never billed
+a zero-duration call is free
+usage is recorded even when the wallet cannot cover it
+every billed minute hits the wallet, even with a subscription row present
+a call the browser never ended is finalized and billed server-side
+the backstop bills the call, not the grace period before it runs
+the backstop stands down when the browser ended the call itself
+two backstops on one call finalize it once
+the backstop is inert without a call log
+a funded workspace may start a call
+an empty wallet blocks new calls with a clear reason
+a balance too small for a usable call blocks rather than cutting off mid-greeting
+the gate returns a spend budget the balance can actually cover
+concurrent calls are NOT limited
+chat is never gated on balance
+agent creation is NOT limited
+a stale cancelled subscription does NOT block calls
+subscribing charges the wallet and issues an invoice
+subscribing twice to the same plan does not double-charge
+an upgrade applies immediately and is prorated
+a downgrade is DEFERRED to the period boundary
+renewal applies a pending downgrade and resets minutes
+renewal is idempotent per period
+renewal without funds goes past_due, not cancelled
+cancel defaults to end-of-period and keeps access
+immediate cancel ends access now
+a scheduled cancellation ends the subscription at renewal
+resume undoes a pending cancellation
+quoting a new plan works on an empty wallet
+quoting never spends or reserves balance
+a free plan needs no payment
+quoting an upgrade returns the prorated amount, not the full price
+quoting a downgrade collects nothing and is deferred
+re-quoting the current plan is a no-op
+the paid-purchase flow nets to zero on the wallet
+an unknown or inactive plan is refused before any payment
+the first gateway charge activates the plan on an empty wallet
+a replayed subscription.charged does NOT grant a second month
+a genuine second cycle extends the period by another month
+renewal chains from the previous boundary, so the date does not drift
+a charge for an unknown gateway subscription is ignored
+halted goes past_due, keeping the customer recoverable
+gateway cancellation ends the subscription and clears auto-renew
+a long-lapsed subscription rolls forward to a LIVE period, keeping the billing day
+credits and debits produce a balanced ledger
+a replayed idempotency key charges exactly once
+SIMULTANEOUS replays of one key still charge once
+concurrent DISTINCT debits do not lose an update
+a debit past the balance floor is refused
+allowNegative records usage for a call that already happened
+overdraftLimitCents permits invoice-terms accounts
+invalid mutations are rejected before touching the ledger
+auditWallet detects a balance mutated outside the ledger
