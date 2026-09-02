@@ -4,6 +4,7 @@
 import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
 import { sendMail, isMailerConfigured } from '../lib/mailer.js';
+import { assertPublicHttpUrl } from '../lib/safeUrl.js';
 import { appendCallRow } from '../services/googleSheets.service.js';
 import { createEvent, resolveAppointmentStart } from '../services/googleCalendar.service.js';
 import { getWalletRate, setWalletRate, WALLET_RATE_PLAN } from '../services/billing/walletRate.js';
@@ -252,6 +253,9 @@ export const executePostCall = async (agentId, workspaceId, payload) => {
     }
     try {
       if (method === 'webhook' && cfg.url) {
+        // SSRF guard. Inside the try on purpose: a refused URL is recorded as
+        // this config's failure below, and the other deliveries still run.
+        await assertPublicHttpUrl(cfg.url);
         const r = await fetch(cfg.url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
