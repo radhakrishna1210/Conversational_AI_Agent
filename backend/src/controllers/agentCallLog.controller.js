@@ -73,26 +73,52 @@ const isTerminalStatus = (status) => status === 'COMPLETED' || status === 'FAILE
  * call-logging request fail, since the call itself already succeeded.
  */
 export const deliverPostCall = async (workspaceId, agentId, row) => {
+  const extracted = (() => { try { return JSON.parse(row.extractedData); } catch { return {}; } })();
+  const transcript = (() => { try { return JSON.parse(row.transcript); } catch { return []; } })();
+  const postCallPayload = {
+    callId: row.id,
+    callType: row.type,
+    // Post-Call configs express triggers in the UI's vocabulary ("Completed"),
+    // not the stored enum ("COMPLETED").
+    outcome: row.status === 'COMPLETED' ? 'Completed' : row.status === 'FAILED' ? 'Failed' : row.status,
+    durationSec: row.durationSec,
+    phoneNumber: row.phoneNumber ?? '',
+    variables: Array.isArray(extracted.variables) ? extracted.variables : [],
+    transcript: transcript.map((m) => `${m.role === 'user' ? 'Customer' : 'Agent'}: ${m.content}`).join('\n'),
+    endedAt: (row.endedAt ?? new Date()).toISOString(),
+  };
+
   try {
     const { executePostCall } = await import('./platform.controller.js');
-    const extracted = (() => { try { return JSON.parse(row.extractedData); } catch { return {}; } })();
-    const transcript = (() => { try { return JSON.parse(row.transcript); } catch { return []; } })();
-    const out = await executePostCall(agentId, workspaceId, {
-      callId: row.id,
-      callType: row.type,
-      // Post-Call configs express triggers in the UI's vocabulary ("Completed"),
-      // not the stored enum ("COMPLETED").
-      outcome: row.status === 'COMPLETED' ? 'Completed' : row.status === 'FAILED' ? 'Failed' : row.status,
-      durationSec: row.durationSec,
-      phoneNumber: row.phoneNumber ?? '',
-      variables: Array.isArray(extracted.variables) ? extracted.variables : [],
-      transcript: transcript.map((m) => `${m.role === 'user' ? 'Customer' : 'Agent'}: ${m.content}`).join('\n'),
-      endedAt: (row.endedAt ?? new Date()).toISOString(),
-    });
+    const out = await executePostCall(agentId, workspaceId, postCallPayload);
     const failures = (out.results ?? []).filter((r) => !r.ok);
     if (failures.length) logger.warn({ agentId, callId: row.id, failures }, 'Post-call delivery had failures');
   } catch (err) {
     logger.warn({ agentId, callId: row.id, err: err.message }, 'Post-call delivery failed');
+  }
+
+  // Zoho CRM and Notion push directly via their stored OAuth token — no
+  // webhook URL, unlike the block above. "Active integration" here means
+  // simply connected: true, matching how the Integrations page shows it;
+  // there is no separate enable/disable toggle for these two yet.
+  try {
+    const zohoIntegration = await prisma.integration.findUnique({ where: { workspaceId_provider: { workspaceId, provider: 'zoho' } } });
+    if (zohoIntegration?.connected) {
+      const { pushCallAsLead } = await import('../services/zoho.service.js');
+      await pushCallAsLead(workspaceId, agentId, postCallPayload);
+    }
+  } catch (err) {
+    logger.warn({ agentId, callId: row.id, err: err.message }, 'Zoho Lead push failed');
+  }
+
+  try {
+    const notionIntegration = await prisma.integration.findUnique({ where: { workspaceId_provider: { workspaceId, provider: 'notion' } } });
+    if (notionIntegration?.connected) {
+      const { createPostCallPage } = await import('../services/notion.service.js');
+      await createPostCallPage(workspaceId, agentId, postCallPayload);
+    }
+  } catch (err) {
+    logger.warn({ agentId, callId: row.id, err: err.message }, 'Notion page push failed');
   }
 };
 

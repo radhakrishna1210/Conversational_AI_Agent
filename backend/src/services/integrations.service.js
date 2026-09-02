@@ -38,6 +38,12 @@ const clientId     = (p) => p.oauth ? envValue(p.oauth.clientIdEnv)     : null;
 const clientSecret = (p) => p.oauth ? envValue(p.oauth.clientSecretEnv) : null;
 const redirectUri  = (p) => p.oauth ? envValue(p.oauth.redirectUriEnv)  : null;
 const genesysRegion = () => env.GENESYS_REGION || 'mypurecloud.com';
+// Which data center's accounts server a Zoho org lives on (.com/.eu/.in/.com.cn/
+// .jp/.au — picked once at signup, never changes). A client_id registered on one
+// DC is invisible to every other DC's accounts server — presenting it to the
+// wrong one is exactly what produces Zoho's "invalid_client" error, with no
+// hint that the DC is the actual problem.
+const zohoAccountsBase = () => env.ZOHO_ACCOUNTS_BASE_URL || 'https://accounts.zoho.com';
 
 const isMockProvider = (p) => false;
 // Fake "connected" integrations are a demo-only behavior and must be opted into
@@ -107,7 +113,7 @@ const serialize = (i) => ({
   logs: (i.logs ?? []).map((l) => ({ id: l.id, level: l.level, event: l.event, message: l.message, status: l.status, metadata: safeJson(l.metadata, {}), createdAt: l.createdAt })),
 });
 
-const addLog = async ({ workspaceId, provider, integrationId = null, level = 'info', event, message, status = null, metadata = {} }) => {
+export const addLog = async ({ workspaceId, provider, integrationId = null, level = 'info', event, message, status = null, metadata = {} }) => {
   try {
     const log = await prisma.integrationLog.create({
       data: { workspaceId, provider, integrationId, level, event, message, status, metadata: jsonStr(metadata) },
@@ -127,7 +133,7 @@ const getAccessToken = async (integration) => {
 };
 
 const buildAuthUrl = (p, state, redirectUriOverride) => {
-  const base = p.oauth.authorizationUrl.replace('{region}', genesysRegion());
+  const base = p.oauth.authorizationUrl.replace('{region}', genesysRegion()).replace('{accountsBase}', zohoAccountsBase());
   const url = new URL(base);
   url.searchParams.set('client_id',    clientId(p) ?? '');
   url.searchParams.set('redirect_uri', redirectUriOverride ?? redirectUri(p) ?? '');
@@ -139,6 +145,20 @@ const buildAuthUrl = (p, state, redirectUriOverride) => {
 };
 
 const exchangeCode = async (p, code, cbUri) => {
+  // Notion wants client_id/secret as HTTP Basic auth + a JSON body — every
+  // other provider here wants them as form fields in the body instead.
+  if (p.oauth.tokenAuthMethod === 'basic_json') {
+    const basic = Buffer.from(`${clientId(p) ?? ''}:${clientSecret(p) ?? ''}`).toString('base64');
+    const res = await fetch(p.oauth.tokenUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Basic ${basic}` },
+      body: JSON.stringify({ grant_type: 'authorization_code', code, redirect_uri: cbUri }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.access_token) throw new Error(data.error_description || data.error || data.message || `Token exchange failed (${res.status})`);
+    return data;
+  }
+
   const params = new URLSearchParams({
     grant_type:   'authorization_code',
     code,
@@ -146,13 +166,17 @@ const exchangeCode = async (p, code, cbUri) => {
     client_id:    clientId(p) ?? '',
     client_secret: clientSecret(p) ?? '',
   });
-  const res = await fetch(p.oauth.tokenUrl.replace('{region}', genesysRegion()), {
+  const res = await fetch(p.oauth.tokenUrl.replace('{region}', genesysRegion()).replace('{accountsBase}', zohoAccountsBase()), {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: params.toString(),
   });
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error_description || data.error || `Token exchange failed (${res.status})`);
+  // Some providers (Zoho documented among them) return HTTP 200 with an
+  // error body on a failed exchange instead of a 4xx status, so !res.ok alone
+  // isn't a reliable failure signal — without this, a missing access_token
+  // sails through here and crashes later inside encryptToken(undefined).
+  if (!res.ok || !data.access_token) throw new Error(data.error_description || data.error || `Token exchange failed (${res.status})`);
   return data;
 };
 
@@ -250,6 +274,30 @@ const fetchSnapshot = async (integration) => {
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.message || data.error || `Salesforce sync failed (${res.status})`);
     return parseSnapshotResponse(p.key, data, fallbackLabel, fallbackCount);
+  }
+
+  if (p.key === 'zoho') {
+    const apiDomain = metadata.apiDomain;
+    const endpoint = p.syncEndpoint ?? '';
+    if (!apiDomain || !endpoint) return { accountLabel: fallbackLabel, lastSyncedCount: fallbackCount };
+    const res = await fetch(`${apiDomain}${endpoint}`, {
+      headers: { Authorization: `Zoho-oauthtoken ${token}`, 'Content-Type': 'application/json' },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.message || (Array.isArray(data.errors) ? data.errors[0]?.message : null) || `Zoho sync failed (${res.status})`);
+    return { accountLabel: fallbackLabel, lastSyncedCount: Array.isArray(data.data) ? data.data.length : fallbackCount };
+  }
+
+  if (p.key === 'notion') {
+    // Notion has no apiBaseUrl configured (the generic fallback path below
+    // would no-op on an empty base) and every Notion API call requires a
+    // Notion-Version header the generic path doesn't send.
+    const res = await fetch(`https://api.notion.com${p.syncEndpoint ?? '/v1/users/me'}`, {
+      headers: { Authorization: `Bearer ${token}`, 'Notion-Version': '2022-06-28', 'Content-Type': 'application/json' },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.message || `Notion sync failed (${res.status})`);
+    return { accountLabel: data.bot?.owner?.user?.name ?? fallbackLabel, lastSyncedCount: fallbackCount };
   }
 
   if (p.key === 'genesys') {
@@ -576,6 +624,30 @@ export const completeOAuthCallback = async (providerKey, code, state, callbackUr
         });
       }
     } catch { /* non-fatal */ }
+  }
+
+  // Zoho's token response names which regional API host this connection's
+  // CRM calls actually go to — there is no fixed URL for it (see
+  // constants/integrations.js). Store it now; fetchSnapshot and any future
+  // Zoho CRM call read it back from metadata.apiDomain.
+  if (p.key === 'zoho' && tokenPayload.api_domain) {
+    await prisma.integration.update({
+      where: { id: connected.id },
+      data: { metadata: jsonStr({ apiDomain: tokenPayload.api_domain }) },
+    });
+  }
+
+  // Notion has no "who am I" separate from what the token exchange already
+  // returned — workspace_name/workspace_id/bot_id ride along on the same
+  // response, unlike every OAuth provider above that needs a follow-up call.
+  if (p.key === 'notion') {
+    await prisma.integration.update({
+      where: { id: connected.id },
+      data: {
+        accountLabel: tokenPayload.workspace_name ?? p.name,
+        metadata: jsonStr({ workspaceId: tokenPayload.workspace_id, botId: tokenPayload.bot_id }),
+      },
+    });
   }
 
   await addLog({ workspaceId: session.workspaceId, provider: p.key, integrationId: connected.id, event: 'oauth_connected', message: `${p.name} connected successfully` });
