@@ -38,13 +38,15 @@ export type ModularCallEvent =
   | { type: 'transcript'; role: 'user' | 'assistant'; text: string; done: boolean }
   // B4 streaming reply audio: a JSON audio-start opens the stream, raw binary
   // frames carry the audio bytes, an audio-end JSON frame closes it.
-  | { type: 'audio-start'; contentType: string | null }
+  // turnId joins this segment to the server's latency record; filler marks
+  // the cached acknowledgement clip (perceived latency), not the reply.
+  | { type: 'audio-start'; contentType: string | null; turnId?: string; filler?: boolean }
   | { type: 'audio-chunk'; data: ArrayBuffer }
   | { type: 'audio-end' }
   // Semantic turn end: Deepgram detected the caller finished speaking — the
   // client ends the current listening turn now instead of waiting for its VAD.
   | { type: 'endpoint' }
-  | { type: 'done'; reply?: string | null; timings?: { sttMs: number; llmMs: number; ttsMs: number; ttfaMs: number; totalMs: number } | null }
+  | { type: 'done'; turnId?: string; reply?: string | null; timings?: { sttMs: number; llmMs: number; ttsMs: number; ttfaMs: number; totalMs: number } | null }
   // `code` is set when the server refused or ended the call for a specific
   // reason it wants named — INSUFFICIENT_BALANCE (wallet empty or spent) and
   // BALANCE_LOW (a heads-up, the call is still running).
@@ -176,6 +178,14 @@ class ModularCallSocketService {
     this.sendJson({ type: 'cancel-turn', history });
   }
   barge() { this.sendJson({ type: 'barge' }); }
+  /**
+   * What the caller actually heard, measured where it is measurable: the
+   * browser's own <audio> 'playing' event against its own end-of-speech.
+   * Logged server-side next to the pipeline record for the same turnId.
+   */
+  reportTurnTiming(t: { turnId: string; speechEndToAudibleMs: number; endTurnToAudibleMs: number; clientEndpointMs: number; perceivedMs: number | null }) {
+    this.sendJson({ type: 'turn-timing', ...t });
+  }
 
   stop() {
     try { this.sendJson({ type: 'stop' }); } catch { /* socket already gone */ }

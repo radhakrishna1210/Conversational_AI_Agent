@@ -98,6 +98,8 @@ import { encodeWav } from '../services/voice/callRecorder.js';
 import { createRecordingTap } from './callRecordingTap.js';
 import { createCallFinalizer } from './callFinalizer.js';
 import { openCallBudget } from '../services/billing/callBudget.js';
+import { randomUUID } from 'node:crypto';
+import { logTurnLatency } from '../lib/latencyLog.js';
 
 const safeJson = (str, fallback) => {
   try { return JSON.parse(str); } catch { return fallback; }
@@ -446,6 +448,11 @@ export function runModularMediaBridge(ws, {
    * call".
    */
   let turnFirstFrameAt = null;
+  /** `<call>:<turn>` — joins this bridge's wire record to the pipeline record
+   *  voiceTurnStream writes for the same turn. See lib/latencyLog.js. */
+  const callTag = randomUUID().slice(0, 8);
+  let turnSeq = 0;
+  let turnId = null;
 
   /** When the carrier opened the media stream, i.e. when the callee answered.
    *  The zero point for "how long did they hear nothing before the greeting". */
@@ -470,7 +477,7 @@ export function runModularMediaBridge(ws, {
     // another word, on any agent with an ambience preset selected. See the note
     // in services/voice/ambiencePump.js.
     if (speech) {
-      if (turnFirstFrameAt == null) turnFirstFrameAt = Date.now();
+      if (turnFirstFrameAt == null) turnFirstFrameAt = performance.now();
       playout.noteFrame();
     }
 
@@ -636,7 +643,11 @@ export function runModularMediaBridge(ws, {
     // commit already fired to get here. Everything from here to the voiceTurnStream()
     // call (STT harvest) is otherwise invisible in logs/latency.log, which only times
     // from inside voiceTurnStream onward. See preLlmMs below.
-    const turnEndDetectedAt = Date.now();
+    // Monotonic clock (performance.now), paired with turnFirstFrameAt above:
+    // wireMs is the difference and must not move with the wall clock.
+    const turnEndDetectedAt = performance.now();
+    turnSeq += 1;
+    turnId = `${callTag}:${turnSeq}`;
     turnFirstFrameAt = null;
     // Drained here, not after the silence gate below: every path out of this
     // function must leave an empty buffer, or a discarded turn's audio would be
@@ -785,7 +796,8 @@ export function runModularMediaBridge(ws, {
           affect,
           fillerBudget,
           channel: 'phone',
-          preLlmMs: Date.now() - turnEndDetectedAt,
+          turnId,
+          preLlmMs: Math.round(performance.now() - turnEndDetectedAt),
           // Silence the caller sat through before this turn was even declared
           // over — the recogniser's VAD timeout plus its confirmation grace.
           // Outside every previous metric, and the same size as the LLM wait.
@@ -891,10 +903,20 @@ export function runModularMediaBridge(ws, {
       // which logs its own at call end.
       if (turnFirstFrameAt != null) {
         const paced = pacer?.stats();
+        const wireMs = Math.round(turnFirstFrameAt - turnEndDetectedAt);
         logger.info(
-          `${carrier.label}: turn wireMs=${turnFirstFrameAt - turnEndDetectedAt}`
+          `${carrier.label}: turn wireMs=${wireMs}`
           + (paced ? ` pacerQueued=${paced.queuedFrames}f pacerMaxQueueMs=${paced.maxQueueMs} dropped=${paced.dropped}` : ''),
         );
+        // Into logs/latency.log as its own record, joined to the pipeline
+        // record by turnId. It used to live only in the server log, where
+        // wireMs - ttfaMs (the pacer queue depth) could never be computed.
+        logTurnLatency({
+          kind: 'wire', channel: 'phone', agentId, turnId, wireMs,
+          pacerQueuedFrames: paced?.queuedFrames ?? null,
+          pacerMaxQueueMs: paced?.maxQueueMs ?? null,
+          pacerDropped: paced?.dropped ?? null,
+        });
       }
       playout.endGenerating();
       turnRunning = false;

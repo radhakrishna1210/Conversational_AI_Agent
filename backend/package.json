@@ -23,7 +23,7 @@
     "db:studio": "prisma studio",
     "db:seed": "node prisma/seed.js",
     "db:reset": "prisma migrate reset",
-    "test": "node --test \"src/services/**/__tests__/*.test.js\" \"src/constants/__tests__/*.test.js\"",
+    "test": "node --test \"src/services/**/__tests__/*.test.js\" \"src/constants/__tests__/*.test.js\" \"src/lib/__tests__/*.test.js\"",
     "test:voice": "node --test \"src/services/voice/__tests__/*.test.js\"",
     "test:stt": "node --test \"src/services/stt/__tests__/*.test.js\"",
     "test:ws": "node --test \"src/ws/__tests__/*.test.js\"",

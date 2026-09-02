@@ -1492,7 +1492,7 @@ export async function voiceTurn(workspaceId, agentId, audioBuffer, mimeType, his
  * path of a live call. Everything else about the turn is identical, which is
  * the point: web and phone run the same conversation code.
  */
-export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeType, history = [], { onEvent, shouldAbort, userText: providedText, audioHadSpeech = false, affect = null, fillerBudget = null, audioFormat = null, sampleRate = null, channel = null, preLlmMs = null, endpointMs = null } = {}) {
+export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeType, history = [], { onEvent, shouldAbort, userText: providedText, audioHadSpeech = false, affect = null, fillerBudget = null, audioFormat = null, sampleRate = null, channel = null, preLlmMs = null, endpointMs = null, turnId = null } = {}) {
   const emit = typeof onEvent === 'function' ? onEvent : () => {};
   const aborted = typeof shouldAbort === 'function' ? shouldAbort : () => false;
   const turnStartedAt = performance.now();
@@ -1647,7 +1647,9 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
       // ALSO open with "Alright," — that is the same beat twice. Spending the
       // turn's opener here is what keeps the two mechanisms from stacking.
       fillerBudget?.noteAudioAck();
-      emit({ type: 'audio-start', contentType: f.contentType, format: f.audioFormat ?? null });
+      // `filler: true` lets the bridges and the browser tell this cached ack
+      // apart from the reply: it moves PERCEIVED latency, not actual.
+      emit({ type: 'audio-start', contentType: f.contentType, format: f.audioFormat ?? null, filler: true });
       emit({ type: 'audio-chunk', chunk: f.buf });
       emit({ type: 'audio-end' });
     }, fillerDelayMs);
@@ -2147,7 +2149,7 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
   // moment audio came back.
   const waitMs = ttfaMs + (preLlmMs || 0) + (endpointMs || 0);
   const latency = {
-    agentId, channel, sttProvider, llmProvider: provider, model, prepMs,
+    turnId, agentId, channel, sttProvider, llmProvider: provider, model, prepMs,
     endpointMs, preLlmMs,
     sttMs, voiceWaitMs, ragMs, llmMs, llmTtftMs, ttsMs, ttsTtfaMs, ttfaMs, waitMs, totalMs,
     streamed: true, mode: ttsMode, delivery: ttsDelivery, filler: fillerPlayed, natural: naturalMode,
