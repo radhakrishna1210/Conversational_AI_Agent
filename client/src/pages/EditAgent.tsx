@@ -713,6 +713,8 @@ export default function EditAgent() {
     // buffered into the MediaSource regardless; only play() waits for this.
     activated: boolean;
     anyAppended: boolean;
+    // The cached acknowledgement clip, not the reply (see noteFirstAudible).
+    filler: boolean;
     epoch: number;
     useMediaSource: boolean;
     contentType: string;
@@ -788,6 +790,8 @@ export default function EditAgent() {
     // Ends the in-progress listening turn immediately (set per segment). Called
     // by Deepgram's semantic endpoint signal to beat the RMS VAD fallback.
     endTurnEarly: (() => void) | null;
+    // Per-turn clocks for the audible-latency report (all performance.now()).
+    turnTiming: { turnId: string | null; lastSpeechAtPerf: number; endTurnAtPerf: number; firstAudibleAtPerf: number | null; ackAudibleAtPerf: number | null } | null;
     // Running estimate of the room's noise floor (RMS, 0..1), tracked across
     // turns so the VAD threshold adapts to the caller's environment instead of
     // assuming one. See NOISE_FLOOR_* in startListeningSegmentSocket (BUG-001).
@@ -806,7 +810,7 @@ export default function EditAgent() {
     // so a change to the server's grace windows cannot silently be overridden by
     // a client constant that still fires first.
     endpointCommitMs: number;
-  }>({ active: false, stream: null, audioCtx: null, analyser: null, recorder: null, vadTimer: null, player: null, history: [], mixDest: null, mixRecorder: null, mixChunks: [], logId: null, bundledEngine: false, lastSpeechAt: 0, ambientStop: null, stopPlayback: null, bargeTimer: null, duckLevel: 1, duckRamp: null, duckDisabled: false, socketMode: false, micWorklet: null, capturingPcm: false, modularSession: null, modularQueue: [], modularPlaying: null, modularOutstanding: 0, modularDoneResolvers: [], pendingUserText: '', turnEpoch: 0, endTurnEarly: null, noiseFloor: 0, sttEndpointing: false, endpointCommitMs: 0, noInputPrompts: [], noInputDelaysMs: [], noInputAttempt: 0, noInputTimer: null });
+  }>({ active: false, stream: null, audioCtx: null, analyser: null, recorder: null, vadTimer: null, player: null, history: [], mixDest: null, mixRecorder: null, mixChunks: [], logId: null, bundledEngine: false, lastSpeechAt: 0, ambientStop: null, stopPlayback: null, bargeTimer: null, duckLevel: 1, duckRamp: null, duckDisabled: false, socketMode: false, micWorklet: null, capturingPcm: false, modularSession: null, modularQueue: [], modularPlaying: null, modularOutstanding: 0, modularDoneResolvers: [], pendingUserText: '', turnEpoch: 0, endTurnEarly: null, turnTiming: null, noiseFloor: 0, sttEndpointing: false, endpointCommitMs: 0, noInputPrompts: [], noInputDelaysMs: [], noInputAttempt: 0, noInputTimer: null });
 
   // ─── Call history logging (Recent Calls tab) ────────────────────────────────
   // Every test session — chat modal, Chat Test tab, web call, phone call — is
@@ -1856,7 +1860,30 @@ export default function EditAgent() {
 
   // B4: open one streaming playback SEGMENT. Segments play sequentially; the
   // first one starts immediately.
-  const startModularPlayback = (contentType: string | null) => {
+  // Latency instrumentation: the ONLY place "the caller can hear the reply" is
+  // knowable is this element's 'playing' event. Every server-side number stops
+  // at its socket. Reported once per turn; the server files it next to its
+  // own record under the same turnId (backend/scripts/latency-report.mjs).
+  // The ack clip is kept separate: it moves PERCEIVED latency, not actual.
+  const noteFirstAudible = (filler: boolean) => {
+    const call = callRef.current;
+    const t = call.turnTiming;
+    if (!t) return;
+    const now = performance.now();
+    if (filler) { if (t.ackAudibleAtPerf == null) t.ackAudibleAtPerf = now; return; }
+    if (t.firstAudibleAtPerf != null) return;
+    t.firstAudibleAtPerf = now;
+    const timing = {
+      speechEndToAudibleMs: Math.round(now - t.lastSpeechAtPerf),
+      endTurnToAudibleMs: Math.round(now - t.endTurnAtPerf),
+      clientEndpointMs: Math.round(t.endTurnAtPerf - t.lastSpeechAtPerf),
+      perceivedMs: t.ackAudibleAtPerf != null ? Math.round(t.ackAudibleAtPerf - t.lastSpeechAtPerf) : null,
+    };
+    console.info('[latency] first audible', { turnId: t.turnId, ...timing });
+    if (t.turnId) modularCallSocket.reportTurnTiming({ turnId: t.turnId, ...timing });
+  };
+
+  const startModularPlayback = (contentType: string | null, filler = false) => {
     const call = callRef.current;
     const epoch = call.turnEpoch;
     const ct = contentType || 'audio/mpeg';
@@ -1866,7 +1893,7 @@ export default function EditAgent() {
     let finished = false;
     const session: ModularPlaybackSession = {
       mediaSource: null, audioEl: null, url: null, sourceBuffer: null,
-      queue: [], ended: false, started: false, activated: false, anyAppended: false,
+      queue: [], ended: false, started: false, activated: false, anyAppended: false, filler,
       epoch, useMediaSource: useMS, contentType: ct, blobChunks: [], playBlob: null,
       finish: () => {
         if (finished) return; finished = true;
@@ -1907,6 +1934,7 @@ export default function EditAgent() {
       connectAgentPlayer(audioEl); // route into the call recording mix
       audioEl.onended = () => session.finish();
       audioEl.onerror = () => session.finish();
+      audioEl.addEventListener('playing', () => noteFirstAudible(session.filler), { once: true });
 
       mediaSource.addEventListener('sourceopen', () => {
         if (call.turnEpoch !== epoch) { session.finish(); return; }
@@ -1960,6 +1988,7 @@ export default function EditAgent() {
       connectAgentPlayer(audioEl);
       audioEl.onended = () => session.finish();
       audioEl.onerror = () => session.finish();
+      audioEl.addEventListener('playing', () => noteFirstAudible(session.filler), { once: true });
       audioEl.play().catch(() => session.finish());
     };
     if (session.activated) session.playBlob();
@@ -2060,7 +2089,8 @@ export default function EditAgent() {
         if (event.role === 'assistant') setWebCallActivity('speaking');
         break;
       case 'audio-start':
-        startModularPlayback(event.contentType);
+        if (call.turnTiming && !call.turnTiming.turnId && event.turnId) call.turnTiming.turnId = event.turnId;
+        startModularPlayback(event.contentType, event.filler === true);
         break;
       case 'audio-chunk':
         appendModularChunk(event.data);
@@ -2130,6 +2160,8 @@ export default function EditAgent() {
     const data = new Uint8Array(call.analyser.fftSize);
     let speechDetected = false;
     let lastSpeechAt = Date.now();
+    // Monotonic twin of lastSpeechAt, for the audible-latency report only.
+    let lastSpeechAtPerf = performance.now();
     // When the caller actually got the floor. Time spent listening under the
     // agent does not count toward MAX_SEGMENT_MS or the silence timeout — both
     // measure how long the CALLER has had to speak, and starting their clock
@@ -2260,6 +2292,10 @@ export default function EditAgent() {
       // has been talking the entire time.
       call.noInputAttempt = 0;
       setWebCallActivity('processing');
+      // Clocks for this turn's audible-latency report. lastSpeechAtPerf is the
+      // last tick the caller's voice cleared the VAD bar - the closest thing
+      // the browser has to "the caller stopped talking".
+      call.turnTiming = { turnId: null, lastSpeechAtPerf, endTurnAtPerf: performance.now(), firstAudibleAtPerf: null, ackAudibleAtPerf: null };
       modularCallSocket.endTurn(call.history);
     };
 
@@ -2342,6 +2378,7 @@ export default function EditAgent() {
       if (!listeningSince && !playbackActive()) {
         listeningSince = Date.now();
         lastSpeechAt = Date.now();
+        lastSpeechAtPerf = performance.now();
         setWebCallActivity('listening');
         armNoInput();
       }
@@ -2372,6 +2409,7 @@ export default function EditAgent() {
       if (rms > threshold) {
         voicedTicks += 1;
         lastSpeechAt = Date.now();
+        lastSpeechAtPerf = performance.now();
         if (voicedTicks >= VOICED_TICKS_REQUIRED) speechDetected = true;
         // NOTE: the floor is deliberately NOT adapted here. Letting speech pull
         // it upward meant that on a long turn the floor crept toward the
