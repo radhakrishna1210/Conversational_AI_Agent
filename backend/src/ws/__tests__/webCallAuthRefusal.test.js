@@ -24,6 +24,13 @@ let handleWebCallModularUpgrade;
 before(async () => {
   process.env.WEB_CALL_AUTH_TIMEOUT_MS = '150';
   process.env.WEB_CALL_STARTUP_TIMEOUT_MS = '400';
+  // config/env.js throws at import time without these. Placeholders only —
+  // every test below asserts the handler refuses BEFORE it touches the
+  // database, so no real connection is ever opened. Without them the whole
+  // describe() was cancelled and the runner still printed "fail 0".
+  process.env.DATABASE_URL ??= 'postgresql://u:p@localhost:5432/test';
+  process.env.JWT_ACCESS_SECRET ??= 'test-access-secret';
+  process.env.JWT_REFRESH_SECRET ??= 'test-refresh-secret';
   ({ handleWebCallModularUpgrade } = await import('../webCallModularRealtime.handler.js'));
 });
 
