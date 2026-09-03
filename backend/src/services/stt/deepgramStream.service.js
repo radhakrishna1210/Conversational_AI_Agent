@@ -172,6 +172,55 @@ export function looksUnfinished(text) {
 }
 
 /**
+ * Does the transcript read as a CLEARLY finished turn — one where waiting the
+ * ordinary grace window buys nothing?
+ *
+ * looksUnfinished() lengthens the wait when the tail dangles. This is the
+ * opposite reading, and it is deliberately narrower: the ordinary grace window
+ * exists because a caller who pauses after a complete clause ("book it for
+ * tomorrow") may still be about to add "…at nine". That is a real risk, so a
+ * plain full stop is NOT enough here. What qualifies is a tail where the caller
+ * has audibly handed over the floor:
+ *
+ *   - a question mark: the caller is waiting for an answer, not composing more;
+ *   - a Hindi danda / double danda, which Deepgram only emits at a real
+ *     sentence end and which Hindi speakers do not pause across;
+ *   - a one-word turn that stands alone ("yes", "हाँ", "okay");
+ *   - a short sentence-final full stop after at least three words, where the
+ *     last word carries no digit — a number being read out ("my order is 4-3.")
+ *     is exactly the case that must keep the long window.
+ *
+ * Callers check looksUnfinished() FIRST; a tail that dangles never gets here.
+ * A wrong "finished" costs a cut-off, so when unsure this returns false.
+ *
+ * @param {string} text - the turn's most recent transcript
+ * @returns {boolean}
+ */
+export function looksFinished(text) {
+  const raw = String(text ?? '').trim();
+  if (!raw) return false;
+  if (looksUnfinished(raw)) return false;
+
+  if (/[?？।॥]$/u.test(raw)) return true;
+
+  const tokens = raw.toLowerCase().replace(/[.,!?;:।॥…"')\]]+$/g, '')
+    .split(/\s+/)
+    .map((t) => t.replace(/[^\p{L}\p{N}\p{M}']/gu, ''))
+    .filter(Boolean);
+  if (!tokens.length) return false;
+  const last = tokens[tokens.length - 1];
+
+  if (tokens.length === 1) return COMPLETE_ONE_WORD.has(last);
+
+  // "!" is a hand-over as clearly as "?" — but only once a real clause exists;
+  // Deepgram punctuates "Yes!" and "Okay!" as one-word turns, handled above.
+  if (/[!]$/.test(raw)) return true;
+
+  // Sentence-final full stop on a clause, with no digit in the last word.
+  return tokens.length >= 3 && /\.$/.test(raw) && !/\p{N}/u.test(last);
+}
+
+/**
  * SUPERSEDED by services/voice/turnEndProfile.js, which resolves these timings
  * per AGENT. Nothing on a live path calls this or maxEndpointCommitMs() any
  * more; both are kept for their tests and for callers with no agent context.
@@ -340,10 +389,14 @@ export class DeepgramStreamSession {
    *   immediately by UtteranceEnd. Receives the reason as its argument, for logs.
    * @param {number} [opts.endpointGraceMs] - how long a speech_final candidate
    *   must go unchallenged before it is committed as a real end of turn.
+   * @param {number} [opts.unfinishedGraceMs] - the longer window used instead
+   *   when the transcript ends mid-thought (see looksUnfinished).
+   * @param {number} [opts.finishedGraceMs] - the SHORTER window used instead
+   *   when the transcript has clearly handed over the floor (see looksFinished).
    */
   constructor({
     sampleRate = 24000, language, endpointingMs, onEndOfTurn, endpointGraceMs,
-    unfinishedGraceMs,
+    unfinishedGraceMs, finishedGraceMs,
     encoding = 'linear16',
   } = {}) {
     this.sampleRate = sampleRate;
@@ -391,6 +444,22 @@ export class DeepgramStreamSession {
     this.unfinishedGraceMs = Number.isFinite(unfinishedGraceMs) && unfinishedGraceMs > 0
       ? unfinishedGraceMs
       : (Number(process.env.DEEPGRAM_UNFINISHED_GRACE_MS) || 1100);
+    // Grace applied instead when the transcript has CLEARLY handed over the
+    // floor — a question, a danda-terminated sentence, a standalone "yes" (see
+    // looksFinished). Measured on this deployment the ordinary window costs
+    // every turn ~400ms of pure dead air, and on a question it buys nothing:
+    // nobody appends to "what are your hours?". Shorter than the ordinary
+    // window by construction — a profile cannot make "finished" wait longer
+    // than "ordinary". DEEPGRAM_FINISHED_GRACE=false is the operator kill
+    // switch: the tier is skipped platform-wide and every finished tail waits
+    // the ordinary window, exactly as before this tier existed.
+    const finishedFallback = Number(process.env.DEEPGRAM_FINISHED_GRACE_MS);
+    const finishedRaw = Number.isFinite(finishedGraceMs) && finishedGraceMs >= 0
+      ? finishedGraceMs
+      : (Number.isFinite(finishedFallback) && finishedFallback >= 0 ? finishedFallback : 150);
+    this.finishedGraceMs = process.env.DEEPGRAM_FINISHED_GRACE === 'false'
+      ? null
+      : Math.min(finishedRaw, this.endpointGraceMs);
     this._endpointTimer = null;
     // Set when a speech_final candidate is armed; cleared when it commits or is
     // cancelled. Only feeds lastEndpointMs — nothing decides anything from it.
@@ -614,12 +683,22 @@ export class DeepgramStreamSession {
     // Content-aware window. A turn ending on "and", "which" or "um" is not a
     // turn — it is a caller mid-sentence — so it gets the long window; anything
     // that reads as a finished thought keeps the fast one.
+    //
+    // Three tiers, read off the same tail. Unfinished is checked first and
+    // wins: "Like, which?" dangles even with a question mark on it. Finished
+    // is the narrow opposite case and gets the short window; everything else
+    // keeps the ordinary one. The reason suffix lets the latency report split
+    // endpointMs by tier, so each window's cost stays visible separately.
     const unfinished = looksUnfinished(this._tail);
-    const graceMs = unfinished ? this.unfinishedGraceMs : this.endpointGraceMs;
-    if (graceMs <= 0) { this._commitEndOfTurn(reason); return; }
+    const finished = !unfinished && this.finishedGraceMs != null && looksFinished(this._tail);
+    const graceMs = unfinished ? this.unfinishedGraceMs
+      : finished ? this.finishedGraceMs
+        : this.endpointGraceMs;
+    const commitReason = unfinished ? `${reason}:unfinished` : finished ? `${reason}:finished` : reason;
+    if (graceMs <= 0) { this._commitEndOfTurn(commitReason); return; }
     this._endpointTimer = setTimeout(() => {
       this._endpointTimer = null;
-      this._commitEndOfTurn(unfinished ? `${reason}:unfinished` : reason);
+      this._commitEndOfTurn(commitReason);
     }, graceMs);
   }
 

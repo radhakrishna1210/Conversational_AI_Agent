@@ -289,6 +289,7 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
         endpointingMs: turnProfile.endpointingMs,
         endpointGraceMs: turnProfile.graceMs,
         unfinishedGraceMs: turnProfile.unfinishedGraceMs,
+        finishedGraceMs: turnProfile.finishedGraceMs,
         // Semantic turn end: fires only once the caller is genuinely finished
         // (confirmed speech_final, or an authoritative UtteranceEnd).
         //

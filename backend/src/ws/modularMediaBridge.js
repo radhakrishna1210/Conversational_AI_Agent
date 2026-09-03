@@ -976,6 +976,7 @@ export function runModularMediaBridge(ws, {
           endpointingMs: profile.endpointingMs,
           endpointGraceMs: profile.graceMs,
           unfinishedGraceMs: profile.unfinishedGraceMs,
+          finishedGraceMs: profile.finishedGraceMs,
         };
       })(),
       // Guarded, because Deepgram is fed the inbound leg unconditionally and a

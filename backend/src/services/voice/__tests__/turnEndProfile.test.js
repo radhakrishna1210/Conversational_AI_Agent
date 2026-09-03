@@ -25,6 +25,7 @@ const ENV_KEYS = [
   'DEEPGRAM_ENDPOINTING_MS',
   'DEEPGRAM_ENDPOINT_GRACE_MS',
   'DEEPGRAM_UNFINISHED_GRACE_MS',
+  'DEEPGRAM_FINISHED_GRACE_MS',
 ];
 
 describe('turnEndProfileFor', () => {
@@ -94,6 +95,28 @@ describe('turnEndProfileFor', () => {
     const p = turnEndProfileFor({ turnEndSensitivity: 'patient' });
     p.graceMs = 99999;
     assert.equal(TURN_END_PROFILES.patient.graceMs, 700);
+  });
+
+  test('every profile carries a finished tier shorter than its ordinary window', () => {
+    // The short tier exists to skip dead air on a tail that has handed over the
+    // floor. A profile whose "finished" wait is not shorter than its ordinary
+    // one would make the tier a no-op, and the log would show it as working.
+    for (const p of turnEndProfileList()) {
+      assert.ok(Number.isFinite(p.finishedGraceMs) && p.finishedGraceMs >= 0, p.id);
+      assert.ok(p.finishedGraceMs < p.graceMs, `${p.id}: finished must be shorter than ordinary`);
+      assert.ok(p.graceMs < p.unfinishedGraceMs, `${p.id}: ordinary must be shorter than unfinished`);
+    }
+  });
+
+  test('the finished tier follows the same precedence as the other windows', () => {
+    process.env.DEEPGRAM_FINISHED_GRACE_MS = '90';
+    // Unconfigured agent: the environment tunes it.
+    assert.equal(turnEndProfileFor({}).finishedGraceMs, 90);
+    // Explicit choice: the profile wins, the environment is ignored.
+    assert.equal(
+      turnEndProfileFor({ turnEndSensitivity: 'patient' }).finishedGraceMs,
+      TURN_END_PROFILES.patient.finishedGraceMs,
+    );
   });
 
   test('profiles are ordered fastest-first and strictly increasing', () => {
