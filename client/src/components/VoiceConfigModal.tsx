@@ -178,7 +178,6 @@ const SearchIcon = () => (
 
 export default function VoiceConfigModal({
   agentId,
-  currentVoiceId: _currentVoiceId,
   onClose,
   onSaved,
 }: VoiceConfigModalProps) {
