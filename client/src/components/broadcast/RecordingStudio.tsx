@@ -345,7 +345,6 @@ export default function RecordingStudio({ onChanged }: { onChanged?: () => void 
             ))}
             {playingId && playingUrl && (
               <div style={{ padding: '12px 18px', borderTop: '1px solid var(--line)', background: 'var(--s2)' }}>
-                {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
                 <audio controls autoPlay src={playingUrl} style={{ width: '100%' }} />
               </div>
             )}
