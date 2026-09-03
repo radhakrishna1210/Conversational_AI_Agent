@@ -35,7 +35,7 @@ class AudioStreamPlayer {
 
   private initContext() {
     if (!this.audioContext) {
-      this.audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({
+      this.audioContext = new (window.AudioContext || (window as Window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext!)({
         latencyHint: 'interactive',
       });
     }

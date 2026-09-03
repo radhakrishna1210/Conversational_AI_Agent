@@ -1,0 +1,63 @@
+ready {"type":"ready","sttEndpointing":true,"endpointCommitMs":1400,"noInputPrompts":["Sorry, I didn't catch that. Could you say it again?","I still can't hear you. Could you speak a little louder, or move closer to the phone?","It seems we're having trouble connecting. No problem — feel free to call back any time."],"noInputDelaysMs":[10000,14000,18000]}
+#0 long_context   endpoint=967 firstAudio=2452 firstReply=2452    "I have been having trouble with my order" → "I can definitely help with that. Since this is Sun"
+#1 med_booking    endpoint=970 firstAudio=5709 firstReply=5709    "Okay. Can you book me an appointment for" → "Got it, tomorrow at ten works. Could I grab your n"
+#2 name_spell     endpoint=0 firstAudio=- firstReply=-   (CUT OFF 960ms early) "" → ""
+#3 number_read    endpoint=- firstAudio=5412 firstReply=5412  (backstop)  "My name is Priya, that is my order numbe" → "Thanks Priya, and what's the best phone number to "
+#4 pause_mid      endpoint=981 firstAudio=1397 firstReply=2551 (ack)   "I would like to book an appointment for," → "Sure, Thursday afternoon works. Could I get your p"
+#5 q_hours        endpoint=-1 firstAudio=- firstReply=-   (CUT OFF 1600ms early) "" → ""
+#6 q_price        endpoint=971 firstAudio=2381 firstReply=2381    "What are your how much does a consultati" → "A consultation is 500 rupees."
+#7 q_services     endpoint=-18 firstAudio=- firstReply=-   (CUT OFF 1740ms early) "" → ""
+#8 short_yes      endpoint=1003 firstAudio=2186 firstReply=2186    "Hi. Can you yes. That works for me." → "Got it. What's the best phone number to reach you "
+#9 thanks_bye     endpoint=-1 firstAudio=- firstReply=-   (CUT OFF 980ms early) "" → ""
+#10 transfer_neg   endpoint=1011 firstAudio=2550 firstReply=2550    "Thanks. That is all I know. I do not nee" → "Just to confirm, a consultation costs 500 rupees."
+#11 transfer_req   endpoint=0 firstAudio=- firstReply=-   (CUT OFF 560ms early) "" → ""
+#12 long_context   endpoint=1590 firstAudio=3504 firstReply=3504    "Can I speak to a real person? I have bee" → "I can't connect you to a person on this line, but "
+#13 med_booking    endpoint=931 firstAudio=2132 firstReply=2132    "Okay. Can you book me an appointment for" → "Sure, we can do tomorrow at ten. What's your name?"
+#14 name_spell     endpoint=1948 firstAudio=3079 firstReply=3079    "My name is Priya, that is p r I y a." → "Got it, Priya. Your consultation is set for tomorr"
+#15 number_read    endpoint=- firstAudio=4502 firstReply=5911 (ack) (backstop)  "My order number is 437219." → "Alright, Priya, I've noted down your order number."
+#16 pause_mid      endpoint=969 firstAudio=2548 firstReply=2548    "I would like to book an appointment for," → "Sure, Thursday afternoon works. What time would yo"
+#17 q_hours        endpoint=0 firstAudio=- firstReply=-   (CUT OFF 1560ms early) "" → ""
+#18 q_price        endpoint=950 firstAudio=2343 firstReply=2343    "What are your how much does a consultati" → "That's 500 rupees. Would you like to lock in a spe"
+#19 q_services     endpoint=0 firstAudio=- firstReply=-   (CUT OFF 2100ms early) "" → ""
+#20 short_yes      endpoint=1002 firstAudio=2330 firstReply=2330    "Hi. Yes. That works for me." → "Got it. What time on Thursday would you prefer?"
+#21 thanks_bye     endpoint=1035 firstAudio=2328 firstReply=2328    "Thanks. That is all I needed. Bye." → "Bye! Have a great day."
+#22 transfer_neg   endpoint=0 firstAudio=- firstReply=-   (CUT OFF 1720ms early) "" → ""
+#23 transfer_req   endpoint=949 firstAudio=2304 firstReply=2304    "No. I do not need a manager. Can I speak" → "I can't connect you to someone directly on this ca"
+{
+  "label": "fix_off",
+  "turns": 24,
+  "failed": 8,
+  "cutOff": 8,
+  "endpoint": {
+    "n": 22,
+    "p50": 950,
+    "p90": 1035,
+    "p95": 1590,
+    "p99": 1948,
+    "max": 1948
+  },
+  "firstAudioAny": {
+    "n": 16,
+    "p50": 2381,
+    "p90": 5412,
+    "p95": 5709,
+    "p99": 5709,
+    "max": 5709
+  },
+  "firstReplyAudio": {
+    "n": 16,
+    "p50": 2452,
+    "p90": 5709,
+    "p95": 5911,
+    "p99": 5911,
+    "max": 5911
+  },
+  "done": {
+    "n": 24,
+    "p50": 2598,
+    "p90": 5843,
+    "p95": 5894,
+    "p99": 6205,
+    "max": 6205
+  }
+}

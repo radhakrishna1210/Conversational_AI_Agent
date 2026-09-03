@@ -12,6 +12,9 @@
 
 import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
+import { speculationMatches } from './voice/speculativeTurn.js';
+import { ambienceTagFor } from './voice/ambience.js';
+import { detectTransferRequest, createTransferMarkerScanner, stripTransferMarker, transferPromptSection, TRANSFER_MARKER as TRANSFER_MARKER_LITERAL } from './voice/transferIntent.js';
 import { createSegmentOrder } from './voice/segmentOrder.js';
 import { logTurnLatency } from '../lib/latencyLog.js';
 import { getLLMProviderWithFallback } from './llm.factory.js';
@@ -354,7 +357,7 @@ export const KB_MESSAGE_ACK =
  *   realtime engines must keep kbInline=true: they push one instruction blob at
  *   session open and have no conversation turns to attach the KB to.
  */
-export function buildAgentSystemPrompt(agent, kbText, { voiceMode = false, kbInline = true, spokenWelcome = null } = {}) {
+export function buildAgentSystemPrompt(agent, kbText, { voiceMode = false, kbInline = true, spokenWelcome = null, transfer = null } = {}) {
   const flowItems = (safeJson(agent.flowItems, []) || []).filter((f) => f && f.enabled !== false);
   const settings = safeJson(agent.settings, {});
   const languages = safeJson(agent.languages, []);
@@ -422,9 +425,20 @@ ${languages.length
 - If the caller signals they're finished ("thank you", "thanks, bye", "that's all", "no, that's it"), stop asking questions — warmly acknowledge and wrap up${settings.endCallMessage ? `, closing with: "${settings.endCallMessage}"` : ''}. Never keep interrogating after a clear goodbye.
 ${voiceMode ? HUMAN_SPEECH_RULES : ''}
 ${settings.fillerWords && voiceMode ? NATURAL_SPEECH_RULES : ''}
-${(settings.transferNumber || settings.transferCondition)
-    ? `- Escalation/transfer: ${settings.transferCondition ? `When ${String(settings.transferCondition).trim()}, ` : 'If the caller asks for a human or needs something beyond your scope, '}let them know warmly that you'll connect them to a team member and are transferring them now. Never claim the transfer already went through or invent what the other person says.`
-    : ''}
+${voiceMode
+    // The handover protocol (see voice/transferIntent.js). `transfer` says
+    // whether a real handover can happen on THIS call — a phone call on a
+    // carrier that can redirect, inside transfer hours, with a number set. On
+    // anything else the model is told to be honest rather than to announce a
+    // transfer nothing will perform, which is what the old prompt line did.
+    ? transferPromptSection({
+      available: Boolean(transfer?.available),
+      condition: transfer?.condition ?? settings.transferCondition ?? '',
+      targetLabel: transfer?.targetLabel ?? 'a team member',
+    })
+    : ((settings.transferNumber || settings.transferCondition)
+      ? `- If the user asks for a human${settings.transferCondition ? `, or when ${String(settings.transferCondition).trim()}` : ''}, say that a team member can follow up and offer to take their contact details. This is a text chat: nobody can be connected live, so never say a transfer is happening.`
+      : '')}
 ${voiceMode
     ? `- This is a live VOICE call: reply in 1-2 short natural spoken sentences (never more). Answer ONLY what was asked — give one fact/price at a time and offer to share more instead of listing everything. Absolutely no markdown, no bullet points, no emojis, and no stage directions or narration like *sighs* or (pauses)${settings.fillerWords ? ' — the ONLY markup allowed is the <break time="..."/> pause tag described above' : ''}. Everything else you write is spoken aloud verbatim.`
     : `- Keep replies to 2-4 short sentences — answer what was asked and ask at most one follow-up. No markdown headings or bullet-point walls; write like a person chatting.`}`;
@@ -812,6 +826,7 @@ export function buildRuntimeMessages({
   ragText = '',
   voiceMode = false,
   supportsChatHistory = false,
+  transfer = null,
 }) {
   // RAG-retrieved chunks vary with every question, so — unlike kbText above —
   // they must NEVER sit in the system prompt or the static synthetic KB turn
@@ -825,7 +840,7 @@ export function buildRuntimeMessages({
     : content);
 
   if (!supportsChatHistory) {
-    let systemPrompt = buildAgentSystemPrompt(agent, kbText, { voiceMode });
+    let systemPrompt = buildAgentSystemPrompt(agent, kbText, { voiceMode, transfer });
     if (prior.length) {
       const transcript = prior
         .map((m) => `${m.role === 'user' ? 'User' : agent.name}: ${m.content}`)
@@ -846,7 +861,7 @@ export function buildRuntimeMessages({
   chatHistory.push(...prior);
 
   return {
-    systemPrompt: buildAgentSystemPrompt(agent, kbText, { voiceMode, kbInline: false }),
+    systemPrompt: buildAgentSystemPrompt(agent, kbText, { voiceMode, kbInline: false, transfer }),
     chatHistory,
     // Order is RAG excerpts, then affect — both ride on the current turn,
     // never the system prompt or the cached KB turn.
@@ -912,7 +927,7 @@ export function windowHistory(messages, { maxMessages, maxChars }) {
   return kept;
 }
 
-async function _prepareConverse(workspaceId, agentId, messages, { voiceMode = false, affect = null } = {}) {
+async function _prepareConverse(workspaceId, agentId, messages, { voiceMode = false, affect = null, transfer = null } = {}) {
   const agent = await loadAgent(workspaceId, agentId);
   if (!agent) {
     const err = new Error('Agent not found in this workspace');
@@ -975,6 +990,7 @@ async function _prepareConverse(workspaceId, agentId, messages, { voiceMode = fa
     ragText,
     voiceMode,
     supportsChatHistory: Boolean(llm.supportsChatHistory),
+    transfer,
   });
   // Brevity in voice mode is enforced by the prompt, not the token cap —
   // Gemini 2.5's internal "thinking" tokens count against maxTokens, so a
@@ -1025,9 +1041,9 @@ export const isRateLimited = (err) =>
  */
 const VOICE_MODEL_FALLBACKS = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
 
-export async function converse(workspaceId, agentId, messages, { voiceMode = false, affect = null } = {}) {
+export async function converse(workspaceId, agentId, messages, { voiceMode = false, affect = null, transfer = null } = {}) {
   const { agent, message, llm, provider, model, config, options, ragMs } =
-    await _prepareConverse(workspaceId, agentId, messages, { voiceMode, affect });
+    await _prepareConverse(workspaceId, agentId, messages, { voiceMode, affect, transfer });
 
   const raw = await llm.generateResponse(message, config, options);
   let reply = (typeof raw === 'object' ? raw.message : raw) || '';
@@ -1049,9 +1065,15 @@ export async function converse(workspaceId, agentId, messages, { voiceMode = fal
  * rate-limit fallback below.
  * @returns {AsyncGenerator<string, { provider: string, model: string, ragMs: number }>}
  */
-export async function* converseStream(workspaceId, agentId, messages, { voiceMode = false, affect = null } = {}) {
-  const { message, llm, provider, model, config, options, ragMs } =
-    await _prepareConverse(workspaceId, agentId, messages, { voiceMode, affect });
+export async function* converseStream(workspaceId, agentId, messages, { voiceMode = false, affect = null, signal = null, transfer = null } = {}) {
+  const { message, llm, provider, model, config, options: prepared, ragMs } =
+    await _prepareConverse(workspaceId, agentId, messages, { voiceMode, affect, transfer });
+  // `signal` lets a speculative turn cancel a superseded request at the
+  // provider socket (see voice/speculativeTurn.js). Providers that ignore it
+  // still stop being consumed when the generator is returned; they just finish
+  // in the background.
+  const options = signal ? { ...prepared, signal } : prepared;
+  if (signal?.aborted) return { provider, model, ragMs };
 
   if (typeof llm.generateResponseStream !== 'function') {
     // Non-streaming provider: one buffered call, emitted as a single chunk.
@@ -1492,10 +1514,37 @@ export async function voiceTurn(workspaceId, agentId, audioBuffer, mimeType, his
  * path of a live call. Everything else about the turn is identical, which is
  * the point: web and phone run the same conversation code.
  */
-export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeType, history = [], { onEvent, shouldAbort, userText: providedText, audioHadSpeech = false, affect = null, fillerBudget = null, audioFormat = null, sampleRate = null, channel = null, preLlmMs = null, endpointMs = null, turnId = null } = {}) {
+export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeType, history = [], { onEvent, shouldAbort, userText: providedText, audioHadSpeech = false, affect = null, fillerBudget = null, audioFormat = null, sampleRate = null, channel = null, preLlmMs = null, endpointMs = null, turnId = null, speculation = null, extraLatency = null, transfer = null } = {}) {
   const emit = typeof onEvent === 'function' ? onEvent : () => {};
   const aborted = typeof shouldAbort === 'function' ? shouldAbort : () => false;
   const turnStartedAt = performance.now();
+  // ── Speculative LLM stream (see voice/speculativeTurn.js) ─────────────────
+  // `speculation.hit` is an iterator over a request the transport started
+  // BEFORE this turn committed, on a transcript that matched the committed one.
+  // When present it replaces the fresh converseStream() call below, so the
+  // first token — possibly the whole reply — is already in hand. Nothing here
+  // emits audio for it until the same place ordinary tokens are spoken from.
+  let specHit = speculation?.hit ?? null;
+  const specMode = speculation?.mode ?? 'off';
+  // A speculative iterator that has already produced its first token must not
+  // be subject to the first-token hedge below: racing a second request against
+  // tokens we already hold would be pure waste.
+  let specConsumed = false;
+  const startLlmStream = () => {
+    if (specHit) { specConsumed = true; return specHit.iterator; }
+    return converseStream(workspaceId, agentId, messages, { voiceMode: true, affect, transfer });
+  };
+  // ── Human handover (see voice/transferIntent.js) ─────────────────────────
+  // Two signals: the pre-filter on the caller's words, and the model's marker
+  // token at the head of its reply. The scanner strips the marker before any
+  // text reaches the reply filter or TTS, so it is never spoken.
+  const transferScanner = createTransferMarkerScanner();
+  let transferPre = { requested: false, confidence: null, matched: null, negated: false };
+  // A hit the turn never consumed (silence gate, buffered fallback, an error)
+  // must not leave its request running.
+  const dropUnusedSpeculation = () => {
+    if (specHit && !specConsumed) { specHit.iterator.return?.().catch?.(() => {}); specHit = null; }
+  };
 
   const agent = await loadAgent(workspaceId, agentId);
   if (!agent) {
@@ -1590,11 +1639,28 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
         `audioHadSpeech=${audioHadSpeech}) — not starting an agent turn`,
       );
     }
+    dropUnusedSpeculation();
     emit({ type: 'transcript', userText: '' });
     emit({ type: 'done', reply: null, timings: { sttMs, llmMs: 0, ttsMs: 0, ttfaMs: 0, totalMs: Math.round(performance.now() - turnStartedAt) } });
     return;
   }
   emit({ type: 'transcript', userText });
+
+  // The speculation was matched against the RAW streamed transcript; the echo
+  // trim above can still change the words. Re-check against what the model is
+  // actually going to be asked, and drop the hit rather than answer the wrong
+  // question quickly.
+  if (specHit && !speculationMatches(specHit.text, userText)) {
+    logger.info(`Speculation discarded after echo trim: "${specHit.text}" vs "${userText}"`);
+    specHit.iterator.return?.().catch?.(() => {});
+    if (speculation?.turn) {
+      speculation.turn.wasted += 1;
+      speculation.turn.wastedChars += specHit.bufferedChars || 0;
+    }
+    specHit = null;
+  }
+
+  transferPre = detectTransferRequest(userText);
 
   const voiceWaitStart = performance.now();
   const voice = await voicePromise;
@@ -1824,6 +1890,9 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
       try {
         const { stream, contentType } = await streamSynthesizeVoice(voice, clean, {
           fast: true, pace: speakingRate, affect,
+          // Mode A ambience: a Fish S2 inline tag on the synthesis request
+          // only (null unless the agent is in 'native' mode on a tagged preset).
+          ambienceTag: ambienceTagFor(settings),
           ...(audioFormat ? { audioFormat } : {}),
           ...(sampleRate ? { sampleRate } : {}),
         });
@@ -1939,7 +2008,7 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
     try { tts?.connect(); } catch (e) { connected = false; logger.warn(`${ttsProvider} WS TTS connect failed: ${e.message}`); }
 
     if (connected) {
-      const iterator = converseStream(workspaceId, agentId, messages, { voiceMode: true, affect });
+      const iterator = startLlmStream();
       let first;
       try {
         first = await withTimeout(iterator.next(), LLM_FIRST_TOKEN_TIMEOUT_MS);
@@ -1965,7 +2034,7 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
           if (aborted()) { await iterator.return?.(); break; }
           // Filtered text is what gets spoken AND what `reply` accumulates, so
           // the transcript can never claim the agent said something it didn't.
-          const piece = filter.push(result.value);
+          const piece = filter.push(transferScanner.push(result.value));
           if (piece) {
             reply += piece;
             if (firstTtsTextAt == null) firstTtsTextAt = performance.now();
@@ -1974,7 +2043,7 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
           result = await iterator.next();
         }
         if (!aborted()) {
-          const tail = filter.flush(); // opener held back on a very short reply
+          const tail = filter.push(transferScanner.flush()) + filter.flush(); // opener held back on a very short reply
           if (tail) { reply += tail; tts.pushText(tail); }
         }
         if (result.done) ({ provider, model, ragMs } = result.value || {});
@@ -2018,12 +2087,19 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
     // (that was the real motivation), but a first token that was merely a
     // little late — by far the common case — still arrives on the original
     // stream instead of being thrown away seconds into its own generation.
-    let iterator = converseStream(workspaceId, agentId, messages, { voiceMode: true, affect });
+    let iterator = startLlmStream();
     let first = null;
     const primaryNext = iterator.next();
     let timedOut = false;
     try {
-      first = await withTimeout(primaryNext, LLM_FIRST_TOKEN_TIMEOUT_MS);
+      // A speculative stream has been running since before the turn committed;
+      // its budget is measured from ITS start, not from now, so a hit that is
+      // simply still waiting on a slow model gets the remaining time rather
+      // than a fresh 2.5s on top of what it already spent.
+      const budgetMs = specHit
+        ? Math.max(250, LLM_FIRST_TOKEN_TIMEOUT_MS - Math.round(performance.now() - specHit.startedAt))
+        : LLM_FIRST_TOKEN_TIMEOUT_MS;
+      first = await withTimeout(primaryNext, budgetMs);
     } catch (err) {
       // HEDGE ONLY ON SLOWNESS, NEVER ON A FAILURE. The hedge answers "this
       // stream is taking too long" with a second request — which is the right
@@ -2066,7 +2142,7 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
       while (!result.done) {
         // `reply` holds FILTERED text, so splitIdx and the slices below all
         // index the same string the caller will hear.
-        reply += filter.push(result.value);
+        reply += filter.push(transferScanner.push(result.value));
         if (aborted()) { await iterator.return?.(); break; }
         if (splitIdx < 0) {
           boundary.lastIndex = 0;
@@ -2078,7 +2154,7 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
         }
         result = await iterator.next();
       }
-      if (!aborted()) reply += filter.flush();
+      if (!aborted()) reply += filter.push(transferScanner.flush()) + filter.flush();
       if (result.done) ({ provider, model, ragMs } = result.value || {});
       llmMs = Math.round(performance.now() - llmStartedAt);
       // splitIdx indexes the RAW reply — take the remainder before stripping,
@@ -2113,7 +2189,9 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
       converseResult = await runConverse(); // fresh attempt; almost always fast
     }
     ({ provider, model, ragMs } = converseResult);
-    reply = stripForVoice(filterReplyText(converseResult.reply || '', replyFilterOpts));
+    const bufferedScan = stripTransferMarker(converseResult.reply || '');
+    if (bufferedScan.transfer) transferScanner.push(TRANSFER_MARKER_LITERAL);
+    reply = stripForVoice(filterReplyText(bufferedScan.text, replyFilterOpts));
     llmMs = Math.round(performance.now() - llmStartedAt);
     llmTtftMs = llmMs; // buffered call: first token only exists once the reply is done
     if (reply && !aborted()) await streamTtsForText(reply);
@@ -2124,6 +2202,7 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
   // synthesized (empty reply / no voice / TTS failure), no audio frames were
   // emitted at all — the client resumes listening off 'done'.
 
+  dropUnusedSpeculation();
   const totalMs = Math.round(performance.now() - turnStartedAt);
   const ttfaMs = firstAudioAt != null ? Math.round(firstAudioAt - turnStartedAt) : totalMs;
 
@@ -2148,11 +2227,29 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
   // the honest end-to-end number: from the moment they stopped speaking to the
   // moment audio came back.
   const waitMs = ttfaMs + (preLlmMs || 0) + (endpointMs || 0);
+  // ── Speculation accounting ────────────────────────────────────────────────
+  // `speculative`: hit (a pre-committed request was used), miss (one or more
+  // were started and discarded), none (nothing was started). `specLeadMs` is
+  // how long the winning request had already been running when this turn
+  // began — the LLM time the caller did NOT wait for. `llmTtftAbsMs` is the
+  // model's real first-token time measured from the request, so the model can
+  // still be judged even when `llmTtftMs` (from turn start) reads ~0 on a hit.
+  const specTurn = speculation?.turn ?? null;
+  const speculative = specHit ? 'hit' : (specTurn && specTurn.started > 0 ? 'miss' : 'none');
+  const specLeadMs = specHit ? Math.round(turnStartedAt - specHit.startedAt) : null;
+  const llmTtftAbsMs = specHit
+    ? (specHit.firstTokenAt != null ? Math.round(specHit.firstTokenAt - specHit.startedAt) : (llmTtftMs != null ? llmTtftMs + specLeadMs : null))
+    : llmTtftMs;
   const latency = {
     turnId, agentId, channel, sttProvider, llmProvider: provider, model, prepMs,
     endpointMs, preLlmMs,
-    sttMs, voiceWaitMs, ragMs, llmMs, llmTtftMs, ttsMs, ttsTtfaMs, ttfaMs, waitMs, totalMs,
+    sttMs, voiceWaitMs, ragMs, llmMs, llmTtftMs, llmTtftAbsMs, ttsMs, ttsTtfaMs, ttfaMs, waitMs, totalMs,
     streamed: true, mode: ttsMode, delivery: ttsDelivery, filler: fillerPlayed, natural: naturalMode,
+    transfer: transferScanner.found() ? 'marker' : (transferPre.requested ? 'regex' : null),
+    speculative, specMode, specTrigger: specHit?.trigger ?? null, specLeadMs,
+    specBufferedChars: specHit?.bufferedChars ?? null,
+    specStarted: specTurn?.started ?? 0, specWasted: specTurn?.wasted ?? 0, specWastedChars: specTurn?.wastedChars ?? 0,
+    ...(extraLatency && typeof extraLatency === 'object' ? extraLatency : {}),
   };
   logger.info(latency, 'Web call streaming turn latency');
   logTurnLatency(latency);
@@ -2162,6 +2259,23 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
   // history fed back into the next prompt — so the markup comes off. Leaving it
   // in would also teach the model, turn by turn, to write more of it.
   const displayReply = stripSpeechMarkup(reply);
+  // Handover decision for this turn. The model's marker is authoritative; an
+  // explicit, unnegated request in the caller's own words is honoured on its
+  // own too, so a model that forgets the protocol cannot strand a caller who
+  // plainly asked for a person. Emitted whether or not a transfer is
+  // AVAILABLE — the transport decides what to do (dial, or record that a
+  // callback was offered on a browser call).
+  const transferSource = transferScanner.found() ? 'marker' : (transferPre.requested ? 'regex' : null);
+  if (transferSource && !aborted()) {
+    emit({
+      type: 'transfer',
+      source: transferSource,
+      reason: userText,
+      available: Boolean(transfer?.available),
+      spoken: displayReply,
+      matched: transferPre.matched ?? null,
+    });
+  }
   emit({ type: 'done', reply: displayReply, timings: { sttMs, llmMs, ttsMs, ttfaMs, totalMs } });
   return { userText, reply: displayReply, timings: { sttMs, llmMs, ttsMs, ttfaMs, totalMs } };
 }

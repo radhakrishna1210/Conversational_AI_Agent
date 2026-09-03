@@ -1,0 +1,51 @@
+ready {"type":"ready","sttEndpointing":true,"endpointCommitMs":1400,"noInputPrompts":["Sorry, I didn't catch that. Could you say it again?","I still can't hear you. Could you speak a little louder, or move closer to the phone?","It seems we're having trouble connecting. No problem — feel free to call back any time."],"noInputDelaysMs":[10000,14000,18000]}
+#0 long_context   endpoint=983 firstAudio=2163 firstReply=2163    "I have been having trouble with my order" → "Oh, I'm really sorry to hear that you're having tr"
+#1 med_booking    endpoint=1564 firstAudio=3023 firstReply=3023    "Okay. Can you book me an appointment for" → "Got it, tomorrow at ten works. May I have your nam"
+#2 name_spell     endpoint=1903 firstAudio=2296 firstReply=2296    "My name is Priya, that is p r I y a." → "Thanks, Priya. Could I also get your phone number "
+#3 number_read    endpoint=- firstAudio=4509 firstReply=5406 (ack) (backstop)  "My order number is 437219." → "Ah, I think you might have mixed up the order numb"
+#4 pause_mid      endpoint=949 firstAudio=1606 firstReply=1606    "I would like to book an appointment for," → "Sure, Thursday afternoon works. Could you just sha"
+#5 q_hours        endpoint=854 firstAudio=1968 firstReply=1968    "What are your business hours on weekends" → "We're open from 9 am to 6 pm on Saturday, but we'r"
+#6 q_price        endpoint=899 firstAudio=1316 firstReply=1988 (ack)   "How much does a consultation cost?" → "A consultation is 500 rupees. Would you like me to"
+#7 q_services     endpoint=897 firstAudio=1998 firstReply=1998    "Hi. Can you tell me what services you of" → "Got it. We handle general dental consultations and"
+#8 short_yes      endpoint=961 firstAudio=5115 firstReply=5115    "Yes. That works for me." → "Alright, what's the best phone number to reach you"
+#9 thanks_bye     endpoint=985 firstAudio=2042 firstReply=2042    "Thanks. That is all I needed. Bye." → "You're welcome! Have a wonderful day."
+#10 transfer_neg   endpoint=1006 firstAudio=2852 firstReply=2852    "No. I do not need a manager. Just tell m" → "Sure, a consultation is 500 rupees."
+#11 transfer_req   endpoint=904 firstAudio=2175 firstReply=2175    "Can I speak to a real person, please?" → "I can't connect you to someone right on this call,"
+{
+  "label": "ep100",
+  "turns": 12,
+  "failed": 0,
+  "cutOff": 0,
+  "endpoint": {
+    "n": 11,
+    "p50": 961,
+    "p90": 1564,
+    "p95": 1903,
+    "p99": 1903,
+    "max": 1903
+  },
+  "firstAudioAny": {
+    "n": 12,
+    "p50": 2163,
+    "p90": 4509,
+    "p95": 5115,
+    "p99": 5115,
+    "max": 5115
+  },
+  "firstReplyAudio": {
+    "n": 12,
+    "p50": 2163,
+    "p90": 5115,
+    "p95": 5406,
+    "p99": 5406,
+    "max": 5406
+  },
+  "done": {
+    "n": 12,
+    "p50": 2892,
+    "p90": 5684,
+    "p95": 5942,
+    "p99": 5942,
+    "max": 5942
+  }
+}

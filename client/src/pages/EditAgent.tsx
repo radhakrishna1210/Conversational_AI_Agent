@@ -89,6 +89,29 @@ const TTS_DELIVERY_OPTIONS = [
   },
 ];
 
+/**
+ * Speculative replies: start the model on what the caller has said BEFORE the
+ * turn is confirmed over, and keep the answer only if the final transcript
+ * matches. More aggressive = faster first word, more discarded (paid-for)
+ * requests. Kept in step with services/voice/speculativeTurn.js.
+ */
+const SPECULATION_OPTIONS = [
+  { id: 'off', label: 'Off', hint: 'One request per turn', description: 'Ask the model only once the caller has definitely finished. Slowest, cheapest.' },
+  { id: 'candidate', label: 'On pause', hint: 'Recommended', description: 'Start the model the moment the caller pauses; the confirmation wait overlaps the model instead of preceding it. Roughly one extra request for every five turns.' },
+  { id: 'interim', label: 'While speaking', hint: 'Fastest, costs more', description: 'Also restart the model as the transcript grows during speech, so the answer may be ready before the caller stops. Up to two extra requests per turn.' },
+];
+
+const TRANSFER_MODE_OPTIONS = [
+  { id: 'announce', label: 'Announce, then connect', description: 'The agent says it is connecting the caller, then the call rings the number. If nobody answers, the agent comes back and says so.' },
+  { id: 'immediate', label: 'Connect immediately', description: 'Ring the number as soon as the caller asks, without an announcement sentence.' },
+];
+const TRANSFER_OOH_OPTIONS = [
+  { id: 'callback', label: 'Offer a callback', description: 'Outside these hours the agent says nobody is available and offers to take a message or a callback.' },
+  { id: 'attempt', label: 'Try anyway', description: 'Ring the number regardless of the hours; the agent comes back if nobody answers.' },
+  { id: 'decline', label: 'Decline', description: 'Outside these hours the agent explains a human is not available and continues helping itself.' },
+];
+const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
 const FINALIZE_RETRY_DELAYS_MS = [800, 2500, 6000];
 
 async function withRetry<T>(label: string, run: () => Promise<T>): Promise<T> {
@@ -291,6 +314,19 @@ export default function EditAgent() {
   const [endCallMessage, setEndCallMessage] = useState('Goodbye and thank you for calling.');
   const [transferNumber, setTransferNumber] = useState('');
   const [transferCondition, setTransferCondition] = useState('');
+  // ── Human handover ────────────────────────────────────────────────────
+  // A real carrier-level transfer (Twilio / Plivo) with an honest failure
+  // path. Everything here is persisted in the agent's settings JSON and
+  // validated by the API (validators/agentSettings.validator.js).
+  const [transferLabel, setTransferLabel] = useState('');
+  const [transferMode, setTransferMode] = useState('announce');
+  const [transferTimeoutSec, setTransferTimeoutSec] = useState(25);
+  const [transferOutOfHours, setTransferOutOfHours] = useState('callback');
+  const [transferHours, setTransferHours] = useState<{ enabled: boolean; start: string; end: string; days: number[]; timezone: string }>({
+    enabled: false, start: '09:00', end: '18:00', days: [1, 2, 3, 4, 5], timezone: 'Asia/Kolkata',
+  });
+  // Speculative replies — see SPECULATION_OPTIONS.
+  const [speculation, setSpeculation] = useState('candidate');
   const [fillerWords, setFillerWords] = useState(false);
   const [speakingRate, setSpeakingRate] = useState(1.0);
   // ── Response speed (per agent) ────────────────────────────────────────
@@ -307,6 +343,11 @@ export default function EditAgent() {
   // guessing that in the browser is how the setting ends up lying.
   const [responseProfile, setResponseProfile] = useState<any>(null);
   const [ambientSound, setAmbientSound] = useState('None');
+  // Background sound switch: 'off' | 'manual' (pre-rendered bed, continuous,
+  // free per turn) | 'native' (Fish Audio generates it with the speech; stops
+  // between turns; Fish voices only). New agents default to off; an existing
+  // agent with a preset keeps behaving as before (see resolveAmbientMode).
+  const [ambientMode, setAmbientMode] = useState('off');
   const [showModelModal, setShowModelModal] = useState(false);
   // Filter text for the model picker. Lives here rather than inside the modal
   // so opening it can reset the box — a stale query from last time reads as an
@@ -893,11 +934,30 @@ export default function EditAgent() {
           setEndCallMessage((agent as any).endCallMessage ?? 'Goodbye and thank you for calling.');
           setTransferNumber((agent as any).transferNumber ?? '');
           setTransferCondition((agent as any).transferCondition ?? '');
+          setTransferLabel((agent as any).transferLabel ?? '');
+          setTransferMode((agent as any).transferMode ?? 'announce');
+          setTransferTimeoutSec(Number((agent as any).transferTimeoutSec) || 25);
+          setTransferOutOfHours((agent as any).transferOutOfHours ?? 'callback');
+          {
+            const h = (agent as any).transferHours;
+            if (h && typeof h === 'object') {
+              setTransferHours({
+                enabled: Boolean(h.enabled), start: h.start || '09:00', end: h.end || '18:00',
+                days: Array.isArray(h.days) && h.days.length ? h.days.map(Number) : [1, 2, 3, 4, 5],
+                timezone: h.timezone || 'Asia/Kolkata',
+              });
+            }
+          }
+          setSpeculation((agent as any).speculation ?? 'candidate');
           setFillerWords((agent as any).fillerWords ?? false);
           setSpeakingRate((agent as any).speakingRate ?? 1.0);
           setTurnEndSensitivity((agent as any).turnEndSensitivity ?? 'balanced');
           setTtsDelivery((agent as any).ttsDelivery ?? 'auto');
           setAmbientSound((agent as any).ambientSound ?? 'None');
+          {
+            const { ambientMode: m, ambientSound: preset } = agent as { ambientMode?: string; ambientSound?: string };
+            setAmbientMode(m && ['off', 'manual', 'native'].includes(m) ? m : (preset && preset !== 'None' ? 'manual' : 'off'));
+          }
           setInterruptibleEnabled(agent.interruptibleEnabled ?? true);
           setFlowItems((agent.flowItems as any) || getDefaultFlowItems(agent.name || ''));
           setPostCallConfigs(savedPostCallConfigs?.length
@@ -967,11 +1027,18 @@ export default function EditAgent() {
       endCallMessage,
       transferNumber,
       transferCondition,
+      transferLabel,
+      transferMode,
+      transferTimeoutSec,
+      transferOutOfHours,
+      transferHours,
+      speculation,
       fillerWords,
       speakingRate,
       turnEndSensitivity,
       ttsDelivery,
       ambientSound,
+      ambientMode,
       interruptibleEnabled,
       postCallConfigs,
       kbUrls,
@@ -1186,7 +1253,8 @@ export default function EditAgent() {
         aiModel, voice, transcription,
         languages: selectedLanguages, flowItems, maxDuration, silenceTimeout,
         maxSilenceBeforeHangup, endCallMessage, transferNumber, transferCondition,
-        fillerWords, speakingRate, ambientSound, interruptibleEnabled,
+        transferLabel, transferMode, transferTimeoutSec, transferOutOfHours, transferHours, speculation,
+        fillerWords, speakingRate, ambientSound, ambientMode, interruptibleEnabled,
         postCallConfigs, kbUrls, kbFiles: kbFiles.map(f => f.fileName)
       };
       await whapi.put(`/agents/${agentId}`, agentData);
@@ -4259,6 +4327,18 @@ export default function EditAgent() {
 
                       {section.id === 'transfer' && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+                          {/* What actually happens. Stated up front because the previous
+                              version of this feature was prompt text only: the agent
+                              announced a transfer and nothing dialled. */}
+                          <div style={{ padding: '10px 12px', background: 'var(--s1)', border: '1px solid var(--line-2)', borderRadius: '8px', fontSize: '11.5px', color: 'var(--tx-2)', lineHeight: 1.55 }}>
+                            When a caller asks for a person, the agent announces the handover and the live call rings the number
+                            below (Twilio and Plivo phone calls). If nobody answers, the line is busy or the number fails, the agent
+                            comes back and says so, then offers a message or a callback &mdash; it never claims a transfer happened.
+                            {' '}Browser test calls and PIOPIY calls have no line to hand over: the agent says so and offers a callback.
+                            {responseProfile?.transfer?.configured === false && transferNumber.trim() === '' && (
+                              <> <span style={{ color: '#d6ac46', fontWeight: 700 }}>No number is set, so no call can be transferred.</span></>
+                            )}
+                          </div>
                           <div>
                             <label style={{ display: 'block', color: 'var(--tx)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Transfer Phone Number</label>
                             <input type="text" placeholder="+1234567890" value={transferNumber} onChange={e => setTransferNumber(e.target.value)} style={{ width: '100%', padding: '10px 14px', background: 'var(--s1)', border: '1px solid var(--line-2)', borderRadius: '8px', color: 'var(--tx)', outline: 'none' }} />
@@ -4267,6 +4347,75 @@ export default function EditAgent() {
                             <label style={{ display: 'block', color: 'var(--tx)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Transfer Condition Prompt</label>
                             <div style={{ fontSize: '12px', color: 'var(--tx-2)', marginBottom: '12px' }}>When should the agent initiate a hand-off? e.g., "When the user asks to speak to a human or gets angry"</div>
                             <textarea value={transferCondition} onChange={e => setTransferCondition(e.target.value)} style={{ width: '100%', minHeight: '80px', padding: '10px 14px', background: 'var(--s1)', border: '1px solid var(--line-2)', borderRadius: '8px', color: 'var(--tx)', outline: 'none', resize: 'vertical' }} />
+                          </div>
+
+                          <div>
+                            <label style={{ display: 'block', color: 'var(--tx)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Who the caller is told they are being connected to</label>
+                            <input type="text" placeholder="a team member" value={transferLabel} onChange={e => setTransferLabel(e.target.value.slice(0, 60))} style={{ width: '100%', padding: '10px 14px', background: 'var(--s1)', border: '1px solid var(--line-2)', borderRadius: '8px', color: 'var(--tx)', outline: 'none' }} />
+                          </div>
+
+                          <div>
+                            <label style={{ display: 'block', color: 'var(--tx)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>How to hand over</label>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '10px' }}>
+                              {TRANSFER_MODE_OPTIONS.map(opt => {
+                                const active = transferMode === opt.id;
+                                return (
+                                  <div key={opt.id} onClick={() => setTransferMode(opt.id)} title={opt.description}
+                                    style={{ padding: '12px', background: active ? '#0a2e30' : 'var(--s1)', border: `1px solid ${active ? 'var(--cyan)' : 'var(--line-2)'}`, borderRadius: '8px', cursor: 'pointer', transition: 'all 0.2s' }}>
+                                    <div style={{ color: active ? 'var(--cyan)' : 'var(--tx)', fontWeight: '700', fontSize: '13px' }}>{opt.label}</div>
+                                    <div style={{ color: 'var(--tx-2)', fontSize: '11px', marginTop: '4px' }}>{opt.description}</div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          </div>
+
+                          <div>
+                            <label style={{ display: 'block', color: 'var(--tx)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Ring for up to {transferTimeoutSec} seconds</label>
+                            <input type="range" min={5} max={60} step={5} value={transferTimeoutSec} onChange={e => setTransferTimeoutSec(Number(e.target.value))} style={{ width: '100%' }} />
+                            <div style={{ fontSize: '11.5px', color: 'var(--tx-2)' }}>After this the agent takes the call back and tells the caller nobody could be reached.</div>
+                          </div>
+
+                          <div>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div>
+                                <div style={{ color: 'var(--tx)', fontSize: '14px', fontWeight: '600' }}>Only transfer during these hours</div>
+                                <div style={{ fontSize: '12px', color: 'var(--tx-2)', marginTop: '4px' }}>Outside them the agent follows the choice below instead of ringing an empty desk.</div>
+                              </div>
+                              <div onClick={() => setTransferHours({ ...transferHours, enabled: !transferHours.enabled })} style={{ width: '42px', height: '24px', background: transferHours.enabled ? 'var(--cyan)' : 'var(--s2)', borderRadius: '999px', position: 'relative', cursor: 'pointer' }}>
+                                <div style={{ width: '20px', height: '20px', background: 'var(--s1)', borderRadius: '50%', position: 'absolute', top: '2px', left: transferHours.enabled ? '20px' : '2px', transition: 'left 0.2s' }} />
+                              </div>
+                            </div>
+                            {transferHours.enabled && (
+                              <div style={{ marginTop: '12px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 2fr', gap: '10px' }}>
+                                  <input type="time" value={transferHours.start} onChange={e => setTransferHours({ ...transferHours, start: e.target.value })} style={{ padding: '8px 10px', background: 'var(--s1)', border: '1px solid var(--line-2)', borderRadius: '8px', color: 'var(--tx)' }} />
+                                  <input type="time" value={transferHours.end} onChange={e => setTransferHours({ ...transferHours, end: e.target.value })} style={{ padding: '8px 10px', background: 'var(--s1)', border: '1px solid var(--line-2)', borderRadius: '8px', color: 'var(--tx)' }} />
+                                  <input type="text" value={transferHours.timezone} onChange={e => setTransferHours({ ...transferHours, timezone: e.target.value })} placeholder="Asia/Kolkata" style={{ padding: '8px 10px', background: 'var(--s1)', border: '1px solid var(--line-2)', borderRadius: '8px', color: 'var(--tx)' }} />
+                                </div>
+                                <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                                  {WEEKDAYS.map((d, i) => {
+                                    const on = transferHours.days.includes(i);
+                                    return (
+                                      <div key={d} onClick={() => setTransferHours({ ...transferHours, days: on ? transferHours.days.filter(x => x !== i) : [...transferHours.days, i].sort() })}
+                                        style={{ padding: '6px 10px', borderRadius: '999px', fontSize: '12px', cursor: 'pointer', background: on ? '#0a2e30' : 'var(--s1)', border: `1px solid ${on ? 'var(--cyan)' : 'var(--line-2)'}`, color: on ? 'var(--cyan)' : 'var(--tx-2)' }}>{d}</div>
+                                    );
+                                  })}
+                                </div>
+                                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                                  {TRANSFER_OOH_OPTIONS.map(opt => {
+                                    const active = transferOutOfHours === opt.id;
+                                    return (
+                                      <div key={opt.id} onClick={() => setTransferOutOfHours(opt.id)} title={opt.description}
+                                        style={{ padding: '10px', background: active ? '#0a2e30' : 'var(--s1)', border: `1px solid ${active ? 'var(--cyan)' : 'var(--line-2)'}`, borderRadius: '8px', cursor: 'pointer' }}>
+                                        <div style={{ color: active ? 'var(--cyan)' : 'var(--tx)', fontWeight: '700', fontSize: '12.5px' }}>{opt.label}</div>
+                                        <div style={{ color: 'var(--tx-2)', fontSize: '11px', marginTop: '4px' }}>{opt.description}</div>
+                                      </div>
+                                    );
+                                  })}
+                                </div>
+                              </div>
+                            )}
                           </div>
                         </div>
                       )}
@@ -4409,14 +4558,84 @@ export default function EditAgent() {
                               </div>
                             )}
                           </div>
+
+                          <div style={{ height: '1px', background: 'var(--s1)' }} />
+
+                          {/* Speculative replies. The trade is latency against
+                              discarded model requests, and it is the owner's to
+                              make per agent, so the cost is stated on the control. */}
+                          <div>
+                            <label style={{ display: 'block', color: 'var(--tx)', fontSize: '14px', fontWeight: '600', marginBottom: '4px' }}>Think Ahead</label>
+                            <div style={{ fontSize: '12px', color: 'var(--tx-2)', marginBottom: '12px' }}>
+                              Start the model on what the caller has said before the turn is confirmed over. The answer is
+                              only used when the final words match; nothing is ever spoken early. Faster settings discard
+                              more requests, and every discarded request is still billed by the model provider.
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                              {SPECULATION_OPTIONS.map(opt => {
+                                const active = speculation === opt.id;
+                                return (
+                                  <div
+                                    key={opt.id}
+                                    onClick={() => setSpeculation(opt.id)}
+                                    title={opt.description}
+                                    style={{
+                                      padding: '12px',
+                                      background: active ? '#0a2e30' : 'var(--s1)',
+                                      border: `1px solid ${active ? 'var(--cyan)' : 'var(--line-2)'}`,
+                                      borderRadius: '8px',
+                                      cursor: 'pointer',
+                                      transition: 'all 0.2s',
+                                    }}
+                                  >
+                                    <div style={{ color: active ? 'var(--cyan)' : 'var(--tx)', fontWeight: '700', fontSize: '13px' }}>{opt.label}</div>
+                                    <div style={{ color: 'var(--tx-2)', fontSize: '11px', marginTop: '4px' }}>{opt.hint}</div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                            {responseProfile?.speculation?.available === false && (
+                              <div style={{ marginTop: '10px', fontSize: '11.5px', color: '#d6ac46' }}>
+                                Think Ahead is switched off for this platform by the administrator; every agent asks the model once per turn.
+                              </div>
+                            )}
+                          </div>
                         </div>
                       )}
 
                       {section.id === 'ambient' && (
                         <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                          <label style={{ display: 'block', color: 'var(--tx)', fontSize: '14px', fontWeight: '600' }}>Select Background Noise</label>
+                          {/* The three-state switch. Native ambience is generated by Fish
+                              Audio with the speech, so it stops whenever the agent is
+                              not talking; the manual bed is a pre-rendered loop that runs
+                              through silence and costs nothing per turn. */}
+                          <label style={{ display: 'block', color: 'var(--tx)', fontSize: '14px', fontWeight: '600' }}>Background Sound</label>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '10px' }}>
+                            {[
+                              { id: 'off', label: 'Off', hint: 'No background at all.' },
+                              { id: 'manual', label: 'Manual bed', hint: 'A pre-rendered loop, continuous, free per turn.' },
+                              { id: 'native', label: 'Fish Audio native', hint: 'Generated with the speech; stops between turns.' },
+                            ].map(opt => {
+                              const nativeBlocked = opt.id === 'native' && responseProfile?.ambience && responseProfile.ambience.nativeAvailable === false;
+                              const active = ambientMode === opt.id;
+                              return (
+                                <div key={opt.id} onClick={() => { if (!nativeBlocked) setAmbientMode(opt.id); }}
+                                  title={nativeBlocked ? responseProfile.ambience.nativeReason : opt.hint}
+                                  style={{ padding: '12px', background: active ? '#0a2e30' : 'var(--s1)', border: `1px solid ${active ? 'var(--cyan)' : 'var(--line-2)'}`, borderRadius: '8px', cursor: nativeBlocked ? 'not-allowed' : 'pointer', opacity: nativeBlocked ? 0.5 : 1, transition: 'all 0.2s' }}>
+                                  <div style={{ color: active ? 'var(--cyan)' : 'var(--tx)', fontWeight: '700', fontSize: '13px' }}>{opt.label}</div>
+                                  <div style={{ color: 'var(--tx-2)', fontSize: '11px', marginTop: '4px' }}>{nativeBlocked ? responseProfile.ambience.nativeReason : opt.hint}</div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                          {ambientMode !== 'off' && (
+                          <label style={{ display: 'block', color: 'var(--tx)', fontSize: '14px', fontWeight: '600' }}>
+                            {ambientMode === 'native' ? 'Room to ask Fish Audio for' : 'Select Background Sound'}
+                          </label>
+                          )}
+                          {ambientMode !== 'off' && (
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
-                            {AMBIENT_OPTIONS.map(sound => (
+                            {AMBIENT_OPTIONS.filter(s => s !== 'None' && (ambientMode !== 'native' || ['Office', 'Call Center', 'Office Chatter', 'Call Center Chatter'].includes(s))).map(sound => (
                               <div 
                                 key={sound}
                                 onClick={() => setAmbientSound(sound)}
@@ -4436,6 +4655,15 @@ export default function EditAgent() {
                               </div>
                             ))}
                           </div>
+                          )}
+                          {ambientMode !== 'off' && (
+                            <div style={{ fontSize: '11.5px', color: 'var(--tx-2)', lineHeight: 1.55 }}>
+                              {ambientMode === 'native'
+                                ? 'Fish Audio generates the room with each reply. It only exists while the agent is speaking, and its level cannot be controlled. Use the manual bed for a continuous room.'
+                                : 'The bed is mixed under the agent at about 42 dB below speech, runs through silence and caller speech, and costs nothing per turn. "Office Chatter" and "Call Center Chatter" are pre-rendered voices, unintelligible by construction.'}
+                              {' '}Not available on PIOPIY phone calls.
+                            </div>
+                          )}
                         </div>
                       )}
                     </div>

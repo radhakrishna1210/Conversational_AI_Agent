@@ -1,0 +1,52 @@
+commit 139f797d3fa3e512d11310362f857b54113c9045 2026-09-04T00:43:25+05:30
+== arm ep100 (DEEPGRAM_ENDPOINTING_MS=100) ==
+#0 long_context   endpoint=983 firstAudio=2163 firstReply=2163    "I have been having trouble with my order" → "Oh, I'm really sorry to hear that you're having tr"
+#1 med_booking    endpoint=1564 firstAudio=3023 firstReply=3023    "Okay. Can you book me an appointment for" → "Got it, tomorrow at ten works. May I have your nam"
+#2 name_spell     endpoint=1903 firstAudio=2296 firstReply=2296    "My name is Priya, that is p r I y a." → "Thanks, Priya. Could I also get your phone number "
+#3 number_read    endpoint=- firstAudio=4509 firstReply=5406 (ack) (backstop)  "My order number is 437219." → "Ah, I think you might have mixed up the order numb"
+#4 pause_mid      endpoint=949 firstAudio=1606 firstReply=1606    "I would like to book an appointment for," → "Sure, Thursday afternoon works. Could you just sha"
+#5 q_hours        endpoint=854 firstAudio=1968 firstReply=1968    "What are your business hours on weekends" → "We're open from 9 am to 6 pm on Saturday, but we'r"
+#6 q_price        endpoint=899 firstAudio=1316 firstReply=1988 (ack)   "How much does a consultation cost?" → "A consultation is 500 rupees. Would you like me to"
+#7 q_services     endpoint=897 firstAudio=1998 firstReply=1998    "Hi. Can you tell me what services you of" → "Got it. We handle general dental consultations and"
+#8 short_yes      endpoint=961 firstAudio=5115 firstReply=5115    "Yes. That works for me." → "Alright, what's the best phone number to reach you"
+#9 thanks_bye     endpoint=985 firstAudio=2042 firstReply=2042    "Thanks. That is all I needed. Bye." → "You're welcome! Have a wonderful day."
+#10 transfer_neg   endpoint=1006 firstAudio=2852 firstReply=2852    "No. I do not need a manager. Just tell m" → "Sure, a consultation is 500 rupees."
+#11 transfer_req   endpoint=904 firstAudio=2175 firstReply=2175    "Can I speak to a real person, please?" → "I can't connect you to someone right on this call,"
+  "turns": 12,
+  "failed": 0,
+  "cutOff": 0,
+== arm nova3 (DEEPGRAM_MODEL=nova-3) ==
+#0 long_context   endpoint=1168 firstAudio=3184 firstReply=3184    "I have been having trouble with my order" → "I'm sorry to hear you're having trouble, but since"
+#1 med_booking    endpoint=1780 firstAudio=3283 firstReply=3283    "Okay, can you book me an appointment for" → "Sure, I can book that for you. What's your name an"
+#2 name_spell     endpoint=- firstAudio=4734 firstReply=4734  (backstop)  "My name is Priya, that is p r I y a." → "Got it, Priya. What's the best phone number to rea"
+#3 number_read    endpoint=- firstAudio=4686 firstReply=5632 (ack) (backstop)  "My order number is 437219." → "Ah, I think you might still be thinking about your"
+#4 pause_mid      endpoint=1002 firstAudio=1558 firstReply=1558    "I would like to book an appointment for " → "Sure thing, Thursday afternoon works. What's a goo"
+#5 q_hours        endpoint=929 firstAudio=1898 firstReply=1898    "What are your business hours on weekends" → "We're open from 9 am to 6 pm on Saturdays, and clo"
+#6 q_price        endpoint=1120 firstAudio=1531 firstReply=2262 (ack)   "How much does a consultation cost?" → "That's 500 rupees. Would you like to go ahead and "
+#7 q_services     endpoint=1049 firstAudio=2362 firstReply=2362    "Hi, can you tell me what services you of" → "Got it. We're a dental clinic, so we handle genera"
+#8 short_yes      endpoint=1033 firstAudio=2006 firstReply=2006    "Yes. That works for me." → "Awesome. Could I please get your name so I can get"
+#9 thanks_bye     endpoint=1122 firstAudio=2268 firstReply=2268    "Thanks, that is all I needed, bye." → "You're very welcome! Have a wonderful day, bye!"
+#10 transfer_neg   endpoint=1696 firstAudio=2928 firstReply=2928    "No. I do not need a manager. Just tell m" → "It's 500 rupees."
+#11 transfer_req   endpoint=986 firstAudio=2026 firstReply=2026    "Can I speak to a real person, please?" → "I can't connect you to someone directly on this ca"
+  "turns": 12,
+  "failed": 0,
+  "cutOff": 0,
+== arm ep100nova3 (DEEPGRAM_ENDPOINTING_MS=100,DEEPGRAM_MODEL=nova-3) ==
+#0 long_context   endpoint=984 firstAudio=2096 firstReply=2096    "I have been having trouble with my order" → "Ah, I'm really sorry to hear that, but just to let"
+#1 med_booking    endpoint=1685 firstAudio=4712 firstReply=4712    "Okay. Can you book me an appointment for" → "Sure, I can book that for you. May I have your nam"
+#2 name_spell     endpoint=1982 firstAudio=2485 firstReply=2485    "My name is Priya, that is p r I y a." → "Got it, Priya. And could I please get your phone n"
+#3 number_read    endpoint=- firstAudio=4538 firstReply=5371 (ack) (backstop)  "My order number is 437219." → "That's okay, Priya. Could you just share your phon"
+#4 pause_mid      endpoint=1016 firstAudio=1575 firstReply=1575    "I would like to book an appointment for," → "Sure, Thursday afternoon works. What time would yo"
+#5 q_hours        endpoint=1013 firstAudio=2048 firstReply=2048    "What are your business hours on weekends" → "So, we're open from nine am to six pm on Saturdays"
+#6 q_price        endpoint=2849 firstAudio=3933 firstReply=3933    "How much does a consultation cost?" → "A consultation is five hundred rupees. Would you l"
+#7 q_services     endpoint=1083 firstAudio=2069 firstReply=2069    "Hi. Can you tell me what services you of" → "Got it. We do general dental consultations, but I "
+#8 short_yes      endpoint=976 firstAudio=2910 firstReply=2910    "Yes. That works for me." → "Great. Could I please get your name for the bookin"
+#9 thanks_bye     endpoint=1107 firstAudio=2493 firstReply=2493    "Thanks. That is all I needed. Bye." → "You're welcome! Have a wonderful day, bye!"
+#10 transfer_neg   endpoint=1546 firstAudio=2811 firstReply=2811    "No. I do not need a manager. Just tell m" → "A consultation costs five hundred rupees."
+#11 transfer_req   endpoint=1128 firstAudio=2725 firstReply=2725    "Can I speak to a real person, please?" → "I can't connect you to someone directly on this ca"
+  "turns": 12,
+  "failed": 0,
+  "cutOff": 0,
+report: /d/krishna_thete/HM-Voice-agent/reports/evidence/2026-09-03_phase2/latency/report_ep100.md
+report: /d/krishna_thete/HM-Voice-agent/reports/evidence/2026-09-03_phase2/latency/report_nova3.md
+report: /d/krishna_thete/HM-Voice-agent/reports/evidence/2026-09-03_phase2/latency/report_ep100nova3.md

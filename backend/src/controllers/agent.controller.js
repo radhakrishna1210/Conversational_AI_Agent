@@ -10,6 +10,7 @@ import { placeOutboundCall, resolveCallMode, telephonyStatus } from '../services
 import fetch from 'node-fetch';
 import { env } from '../config/env.js';
 import { isModelAllowed, labelFor } from '../services/platform/modelCatalog.js';
+import { validateAgentSettings } from '../validators/agentSettings.validator.js';
 
 // Same storage locations the KB-file and call-log controllers write to —
 // needed so deleting an agent can also remove its files from disk.
@@ -122,7 +123,10 @@ export const createAgent = async (req, res) => {
   const data = req.body;
 
   try {
-    const { columns, extras, languages, flowItems } = splitAgentPayload(data);
+    const { columns, extras: rawExtras, languages, flowItems } = splitAgentPayload(data);
+    const validated = validateAgentSettings(rawExtras);
+    if (!validated.ok) return res.status(400).json({ error: validated.error });
+    const extras = validated.extras;
 
     const disabled = await findDisabledModel(columns, extras);
     if (disabled) return res.status(403).json({ error: disabled });
@@ -186,7 +190,10 @@ export const updateAgent = async (req, res) => {
     const existing = await prisma.agent.findFirst({ where: { id: agentId, workspaceId: req.params.workspaceId } });
     if (!existing) return res.status(404).json({ error: 'Agent not found in this workspace' });
 
-    const { columns, extras, languages, flowItems } = splitAgentPayload(data);
+    const { columns, extras: rawExtras, languages, flowItems } = splitAgentPayload(data);
+    const validated = validateAgentSettings(rawExtras);
+    if (!validated.ok) return res.status(400).json({ error: validated.error });
+    const extras = validated.extras;
 
     const disabled = await findDisabledModel(columns, extras, existing);
     if (disabled) return res.status(403).json({ error: disabled });

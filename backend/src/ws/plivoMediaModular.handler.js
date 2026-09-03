@@ -40,6 +40,7 @@ import { STREAM_CONTENT_TYPE, STREAM_SAMPLE_RATE } from '../services/telephony/p
 
 /** Exported for the adapter tests; the bridge takes it via `carrier`. */
 export const plivoCarrier = {
+  id: 'PLIVO',
   label: 'Plivo modular phone call',
 
   /** Plivo penalises a burst with latency rather than failing it. See header. */
@@ -50,6 +51,12 @@ export const plivoCarrier = {
     // Deliberately null: see (3) above. Returning null leaves the id the
     // upgrade handler read off the query string in place.
     callLogId: null,
+    // The live call's id, which a human handover redirects through Plivo's
+    // Transfer API; the numbers, when the start event carries them, give the
+    // <Dial> a legitimate caller id without a lookup.
+    carrierCallId: msg.start?.callId || msg.start?.callUUID || null,
+    from: msg.start?.from || null,
+    to: msg.start?.to || null,
   }),
 
   sendAudio: (ws, _streamId, frame) => {
@@ -68,6 +75,6 @@ export const plivoCarrier = {
   },
 };
 
-export function handlePlivoMediaModularUpgrade(ws, { workspaceId, agentId, callLogId = null, direction = null }) {
-  return runModularMediaBridge(ws, { workspaceId, agentId, callLogId, direction, carrier: plivoCarrier });
+export function handlePlivoMediaModularUpgrade(ws, { workspaceId, agentId, callLogId = null, direction = null, transferOutcome = null }) {
+  return runModularMediaBridge(ws, { workspaceId, agentId, callLogId, direction, carrier: plivoCarrier, transferOutcome });
 }

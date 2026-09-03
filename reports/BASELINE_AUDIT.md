@@ -220,3 +220,11 @@ Tracked in `QA_FINAL_MATRIX.md` (one row each, with baseline/fix/final evidence)
 | 9 | Historical cross-check of every COMPLETION_REPORT row | Mixed — HTTP checks against `:4000` are read-only for GETs; POST/PATCH rows blocked |
 
 Approval requests are collected in `OPEN_ISSUES.md` rather than raised one at a time.
+
+## 10. Phase 2 addendum (2026-09-04) — environment and corrections
+
+- **Test infrastructure now exists locally:** embedded Postgres 17 (`embedded-postgres` npm, `localhost:5499`, databases `hm_test` and `hm_rehearsal`, schema applied from the generated baseline with `vector(1536)` → `real[]` because pgvector is not bundled) and a portable Redis 5 for Windows on `localhost:6390` (deliberately not 6379, which the owner's running backend on `:4000` would have attached to and started processing campaign jobs against production). `backend/scripts/seed-test-db.mjs` seeds one workspace/agent/wallet/voice and **refuses any URL that does not look disposable**.
+- **Production was not written to.** `DATABASE_URL` in `backend/.env` is still production; every phase-2 backend ran with `DATABASE_URL` overridden to `:5499`. One read-only production query was attempted for an agent lookup and was refused by the sandbox classifier; nothing else touched the live database.
+- **Corrections to §5:** the phase-1 "floor ≈ 2.2 s" and `endpointMs ≈ 706` both undercounted the recogniser's own end-of-speech delivery lag; measured at the socket the pre-change actual latency is **2,861 ms p50** and the caller-silence → commit wait is **950–1,085 ms p50** (`LATENCY_REPORT.md` §4–5).
+- **Corrections to §3.3 (hot path):** speculative LLM execution on interim/candidate transcripts, a server-side frame VAD, a per-turn Deepgram timeline, two Deepgram turn-boundary fixes, a real transfer path, and pre-rendered voice ambience were added (`FINAL_REPORT.md` §7 lists files).
+- **Documents the brief names that do not exist:** `QA_REGRESSION_TEST.md`, `MY_QA_STATUS.md`, `QA_FINAL_MATRIX.csv` (now generated from the `.md`), and a 314-case matrix.

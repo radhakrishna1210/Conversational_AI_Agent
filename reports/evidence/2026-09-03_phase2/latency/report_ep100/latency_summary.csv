@@ -1,0 +1,21 @@
+group,stage,n,p50,p90,p95,p99,max
+"web · gemini-3.5-flash-lite",speechEndToEndpointMs,11,961,1564,1903,1903,1903
+"web · gemini-3.5-flash-lite",endpointMs,10,458,483,1403,1403,1403
+"web · gemini-3.5-flash-lite",dgLastWordToSpeechFinalMs,11,0,0,0,0,0
+"web · gemini-3.5-flash-lite",dgSpeechFinalToCommitMs,11,159,1103,1103,1103,1103
+"web · gemini-3.5-flash-lite",dgCommitToTurnMs,12,0,2,8985,8985,8985
+"web · gemini-3.5-flash-lite",preLlmMs,12,2,18,284,284,284
+"web · gemini-3.5-flash-lite",prepMs,12,0,0,0,0,0
+"web · gemini-3.5-flash-lite",ragMs,12,0,0,0,0,0
+"web · gemini-3.5-flash-lite",llmTtftMs,12,727,1142,3535,3535,3535
+"web · gemini-3.5-flash-lite",llmTtftAbsMs,12,888,1297,3696,3696,3696
+"web · gemini-3.5-flash-lite",specLeadMs,10,161,650,1105,1105,1105
+"web · gemini-3.5-flash-lite",llmMs,12,733,1143,3536,3536,3536
+"web · gemini-3.5-flash-lite",ttsTtfaMs,12,390,700,706,706,706
+"web · gemini-3.5-flash-lite",ttfaMs,12,1112,1844,4152,4152,4152
+"web · gemini-3.5-flash-lite",waitMs,12,1567,2299,4614,4614,4614
+"web · gemini-3.5-flash-lite",totalMs,12,1565,3072,4721,4721,4721
+"web · gemini-3.5-flash-lite",harnessSpeechEndToFirstAudioMs,12,2163,4509,5115,5115,5115
+"web · gemini-3.5-flash-lite",harnessSpeechEndToFirstReplyAudioMs,12,2163,5115,5406,5406,5406
+"web · gemini-3.5-flash-lite",elLagP99Ms,11,36,36,37,37,37
+"web · gemini-3.5-flash-lite",elLagMaxMs,11,38,38,38,38,38

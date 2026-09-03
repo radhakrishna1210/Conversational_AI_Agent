@@ -1,0 +1,18 @@
+{
+  "rule": "@typescript-eslint/no-explicit-any",
+  "updated": "2026-09-03T19:04:04.876Z",
+  "total": 76,
+  "files": {
+    "src/lib/adminApi.ts": 1,
+    "src/lib/authStorage.ts": 1,
+    "src/pages/AdminBilling.tsx": 6,
+    "src/pages/AdminCallLogs.tsx": 1,
+    "src/pages/AdminPanel.tsx": 3,
+    "src/pages/Analytics.tsx": 13,
+    "src/pages/ApiKeys.tsx": 1,
+    "src/pages/CallLogs.tsx": 3,
+    "src/pages/Dashboard.tsx": 3,
+    "src/pages/EditAgent.tsx": 36,
+    "src/pages/Integrations.tsx": 8
+  }
+}

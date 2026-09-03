@@ -1,0 +1,63 @@
+ready {"type":"ready","sttEndpointing":true,"endpointCommitMs":1400,"noInputPrompts":["Sorry, I didn't catch that. Could you say it again?","I still can't hear you. Could you speak a little louder, or move closer to the phone?","It seems we're having trouble connecting. No problem — feel free to call back any time."],"noInputDelaysMs":[10000,14000,18000]}
+#0 long_context   endpoint=1034 firstAudio=2229 firstReply=2229    "I have been having trouble with my order" → "Oh, I'm really sorry to hear that, but just to let"
+#1 med_booking    endpoint=1616 firstAudio=5807 firstReply=5807    "Okay. Can you book me an appointment for" → "Got it, 10 AM tomorrow works. Could I grab your fu"
+#2 name_spell     endpoint=1903 firstAudio=2484 firstReply=2484    "My name is Priya. That is p r I y a." → "Thanks, Priya. And could I have a phone number to "
+#3 number_read    endpoint=-7 firstAudio=- firstReply=-   (CUT OFF 960ms early) "" → ""
+#4 pause_mid      endpoint=1063 firstAudio=1535 firstReply=1535    "My order number is 43 I would like to bo" → "Ah, Thursday afternoon instead, got it. Could I ju"
+#5 q_hours        endpoint=0 firstAudio=- firstReply=-   (CUT OFF 1580ms early) "" → ""
+#6 q_price        endpoint=1234 firstAudio=1734 firstReply=1734    "What are your how much does a consultati" → "Sure, a consultation costs 500 rupees. Would you l"
+#7 q_services     endpoint=938 firstAudio=1454 firstReply=1454    "Hi. Can you tell me what services you of" → "Right, we offer general dental consultations and c"
+#8 short_yes      endpoint=481 firstAudio=- firstReply=-    "" → ""
+#9 thanks_bye     endpoint=-16 firstAudio=- firstReply=-   (CUT OFF 2560ms early) "" → ""
+#10 transfer_neg   endpoint=-26 firstAudio=- firstReply=-   (CUT OFF 2720ms early) "" → ""
+#11 transfer_req   endpoint=953 firstAudio=1845 firstReply=1845    "No. I do. Can I speak to a real person, " → "I can't connect you to a person directly on this c"
+#12 long_context   endpoint=0 firstAudio=- firstReply=-   (CUT OFF 5000ms early) "" → ""
+#13 med_booking    endpoint=895 firstAudio=2593 firstReply=2593    "I have been having trouble with my okay." → "Sure, I can book that for 10 am tomorrow. Could yo"
+#14 name_spell     endpoint=-16 firstAudio=- firstReply=-   (CUT OFF 920ms early) "" → ""
+#15 number_read    endpoint=- firstAudio=5518 firstReply=5518  (backstop)  "My name is Priya, that is my order numbe" → "Got it, Priya. You're all set for tomorrow at 10 a"
+#16 pause_mid      endpoint=985 firstAudio=1404 firstReply=1659 (ack)   "I would like to book an appointment for," → "Got it, let's switch that to Thursday afternoon. W"
+#17 q_hours        endpoint=0 firstAudio=- firstReply=-   (CUT OFF 1600ms early) "" → ""
+#18 q_price        endpoint=901 firstAudio=4050 firstReply=4050    "What are your how much does a consultati" → "A consultation is 500 rupees."
+#19 q_services     endpoint=-10 firstAudio=- firstReply=-   (CUT OFF 2180ms early) "" → ""
+#20 short_yes      endpoint=-31 firstAudio=1294 firstReply=1294   (CUT OFF 1260ms early) "Hi." → "Hi there, did you want to go ahead and lock in tha"
+#21 thanks_bye     endpoint=0 firstAudio=- firstReply=-   (CUT OFF 1500ms early) "" → ""
+#22 transfer_neg   endpoint=918 firstAudio=24368 firstReply=24368    "Yes. Thanks. That is no. I do not need a" → "Sure, the consultation is 500 rupees. Would you li"
+#23 transfer_req   endpoint=920 firstAudio=23327 firstReply=23327    "Can I speak to a real person, please?" → "I can't connect you to someone directly on this ca"
+{
+  "label": "fix_candidate",
+  "turns": 24,
+  "failed": 10,
+  "cutOff": 10,
+  "endpoint": {
+    "n": 23,
+    "p50": 895,
+    "p90": 1234,
+    "p95": 1616,
+    "p99": 1903,
+    "max": 1903
+  },
+  "firstAudioAny": {
+    "n": 14,
+    "p50": 2229,
+    "p90": 23327,
+    "p95": 24368,
+    "p99": 24368,
+    "max": 24368
+  },
+  "firstReplyAudio": {
+    "n": 14,
+    "p50": 2229,
+    "p90": 23327,
+    "p95": 24368,
+    "p99": 24368,
+    "max": 24368
+  },
+  "done": {
+    "n": 24,
+    "p50": 2064,
+    "p90": 5942,
+    "p95": 24207,
+    "p99": 24661,
+    "max": 24661
+  }
+}

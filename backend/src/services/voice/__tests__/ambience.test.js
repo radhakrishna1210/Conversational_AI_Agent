@@ -13,6 +13,11 @@ import {
   mixUlawFrame,
   isAmbienceEnabled,
   rmsDbfs,
+  SAMPLED_AMBIENT_PRESETS,
+  ALL_AMBIENT_PRESET_NAMES,
+  loadSampledBed,
+  resolveAmbientMode,
+  ambienceTagFor,
 } from '../ambience.js';
 
 const PRESETS = Object.keys(AMBIENT_PRESETS);
@@ -23,6 +28,49 @@ describe('preset table', () => {
     // shared package. Agents store the preset NAME, so a rename on either side
     // silently orphans saved agents — fail CI here instead.
     assert.deepEqual(PRESETS, ['Quiet Room', 'Office', 'Call Center', 'Static', 'Cafe', 'Street']);
+  });
+  it('pins the pre-rendered voice beds too — the client picker offers exactly these', () => {
+    assert.deepEqual(Object.keys(SAMPLED_AMBIENT_PRESETS), ['Office Chatter', 'Call Center Chatter']);
+    assert.deepEqual(ALL_AMBIENT_PRESET_NAMES, ['Quiet Room', 'Office', 'Call Center', 'Static', 'Cafe', 'Street', 'Office Chatter', 'Call Center Chatter']);
+  });
+});
+
+describe('pre-rendered voice beds (Mode B)', () => {
+  it('load at the bed level, are 24s, differ per variant, and are seam-free', () => {
+    for (const [name, cfg] of Object.entries(SAMPLED_AMBIENT_PRESETS)) {
+      const beds = cfg.files.map((f) => loadSampledBed(f));
+      for (const b of beds) {
+        assert.ok(b, `${name}: asset present`);
+        assert.equal(b.length, 8000 * 24, `${name}: 24s at 8kHz`);
+        const db = rmsDbfs(b);
+        assert.ok(Math.abs(db - (-48)) < 1, `${name}: level ${db.toFixed(1)} dBFS is at the bed target`);
+        // Loop seam: the wrap-around layering makes the last and first
+        // samples continuous, so the step across the seam stays inside the
+        // bed's ordinary sample-to-sample range.
+        let maxStep = 0; for (let i = 1; i < b.length; i++) maxStep = Math.max(maxStep, Math.abs(b[i] - b[i - 1]));
+        assert.ok(Math.abs(b[0] - b[b.length - 1]) <= maxStep, `${name}: no seam click`);
+      }
+      let diff = 0; for (let i = 0; i < beds[0].length; i++) if (beds[0][i] !== beds[1][i]) diff += 1;
+      assert.ok(diff > beds[0].length * 0.9, `${name}: the two variants are different loops`);
+    }
+  });
+  it('renderAmbienceLoop serves them through the same mixer path, 8kHz only', () => {
+    assert.ok(renderAmbienceLoop('Office Chatter', { variant: 0 }));
+    assert.equal(renderAmbienceLoop('Office Chatter', { sampleRate: 16000 }), null);
+    assert.strictEqual(createAmbienceSource('Call Center Chatter').nextFrame().length, 160);
+  });
+  it('resolveAmbientMode keeps existing agents as they were and defaults new ones to off', () => {
+    assert.equal(resolveAmbientMode({}), 'off');
+    assert.equal(resolveAmbientMode({ ambientSound: 'None' }), 'off');
+    assert.equal(resolveAmbientMode({ ambientSound: 'Office' }), 'manual');
+    assert.equal(resolveAmbientMode({ ambientSound: 'Office', ambientMode: 'off' }), 'off');
+    assert.equal(resolveAmbientMode({ ambientSound: 'Office', ambientMode: 'native' }), 'native');
+  });
+  it('the native tag exists only in native mode and never for a noise-only preset', () => {
+    assert.equal(ambienceTagFor({ ambientSound: 'Office Chatter' }), null, 'manual by default');
+    assert.equal(ambienceTagFor({ ambientMode: 'native', ambientSound: 'Office Chatter' }), '[office chatter in the background]');
+    assert.equal(ambienceTagFor({ ambientMode: 'native', ambientSound: 'Office' }), '[office chatter in the background]');
+    assert.equal(ambienceTagFor({ ambientMode: 'native', ambientSound: 'Static' }), null);
   });
 });
 

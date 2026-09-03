@@ -37,6 +37,7 @@
 import { createHash } from 'crypto';
 import logger from '../../lib/logger.js';
 import { streamSynthesizeVoice } from '../voice.service.js';
+import { ambienceTagFor } from './ambience.js';
 
 /**
  * Bounded so a workspace with hundreds of agents (or an agent whose greeting is
@@ -88,6 +89,9 @@ export function greetingSynthesisOpts(ttsFormat, settings = {}) {
     // implies 8kHz, and passing a rate there would key two identical clips
     // differently depending on which caller filled the field in.
     sampleRate: ttsFormat?.kind === 'pcm' && ttsFormat.rate ? ttsFormat.rate : null,
+    // Mode A ambience rides on every synthesis request, the greeting included;
+    // it is part of the cache key by construction (the opts are hashed).
+    ambienceTag: ambienceTagFor(settings),
   };
 }
 

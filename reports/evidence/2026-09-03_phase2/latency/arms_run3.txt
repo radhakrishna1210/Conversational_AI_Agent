@@ -1,0 +1,88 @@
+commit 139f797d3fa3e512d11310362f857b54113c9045 2026-09-04T00:31:32+05:30
+== arm fix2_off (VOICE_SPECULATION=off) ==
+#0 long_context   endpoint=1285 firstAudio=2730 firstReply=2730    "I have been having trouble with my order" → "Oh, I'm so sorry about that, but we're actually Su"
+#1 med_booking    endpoint=1514 firstAudio=2854 firstReply=2854    "Okay. Can you book me an appointment for" → "Sure, I can book that for you. May I have your nam"
+#2 name_spell     endpoint=2002 firstAudio=6428 firstReply=6428    "My name is Priya, that is p r I y a." → "Got it, Priya. I've got you down for tomorrow at 1"
+#3 number_read    endpoint=- firstAudio=4601 firstReply=5587 (ack) (backstop)  "My order number is 437219." → "Ah, you must still be thinking about that store or"
+#4 pause_mid      endpoint=1271 firstAudio=2837 firstReply=2837    "I would like to book an appointment for," → "Sure, Thursday afternoon works. Would 2 PM suit yo"
+#5 q_hours        endpoint=1185 firstAudio=3672 firstReply=3672    "What are your business hours on weekends" → "We're open from 9 AM to 6 PM on Saturdays, but we'"
+#6 q_price        endpoint=1224 firstAudio=1636 firstReply=6251 (ack)   "How much does a consultation cost?" → "A consultation is 500 rupees. Would you like to lo"
+#7 q_services     endpoint=1018 firstAudio=9710 firstReply=9710    "Hi. Can you tell me what services you of" → "We offer general check-ups, cleanings, and consult"
+#8 short_yes      endpoint=1064 firstAudio=4817 firstReply=4817    "Yes. That works for me." → "Got it. What's your name, please?"
+#9 thanks_bye     endpoint=1037 firstAudio=2776 firstReply=2776    "Thanks. That is all I needed. Bye." → "Bye! Have a great day."
+#10 transfer_neg   endpoint=1711 firstAudio=2848 firstReply=2848    "No. I do not need a manager. Just tell m" → "A consultation costs 500 rupees."
+#11 transfer_req   endpoint=985 firstAudio=2246 firstReply=2246    "Can I speak to a real person, please?" → "I can't connect you to a person on this call, but "
+#12 long_context   endpoint=1136 firstAudio=6673 firstReply=6673    "I have been having trouble with my order" → "Sunrise Dental is a dental clinic, so we don't han"
+#13 med_booking    endpoint=1794 firstAudio=2991 firstReply=2991    "Okay. Can you book me an appointment for" → "Got it. We do have an opening at ten tomorrow. Wha"
+#14 name_spell     endpoint=2031 firstAudio=3297 firstReply=3297    "My name is Priya, That is p r I y a." → "Thanks, Priya. And what's the best phone number to"
+#15 number_read    endpoint=- firstAudio=4700 firstReply=5749 (ack) (backstop)  "My order number is 437219." → "Alright, since we're a dental clinic, we don't hav"
+#16 pause_mid      endpoint=1146 firstAudio=2675 firstReply=2675    "I would like to book an appointment for," → "Sure thing. We have spots open on Thursday afterno"
+#17 q_hours        endpoint=1085 firstAudio=2606 firstReply=2606    "What are your business hours on weekends" → "We're open from 9 am to 6 pm on Saturdays, and we'"
+#18 q_price        endpoint=1067 firstAudio=1484 firstReply=2569 (ack)   "How much does a consultation cost?" → "That's 500 rupees. Would you like to go ahead and "
+#19 q_services     endpoint=1032 firstAudio=2893 firstReply=2893    "Hi. Can you tell me what services you of" → "We offer general dental consultations for 500 rupe"
+#20 short_yes      endpoint=1073 firstAudio=4957 firstReply=4957    "Yes. That works for me." → "Got it. What's your phone number so I can finish b"
+#21 thanks_bye     endpoint=1016 firstAudio=2861 firstReply=2861    "Thanks. That is all I needed. Bye." → "Bye! Have a great day."
+#22 transfer_neg   endpoint=1034 firstAudio=2252 firstReply=2252    "No. I do not need a manager, Just tell m" → "It's 500 rupees."
+#23 transfer_req   endpoint=1048 firstAudio=2239 firstReply=2239    "Can I speak to a real person, please?" → "I can't connect you to someone directly on this ca"
+  "turns": 24,
+  "failed": 0,
+  "cutOff": 0,
+== arm fix2_candidate (VOICE_SPECULATION=candidate) ==
+#0 long_context   endpoint=949 firstAudio=4758 firstReply=4758    "I have been having trouble with my order" → "I'm so sorry you're dealing with that trouble. We'"
+#1 med_booking    endpoint=983 firstAudio=2191 firstReply=2191    "Okay. Can you book me an appointment for" → "Sure, I can book that for you. May I have your nam"
+#2 name_spell     endpoint=1931 firstAudio=2359 firstReply=2359    "My name is Priya, that is p r I y a." → "Thanks, Priya. Could I get your phone number so we"
+#3 number_read    endpoint=- firstAudio=4537 firstReply=6223 (ack) (backstop)  "My order number is 437219." → "Got it, but since we're a dental clinic, I just ne"
+#4 pause_mid      endpoint=983 firstAudio=4246 firstReply=4246    "I would like to book an appointment for," → "Sure thing. What time on Thursday afternoon works "
+#5 q_hours        endpoint=928 firstAudio=3446 firstReply=3446    "What are your business hours on weekends" → "We're open from 9am to 6pm on Saturdays, but we're"
+#6 q_price        endpoint=915 firstAudio=1317 firstReply=2070 (ack)   "How much does a consultation cost?" → "That's 500 rupees. Shall I go ahead and book you i"
+#7 q_services     endpoint=919 firstAudio=1663 firstReply=1663    "Hi. Can you tell me what services you of" → "Sure, we handle consultations, checkups, and gener"
+#8 short_yes      endpoint=979 firstAudio=1945 firstReply=1945    "Yes. That works for me." → "Awesome. Could I please get your full name?"
+#9 thanks_bye     endpoint=927 firstAudio=2063 firstReply=2063    "Thanks. That is all I needed. Bye." → "Take care, have a wonderful day!"
+#10 transfer_neg   endpoint=915 firstAudio=1946 firstReply=1946    "No. I do not need a manager. Just tell m" → "The consultation is 500 rupees."
+#11 transfer_req   endpoint=915 firstAudio=1903 firstReply=1903    "Can I speak to a real person, please?" → "I can't connect you to someone directly on this ca"
+#12 long_context   endpoint=986 firstAudio=2621 firstReply=2621    "I have been having trouble with my order" → "I'm sorry to hear about that trouble. Since I'm wi"
+#13 med_booking    endpoint=1598 firstAudio=9337 firstReply=9337    "Okay. Can you book me an appointment for" → "Sure, I can book that for you. May I have your nam"
+#14 name_spell     endpoint=1921 firstAudio=2571 firstReply=2571    "My name is Priya, that is p r I y a." → "Got it, Priya. And could you share your phone numb"
+#15 number_read    endpoint=- firstAudio=4537 firstReply=7986 (ack) (backstop)  "My order number is 437219." → "Alright, Priya. And what's the best phone number t"
+#16 pause_mid      endpoint=963 firstAudio=1588 firstReply=1588    "I would like to book an appointment for," → "Got it, Thursday afternoon works. Could you just s"
+#17 q_hours        endpoint=938 firstAudio=1939 firstReply=1939    "What are your business hours on weekends" → "Sure, we're open from 9 AM to 6 PM on Saturdays, b"
+#18 q_price        endpoint=950 firstAudio=1353 firstReply=2136 (ack)   "How much does a consultation cost?" → "A consultation is 500 rupees. Would you like me to"
+#19 q_services     endpoint=949 firstAudio=1662 firstReply=1662    "Hi. Can you tell me what services you of" → "Sure! We offer general dental consultations, clean"
+#20 short_yes      endpoint=969 firstAudio=3311 firstReply=3311    "Yes. That works for me." → "Great. Could you just let me know your name so I c"
+#21 thanks_bye     endpoint=999 firstAudio=2116 firstReply=2116    "Thanks. That is all I needed. Bye." → "Bye! Have a wonderful day."
+#22 transfer_neg   endpoint=1062 firstAudio=2332 firstReply=2332    "No. I do not need a manager, Just tell m" → "A consultation costs 500 rupees. Would you like me"
+#23 transfer_req   endpoint=1001 firstAudio=2011 firstReply=2011    "Can I speak to a real person, please?" → "I can't connect you to someone directly on this ca"
+  "turns": 24,
+  "failed": 0,
+  "cutOff": 0,
+== arm fix2_interim (VOICE_SPECULATION=interim) ==
+#0 long_context   endpoint=973 firstAudio=2166 firstReply=2166    "I have been having trouble with my order" → "Sure, I can help with that. Since I'm from Sunrise"
+#1 med_booking    endpoint=1980 firstAudio=4077 firstReply=4077    "Okay. Can you book me an appointment for" → "Got it. Let's get that booked for tomorrow at ten,"
+#2 name_spell     endpoint=2710 firstAudio=4115 firstReply=4115    "My name is Priya, that is p r I y a." → "Thanks, Priya. Could you please give me your phone"
+#3 number_read    endpoint=- firstAudio=4590 firstReply=5580 (ack) (backstop)  "My order number is 437219." → "Alright, just to make sure I've got everything rig"
+#4 pause_mid      endpoint=1017 firstAudio=2056 firstReply=2056    "I would like to book an appointment for," → "Sure, Thursday afternoon works. Could you share yo"
+#5 q_hours        endpoint=902 firstAudio=2052 firstReply=2052    "What are your business hours on weekends" → "We're open from 9am to 6pm on Saturdays, but close"
+#6 q_price        endpoint=948 firstAudio=1361 firstReply=2113 (ack)   "How much does a consultation cost?" → "Got it. A consultation is 500 rupees. Would you li"
+#7 q_services     endpoint=967 firstAudio=1638 firstReply=1638    "Hi. Can you tell me what services you of" → "Sure, we offer general dental consultations. Shall"
+#8 short_yes      endpoint=969 firstAudio=1960 firstReply=1960    "Yes. That works for me." → "Great. Could I get your name and phone number to c"
+#9 thanks_bye     endpoint=947 firstAudio=2404 firstReply=2404    "Thanks. That is all I needed. Bye." → "You're very welcome. Have a wonderful day, bye!"
+#10 transfer_neg   endpoint=918 firstAudio=2204 firstReply=2204    "No. I do not need a manager. Just tell m" → "I already mentioned that, but no worries—a consult"
+#11 transfer_req   endpoint=952 firstAudio=1934 firstReply=1934    "Can I speak to a real person, please?" → "I can't connect you to a person on this call, but "
+#12 long_context   endpoint=966 firstAudio=2054 firstReply=2054    "I have been having trouble with my order" → "Oh, I'm so sorry, but you've reached Sunrise Denta"
+#13 med_booking    endpoint=949 firstAudio=2768 firstReply=2768    "Okay. Can you book me an appointment for" → "Sure, I can help with that. Could I please get you"
+#14 name_spell     endpoint=2154 firstAudio=2872 firstReply=2872    "My name is Priya, that is p r I y a." → "Got it, Priya. Tomorrow morning at ten works for u"
+#15 number_read    endpoint=- firstAudio=4534 firstReply=5603 (ack) (backstop)  "My order number is 437219." → "Ah, I think you might have mixed up the order numb"
+#16 pause_mid      endpoint=985 firstAudio=1475 firstReply=1475    "I would like to book an appointment for," → "Sure, Thursday afternoon works. Could you share yo"
+#17 q_hours        endpoint=920 firstAudio=3124 firstReply=3124    "What are your business hours on weekends" → "We're open from 9am to 6pm on Saturdays, but we're"
+#18 q_price        endpoint=1001 firstAudio=1419 firstReply=1996 (ack)   "How much does a consultation cost?" → "That's 500 rupees. Shall I go ahead and book you i"
+#19 q_services     endpoint=970 firstAudio=1472 firstReply=1472    "Hi. Can you tell me what services you of" → "Sure, we handle general dental consultations and c"
+#20 short_yes      endpoint=950 firstAudio=2070 firstReply=2070    "Yes. That works for me." → "Got it, I've got you down for Thursday afternoon. "
+#21 thanks_bye     endpoint=967 firstAudio=2074 firstReply=2074    "Thanks. That is all I needed. Bye." → "You're very welcome. Have a wonderful day, bye!"
+#22 transfer_neg   endpoint=1699 firstAudio=3163 firstReply=3163    "No. I do not need a manager. Just tell m" → "A consultation is 500 rupees."
+#23 transfer_req   endpoint=1057 firstAudio=2144 firstReply=2144    "Can I speak to a real person, please?" → "I can't connect you to a person on this call, but "
+  "turns": 24,
+  "failed": 0,
+  "cutOff": 0,
+report: /d/krishna_thete/HM-Voice-agent/reports/evidence/2026-09-03_phase2/latency/report_fix2_off.md
+report: /d/krishna_thete/HM-Voice-agent/reports/evidence/2026-09-03_phase2/latency/report_fix2_candidate.md
+report: /d/krishna_thete/HM-Voice-agent/reports/evidence/2026-09-03_phase2/latency/report_fix2_interim.md

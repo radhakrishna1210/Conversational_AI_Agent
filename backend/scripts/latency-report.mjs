@@ -21,6 +21,7 @@ const LOG = opt('log', path.join(here, '..', 'logs', 'latency.log'));
 const SINCE = opt('since', null);
 const OUT = opt('out', null);
 const LABEL = opt('label', '');
+const HARNESS = opt('harness', null); // JSONL from scripts/measure-webcall.mjs, joined by turnId
 
 if (!fs.existsSync(LOG)) { console.error(`no log at ${LOG}`); process.exit(2); }
 
@@ -39,14 +40,32 @@ for (const r of rows) {
   else Object.assign(t, r); // pipeline record: channel, model, stages, elLag*
   byTurn.set(r.turnId, t);
 }
-const joined = [...byTurn.values()];
+if (HARNESS && fs.existsSync(HARNESS)) {
+  for (const l of fs.readFileSync(HARNESS, 'utf8').split('\n').filter(Boolean)) {
+    let h; try { h = JSON.parse(l); } catch { continue; }
+    if (!h.turnId) continue;
+    const t = byTurn.get(h.turnId) ?? { turnId: h.turnId };
+    Object.assign(t, { harnessSample: h.sample, harnessSpeechEndToFirstAudioMs: h.harnessSpeechEndToFirstAudioMs, harnessSpeechEndToFirstReplyAudioMs: h.harnessSpeechEndToFirstReplyAudioMs, speechEndToEndpointMs: h.speechEndToEndpointMs, harnessFiller: h.fillerPlayed });
+    byTurn.set(h.turnId, t);
+  }
+}
+// With a harness file the report is ABOUT that run: only its turns are kept,
+// so several arms recorded into one log do not blur into each other.
+const harnessTurnIds = new Set();
+if (HARNESS && fs.existsSync(HARNESS)) {
+  for (const l of fs.readFileSync(HARNESS, 'utf8').split('\n').filter(Boolean)) {
+    try { const h = JSON.parse(l); if (h.turnId) harnessTurnIds.add(h.turnId); } catch { /* skip */ }
+  }
+}
+const joined = [...byTurn.values()].filter((t) => !harnessTurnIds.size || harnessTurnIds.has(t.turnId));
+if (harnessTurnIds.size) legacy.length = 0;
 
 // ── stats ────────────────────────────────────────────────────────────────────
 const pct = (arr, p) => { if (!arr.length) return null; const s = [...arr].sort((a, b) => a - b); return s[Math.min(s.length - 1, Math.ceil(p * s.length) - 1)]; };
 const stats = (arr) => ({ n: arr.length, p50: pct(arr, .5), p90: pct(arr, .9), p95: pct(arr, .95), p99: pct(arr, .99), max: arr.length ? Math.max(...arr) : null });
 const num = (rs, k) => rs.map((r) => r[k]).filter((v) => typeof v === 'number' && Number.isFinite(v));
 
-const STAGES = ['endpointMs', 'preLlmMs', 'prepMs', 'ragMs', 'llmTtftMs', 'llmMs', 'ttsTtfaMs', 'ttfaMs', 'waitMs', 'totalMs', 'wireMs', 'clientEndpointMs', 'endTurnToAudibleMs', 'speechEndToAudibleMs', 'elLagP99Ms', 'elLagMaxMs'];
+const STAGES = ['speechEndToEndpointMs', 'endpointMs', 'dgLastWordToSpeechFinalMs', 'dgSpeechFinalToCommitMs', 'dgCommitToTurnMs', 'preLlmMs', 'prepMs', 'ragMs', 'llmTtftMs', 'llmTtftAbsMs', 'specLeadMs', 'llmMs', 'ttsTtfaMs', 'ttfaMs', 'waitMs', 'totalMs', 'wireMs', 'clientEndpointMs', 'endTurnToAudibleMs', 'speechEndToAudibleMs', 'harnessSpeechEndToFirstAudioMs', 'harnessSpeechEndToFirstReplyAudioMs', 'elLagP99Ms', 'elLagMaxMs'];
 const groups = {};
 for (const r of [...joined, ...legacy]) {
   const key = `${r.channel ?? 'unknown'}${r.model ? ' · ' + r.model : ''}`;
@@ -61,7 +80,11 @@ const csv = [['group', 'stage', 'n', 'p50', 'p90', 'p95', 'p99', 'max'].join(','
 for (const [g, rs] of Object.entries(groups)) {
   const failures = rs.filter((r) => r.kind == null && r.ttfaMs == null && r.wireMs == null && r.speechEndToAudibleMs == null).length;
   const filler = rs.filter((r) => r.filler).length;
+  const spec = { hit: rs.filter((r) => r.speculative === 'hit').length, miss: rs.filter((r) => r.speculative === 'miss').length, started: rs.reduce((a, r) => a + (r.specStarted || 0), 0), wasted: rs.reduce((a, r) => a + (r.specWasted || 0), 0), wastedChars: rs.reduce((a, r) => a + (r.specWastedChars || 0), 0) };
+  const tiers = {}; for (const r of rs) if (r.dgTier) tiers[r.dgTier] = (tiers[r.dgTier] || 0) + 1;
   lines.push(`## ${g}  (turns=${rs.length}, filler-ack played=${filler}, no-audio turns=${failures})`);
+  if (spec.started || spec.hit || spec.miss) lines.push(`speculation: hit=${spec.hit} miss=${spec.miss} requests started=${spec.started} wasted=${spec.wasted} wasted chars≈${spec.wastedChars} · hit rate ${spec.hit + spec.miss ? Math.round(100 * spec.hit / (spec.hit + spec.miss)) : 0}% · extra requests per turn ${(spec.wasted / Math.max(1, rs.length)).toFixed(2)}`);
+  if (Object.keys(tiers).length) lines.push(`grace tiers: ${Object.entries(tiers).map(([k, v]) => `${k}=${v}`).join(' ')}`);
   lines.push('| stage | n | p50 | p90 | p95 | p99 | max |');
   lines.push('|---|---:|---:|---:|---:|---:|---:|');
   for (const k of STAGES) {
@@ -74,7 +97,8 @@ for (const [g, rs] of Object.entries(groups)) {
 }
 lines.push('Definitions: `ttfaMs` = end-of-speech (server) → first TTS byte at the server. `waitMs` = ttfaMs + preLlmMs + endpointMs (server-side end-to-end).');
 lines.push('`wireMs` = phone: end-of-speech → first frame on the carrier socket. `speechEndToAudibleMs` = web: client last-speech → browser <audio> playing (ACTUAL audible latency; `audibleFiller` marks an ack clip).');
-lines.push('`elLagP99Ms` = event-loop delay p99 since the previous record.');
+lines.push('`elLagP99Ms` = event-loop delay p99 since the previous record. `llmTtftAbsMs` = first token measured from the LLM request (a speculative hit makes `llmTtftMs` from turn start read near 0). `specLeadMs` = how long the winning speculative request had already run when the turn began.');
+lines.push('`harnessSpeechEndToFirstAudioMs` = WS harness: last speech byte sent → first reply-audio binary frame received (any segment, filler included); `harnessSpeechEndToFirstReplyAudioMs` = same, first NON-filler segment (ACTUAL).');
 
 const md = lines.join('\n');
 console.log(md);

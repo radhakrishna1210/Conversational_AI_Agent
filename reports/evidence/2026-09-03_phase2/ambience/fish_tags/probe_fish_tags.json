@@ -1,0 +1,162 @@
+[
+  {
+    "variant": "plain",
+    "run": 0,
+    "model": "s2.1-pro-free",
+    "ttfbMs": 1942,
+    "totalMs": 4060,
+    "seconds": 5.2,
+    "floor": {
+      "p10": -32,
+      "p50": -18.1,
+      "windows": 33
+    },
+    "transcript": "Thanks for calling Sunrise Dental. This is Ria. How can I help you today?",
+    "leaked": [],
+    "file": "plain_0.wav"
+  },
+  {
+    "variant": "plain",
+    "run": 1,
+    "model": "s2.1-pro-free",
+    "ttfbMs": 617,
+    "totalMs": 2333,
+    "seconds": 5.11,
+    "floor": {
+      "p10": -29.8,
+      "p50": -17,
+      "windows": 33
+    },
+    "transcript": "Thanks for calling Sunrise Dental. This is Ria. How can I help you today?",
+    "leaked": [],
+    "file": "plain_1.wav"
+  },
+  {
+    "variant": "lead_office",
+    "run": 0,
+    "model": "s2.1-pro-free",
+    "ttfbMs": 373,
+    "totalMs": 1915,
+    "seconds": 4.69,
+    "floor": {
+      "p10": -23.2,
+      "p50": -18.7,
+      "windows": 30
+    },
+    "transcript": "Thanks for calling Sunrise Dental. This is Ria. How can I help you today?",
+    "leaked": [],
+    "file": "lead_office_0.wav"
+  },
+  {
+    "variant": "lead_office",
+    "run": 1,
+    "model": "s2.1-pro-free",
+    "ttfbMs": 588,
+    "totalMs": 2003,
+    "seconds": 5.06,
+    "floor": {
+      "p10": -25.1,
+      "p50": -18.9,
+      "windows": 32
+    },
+    "transcript": "Thanks for calling Sunrise Dental. This is Ria. How can I help you today?",
+    "leaked": [],
+    "file": "lead_office_1.wav"
+  },
+  {
+    "variant": "lead_callcenter",
+    "run": 0,
+    "model": "s2.1-pro-free",
+    "ttfbMs": 357,
+    "totalMs": 2062,
+    "seconds": 5.01,
+    "floor": {
+      "p10": -28,
+      "p50": -19.3,
+      "windows": 32
+    },
+    "transcript": "Thanks for calling Sunrise Dental. This is Ria. How can I help you today?",
+    "leaked": [],
+    "file": "lead_callcenter_0.wav"
+  },
+  {
+    "variant": "lead_callcenter",
+    "run": 1,
+    "model": "s2.1-pro-free",
+    "ttfbMs": 353,
+    "totalMs": 2066,
+    "seconds": 5.15,
+    "floor": {
+      "p10": -29,
+      "p50": -18.3,
+      "windows": 33
+    },
+    "transcript": "Thanks for calling Sunrise Dental. This is Ria. How can I help you today?",
+    "leaked": [],
+    "file": "lead_callcenter_1.wav"
+  },
+  {
+    "variant": "mid_crowd",
+    "run": 0,
+    "model": "s2.1-pro-free",
+    "ttfbMs": 929,
+    "totalMs": 2616,
+    "seconds": 4.83,
+    "floor": {
+      "p10": -27,
+      "p50": -18.4,
+      "windows": 31
+    },
+    "transcript": "Thanks for calling Sunrise Dental. This is Ria. How can I help you today?",
+    "leaked": [],
+    "file": "mid_crowd_0.wav"
+  },
+  {
+    "variant": "mid_crowd",
+    "run": 1,
+    "model": "s2.1-pro-free",
+    "ttfbMs": 436,
+    "totalMs": 2299,
+    "seconds": 5.2,
+    "floor": {
+      "p10": -30.3,
+      "p50": -18.3,
+      "windows": 33
+    },
+    "transcript": "Thanks for calling Sunrise Dental. This is Ria. How can I help you today?",
+    "leaked": [],
+    "file": "mid_crowd_1.wav"
+  },
+  {
+    "variant": "lead_rustle",
+    "run": 0,
+    "model": "s2.1-pro-free",
+    "ttfbMs": 384,
+    "totalMs": 2137,
+    "seconds": 5.24,
+    "floor": {
+      "p10": -33.7,
+      "p50": -17.8,
+      "windows": 33
+    },
+    "transcript": "Thanks for calling Sunrise Dental. This is Ria. How can I help you today?",
+    "leaked": [],
+    "file": "lead_rustle_0.wav"
+  },
+  {
+    "variant": "lead_rustle",
+    "run": 1,
+    "model": "s2.1-pro-free",
+    "ttfbMs": 379,
+    "totalMs": 2341,
+    "seconds": 4.97,
+    "floor": {
+      "p10": -29.2,
+      "p50": -18.5,
+      "windows": 32
+    },
+    "transcript": "Thanks for calling Sunrise Dental. This is Ria. How can I help you today?",
+    "leaked": [],
+    "file": "lead_rustle_1.wav"
+  }
+]

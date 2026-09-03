@@ -35,11 +35,57 @@ export const AMBIENT_PRESETS: Record<string, AmbientPreset> = {
   Street: { type: 'lowpass', freq: 400, gain: 0.022 },
 };
 
+/**
+ * Pre-rendered VOICE beds (Mode B, reports/AMBIENCE_VOICE.md): indistinct
+ * chatter rendered once on the server from Fish Audio TTS and served as a
+ * 24kHz WAV. Same names as backend/src/services/voice/ambience.js
+ * SAMPLED_AMBIENT_PRESETS — a test there pins both lists. Two variants each;
+ * the browser picks one at random so two callers rarely hear the same loop.
+ */
+export const SAMPLED_AMBIENT_PRESETS: Record<string, { files: string[] }> = {
+  'Office Chatter': { files: ['office-chatter-1', 'office-chatter-2'] },
+  'Call Center Chatter': { files: ['call-center-chatter-1', 'call-center-chatter-2'] },
+};
+
+/** Loop a pre-rendered bed. Already levelled at -48 dBFS on the server. */
+const startSampledBed = (
+  audioCtx: AudioContext,
+  preset: string,
+  mixDest?: MediaStreamAudioDestinationNode | null,
+): (() => void) => {
+  const cfg = SAMPLED_AMBIENT_PRESETS[preset];
+  const file = cfg.files[Math.floor(Math.random() * cfg.files.length)];
+  let src: AudioBufferSourceNode | null = null;
+  let stopped = false;
+  const gain = audioCtx.createGain();
+  gain.gain.value = 1;
+  gain.connect(audioCtx.destination);
+  if (mixDest) gain.connect(mixDest);
+  fetch(`/api/v1/ambience/bed/${file}.24k.wav`)
+    .then((r) => (r.ok ? r.arrayBuffer() : Promise.reject(new Error(`bed ${r.status}`))))
+    .then((buf) => audioCtx.decodeAudioData(buf))
+    .then((decoded) => {
+      if (stopped) return;
+      src = audioCtx.createBufferSource();
+      src.buffer = decoded;
+      src.loop = true;
+      src.connect(gain);
+      try { src.start(); } catch { /* context may be closing */ }
+    })
+    .catch((err) => console.warn('[ambient] sampled bed unavailable:', err?.message));
+  return () => {
+    stopped = true;
+    try { src?.stop(); } catch { /* already stopped */ }
+    try { gain.disconnect(); } catch { /* noop */ }
+  };
+};
+
 export const startAmbientSound = (
   audioCtx: AudioContext,
   preset: string,
   mixDest?: MediaStreamAudioDestinationNode | null,
 ): (() => void) | null => {
+  if (SAMPLED_AMBIENT_PRESETS[preset]) return startSampledBed(audioCtx, preset, mixDest);
   const cfg = AMBIENT_PRESETS[preset];
   if (!cfg) return null; // 'None' or unknown → silence
   const frames = Math.floor(audioCtx.sampleRate * 2);
@@ -154,4 +200,4 @@ export const startAmbientSound = (
  * declaration order — one owner for the client-side list so the UI can never
  * offer a preset the generator doesn't implement (or miss one it does).
  */
-export const AMBIENT_OPTIONS: string[] = ['None', ...Object.keys(AMBIENT_PRESETS)];
+export const AMBIENT_OPTIONS: string[] = ['None', ...Object.keys(AMBIENT_PRESETS), ...Object.keys(SAMPLED_AMBIENT_PRESETS)];

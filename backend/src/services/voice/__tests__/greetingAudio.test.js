@@ -115,14 +115,14 @@ test('greetingSynthesisOpts states a rate for PCM only', () => {
   // A native mu-law format already implies 8kHz. Filling the rate in there
   // would key two identical clips differently depending on the caller.
   assert.deepEqual(greetingSynthesisOpts(ULAW, {}), {
-    pace: 1.05, audioFormat: 'ulaw_8000', sampleRate: null,
+    pace: 1.05, audioFormat: 'ulaw_8000', sampleRate: null, ambienceTag: null,
   });
   assert.deepEqual(greetingSynthesisOpts(PCM8, { speakingRate: 0.9 }), {
-    pace: 0.9, audioFormat: 'pcm', sampleRate: 8000,
+    pace: 0.9, audioFormat: 'pcm', sampleRate: 8000, ambienceTag: null,
   });
   // No resolved format at all (a voice the bridge would refuse): nothing to key
   // on, and nothing is warmed.
   assert.deepEqual(greetingSynthesisOpts(null, {}), {
-    pace: 1.05, audioFormat: null, sampleRate: null,
+    pace: 1.05, audioFormat: null, sampleRate: null, ambienceTag: null,
   });
 });

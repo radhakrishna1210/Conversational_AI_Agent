@@ -55,7 +55,11 @@
 
 import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
-import { voiceTurnStream, getRenderedWelcome, warmVoiceTurn, loadAgent } from '../services/agentRuntime.service.js';
+import { voiceTurnStream, getRenderedWelcome, warmVoiceTurn, loadAgent, converseStream } from '../services/agentRuntime.service.js';
+import { createSpeculator, speculationModeFor } from '../services/voice/speculativeTurn.js';
+import {
+  transferAvailability, transferLiveCall, registerPendingTransfer, failureLineFor,
+} from '../services/telephony/transfer.service.js';
 import { resolveAgentVoice, streamSynthesizeVoice } from '../services/voice.service.js';
 import {
   DeepgramStreamSession,
@@ -94,6 +98,7 @@ import { createPlayoutWindow } from '../services/voice/playoutWindow.js';
 import { createEchoCanceller } from '../services/voice/echoCanceller.js';
 import { createUlawPacer } from '../services/voice/ulawPacer.js';
 import { createAmbiencePump } from '../services/voice/ambiencePump.js';
+import { resolveAmbientMode } from '../services/voice/ambience.js';
 import { encodeWav } from '../services/voice/callRecorder.js';
 import { createRecordingTap } from './callRecordingTap.js';
 import { createCallFinalizer } from './callFinalizer.js';
@@ -254,8 +259,25 @@ export function runModularMediaBridge(ws, {
   // and the agent's own configured direction decides the greeting.
   direction = null,
   carrier,
+  // Set when this socket is the AGENT RESUMING after a failed human handover
+  // (see transfer.service.js buildResumeDocument): 'busy' | 'no-answer' |
+  // 'failed' | 'canceled'. Plivo carries it on the socket URL; Twilio in a
+  // <Parameter> that carrier.readStart returns. The greeting is skipped, the
+  // conversation is reloaded from the call log, and the agent says honestly
+  // what happened.
+  transferOutcome = null,
 }) {
   let agent = null;
+  // ── Human handover state ──────────────────────────────────────────────────
+  let carrierCallId = null;        // Twilio CallSid / Plivo CallUUID, from `start`
+  let carrierNumbers = null;       // { from, to } if the carrier's start event says
+  let resumeOutcome = transferOutcome;
+  let transferPending = null;      // set once the carrier accepted the redirect
+  let transferRequest = null;      // the runtime's 'transfer' event for this turn
+  const transferOpts = () => {
+    const a = transferAvailability({ carrierId: carrier.id ?? null, settings, channel: 'phone' });
+    return { available: a.available, condition: a.config.condition, targetLabel: a.config.targetLabel };
+  };
   let settings = {};
   let voice = null;
   let ttsFormat = null;
@@ -286,6 +308,10 @@ export function runModularMediaBridge(ws, {
   const history = [];
   const transcript = [];
   const fillerBudget = createFillerBudget();
+  // Speculative LLM execution on interim transcripts (see
+  // services/voice/speculativeTurn.js). Rebuilt once the agent's settings are
+  // known; a no-op stands in until then so the hooks below stay unconditional.
+  let speculator = createSpeculator({ mode: 'off', start: () => { throw new Error('unused'); } });
   const startedAt = Date.now();
 
   // Turn state
@@ -681,6 +707,15 @@ export function runModularMediaBridge(ws, {
         carriedUserText = '';
       }
 
+      const tl = dg?.lastTurnTimeline ?? null;
+      const dgTimeline = tl ? {
+        dgTier: tl.tier, dgReason: tl.reason, dgGraceMs: tl.graceMs,
+        dgCandidates: tl.candidates, dgCandidatesCancelled: tl.candidatesCancelled,
+        dgLastWordToSpeechFinalMs: (tl.lastTranscriptAt != null && tl.speechFinalAt != null) ? Math.round(tl.speechFinalAt - tl.lastTranscriptAt) : null,
+        dgSpeechFinalToCommitMs: (tl.speechFinalAt != null && tl.commitAt != null) ? Math.round(tl.commitAt - tl.speechFinalAt) : null,
+        dgCommitToTurnMs: tl.commitAt != null ? Math.round(turnEndDetectedAt - tl.commitAt) : null,
+      } : null;
+
       // ── The turn was ENTIRELY our own voice coming back ───────────────────
       //
       // armNextTurn keeps most echo out by not listening until the line is
@@ -703,6 +738,7 @@ export function runModularMediaBridge(ws, {
           `${carrier.label}: discarding "${userText}" — echo of the agent's own `
           + `previous reply ("${lastAgentText.slice(0, 60)}…")`,
         );
+        speculator.abort();
         return;
       }
 
@@ -751,6 +787,7 @@ export function runModularMediaBridge(ws, {
             + `(dgListened=${dgListened} voicedMs=${speech.voicedMs} `
             + `contrast=${speech.contrast.toFixed(2)} peak=${speech.peakRms.toFixed(4)})`,
           );
+          speculator.abort();
           return;
         }
         // Real speech, no stream to transcribe it. Costs a round trip (both
@@ -774,6 +811,12 @@ export function runModularMediaBridge(ws, {
       // Empty on the batch path (the classifier needs words), which is exactly
       // how the web bridge behaves when its own stream came back empty.
       const affect = classifyCallerAffect(speech, userText);
+
+      // Settle the speculation against the committed transcript, now that the
+      // gates above agree this is a real turn — a hit hands its iterator to
+      // the runtime, anything else is aborted so no discarded turn leaves a
+      // request running. See speculativeTurn.js.
+      const speculation = { ...speculator.take(userText), mode: speculator.mode };
 
       let replyText = '';
       let pending = null;
@@ -802,6 +845,9 @@ export function runModularMediaBridge(ws, {
           // over — the recogniser's VAD timeout plus its confirmation grace.
           // Outside every previous metric, and the same size as the LLM wait.
           endpointMs: dg?.lastEndpointMs ?? null,
+          speculation,
+          extraLatency: dgTimeline,
+          transfer: transferOpts(),
           // Ask TTS for the carrier's own format — see ttsFormatOpts().
           ...ttsFormatOpts(),
           shouldAbort: () => abortTurn || closed,
@@ -871,6 +917,12 @@ export function runModularMediaBridge(ws, {
                 pendingPcm = null;
                 break;
               }
+              case 'transfer':
+                // The caller asked for a person (or the model decided the
+                // configured condition was met). Acted on AFTER this turn's
+                // audio has been spoken — see handleTransferRequest.
+                transferRequest = ev;
+                break;
               case 'done':
                 if (ev.reply) replyText = ev.reply;
                 break;
@@ -884,6 +936,11 @@ export function runModularMediaBridge(ws, {
       if (replyText) {
         transcript.push({ role: 'assistant', content: replyText });
         history.push({ role: 'assistant', content: replyText });
+      }
+      if (transferRequest && !closed && !abortTurn) {
+        const req = transferRequest;
+        transferRequest = null;
+        await handleTransferRequest(req);
       }
     } catch (err) {
       logger.warn(`Modular phone turn failed: ${err.message}`);
@@ -979,6 +1036,14 @@ export function runModularMediaBridge(ws, {
           finishedGraceMs: profile.finishedGraceMs,
         };
       })(),
+      // Interim hooks feed the speculator. Gated exactly like onEndOfTurn
+      // below: words heard while we are still audible are echo or over-talk,
+      // and neither is a question worth pre-answering. Over-talk that survives
+      // harvestOverlap() is prepended to the next transcript, which the take()
+      // match then treats as a miss — correct, if conservative.
+      onTranscript: (text, meta) => { if (!playout.isSpeaking() && !turnRunning) speculator.onTranscript(text, meta); },
+      onEndOfTurnCandidate: (text) => { if (!playout.isSpeaking() && !turnRunning) speculator.onCandidate(text); },
+      onCandidateCancelled: () => speculator.onCandidateCancelled(),
       // Guarded, because Deepgram is fed the inbound leg unconditionally and a
       // phone line has no echo cancellation: our own reply comes back up it and
       // is transcribed like any other speech, so it can commit an end of turn
@@ -1096,6 +1161,7 @@ export function runModularMediaBridge(ws, {
     // one dying mid-turn).
     if (dg && dg.isAlive) dgTurnSeq = dg.beginTurn();
     else openDeepgram();
+    speculator.beginTurn();
 
     // ── How long this bridge was deaf, which nothing measured ────────────
     //
@@ -1371,9 +1437,113 @@ export function runModularMediaBridge(ws, {
     workspaceId, agentId, label: carrier.label,
   });
 
+  // ── Human handover ────────────────────────────────────────────────────────
+
+  /** Resolve once the carrier has finished playing what we queued (bounded). */
+  const waitForPlayoutDrain = (maxMs = 15000) => new Promise((resolve) => {
+    const deadline = Date.now() + maxMs;
+    const poll = () => {
+      if (closed || !playout.isSpeaking() || Date.now() > deadline) return resolve();
+      setTimeout(poll, 100);
+    };
+    poll();
+  });
+
+  /** Save the conversation so far without settling: a resumed bridge reloads it. */
+  const persistTranscript = async () => {
+    if (!callLogId) return;
+    try {
+      await prisma.agentCallLog.update({
+        where: { id: callLogId },
+        data: { transcript: JSON.stringify(transcript.slice(-200)) },
+      });
+    } catch (e) {
+      logger.warn(`${carrier.label}: could not persist the transcript before the handover: ${e.message}`);
+    }
+  };
+
+  const recordTransfer = async (data) => {
+    try {
+      return await prisma.callTransfer.create({
+        data: {
+          callLogId: callLogId ?? 'unknown', workspaceId, agentId, channel: 'PHONE',
+          carrier: carrier.id ?? null, carrierCallId, ...data,
+        },
+      });
+    } catch (e) {
+      logger.warn(`${carrier.label}: could not record the transfer: ${e.message}`);
+      return null;
+    }
+  };
+  const updateTransfer = async (row, data) => {
+    if (!row) return;
+    try { await prisma.callTransfer.update({ where: { id: row.id }, data }); } catch { /* logged above */ }
+  };
+
+  /**
+   * The runtime said the caller wants a person. The announcement has already
+   * been generated by this turn; let it finish playing, then redirect the
+   * live call. Every failure comes back to the caller as words, never as
+   * silence and never as a claim that it worked.
+   */
+  const handleTransferRequest = async (ev) => {
+    const avail = transferAvailability({ carrierId: carrier.id ?? null, settings, channel: 'phone' });
+    const langHint = /hindi|^hi\b/i.test(String(settings.sttLanguage || agentLanguages?.[0] || '')) ? 'hi' : 'en';
+    const row = await recordTransfer({
+      target: avail.config.number, mode: avail.config.mode, source: ev.source,
+      reason: String(ev.reason || '').slice(0, 500),
+      status: avail.available ? 'REQUESTED' : 'UNAVAILABLE',
+      error: avail.available ? null : avail.reason,
+    });
+    transcript.push({ role: 'system', content: `Caller asked for a human (${ev.source}${ev.matched ? `: ${ev.matched}` : ''}). ${avail.available ? `Transferring to ${avail.config.number}.` : `Not transferable: ${avail.reason}.`}` });
+    if (!avail.available) {
+      // The prompt already had the model answer honestly (no handover on this
+      // call); nothing to dial. Logged so the outcome is visible per call.
+      logger.info({ callLogId, reason: avail.reason }, `${carrier.label}: transfer requested but unavailable`);
+      return;
+    }
+    if (!carrierCallId) {
+      await updateTransfer(row, { status: 'REJECTED', error: 'carrier call id unknown', resolvedAt: new Date() });
+      await speakLine(failureLineFor('failed', { targetLabel: avail.config.targetLabel, lang: langHint }));
+      return;
+    }
+    // Let the "connecting you now" sentence finish before the line is redirected.
+    await waitForPlayoutDrain();
+    if (closed) return;
+    const ourNumber = (() => {
+      const dir = String(direction || settings.callDirection || '').toUpperCase();
+      return dir === 'OUTBOUND' ? carrierNumbers?.from : carrierNumbers?.to;
+    })();
+    await updateTransfer(row, { status: 'DIALING', dialedAt: new Date() });
+    const result = await transferLiveCall({
+      carrierId: carrier.id, carrierCallId, callLogId, workspaceId, agentId,
+      config: avail.config, callerId: ourNumber ?? null,
+    });
+    if (!result.ok) {
+      logger.warn({ callLogId, error: result.error }, `${carrier.label}: transfer redirect refused`);
+      await updateTransfer(row, { status: 'REJECTED', error: result.error, resolvedAt: new Date() });
+      const line = failureLineFor(result.unsupported ? 'failed' : 'failed', { targetLabel: avail.config.targetLabel, lang: langHint });
+      transcript.push({ role: 'assistant', content: line });
+      history.push({ role: 'assistant', content: line });
+      await speakLine(line);
+      return;
+    }
+    // Accepted. The carrier is about to tear this socket down and ring the
+    // human; the call log must NOT be settled when that happens — the transfer
+    // callbacks own the rest of the call's lifecycle. See cleanup().
+    transferPending = {
+      number: avail.config.number, callerId: ourNumber ?? null, timeoutSec: avail.config.timeoutSec,
+      direction, carrierId: carrier.id, rowId: row?.id ?? null,
+    };
+    if (callLogId) registerPendingTransfer(callLogId, transferPending);
+    await persistTranscript();
+    logger.info({ callLogId, target: avail.config.number, carrierCallId }, `${carrier.label}: live call redirected to the human`);
+  };
+
   const cleanup = (status) => {
     closed = true;
     abortTurn = true;
+    speculator.abort();
     // First: a leaked 20ms interval would outlive the call permanently.
     pacer?.stop();
     pacer = null;
@@ -1395,6 +1565,14 @@ export function runModularMediaBridge(ws, {
     try { dg?.close(); } catch { /* already gone */ }
     dg = null;
     recording.save(callLogId);
+    if (transferPending) {
+      // The socket closed because the carrier redirected the call to the
+      // human. The call is still live: the <Dial> callback finalises it (both
+      // legs), or a resumed bridge does after a failed handover. Settling it
+      // here would bill only the agent leg and close a call still in progress.
+      logger.info({ callLogId }, `${carrier.label}: media socket closed for the handover — call log left open`);
+      return;
+    }
     if (status) finalizeCallLog(callLogId, status, { transcript, startedAt });
   };
 
@@ -1420,6 +1598,9 @@ export function runModularMediaBridge(ws, {
         // per-call parameters on `start`, so its id arrives on the socket URL
         // and must survive this.
         if (started.callLogId) callLogId = started.callLogId;
+        if (started.carrierCallId) carrierCallId = started.carrierCallId;
+        if (started.from || started.to) carrierNumbers = { from: started.from ?? null, to: started.to ?? null };
+        if (started.transferOutcome) resumeOutcome = started.transferOutcome;
 
         try {
           // ── Everything here happens while the caller is listening to silence ──
@@ -1470,6 +1651,16 @@ export function runModularMediaBridge(ws, {
           budget = gate.budget;
           if (!agent) throw new Error('Agent not found in this workspace');
           settings = safeJson(agent.settings, {});
+          speculator = createSpeculator({
+            mode: speculationModeFor(settings),
+            label: `${carrier.label} speculation`,
+            // The conversation so far. `history` already holds the greeting and
+            // every completed turn; the turn being spoken is not in it yet.
+            history: () => history.slice(),
+            // Same prompt as the committed turn will use (transfer protocol
+            // included), or the speculative reply would not match.
+            start: (messages, { signal }) => converseStream(workspaceId, agentId, messages, { voiceMode: true, signal, transfer: transferOpts() }),
+          });
 
           // ── Wallet gate ───────────────────────────────────────────────────
           //
@@ -1579,7 +1770,10 @@ export function runModularMediaBridge(ws, {
           // Note it is armed even for a carrier that does NOT need pacing
           // (Twilio): a continuous bed has to be emitted on a clock whether or not
           // the carrier would tolerate a burst of speech.
-          if (settings.ambientSound && settings.ambientSound !== 'None') {
+          // The three-state switch (off / manual bed / Fish-native). Only
+          // 'manual' mixes a bed here; 'native' rides on the synthesis request
+          // (see ambienceTagFor) and 'off' is exactly the old no-preset path.
+          if (resolveAmbientMode(settings) === 'manual' && settings.ambientSound && settings.ambientSound !== 'None') {
             pacer = createAmbiencePump({
               presetName: settings.ambientSound,
               send: sendFrameNow,
@@ -1671,10 +1865,37 @@ export function runModularMediaBridge(ws, {
           // Greet immediately. A carrier connects the media stream the moment
           // the callee answers, and silence on answer is what makes people hang
           // up before the agent has said anything.
-          const greeting = (await welcomePending)
-            || agent.welcomeMessage
-            || `Hello, this is ${agent.name}.`;
-          await speakLine(greeting);
+          if (resumeOutcome) {
+            // Back from a failed handover: no greeting, the conversation so
+            // far reloaded, and the truth about what just happened.
+            const outcome = String(resumeOutcome).toLowerCase();
+            if (callLogId) {
+              try {
+                const row = await prisma.agentCallLog.findUnique({ where: { id: callLogId }, select: { transcript: true } });
+                const saved = JSON.parse(row?.transcript || '[]');
+                for (const m of Array.isArray(saved) ? saved : []) {
+                  if (m?.role === 'user' || m?.role === 'assistant') history.push({ role: m.role, content: String(m.content ?? '') });
+                  transcript.push(m);
+                }
+              } catch (e) {
+                logger.warn(`${carrier.label}: could not reload the transcript after the handover: ${e.message}`);
+              }
+            }
+            const avail = transferAvailability({ carrierId: carrier.id ?? null, settings, channel: 'phone' });
+            const langHint = /hindi|^hi\b/i.test(String(settings.sttLanguage || agentLanguages?.[0] || '')) ? 'hi' : 'en';
+            const line = failureLineFor(outcome, { targetLabel: avail.config.targetLabel, lang: langHint });
+            transcript.push({ role: 'system', content: `Handover ended: ${outcome}. Agent resumed.` });
+            transcript.push({ role: 'assistant', content: line });
+            history.push({ role: 'assistant', content: line });
+            await welcomePending.catch(() => '');
+            await speakLine(line);
+            logger.info({ callLogId, outcome }, `${carrier.label}: resumed after a failed handover`);
+          } else {
+            const greeting = (await welcomePending)
+              || agent.welcomeMessage
+              || `Hello, this is ${agent.name}.`;
+            await speakLine(greeting);
+          }
           // The one number that says how long the callee heard nothing. Measured
           // to the WIRE (see turnFirstFrameAt), not to "TTS returned bytes",
           // because on a paced carrier those differ by the queue depth.

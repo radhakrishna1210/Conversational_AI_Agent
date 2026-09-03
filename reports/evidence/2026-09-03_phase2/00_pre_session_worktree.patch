@@ -1,0 +1,767 @@
+diff --git a/backend/.env.example b/backend/.env.example
+index c47dd71..eefbf8f 100644
+--- a/backend/.env.example
++++ b/backend/.env.example
+@@ -376,10 +376,3 @@ PLATFORM_TM_ID=
+ # DEEPGRAM_ENDPOINTING_MS=300
+ # DEEPGRAM_ENDPOINT_GRACE_MS=400
+ # DEEPGRAM_UNFINISHED_GRACE_MS=1100
+-# The SHORT window used when the transcript has clearly handed over the floor
+-# (a question mark, a Hindi danda, a standalone "yes") — see looksFinished().
+-# Never longer than the ordinary grace. Set DEEPGRAM_FINISHED_GRACE=false to
+-# switch the tier off platform-wide (every finished tail then waits the
+-# ordinary window, as before).
+-# DEEPGRAM_FINISHED_GRACE_MS=150
+-# DEEPGRAM_FINISHED_GRACE=true
+diff --git a/backend/src/services/stt/__tests__/deepgramTurns.test.js b/backend/src/services/stt/__tests__/deepgramTurns.test.js
+index ced7bed..e67c093 100644
+--- a/backend/src/services/stt/__tests__/deepgramTurns.test.js
++++ b/backend/src/services/stt/__tests__/deepgramTurns.test.js
+@@ -10,7 +10,7 @@
+ 
+ import test from 'node:test';
+ import assert from 'node:assert/strict';
+-import { DeepgramStreamSession, looksUnfinished, looksFinished, maxEndpointCommitMs, resolveDeepgramModel } from '../deepgramStream.service.js';
++import { DeepgramStreamSession, looksUnfinished, maxEndpointCommitMs, resolveDeepgramModel } from '../deepgramStream.service.js';
+ 
+ /** Minimal stand-in for the `ws` socket the session opens. */
+ function fakeSocket(session) {
+@@ -363,9 +363,7 @@ test('a completed thought still commits on the fast path', async () => {
+   session._handleMessage({ speech_final: true });
+ 
+   await new Promise((r) => setTimeout(r, 120));
+-  // A sentence-final full stop on a clause is a hand-over, so it now takes the
+-  // short tier (tagged) — faster than the ordinary path this test guards.
+-  assert.deepEqual(fired, ['speech_final:finished'], 'a finished turn must stay snappy');
++  assert.deepEqual(fired, ['speech_final'], 'a finished turn must stay snappy');
+ });
+ 
+ test('resuming speech cancels the pending end of turn', async () => {
+@@ -431,9 +429,7 @@ test("a new turn is not judged by the previous turn's last words", async () => {
+   emitInterim(session, 'Yes');
+   session._handleMessage({ speech_final: true });
+   await new Promise((r) => setTimeout(r, 120));
+-  // "Yes" stands alone, so the new turn takes the short tier — the stale
+-  // dangling tail from the previous turn must not drag it to the long one.
+-  assert.deepEqual(fired, ['speech_final:finished'], 'stale tail must not slow the new turn');
++  assert.deepEqual(fired, ['speech_final'], 'stale tail must not slow the new turn');
+ });
+ 
+ // A one-word turn is a fragment unless the word stands alone. An enumerated
+@@ -703,125 +699,3 @@ test('the non-English model is overridable, so a deployment can pin it back', ()
+     process.env = saved;
+   }
+ });
+-
+-// ─── Finished-tail grace tier (Phase 1.1 of the latency plan) ────────────────
+-//
+-// The ordinary grace window is ~400ms of dead air on every turn. On a tail
+-// that has clearly handed over the floor — a question, a danda, a bare "yes" —
+-// it buys nothing, so those commit on a short third tier. The asymmetry from
+-// looksUnfinished() still holds: a dangling tail is never "finished", and a
+-// number being read out keeps the ordinary window.
+-
+-function tieredSession({ grace = 60, unfinished = 100, finished = 20 } = {}) {
+-  const fired = [];
+-  const s = new DeepgramStreamSession({
+-    sampleRate: 16000,
+-    endpointGraceMs: grace,
+-    unfinishedGraceMs: unfinished,
+-    finishedGraceMs: finished,
+-    onEndOfTurn: (reason) => fired.push(reason),
+-  });
+-  fakeSocket(s);
+-  s.beginTurn();
+-  return { s, fired };
+-}
+-
+-test('looksFinished: hand-over tails, and only those', () => {
+-  const finished = [
+-    'what are your hours?', 'Can you book that for me?', 'क्या आप खुले हैं?',
+-    'मुझे कल का अपॉइंटमेंट चाहिए।', 'Yes.', 'okay', 'हाँ', 'Thanks, that is all.',
+-    'Please book it for tomorrow morning.', 'That would be great, thanks!',
+-  ];
+-  const notFinished = [
+-    '', 'Like, which?',                 // dangles even with a question mark
+-    'my order number is 43.',           // digit in the last word: could be mid-number
+-    'book it for tomorrow',             // no terminator: a plain pause
+-    'I want to',                        // unfinished
+-    'Sure thing so',                    // dangling conjunction
+-    'appointment',                      // one-word fragment, not in the stand-alone list
+-    'It is 4.',                         // short, and ends on a digit
+-  ];
+-  for (const t of finished) assert.equal(looksFinished(t), true, `"${t}" should be finished`);
+-  for (const t of notFinished) assert.equal(looksFinished(t), false, `"${t}" should NOT be finished`);
+-});
+-
+-test('a question commits on the short tier, tagged so the log can split it', async () => {
+-  const { s, fired } = tieredSession();
+-  emitSpeechFinal(s, 'what are your weekend hours?');
+-  await sleep(40);                       // past finished (20), before ordinary (60)
+-  assert.deepEqual(fired, ['speech_final:finished']);
+-});
+-
+-test('a number being read out keeps the ordinary window', async () => {
+-  const { s, fired } = tieredSession();
+-  emitSpeechFinal(s, 'my order number is 43.');
+-  await sleep(40);
+-  assert.deepEqual(fired, [], 'must not take the short tier on a digit');
+-  await sleep(50);
+-  assert.deepEqual(fired, ['speech_final']);
+-});
+-
+-test('a standalone one-word answer commits on the short tier', async () => {
+-  const { s, fired } = tieredSession();
+-  emitSpeechFinal(s, 'Yes.');
+-  await sleep(40);
+-  assert.deepEqual(fired, ['speech_final:finished']);
+-});
+-
+-test('a dangling tail is never finished, question mark or not', async () => {
+-  const { s, fired } = tieredSession();
+-  emitSpeechFinal(s, 'Like, which?');
+-  await sleep(80);                       // past ordinary (60), before unfinished (100)
+-  assert.deepEqual(fired, [], 'unfinished wins over finished');
+-  await sleep(60);
+-  assert.deepEqual(fired, ['speech_final:unfinished']);
+-});
+-
+-test('resuming speech inside the short tier still cancels the turn', async () => {
+-  const { s, fired } = tieredSession({ finished: 40 });
+-  emitSpeechFinal(s, 'is that open on Sunday?');
+-  await sleep(15);
+-  emitInterim(s, 'or Saturday');
+-  await sleep(120);
+-  assert.deepEqual(fired, [], 'caller kept going — the short tier must be cancellable too');
+-});
+-
+-test('the finished tier can never wait longer than the ordinary window', () => {
+-  const s = new DeepgramStreamSession({ sampleRate: 16000, endpointGraceMs: 40, finishedGraceMs: 500 });
+-  assert.equal(s.finishedGraceMs, 40);
+-});
+-
+-test('an agent that passes no finished grace gets the default, capped by its ordinary window', () => {
+-  const saved = { ...process.env };
+-  try {
+-    delete process.env.DEEPGRAM_FINISHED_GRACE_MS;
+-    delete process.env.DEEPGRAM_FINISHED_GRACE;
+-    assert.equal(new DeepgramStreamSession({ sampleRate: 16000, endpointGraceMs: 400 }).finishedGraceMs, 150);
+-    assert.equal(new DeepgramStreamSession({ sampleRate: 16000, endpointGraceMs: 100 }).finishedGraceMs, 100);
+-  } finally {
+-    process.env = saved;
+-  }
+-});
+-
+-test('DEEPGRAM_FINISHED_GRACE=false switches the tier off platform-wide', async () => {
+-  const saved = { ...process.env };
+-  try {
+-    process.env.DEEPGRAM_FINISHED_GRACE = 'false';
+-    const { s, fired } = tieredSession();
+-    emitSpeechFinal(s, 'what are your weekend hours?');
+-    await sleep(40);
+-    assert.deepEqual(fired, [], 'kill switch: a question waits the ordinary window');
+-    await sleep(50);
+-    assert.deepEqual(fired, ['speech_final'], 'and commits untagged, exactly as before the tier existed');
+-  } finally {
+-    process.env = saved;
+-  }
+-});
+-
+-test('the finished tier still reports its endpoint cost', async () => {
+-  const { s } = tieredSession({ finished: 20 });
+-  s.endpointingMs = 300;
+-  emitSpeechFinal(s, 'what are your weekend hours?');
+-  await sleep(40);
+-  assert.ok(s.lastEndpointMs >= 300 && s.lastEndpointMs < 400, `got ${s.lastEndpointMs}`);
+-});
+diff --git a/backend/src/services/stt/deepgramStream.service.js b/backend/src/services/stt/deepgramStream.service.js
+index f20a198..9c440e6 100644
+--- a/backend/src/services/stt/deepgramStream.service.js
++++ b/backend/src/services/stt/deepgramStream.service.js
+@@ -171,55 +171,6 @@ export function looksUnfinished(text) {
+   return DANGLING_WORDS.has(last);
+ }
+ 
+-/**
+- * Does the transcript read as a CLEARLY finished turn — one where waiting the
+- * ordinary grace window buys nothing?
+- *
+- * looksUnfinished() lengthens the wait when the tail dangles. This is the
+- * opposite reading, and it is deliberately narrower: the ordinary grace window
+- * exists because a caller who pauses after a complete clause ("book it for
+- * tomorrow") may still be about to add "…at nine". That is a real risk, so a
+- * plain full stop is NOT enough here. What qualifies is a tail where the caller
+- * has audibly handed over the floor:
+- *
+- *   - a question mark: the caller is waiting for an answer, not composing more;
+- *   - a Hindi danda / double danda, which Deepgram only emits at a real
+- *     sentence end and which Hindi speakers do not pause across;
+- *   - a one-word turn that stands alone ("yes", "हाँ", "okay");
+- *   - a short sentence-final full stop after at least three words, where the
+- *     last word carries no digit — a number being read out ("my order is 4-3.")
+- *     is exactly the case that must keep the long window.
+- *
+- * Callers check looksUnfinished() FIRST; a tail that dangles never gets here.
+- * A wrong "finished" costs a cut-off, so when unsure this returns false.
+- *
+- * @param {string} text - the turn's most recent transcript
+- * @returns {boolean}
+- */
+-export function looksFinished(text) {
+-  const raw = String(text ?? '').trim();
+-  if (!raw) return false;
+-  if (looksUnfinished(raw)) return false;
+-
+-  if (/[?？।॥]$/u.test(raw)) return true;
+-
+-  const tokens = raw.toLowerCase().replace(/[.,!?;:।॥…"')\]]+$/g, '')
+-    .split(/\s+/)
+-    .map((t) => t.replace(/[^\p{L}\p{N}\p{M}']/gu, ''))
+-    .filter(Boolean);
+-  if (!tokens.length) return false;
+-  const last = tokens[tokens.length - 1];
+-
+-  if (tokens.length === 1) return COMPLETE_ONE_WORD.has(last);
+-
+-  // "!" is a hand-over as clearly as "?" — but only once a real clause exists;
+-  // Deepgram punctuates "Yes!" and "Okay!" as one-word turns, handled above.
+-  if (/[!]$/.test(raw)) return true;
+-
+-  // Sentence-final full stop on a clause, with no digit in the last word.
+-  return tokens.length >= 3 && /\.$/.test(raw) && !/\p{N}/u.test(last);
+-}
+-
+ /**
+  * SUPERSEDED by services/voice/turnEndProfile.js, which resolves these timings
+  * per AGENT. Nothing on a live path calls this or maxEndpointCommitMs() any
+@@ -389,14 +340,10 @@ export class DeepgramStreamSession {
+    *   immediately by UtteranceEnd. Receives the reason as its argument, for logs.
+    * @param {number} [opts.endpointGraceMs] - how long a speech_final candidate
+    *   must go unchallenged before it is committed as a real end of turn.
+-   * @param {number} [opts.unfinishedGraceMs] - the longer window used instead
+-   *   when the transcript ends mid-thought (see looksUnfinished).
+-   * @param {number} [opts.finishedGraceMs] - the SHORTER window used instead
+-   *   when the transcript has clearly handed over the floor (see looksFinished).
+    */
+   constructor({
+     sampleRate = 24000, language, endpointingMs, onEndOfTurn, endpointGraceMs,
+-    unfinishedGraceMs, finishedGraceMs,
++    unfinishedGraceMs,
+     encoding = 'linear16',
+   } = {}) {
+     this.sampleRate = sampleRate;
+@@ -444,22 +391,6 @@ export class DeepgramStreamSession {
+     this.unfinishedGraceMs = Number.isFinite(unfinishedGraceMs) && unfinishedGraceMs > 0
+       ? unfinishedGraceMs
+       : (Number(process.env.DEEPGRAM_UNFINISHED_GRACE_MS) || 1100);
+-    // Grace applied instead when the transcript has CLEARLY handed over the
+-    // floor — a question, a danda-terminated sentence, a standalone "yes" (see
+-    // looksFinished). Measured on this deployment the ordinary window costs
+-    // every turn ~400ms of pure dead air, and on a question it buys nothing:
+-    // nobody appends to "what are your hours?". Shorter than the ordinary
+-    // window by construction — a profile cannot make "finished" wait longer
+-    // than "ordinary". DEEPGRAM_FINISHED_GRACE=false is the operator kill
+-    // switch: the tier is skipped platform-wide and every finished tail waits
+-    // the ordinary window, exactly as before this tier existed.
+-    const finishedFallback = Number(process.env.DEEPGRAM_FINISHED_GRACE_MS);
+-    const finishedRaw = Number.isFinite(finishedGraceMs) && finishedGraceMs >= 0
+-      ? finishedGraceMs
+-      : (Number.isFinite(finishedFallback) && finishedFallback >= 0 ? finishedFallback : 150);
+-    this.finishedGraceMs = process.env.DEEPGRAM_FINISHED_GRACE === 'false'
+-      ? null
+-      : Math.min(finishedRaw, this.endpointGraceMs);
+     this._endpointTimer = null;
+     // Set when a speech_final candidate is armed; cleared when it commits or is
+     // cancelled. Only feeds lastEndpointMs — nothing decides anything from it.
+@@ -683,22 +614,12 @@ export class DeepgramStreamSession {
+     // Content-aware window. A turn ending on "and", "which" or "um" is not a
+     // turn — it is a caller mid-sentence — so it gets the long window; anything
+     // that reads as a finished thought keeps the fast one.
+-    //
+-    // Three tiers, read off the same tail. Unfinished is checked first and
+-    // wins: "Like, which?" dangles even with a question mark on it. Finished
+-    // is the narrow opposite case and gets the short window; everything else
+-    // keeps the ordinary one. The reason suffix lets the latency report split
+-    // endpointMs by tier, so each window's cost stays visible separately.
+     const unfinished = looksUnfinished(this._tail);
+-    const finished = !unfinished && this.finishedGraceMs != null && looksFinished(this._tail);
+-    const graceMs = unfinished ? this.unfinishedGraceMs
+-      : finished ? this.finishedGraceMs
+-        : this.endpointGraceMs;
+-    const commitReason = unfinished ? `${reason}:unfinished` : finished ? `${reason}:finished` : reason;
+-    if (graceMs <= 0) { this._commitEndOfTurn(commitReason); return; }
++    const graceMs = unfinished ? this.unfinishedGraceMs : this.endpointGraceMs;
++    if (graceMs <= 0) { this._commitEndOfTurn(reason); return; }
+     this._endpointTimer = setTimeout(() => {
+       this._endpointTimer = null;
+-      this._commitEndOfTurn(commitReason);
++      this._commitEndOfTurn(unfinished ? `${reason}:unfinished` : reason);
+     }, graceMs);
+   }
+ 
+diff --git a/backend/src/services/voice/__tests__/turnEndProfile.test.js b/backend/src/services/voice/__tests__/turnEndProfile.test.js
+index 06741b0..7986cff 100644
+--- a/backend/src/services/voice/__tests__/turnEndProfile.test.js
++++ b/backend/src/services/voice/__tests__/turnEndProfile.test.js
+@@ -25,7 +25,6 @@ const ENV_KEYS = [
+   'DEEPGRAM_ENDPOINTING_MS',
+   'DEEPGRAM_ENDPOINT_GRACE_MS',
+   'DEEPGRAM_UNFINISHED_GRACE_MS',
+-  'DEEPGRAM_FINISHED_GRACE_MS',
+ ];
+ 
+ describe('turnEndProfileFor', () => {
+@@ -97,28 +96,6 @@ describe('turnEndProfileFor', () => {
+     assert.equal(TURN_END_PROFILES.patient.graceMs, 700);
+   });
+ 
+-  test('every profile carries a finished tier shorter than its ordinary window', () => {
+-    // The short tier exists to skip dead air on a tail that has handed over the
+-    // floor. A profile whose "finished" wait is not shorter than its ordinary
+-    // one would make the tier a no-op, and the log would show it as working.
+-    for (const p of turnEndProfileList()) {
+-      assert.ok(Number.isFinite(p.finishedGraceMs) && p.finishedGraceMs >= 0, p.id);
+-      assert.ok(p.finishedGraceMs < p.graceMs, `${p.id}: finished must be shorter than ordinary`);
+-      assert.ok(p.graceMs < p.unfinishedGraceMs, `${p.id}: ordinary must be shorter than unfinished`);
+-    }
+-  });
+-
+-  test('the finished tier follows the same precedence as the other windows', () => {
+-    process.env.DEEPGRAM_FINISHED_GRACE_MS = '90';
+-    // Unconfigured agent: the environment tunes it.
+-    assert.equal(turnEndProfileFor({}).finishedGraceMs, 90);
+-    // Explicit choice: the profile wins, the environment is ignored.
+-    assert.equal(
+-      turnEndProfileFor({ turnEndSensitivity: 'patient' }).finishedGraceMs,
+-      TURN_END_PROFILES.patient.finishedGraceMs,
+-    );
+-  });
+-
+   test('profiles are ordered fastest-first and strictly increasing', () => {
+     // The editor renders them in this order, and a picker whose middle option
+     // is not actually in the middle is worse than no picker.
+diff --git a/backend/src/services/voice/turnEndProfile.js b/backend/src/services/voice/turnEndProfile.js
+index a0082cc..24185ec 100644
+--- a/backend/src/services/voice/turnEndProfile.js
++++ b/backend/src/services/voice/turnEndProfile.js
+@@ -28,12 +28,8 @@
+  * @property {string} label            shown in the agent editor
+  * @property {string} description      what the caller experiences
+  * @property {number} endpointingMs    silence before the recognizer says "final"
+- * @property {number} graceMs          confirmation window on an ordinary turn
++ * @property {number} graceMs          confirmation window on a finished-sounding turn
+  * @property {number} unfinishedGraceMs  confirmation window when the words dangle
+- * @property {number} finishedGraceMs  confirmation window when the words have
+- *                                     clearly handed over the floor (a question,
+- *                                     a danda, a standalone "yes") — see
+- *                                     looksFinished() in stt/deepgramStream
+  */
+ 
+ /** @type {Record<string, TurnEndProfile>} */
+@@ -47,7 +43,6 @@ export const TURN_END_PROFILES = {
+     endpointingMs: 250,
+     graceMs: 250,
+     unfinishedGraceMs: 800,
+-    finishedGraceMs: 80,
+   },
+   balanced: {
+     id: 'balanced',
+@@ -58,7 +53,6 @@ export const TURN_END_PROFILES = {
+     endpointingMs: 300,
+     graceMs: 400,
+     unfinishedGraceMs: 1100,
+-    finishedGraceMs: 150,
+   },
+   patient: {
+     id: 'patient',
+@@ -69,7 +63,6 @@ export const TURN_END_PROFILES = {
+     endpointingMs: 400,
+     graceMs: 700,
+     unfinishedGraceMs: 1600,
+-    finishedGraceMs: 300,
+   },
+ };
+ 
+@@ -115,7 +108,6 @@ export function turnEndProfileFor(settings = {}) {
+     endpointingMs: override('DEEPGRAM_ENDPOINTING_MS', base.endpointingMs),
+     graceMs: override('DEEPGRAM_ENDPOINT_GRACE_MS', base.graceMs),
+     unfinishedGraceMs: override('DEEPGRAM_UNFINISHED_GRACE_MS', base.unfinishedGraceMs),
+-    finishedGraceMs: override('DEEPGRAM_FINISHED_GRACE_MS', base.finishedGraceMs),
+   };
+ }
+ 
+diff --git a/backend/src/ws/modularMediaBridge.js b/backend/src/ws/modularMediaBridge.js
+index 4425c68..707379e 100644
+--- a/backend/src/ws/modularMediaBridge.js
++++ b/backend/src/ws/modularMediaBridge.js
+@@ -976,7 +976,6 @@ export function runModularMediaBridge(ws, {
+           endpointingMs: profile.endpointingMs,
+           endpointGraceMs: profile.graceMs,
+           unfinishedGraceMs: profile.unfinishedGraceMs,
+-          finishedGraceMs: profile.finishedGraceMs,
+         };
+       })(),
+       // Guarded, because Deepgram is fed the inbound leg unconditionally and a
+diff --git a/backend/src/ws/webCallModularRealtime.handler.js b/backend/src/ws/webCallModularRealtime.handler.js
+index e3bd06a..0a108c7 100644
+--- a/backend/src/ws/webCallModularRealtime.handler.js
++++ b/backend/src/ws/webCallModularRealtime.handler.js
+@@ -289,7 +289,6 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId })
+         endpointingMs: turnProfile.endpointingMs,
+         endpointGraceMs: turnProfile.graceMs,
+         unfinishedGraceMs: turnProfile.unfinishedGraceMs,
+-        finishedGraceMs: turnProfile.finishedGraceMs,
+         // Semantic turn end: fires only once the caller is genuinely finished
+         // (confirmed speech_final, or an authoritative UtteranceEnd).
+         //
+diff --git a/reports/LATENCY_IMPLEMENTATION_PLAN.md b/reports/LATENCY_IMPLEMENTATION_PLAN.md
+deleted file mode 100644
+index 768b1c3..0000000
+--- a/reports/LATENCY_IMPLEMENTATION_PLAN.md
++++ /dev/null
+@@ -1,197 +0,0 @@
+-# Latency Implementation Plan
+-
+-**Follows:** `reports/PIPELINE_LATENCY_REVIEW.md` (findings F1–F6, recommendations R1–R7)
+-**Goal:** cut the web server wait (`waitMs`) from ~1.9 s to ~1.2–1.4 s at p50 without cutting callers off, and have a measured phone baseline before phone tuning starts.
+-**Rule for every item:** ship behind a flag, default off, prove it with the A/B protocol in `LATENCY_REPORT.md` §5 (≥30 warm turns per arm, same agent/prompt/voice, `speechEndToAudibleMs` on web or `wireMs` on phone, plus a correctness guard), then flip the default.
+-
+-Work is in four phases. Phase 0 costs no code and unblocks the numbers every later decision depends on.
+-
+----
+-
+-## Phase 0 — Measure what is dark (no risk, do first)
+-
+-### 0.1 Run the browser-side measurement (R3)
+-
+-The instrumentation exists (`f04cafc`) and has produced zero `audible` rows.
+-
+-1. Start the branch backend on a spare port against the disposable DB from `OPEN_ISSUES.md` E-1.
+-2. Place 30 web turns on one named test agent (Sarvam voice, Balanced profile). Mix: 10 short answers, 10 questions, 5 with a mid-sentence pause, 5 numbers/names.
+-3. `node scripts/latency-report.mjs --out reports/evidence/<date>_phase0 --label baseline`.
+-4. Record `speechEndToAudibleMs`, `endTurnToAudibleMs`, `perceivedMs` p50/p90, joined by `turnId`.
+-
+-**Add one field first** (small, no behaviour change): `ackDurationMs` on the `turn-timing` frame, read from the ack segment's `audioEl.duration` at `ended` (`EditAgent.tsx`, `noteFirstAudible` neighbourhood), validated in `ws/turnTiming.js` (+1 test). This answers F5 directly: if `ackDurationMs + ackStart > ttfaMs` the ack is delaying the reply.
+-
+-**Exit:** a table of browser-leg cost, and a yes/no on whether the ack clip ever holds back real audio.
+-
+-### 0.2 Re-measure Groq first spoken token (R4)
+-
+-```
+-node --env-file=.env scripts/measure-llm-ttft.js   # with GROQ_MODEL=openai/gpt-oss-20b
+-```
+-10 consecutive turns, same 2.5k-token prompt used for the Gemini table in `resolveLlmForAgent`. Record first *content* token (not first chunk), since gpt-oss spends early chunks on reasoning. If p50 < 600 ms and p90 < 1.2 s, R4 becomes a config change (agent model picker already exposes Groq); otherwise drop it.
+-
+-### 0.3 One real phone call (R7)
+-
+-Prerequisites: a tester-owned number, the Mumbai VPS (not the dev tunnel), carrier spend approved. Ten turns. The bridge already writes `kind:'wire'` rows and `elLagP99Ms`. Read `wireMs − ttfaMs` (pacer queue depth) and `elLagP99Ms`. Nothing in Phase 3 is decided until this row exists.
+-
+----
+-
+-## Phase 1 — Endpointing (server-only, low risk, ~500–600 ms combined)
+-
+-### 1.1 Punctuation-aware short grace (R2)
+-
+-**Change.** `deepgramStream.service.js`, `_armEndOfTurnCandidate`:
+-
+-```js
+-const unfinished = looksUnfinished(this._tail);
+-const finished   = !unfinished && looksFinished(this._tail);   // NEW
+-const graceMs = unfinished ? this.unfinishedGraceMs
+-              : finished   ? this.finishedGraceMs               // NEW tier
+-              : this.endpointGraceMs;
+-```
+-
+-`looksFinished(text)`: true when the trimmed tail ends in `?`, `!`, `।`, `॥`, or the last token is in `COMPLETE_ONE_WORD`, or it ends in `.` after ≥ 3 tokens. Reuse the tokeniser in `looksUnfinished`. A trailing digit, "and", "so" or a bare comma is never finished (numbers being read out are the cut-off case to protect).
+-
+-**Profile.** Add `finishedGraceMs` to each entry in `turnEndProfile.js` (`fast` 80, `balanced` 150, `patient` 300) and thread it through both constructors (`webCallModularRealtime.handler.js` `ensureDeepgramSession`, `modularMediaBridge.js` `openDeepgram`). `maxCommitMsFor` is unchanged (worst case is still the unfinished tier), so the browser backstop needs no edit.
+-
+-**Flag.** `DEEPGRAM_FINISHED_GRACE_MS=0` disables (falls back to `graceMs`).
+-
+-**Tests.** `deepgramTurns.test.js`: a `?`-tail commits at the short tier; a digit-tail does not; a "yes" one-word tail does; `turnEndProfile.test.js`: every profile exposes the new field, `finished < grace < unfinished`.
+-
+-**Log.** `_commitEndOfTurn` reason string already carries `:unfinished`; add `:finished` so the report script can split by tier.
+-
+-**Prove.** `endpointMs` p50 on question turns drops from ~711 to ~450; cut-off rate (turns whose transcript ends mid-word or mid-number, checked by hand on the 30-turn script) does not rise.
+-
+-### 1.2 Shorter VAD timeout on Balanced (R6)
+-
+-`turnEndProfile.js`: `balanced.endpointingMs` 300 → 200 behind `DEEPGRAM_ENDPOINTING_MS` (already honoured for agents with no explicit profile). Run the 30-turn script twice (300 vs 200) with the numbers/names subset doubled. Accept only if mid-number cut-offs stay at zero. If not, keep 300 and let 1.1 carry the saving.
+-
+----
+-
+-## Phase 2 — Speculative LLM start (R1, the largest win, ~300–400 ms)
+-
+-**Idea.** At `speech_final` the server holds the complete transcript so far. Start the LLM then. If the caller stays quiet through the grace window, the reply is already ~400 ms into generation when the turn commits. If they resume, throw the request away.
+-
+-### 2.1 Deepgram session: expose the candidate
+-
+-`deepgramStream.service.js`:
+-
+-- `peekTranscript()` — `this.finals.join(' ').trim()`, no side effects.
+-- New callbacks in the constructor: `onEndOfTurnCandidate(text, reason)` fired from `_armEndOfTurnCandidate` **only when not unfinished** (a dangling tail is by definition not the whole request), and `onCandidateCancelled()` fired where `_handleMessage` clears the timer on new transcript. Both optional; nothing changes for callers that do not pass them.
+-- Tests: candidate fires with the joined finals; cancelled fires on resumed speech; no candidate on an unfinished tail; `beginTurn` fires cancelled if one is pending.
+-
+-### 2.2 Runtime: a reply that can be started early
+-
+-`agentRuntime.service.js`:
+-
+-```js
+-export function startSpeculativeReply(workspaceId, agentId, history, userText, { affect = null } = {}) {
+-  const messages = [...history, { role: 'user', content: userText }];
+-  const iterator = converseStream(workspaceId, agentId, messages, { voiceMode: true, affect });
+-  const first = iterator.next();            // request leaves now
+-  first.catch(() => {});                    // failure is judged at consume time
+-  return {
+-    userText, iterator, first, startedAt: performance.now(),
+-    cancel() { iterator.return?.().catch(() => {}); },
+-  };
+-}
+-```
+-
+-`voiceTurnStream` gets a new option `speculative`. Right after `userText` is settled (after echo trim and the silence gate):
+-
+-```js
+-if (speculative) {
+-  if (normalize(speculative.userText) === normalize(userText)) {
+-    primary = speculative;                  // reuse iterator + first promise
+-    llmStartedAt = speculative.startedAt;   // llmTtftMs stays honest
+-  } else {
+-    speculative.cancel();                   // transcript changed: pay full price, as today
+-  }
+-}
+-```
+-
+-Both the `ws-overlap` and `split` branches currently do `converseStream(...)` then `withTimeout(iterator.next(), …)`. Factor that into `const { iterator, first } = primary ?? startFresh()` so the hedge logic is untouched. `normalize` = lower-case, strip trailing punctuation and whitespace runs. A speculative iterator that has already rejected (rate limit) is treated as absent — `converseStream`'s model fallback already ran inside it.
+-
+-**Affect.** Speculation starts with `affect: null` (the PCM classifier runs at commit). Accept the mismatch: affect only tweaks the prompt note and TTS settings, and TTS settings are still applied at commit. Log `speculative: 'used' | 'discarded' | 'none'` on the latency record so the discard rate is visible.
+-
+-**Filler ack.** Unchanged; the 400 ms ack timer still starts at runtime entry. With speculation, real audio will often beat it, which is the point.
+-
+-### 2.3 Web handler
+-
+-`webCallModularRealtime.handler.js`, inside `ensureDeepgramSession`:
+-
+-```js
+-onEndOfTurnCandidate: (text) => {
+-  if (!capturing || turnActive || segmentHistory === undefined || !text) return;
+-  speculation?.cancel();
+-  speculation = startSpeculativeReply(workspaceId, agentId, segmentHistory, text);
+-},
+-onCandidateCancelled: () => { speculation?.cancel(); speculation = null; },
+-```
+-
+-`runTurn` passes `speculative: speculation` (then nulls it). Cancel on `cancel-turn`, `barge`, `stop`, socket close, and in `start-turn` (a new segment). Older clients that send no history on `start-turn` never speculate (`segmentHistory === undefined`), exactly like today's early-commit path.
+-
+-### 2.4 Phone bridge
+-
+-`modularMediaBridge.js`, `openDeepgram`: same two callbacks. Guard with `!turnRunning && !playout.isSpeaking()` (a candidate raised while the agent is still audible is echo). `runTurn` passes the speculation; `carriedUserText` (overlap harvest) invalidates it because the final text will be prefixed — cancel when `carriedUserText` is non-empty.
+-
+-### 2.5 Cost control
+-
+-- One extra LLM request per discarded speculation. Measured resume-inside-grace rate is near zero (every logged commit sits at 711 ± 5), so expected waste is small; the `speculative` field on the record proves it.
+-- Flag: `VOICE_SPECULATIVE_LLM=true` to enable; ships off. Per-agent override later if a KB-heavy agent's RAG call makes discards expensive.
+-- Never speculate on the unfinished tier (2.1), and never more than one in flight per call.
+-
+-**Tests.** Runtime: `voiceTurnStream` with a matching speculation does not call `converseStream` again (stub the module); with a mismatched one it cancels and starts fresh; a rejected speculation is ignored. Handler: candidate → cancel → candidate leaves exactly one live iterator.
+-
+-**Prove.** `llmTtftMs` measured from commit drops by ~the grace window; `waitMs` p50 from ~1.9 s to ~1.5 s; discard rate < 10 %; transcript/reply spot-check shows no reply answering a superseded transcript.
+-
+----
+-
+-## Phase 3 — TTS socket path (R5, ~200 ms, only for ElevenLabs/Fish voices)
+-
+-Two facts from the review: the socket path has never run in production (every row is `split`), and when it does run the socket is opened after STT.
+-
+-### 3.1 Make it run
+-
+-Configure one test agent with an ElevenLabs voice and `ttsDelivery: 'socket'`. Confirm a `mode:"ws-overlap"` row appears. If not, the factory or `supportsTokenStreaming` is refusing — fix that first; nothing below matters until this row exists.
+-
+-### 3.2 Pre-connect at start-turn
+-
+-- `agentRuntime.service.js`: `warmVoiceTurn` returns (or stores per call) a connected `createTokenTtsStream(voice, { pace: basePace, audioFormat, sampleRate })`. The bridges hold it in a per-call slot `warmTts`.
+-- `voiceTurnStream` option `ttsSession`: if present, open and unused, use it in the `canOverlap` branch instead of creating one; else fall through to today's code.
+-- ElevenLabs closes an idle `stream-input` socket after ~20 s. Handle `close` before use by discarding the slot; the runtime then connects fresh (today's behaviour). Reconnect on `start-turn` of the next segment.
+-- Voice settings go in the BOS frame, so the per-turn `affect`/jitter pace cannot be applied to a pre-connected socket. Accept: base pace at connect; affect still shapes the prompt. Log `ttsPreconnected: true|false`.
+-
+-**Prove.** `ttsTtfaMs` on socket-voice turns drops by the handshake (~200 ms from this network); no rise in `audio-end`-before-`audio-start` errors.
+-
+----
+-
+-## Phase 4 — Phone-specific (after 0.3 has data)
+-
+-Decide from the first real rows, in this order:
+-
+-1. If `wireMs − ttfaMs` > 100 ms: TTS is bursting faster than the pacer drains, or the frame clock is late. Check `elLagP99Ms` on the same rows; if lag is high, move AEC (`echoCanceller.js`) off the hot path per frame (batch every 2 frames) before touching the pacer.
+-2. If turns after a long reply are slow: `OVERLAP_SETTLE_MS` 700 → 400, measured on "yes, and…" style overlaps.
+-3. Greeting-after-answer: already parallelised; remaining cost is one DB round trip Mumbai → Singapore. Prefetch the agent row at dial time for outbound (`outboundCall.service.js`) so `loadAgent` hits cache on `start`.
+-
+----
+-
+-## Sequencing and ownership
+-
+-| order | item | effort | flag | ships when |
+-|---|---|---|---|---|
+-| 1 | 0.1 browser measurement + `ackDurationMs` | ½ day | — | first |
+-| 2 | 0.2 Groq re-measure | 1 h | — | with 1 |
+-| 3 | 1.1 finished-tail grace | ½ day | `DEEPGRAM_FINISHED_GRACE_MS` | after 0.1 baseline |
+-| 4 | 2.1–2.5 speculative LLM | 2 days | `VOICE_SPECULATIVE_LLM` | after 3 is proven |
+-| 5 | 1.2 endpointing 200 | 1 h + A/B | `DEEPGRAM_ENDPOINTING_MS` | after 4 (so the A/B isolates one change) |
+-| 6 | 3.1–3.2 TTS pre-connect | 1 day | agent `ttsDelivery` | any time after 3.1 |
+-| 7 | 0.3 phone call, then Phase 4 | needs approval | — | when a number and budget exist |
+-
+-Each step is its own commit and its own A/B run; never two flags flipped in one run. Expected end state on web: `waitMs` p50 ≈ 1.2–1.4 s, ack still ~400 ms, no measured rise in cut-offs.
+-
+-## Explicitly out of scope
+-
+-- Switching to the bundled realtime route (xAI / ElevenLabs ConvAI / Gemini Live). That is the sub-second path and an architecture decision (`OPEN_ISSUES.md` L-3), not a fix.
+-- Changing Deepgram region or model. No closer region exists for nova-2/3.
+-- Prompt trimming for TTFT. The runtime's own measurement shows a 343-token prompt still produced multi-second first tokens; capacity, not size.
+diff --git a/reports/PIPELINE_LATENCY_REVIEW.md b/reports/PIPELINE_LATENCY_REVIEW.md
+deleted file mode 100644
+index 0ca13dd..0000000
+--- a/reports/PIPELINE_LATENCY_REVIEW.md
++++ /dev/null
+@@ -1,142 +0,0 @@
+-# Modular Pipeline Latency Review
+-
+-**Branch:** `release/readiness-audit` · **Date:** 2026-09-03
+-**Data:** `backend/logs/latency.log`, 17 turns from 2026-09-02 (web, `gemini-3.5-flash-lite`, Sarvam voice, `mode:"split"`), plus 73 flash-lite turns since 2026-08-28 for the streaming check.
+-**Scope:** how one caller turn moves through STT → LLM → TTS on the web call, where each millisecond goes, and what the phone bridge adds on top.
+-
+----
+-
+-## 1. What a turn actually does
+-
+-The pipeline is the same runtime for both channels. Only the transport around it differs.
+-
+-```
+-caller stops talking
+-  │
+-  ├─ [A] ENDPOINTING          Deepgram VAD waits `endpointingMs` (300) of silence → speech_final
+-  │                            server arms a grace timer (`graceMs` 400, or 1100 if the tail
+-  │                            "looks unfinished") → commits end-of-turn
+-  │                            deepgramStream.service.js:609-651, turnEndProfile.js
+-  │
+-  ├─ [B] HARVEST              finalizeTurn(): transcript already complete when committed → ~9 ms
+-  │                            web: webCallModularRealtime.handler.js:320-345
+-  │                            phone: modularMediaBridge.js:628-660
+-  │
+-  ├─ [C] LLM                  converseStream() → Gemini generateContentStream
+-  │                            first token measured at 932 ms p50
+-  │                            agentRuntime.service.js:1052, gemini.service.js:464
+-  │
+-  ├─ [D] TTS FIRST BYTE       split path: wait for first sentence boundary (≥25 chars),
+-  │                            POST Sarvam /text-to-speech/stream → first byte 373 ms p50
+-  │                            agentRuntime.service.js:1998-2100, sarvam.provider.js:289
+-  │
+-  ├─ [E] TRANSPORT + PLAY     web: WS binary frames → MediaSource(MP3) → <audio>.playing
+-  │                            phone: mu-law frames → 20 ms pacer → carrier → PSTN
+-  │                            EditAgent.tsx:1750-1960, ulawPacer.js
+-  │
+-  └─ caller hears the reply
+-```
+-
+-Two overlaps that exist in the design and one that does not:
+-
+-- **Voice resolution, KB read and filler warm-up** run during the caller's speech (`warmVoiceTurn` on `start-turn`). They cost 0 ms on the turn. Confirmed: `prepMs 0`, `voiceWaitMs 0`, `ragMs 0`.
+-- **Second TTS segment** is requested while segment one plays (`segmentOrder`). The mid-reply gap is gone. Confirmed by `ttsMs` (2.6 s) being hidden behind playback with `totalMs` unaffected.
+-- **LLM streaming into TTS does not overlap anything today.** See finding 2.
+-
+----
+-
+-## 2. Where the time goes (web, p50 of the 17 most recent turns)
+-
+-| stage | p50 | p90 | share of server wait | where measured |
+-|---|---:|---:|---:|---|
+-| [A] endpointing + grace | 711 | 714 | ~36 % | `endpointMs` |
+-| [B] harvest | 9 | 16 | <1 % | `preLlmMs` |
+-| [C] LLM first token | 932 | 1224 | ~47 % | `llmTtftMs` |
+-| [D] TTS first byte | 373 | 563 | ~19 % | `ttsTtfaMs` |
+-| misc (filters, buffering) | ~80 | | ~4 % | `ttfaMs − llmTtft − ttsTtfa` |
+-| **server end-to-end (`waitMs`)** | **1917** | **2369** | | |
+-| [E] browser transit + decode + play | **unmeasured** | | | 0 `audible` rows in the log |
+-| perceived (ack clip) | ~400 + transit | | | `VOICE_FILLER_DELAY_MS` |
+-
+-Three things this table hides:
+-
+-1. **`endpointMs` is undercounted.** It is computed as `(now − candidateArmedAt) + endpointingMs` when the `speech_final` frame *arrives*. Deepgram is US-hosted; TCP p50 from here is 326 ms (`32_network_rtt.txt`). Audio has to travel there, be judged silent, and the verdict has to travel back. Real silence-to-commit is closer to **900–1000 ms**, not 711.
+-2. **5 of 17 turns have `endpointMs: null`.** Those turns were ended by the browser's RMS backstop (`SILENCE_MS = endpointCommitMs + 300` = 1700 ms) or by `cancel-turn` override, so the caller waited *longer* on exactly the turns the metric cannot see. Their `waitMs` (~1200) is not the real wait.
+-3. **The "one second" you hear is the ack clip, not the reply.** `filler: true` on 24 of 73 turns. Actual first reply audio is ~1.9 s at the server plus whatever [E] costs.
+-
+----
+-
+-## 3. Findings, ranked by milliseconds on the critical path
+-
+-### F1. Gemini does not stream, so nothing downstream can overlap it  (~930 ms, the largest stage)
+-
+-Across 73 flash-lite turns, `llmMs − llmTtftMs` is **7 ms at p50, 71 ms at p90**. The model returns the whole 1–2 sentence reply in a single chunk. Every mechanism built to hide generation behind speech (sentence chunker, socket overlap, first-sentence split) is correct code that has nothing to hide: first token equals last token.
+-
+-Consequences:
+-- Time-to-first-audio is strictly `TTFT + TTS first byte`. Prompt trimming and sentence splitting cannot move it.
+-- The only levers on this stage are a faster first token or starting the request earlier. See recommendations R1 and R4.
+-
+-### F2. The grace window and the LLM run in series when they could run in parallel  (up to ~400 ms)
+-
+-At `speech_final` the server already holds the interim transcript (`this._tail`). It then waits 400 ms doing nothing, then harvests, then asks the LLM. Starting `converseStream` at candidate time and discarding it if the caller resumes would hide the grace window inside TTFT. The cancel path already exists (`_handleMessage` clears the timer on any new transcript). Cost: one wasted LLM request on turns where the caller resumes, which the log says is rare (`endpointMs` sits at 711 ± 5 on every measured turn, i.e. the 400 ms grace almost never gets extended).
+-
+-### F3. Grace is not punctuation-aware  (~250 ms on question turns)
+-
+-`looksUnfinished()` already classifies the tail. The opposite case is not used: a tail ending in `?` or a complete short clause ("yes", "book it for tomorrow.") still waits the full 400 ms. A third tier at ~100–150 ms for clearly finished tails is a two-line change in `_armEndOfTurnCandidate`.
+-
+-### F4. TTS first byte waits for a full sentence, and for Sarvam that is the whole reply  (~373 ms, 563 at p90)
+-
+-The split path needs a terminator followed by whitespace after ≥25 chars. Given F1, that boundary appears only when the reply is complete, so TTS starts ~940 ms after end-of-turn no matter what. Sarvam has no incremental-text socket, so this stage cannot be pre-warmed beyond the keep-alive pool already installed (`httpKeepAlive.js`). What can change: the `ws-overlap` socket path (ElevenLabs/Fish) has **never run in production** — every logged turn is `split`. For an ElevenLabs voice the socket is opened *inside* `voiceTurnStream` after STT, so its ~200 ms TLS handshake sits on the turn. Opening it at `start-turn` removes that.
+-
+-### F5. The browser leg has never been measured, and the ack clip can delay the real reply
+-
+-Instrumentation for `speechEndToAudibleMs` exists (commit `f04cafc`) but the log has **zero `audible` rows** — it has not been exercised on a live call. Segments play strictly in order (`activateModular`), so if the ack clip is still playing when the real reply arrives, the reply waits for it. With the ack starting at ~400 ms and real audio at ~1.4 s, any ack clip longer than ~900 ms adds actual latency. Clip lengths need checking.
+-
+-### F6. The Deepgram round trip is paid on every turn's endpoint  (~150–300 ms hidden)
+-
+-Deepgram US from an Indian caller: audio out, decision back. This is inside the "711" but not attributed. A closer STT region is not offered by Deepgram for this model; the mitigation is F2/F3 (stop stacking a grace window on top of a round trip that already is one).
+-
+----
+-
+-## 4. What the phone adds on top
+-
+-The phone bridge runs the same `voiceTurnStream`, so every number above applies unchanged. On top of it, per turn:
+-
+-| addition | estimate | measured? | where |
+-|---|---:|---|---|
+-| Carrier media transit, PSTN → media server → VPS | 100–250 ms in, same out | **no** | Twilio/Plivo, outside the code |
+-| Deepgram hears 8 kHz mu-law through the echo canceller | same endpointing; AEC is per-frame CPU | lag now logged (`elLagP99Ms`), no data | `modularMediaBridge.js:1740-1760` |
+-| Pacer: first frame goes out on the next 20 ms tick | ≤20 ms, plus queue depth if TTS bursts | `wireMs − ttfaMs` now logged, 0 rows | `ulawPacer.js`, `frameClock.js` |
+-| TTS transcode | 0 (ElevenLabs `ulaw_8000` and Sarvam `mulaw` are native); Fish PCM → mu-law in JS | n/a | `telephonyAudio.js:248` |
+-| Deaf window after each reply | listens again only when `playout` ends; words said over the tail wait an extra `OVERLAP_SETTLE_MS` 700 | no | `armNextTurn`, `modularMediaBridge.js:1055` |
+-| Greeting after pickup | DB-bound; Supabase Singapore measured 1255 ms via Prisma from the dev machine | logged as "greeting reached the wire" | `modularMediaBridge.js:1676` |
+-
+-Realistic expectation before any work: **server 1.9 s + carrier ~0.4 s ≈ 2.2–2.5 s actual** at p50, ack heard at ~0.6–0.7 s. No phone turn has ever been logged end to end, so this is arithmetic, not measurement.
+-
+----
+-
+-## 5. Recommended order of work
+-
+-Ordered by milliseconds saved per unit of risk. Estimates are p50, web; phone inherits each.
+-
+-| # | change | saves | risk | files |
+-|---|---|---:|---|---|
+-| R1 | **Speculative LLM start at `speech_final` candidate.** Expose an `onEndOfTurnCandidate(interimText)` from the Deepgram session; the transport starts `converseStream` immediately; on commit, use it if the final transcript equals the interim (or the interim is a prefix); on cancel, `iterator.return()`. | 300–400 | low: wasted request only when the caller resumes | `deepgramStream.service.js`, both handlers, `agentRuntime.service.js` |
+-| R2 | **Punctuation-aware grace tier.** `?`-terminated or `COMPLETE_ONE_WORD` tails commit after ~120 ms instead of 400. | ~250 on those turns | low | `deepgramStream.service.js:609` |
+-| R3 | **Run the audible measurement.** 30 web turns with the client instrumentation on; get `speechEndToAudibleMs`, check ack clip length vs TTFA. | 0, but it tells us what [E] costs | none | already built |
+-| R4 | **Re-measure Groq first spoken token** with `scripts/measure-llm-ttft.js` (`reasoning_effort: low` was added after the 6.6 s rows in the log). If ~560 ms holds, offer it as the voice LLM. | up to ~370 | medium: model quality, quota | `groq.service.js`, `resolveLlmForAgent` |
+-| R5 | **Pre-connect the ElevenLabs/Fish TTS socket at `start-turn`** and confirm `ws-overlap` actually runs for a socket-capable voice. | ~200 on those voices | low | `agentRuntime.service.js:1905`, `ttsStreamFactory.js` |
+-| R6 | **Try `endpointingMs` 300 → 200 on `balanced`**, measuring mid-sentence cut-offs on numbers and names. | ~100 | medium: cut-offs | `turnEndProfile.js` |
+-| R7 | **Phone: log one real call before tuning anything.** Then read `wireMs − ttfaMs` and `elLagP99Ms`. | unknown | none | needs a number and carrier spend |
+-
+-After R1, R2 and R6 the endpoint stage drops from ~711 to ~300–400 and overlaps the LLM, which puts the web server wait near **1.2–1.4 s** at p50 with the same providers. That is the floor of this architecture with a ~0.9 s first token. Sub-second actual latency on either channel requires either a sub-500 ms first-token model (R4) or the bundled realtime route, exactly as `LATENCY_REPORT.md` §6 already concluded.
+-
+----
+-
+-## 6. Things checked that are not the problem
+-
+-- Agent load, voice resolution, KB, filler warm-up: all 0 ms on the turn (cached and overlapped).
+-- Harvest: 9 ms. The `Finalize` round trip is skipped because the turn was already committed.
+-- Event-loop lag: not visible at n=1 call; only matters at concurrency (R7).
+-- Outbound HTTP: keep-alive dispatcher installed at boot; TLS handshakes are off the turn for Sarvam and Gemini.
+-- Mic capture: 20 ms worklet frames, VAD at 100 ms ticks; the browser's own timer cannot end a turn before the server's commit because its floor is derived from `endpointCommitMs`.

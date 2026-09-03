@@ -1,0 +1,55 @@
+{
+  "model": "s2.1-pro-free",
+  "voices": 3,
+  "sentences": 12,
+  "clips": 36,
+  "seed": 7,
+  "loopSeconds": 24,
+  "targetRmsDbfs": -48,
+  "beds": [
+    {
+      "preset": "office-chatter",
+      "variant": 1,
+      "placements": 19,
+      "rmsDbfs8k": -48,
+      "rmsDbfs24k": -48,
+      "files": [
+        "office-chatter-1.8k.pcm",
+        "office-chatter-1.24k.wav"
+      ]
+    },
+    {
+      "preset": "office-chatter",
+      "variant": 2,
+      "placements": 19,
+      "rmsDbfs8k": -48,
+      "rmsDbfs24k": -48,
+      "files": [
+        "office-chatter-2.8k.pcm",
+        "office-chatter-2.24k.wav"
+      ]
+    },
+    {
+      "preset": "call-center-chatter",
+      "variant": 1,
+      "placements": 33,
+      "rmsDbfs8k": -48,
+      "rmsDbfs24k": -48,
+      "files": [
+        "call-center-chatter-1.8k.pcm",
+        "call-center-chatter-1.24k.wav"
+      ]
+    },
+    {
+      "preset": "call-center-chatter",
+      "variant": 2,
+      "placements": 33,
+      "rmsDbfs8k": -48,
+      "rmsDbfs24k": -48,
+      "files": [
+        "call-center-chatter-2.8k.pcm",
+        "call-center-chatter-2.24k.wav"
+      ]
+    }
+  ]
+}

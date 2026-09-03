@@ -12,6 +12,7 @@ import { runModularMediaBridge } from './modularMediaBridge.js';
 
 /** Exported for the adapter tests; the bridge takes it via `carrier`. */
 export const twilioCarrier = {
+  id: 'TWILIO',
   label: 'modular phone call',
 
   // Twilio echoes back the `<Parameter name="callLogId">` embedded in the TwiML
@@ -19,6 +20,11 @@ export const twilioCarrier = {
   readStart: (msg) => ({
     streamId: msg.start?.streamSid || msg.streamSid || null,
     callLogId: msg.start?.customParameters?.callLogId || null,
+    // The live call's own id — what a human handover redirects (see
+    // services/telephony/transfer.service.js) — and, on a socket opened by the
+    // resume document after a failed handover, how that handover ended.
+    carrierCallId: msg.start?.callSid || null,
+    transferOutcome: msg.start?.customParameters?.transferOutcome || null,
   }),
 
   sendAudio: (ws, streamId, frame) => {

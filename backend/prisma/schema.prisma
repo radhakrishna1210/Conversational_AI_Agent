@@ -491,6 +491,40 @@ model Agent {
   @@index([dltTemplateId])
 }
 
+// One row per attempted human handover on a call — requested by the caller,
+// dialled at the carrier, and how it ended. The call log keeps the money and
+// the transcript; this keeps the transfer's own timeline so "did the transfer
+// work" is answerable per call without parsing logs. A browser call that asked
+// for a person gets a WEB_CALLBACK row (no leg to dial; a callback was offered).
+model CallTransfer {
+  id             String    @id @default(cuid())
+  callLogId      String
+  workspaceId    String
+  agentId        String
+  channel        String    // PHONE | WEB
+  carrier        String?   // TWILIO | PLIVO | PIOPIY | null (web)
+  carrierCallId  String?
+  target         String?   // E.164 dialled, null when nothing was dialled
+  mode           String    @default("announce")
+  // How the request was recognised: marker (model), regex (pre-filter), condition
+  source         String
+  reason         String?   // the caller's words, or the configured condition
+  // REQUESTED | DIALING | CONNECTED | NO_ANSWER | BUSY | FAILED | CANCELED |
+  // REJECTED (carrier refused the redirect) | UNAVAILABLE (no number / out of
+  // hours / unsupported carrier) | WEB_CALLBACK
+  status         String    @default("REQUESTED")
+  error          String?
+  requestedAt    DateTime  @default(now())
+  dialedAt       DateTime?
+  resolvedAt     DateTime?
+  humanLegSec    Int       @default(0)
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  @@index([callLogId])
+  @@index([workspaceId, agentId, requestedAt])
+}
+
 // Per-agent interaction history shown in Edit Agent → Recent Calls.
 // Every test session is logged: text chats (CHAT), browser voice calls
 // (WEB_CALL, with a full-call recording) and phone test calls (PHONE_CALL).
