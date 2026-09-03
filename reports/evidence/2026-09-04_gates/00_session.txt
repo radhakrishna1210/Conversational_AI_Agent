@@ -1,0 +1,9 @@
+commit f98298e6c56fb83d9043ca9c4d1f124f1b56a3f8
+branch release/readiness-audit
+start  2026-09-04T01:03:56+05:30
+node   v24.19.0  npm 11.17.0
+os     MINGW64_NT-10.0-26200 3.6.9-b4195d69.x86_64 x86_64
+env    60 vars in backend/.env (values not recorded)
+db     "postgresql://postgres.fchwmgdwnfernvdfrjhs:***@aws-1-ap-southeast-1.pooler.supa
+end    2026-09-04T01:06:14+05:30
+failed gates: 2
