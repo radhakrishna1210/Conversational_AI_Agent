@@ -1,0 +1,10 @@
+ M backend/.env.example
+ M backend/src/services/stt/__tests__/deepgramTurns.test.js
+ M backend/src/services/stt/deepgramStream.service.js
+ M backend/src/services/voice/__tests__/turnEndProfile.test.js
+ M backend/src/services/voice/turnEndProfile.js
+ M backend/src/ws/modularMediaBridge.js
+ M backend/src/ws/webCallModularRealtime.handler.js
+ D reports/LATENCY_IMPLEMENTATION_PLAN.md
+ D reports/PIPELINE_LATENCY_REVIEW.md
+?? reports/evidence/2026-09-03_phase2/

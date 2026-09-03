@@ -251,6 +251,8 @@ httpServer.on('upgrade', (req, socket, head) => {
   if (plivoMatch) {
     const [, workspaceId, agentId] = plivoMatch;
     const callLogId = url.searchParams.get('callLogId');
+    // Set only by the resume document after a failed human handover.
+    const transferOutcome = url.searchParams.get('transferOutcome');
 
     // Two bridges behind one path, chosen per call by the agent's engine —
     // exactly as the Twilio path does, and for the same reason: switching an
@@ -269,7 +271,7 @@ httpServer.on('upgrade', (req, socket, head) => {
     resolveBundledEngine(workspaceId, agentId, declaredEngine).then((bundled) => {
       plivoMediaWss.handleUpgrade(req, socket, head, (ws) => {
         if (bundled) handlePlivoMediaUpgrade(ws, { workspaceId, agentId, callLogId });
-        else handlePlivoMediaModularUpgrade(ws, { workspaceId, agentId, callLogId, direction: callDirection });
+        else handlePlivoMediaModularUpgrade(ws, { workspaceId, agentId, callLogId, direction: callDirection, transferOutcome });
       });
     });
     return;
@@ -335,7 +337,15 @@ const runRenewals = async () => {
     logger.error({ err: err.message }, 'Subscription renewal sweep failed');
   }
 };
-const renewalTimer = setInterval(runRenewals, SUBSCRIPTION_RENEWAL_INTERVAL_MS);
+// Operator switch for the legacy subscription layer. The customer product is
+// wallet-only; the sweep exists for the plan-era rows and fails hourly on the
+// test fixtures in the live database (reports/OPEN_ISSUES.md D-9). Until the
+// owner decides between migrating the one real row and retiring the layer,
+// SUBSCRIPTION_RENEWAL_ENABLED=false stops the recurring failure without a
+// code change; the default keeps today's behaviour.
+const renewalTimer = process.env.SUBSCRIPTION_RENEWAL_ENABLED === 'false'
+  ? (logger.warn('Subscription renewal sweep disabled by SUBSCRIPTION_RENEWAL_ENABLED=false'), null)
+  : setInterval(runRenewals, SUBSCRIPTION_RENEWAL_INTERVAL_MS);
 
 // ── Phone-number rental renewal ──────────────────────────────────────────────
 // A rented number costs us roughly ₹200/month for as long as we hold it, so

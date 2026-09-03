@@ -1,0 +1,18 @@
+{"level":30,"time":1788460527263,"pid":28544,"hostname":"LAPTOP-DQ9BS67C","msg":"✅ Redis cache active"}
+time-to-first-token, 8 runs each, ms — lower AND tighter is better
+
+{"level":30,"time":1788460527270,"pid":28544,"hostname":"LAPTOP-DQ9BS67C","msg":"✅ Gemini client initialized"}
+{"level":50,"time":1788460527334,"pid":28544,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":50,"time":1788460527446,"pid":28544,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":50,"time":1788460527656,"pid":28544,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":40,"time":1788460527962,"pid":28544,"hostname":"LAPTOP-DQ9BS67C","msg":"Redis connection failed after 4 attempts. Falling back to memory mode."}
+{"level":50,"time":1788460527965,"pid":28544,"hostname":"LAPTOP-DQ9BS67C","err":"","msg":"⚠️ Redis error"}
+{"level":40,"time":1788460527965,"pid":28544,"hostname":"LAPTOP-DQ9BS67C","msg":"Redis connection failed after 4 attempts. Falling back to memory mode."}
+gemini-3.5-flash-lite              min=   820  p50=  1320  p90=  5306  max=  9329   [820 962 1266 1320 1584 2042 5306 9329]
+gemini-3.1-flash-lite              min=  1117  p50=  2039  p90=  2947  max=  3772   [1117 1207 1867 2039 2053 2549 2947 3772]
+gemini-2.5-flash                   FAILED  [GoogleGenerativeAI Error]: Error fetching from https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash
+{"level":30,"time":1788460581799,"pid":28544,"hostname":"LAPTOP-DQ9BS67C","msg":"✅ Groq client initialized"}
+groq openai/gpt-oss-20b            min=   492  p50=  9845  p90= 16943  max= 18841   [492 510 5339 9845 14760 16013 16943 18841]
+groq openai/gpt-oss-120b           min=   389  p50=  1740  p90= 16841  max= 17206   [389 759 874 1740 7815 16693 16841 17206]
+
+Currently serving voice turns: gemini-3.5-flash-lite

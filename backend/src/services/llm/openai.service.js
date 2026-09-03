@@ -339,7 +339,8 @@ class OpenAIService {
       temperature: temperature ?? generationConfig.temperature,
       max_tokens: options.maxTokens ?? generationConfig.max_tokens,
       stream: true,
-    });
+    // Caller-owned cancellation (speculative turns): aborts the HTTP request.
+    }, options.signal ? { signal: options.signal } : undefined);
     for await (const chunk of stream) {
       const delta = chunk?.choices?.[0]?.delta?.content;
       if (delta) yield delta;

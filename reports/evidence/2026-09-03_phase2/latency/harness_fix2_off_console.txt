@@ -1,0 +1,63 @@
+ready {"type":"ready","sttEndpointing":true,"endpointCommitMs":1400,"noInputPrompts":["Sorry, I didn't catch that. Could you say it again?","I still can't hear you. Could you speak a little louder, or move closer to the phone?","It seems we're having trouble connecting. No problem — feel free to call back any time."],"noInputDelaysMs":[10000,14000,18000]}
+#0 long_context   endpoint=1285 firstAudio=2730 firstReply=2730    "I have been having trouble with my order" → "Oh, I'm so sorry about that, but we're actually Su"
+#1 med_booking    endpoint=1514 firstAudio=2854 firstReply=2854    "Okay. Can you book me an appointment for" → "Sure, I can book that for you. May I have your nam"
+#2 name_spell     endpoint=2002 firstAudio=6428 firstReply=6428    "My name is Priya, that is p r I y a." → "Got it, Priya. I've got you down for tomorrow at 1"
+#3 number_read    endpoint=- firstAudio=4601 firstReply=5587 (ack) (backstop)  "My order number is 437219." → "Ah, you must still be thinking about that store or"
+#4 pause_mid      endpoint=1271 firstAudio=2837 firstReply=2837    "I would like to book an appointment for," → "Sure, Thursday afternoon works. Would 2 PM suit yo"
+#5 q_hours        endpoint=1185 firstAudio=3672 firstReply=3672    "What are your business hours on weekends" → "We're open from 9 AM to 6 PM on Saturdays, but we'"
+#6 q_price        endpoint=1224 firstAudio=1636 firstReply=6251 (ack)   "How much does a consultation cost?" → "A consultation is 500 rupees. Would you like to lo"
+#7 q_services     endpoint=1018 firstAudio=9710 firstReply=9710    "Hi. Can you tell me what services you of" → "We offer general check-ups, cleanings, and consult"
+#8 short_yes      endpoint=1064 firstAudio=4817 firstReply=4817    "Yes. That works for me." → "Got it. What's your name, please?"
+#9 thanks_bye     endpoint=1037 firstAudio=2776 firstReply=2776    "Thanks. That is all I needed. Bye." → "Bye! Have a great day."
+#10 transfer_neg   endpoint=1711 firstAudio=2848 firstReply=2848    "No. I do not need a manager. Just tell m" → "A consultation costs 500 rupees."
+#11 transfer_req   endpoint=985 firstAudio=2246 firstReply=2246    "Can I speak to a real person, please?" → "I can't connect you to a person on this call, but "
+#12 long_context   endpoint=1136 firstAudio=6673 firstReply=6673    "I have been having trouble with my order" → "Sunrise Dental is a dental clinic, so we don't han"
+#13 med_booking    endpoint=1794 firstAudio=2991 firstReply=2991    "Okay. Can you book me an appointment for" → "Got it. We do have an opening at ten tomorrow. Wha"
+#14 name_spell     endpoint=2031 firstAudio=3297 firstReply=3297    "My name is Priya, That is p r I y a." → "Thanks, Priya. And what's the best phone number to"
+#15 number_read    endpoint=- firstAudio=4700 firstReply=5749 (ack) (backstop)  "My order number is 437219." → "Alright, since we're a dental clinic, we don't hav"
+#16 pause_mid      endpoint=1146 firstAudio=2675 firstReply=2675    "I would like to book an appointment for," → "Sure thing. We have spots open on Thursday afterno"
+#17 q_hours        endpoint=1085 firstAudio=2606 firstReply=2606    "What are your business hours on weekends" → "We're open from 9 am to 6 pm on Saturdays, and we'"
+#18 q_price        endpoint=1067 firstAudio=1484 firstReply=2569 (ack)   "How much does a consultation cost?" → "That's 500 rupees. Would you like to go ahead and "
+#19 q_services     endpoint=1032 firstAudio=2893 firstReply=2893    "Hi. Can you tell me what services you of" → "We offer general dental consultations for 500 rupe"
+#20 short_yes      endpoint=1073 firstAudio=4957 firstReply=4957    "Yes. That works for me." → "Got it. What's your phone number so I can finish b"
+#21 thanks_bye     endpoint=1016 firstAudio=2861 firstReply=2861    "Thanks. That is all I needed. Bye." → "Bye! Have a great day."
+#22 transfer_neg   endpoint=1034 firstAudio=2252 firstReply=2252    "No. I do not need a manager, Just tell m" → "It's 500 rupees."
+#23 transfer_req   endpoint=1048 firstAudio=2239 firstReply=2239    "Can I speak to a real person, please?" → "I can't connect you to someone directly on this ca"
+{
+  "label": "fix2_off",
+  "turns": 24,
+  "failed": 0,
+  "cutOff": 0,
+  "endpoint": {
+    "n": 22,
+    "p50": 1085,
+    "p90": 1794,
+    "p95": 2002,
+    "p99": 2031,
+    "max": 2031
+  },
+  "firstAudioAny": {
+    "n": 24,
+    "p50": 2854,
+    "p90": 6428,
+    "p95": 6673,
+    "p99": 9710,
+    "max": 9710
+  },
+  "firstReplyAudio": {
+    "n": 24,
+    "p50": 2861,
+    "p90": 6428,
+    "p95": 6673,
+    "p99": 9710,
+    "max": 9710
+  },
+  "done": {
+    "n": 24,
+    "p50": 3267,
+    "p90": 7222,
+    "p95": 7719,
+    "p99": 10143,
+    "max": 10143
+  }
+}

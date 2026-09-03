@@ -1,0 +1,69 @@
+ready {"type":"ready","sttEndpointing":true,"endpointCommitMs":1400,"noInputPrompts":["Sorry, I didn't catch that. Could you say it again?","I still can't hear you. Could you speak a little louder, or move closer to the phone?","It seems we're having trouble connecting. No problem — feel free to call back any time."],"noInputDelaysMs":[10000,14000,18000]}
+#0 long_context   endpoint=1004 firstAudio=2249 firstReply=2249    "I have been having trouble with my order" → "Oh, I'm so sorry you're having trouble with that, "
+#1 med_booking    endpoint=1780 firstAudio=2997 firstReply=2997    "Okay. Can you book me an appointment for" → "Sure, I can book that for you. May I have your nam"
+#2 name_spell     endpoint=1884 firstAudio=2337 firstReply=2337    "My name is Priya. That is p r I y a." → "Got it, Priya. Do you have a contact number we can"
+#3 number_read    endpoint=- firstAudio=4508 firstReply=5401 (ack) (backstop)  "My order number is 437219." → "That sounds like an order number, but I just need "
+#4 pause_mid      endpoint=1150 firstAudio=2690 firstReply=2690    "I would like to book an appointment for," → "Sure thing, Thursday afternoon works. What's your "
+#5 q_hours        endpoint=1173 firstAudio=2514 firstReply=2514    "What are your business hours on weekends" → "We're open from 9 am to 6 pm on Saturdays, but clo"
+#6 q_price        endpoint=1018 firstAudio=1434 firstReply=1481 (ack)   "How much does a consultation cost?" → "A consultation is 500 rupees. Would you like me to"
+#7 q_services     endpoint=0 firstAudio=- firstReply=-   (CUT OFF 2200ms early) "" → ""
+#8 short_yes      endpoint=0 firstAudio=854 firstReply=854   (CUT OFF 1280ms early) "Hi." → "Hey there! Just wanted to check if you're still wa"
+#9 thanks_bye     endpoint=0 firstAudio=- firstReply=-   (CUT OFF 1340ms early) "" → ""
+#10 transfer_neg   endpoint=934 firstAudio=2155 firstReply=2155    "Yes. Thanks. That is no. I do not need a" → "Ah, sorry about that! A consultation is 500 rupees"
+#11 transfer_req   endpoint=956 firstAudio=2169 firstReply=2169    "Can I speak to a real person, please?" → "Sure, I can get someone to connect with you. Just "
+#12 long_context   endpoint=0 firstAudio=- firstReply=-   (CUT OFF 4960ms early) "" → ""
+#13 med_booking    endpoint=917 firstAudio=5197 firstReply=5197    "I have been having trouble with my okay." → "I'm sorry, we're actually all booked up for tomorr"
+#14 name_spell     endpoint=0 firstAudio=- firstReply=-   (CUT OFF 1100ms early) "" → ""
+#15 number_read    endpoint=- firstAudio=6119 firstReply=6119  (backstop)  "My name is Priya. That my order number i" → "Got it, Priya. We don't use order numbers here sin"
+#16 pause_mid      endpoint=1076 firstAudio=1489 firstReply=2972 (ack)   "I would like to book an appointment for," → "Sure, Thursday afternoon works. What's the best ph"
+#17 q_hours        endpoint=-32 firstAudio=- firstReply=-   (CUT OFF 1520ms early) "" → ""
+#18 q_price        endpoint=1052 firstAudio=1518 firstReply=1518    "What are your how much does a consultati" → "A consultation costs 500 rupees. Shall I go ahead "
+#19 q_services     endpoint=997 firstAudio=2687 firstReply=2687    "Hi. Can you tell me what services you of" → "Sure, we offer general dental checkups and consult"
+#20 short_yes      endpoint=440 firstAudio=- firstReply=-    "" → ""
+#21 thanks_bye     endpoint=-31 firstAudio=- firstReply=-   (CUT OFF 2500ms early) "" → ""
+#22 transfer_neg   endpoint=0 firstAudio=- firstReply=-   (CUT OFF 2700ms early) "" → ""
+#23 transfer_req   endpoint=918 firstAudio=2093 firstReply=2093    "No. I do not. Can I speak to a real pers" → "I understand. I'll connect you with one of our sen"
+#24 long_context   endpoint=-20 firstAudio=- firstReply=-   (CUT OFF 4860ms early) "" → ""
+#25 med_booking    endpoint=965 firstAudio=2243 firstReply=2243    "I have been having trouble with my okay." → "Got it, tomorrow morning at ten works. May I have "
+#26 name_spell     endpoint=-10 firstAudio=- firstReply=-   (CUT OFF 1120ms early) "" → ""
+#27 number_read    endpoint=- firstAudio=4573 firstReply=5532 (ack) (backstop)  "My name is Priya. My order number is 437" → "Thanks Priya. I've got you booked for tomorrow at "
+#28 pause_mid      endpoint=963 firstAudio=1456 firstReply=1456    "I would like to book an appointment for," → "Sure, Thursday afternoon works. Shall I pencil you"
+#29 q_hours        endpoint=-6 firstAudio=- firstReply=-   (CUT OFF 1580ms early) "" → ""
+{
+  "label": "spec_interim",
+  "turns": 30,
+  "failed": 11,
+  "cutOff": 11,
+  "endpoint": {
+    "n": 27,
+    "p50": 918,
+    "p90": 1173,
+    "p95": 1780,
+    "p99": 1884,
+    "max": 1884
+  },
+  "firstAudioAny": {
+    "n": 19,
+    "p50": 2249,
+    "p90": 5197,
+    "p95": 6119,
+    "p99": 6119,
+    "max": 6119
+  },
+  "firstReplyAudio": {
+    "n": 19,
+    "p50": 2337,
+    "p90": 5532,
+    "p95": 6119,
+    "p99": 6119,
+    "max": 6119
+  },
+  "done": {
+    "n": 30,
+    "p50": 1943,
+    "p90": 5667,
+    "p95": 6061,
+    "p99": 6841,
+    "max": 6841
+  }
+}

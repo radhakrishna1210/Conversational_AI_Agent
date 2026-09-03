@@ -222,6 +222,9 @@ test('the transcript carried WITH speech_final does not cancel its own candidate
 
 test('UtteranceEnd commits immediately, with no grace window', () => {
   const { s, fired } = endOfTurnSession(5000);
+  // Words first: an UtteranceEnd with nothing said this turn is the silence
+  // after the PREVIOUS turn and is ignored (see deepgramInterimHooks.test.js).
+  s._handleMessage({ channel: { alternatives: [{ transcript: 'that is all thanks', confidence: 0.9 }] }, is_final: true });
   s._handleMessage({ type: 'UtteranceEnd' });
   assert.deepEqual(fired, ['utterance_end'], 'authoritative signal is not debounced');
 });
@@ -397,7 +400,7 @@ test('UtteranceEnd defers on a dangling tail instead of committing at once', asy
   fakeSocket(session);
   session.beginTurn();
 
-  emitInterim(session, 'I need to reschedule my');
+  emitFinal(session, 'I need to reschedule my');
   session._handleMessage({ type: 'UtteranceEnd' });
   assert.deepEqual(fired, [], 'UtteranceEnd must not cut a mid-thought turn');
 
@@ -411,7 +414,7 @@ test('UtteranceEnd commits immediately on a complete thought', () => {
   fakeSocket(session);
   session.beginTurn();
 
-  emitInterim(session, 'That works for me.');
+  emitFinal(session, 'That works for me.');
   session._handleMessage({ type: 'UtteranceEnd' });
   assert.deepEqual(fired, ['utterance_end']);
 });
