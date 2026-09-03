@@ -124,7 +124,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           try {
             const payload = decodeJwtPayload(token) ?? {};
             if (!role && payload.role) role = payload.role;
-          } catch (_) {}
+          } catch { /* best effort: storage or token may be unreadable */ }
 
           buildUser(name, u.email || '', u.plan || '', role);
 
@@ -133,7 +133,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
           }
           return;
         }
-      } catch (_) {}
+      } catch { /* best effort: storage or token may be unreadable */ }
 
       // Fallback: decode JWT directly
       const token2 = safeGet('token');
@@ -146,7 +146,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             safeSet('workspaceId', payload.workspaceId);
           }
           return;
-        } catch (_) {}
+        } catch { /* best effort: storage or token may be unreadable */ }
       }
 
       const cachedName = safeGet('userName') || 'User';
