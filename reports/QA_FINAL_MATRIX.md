@@ -17,8 +17,8 @@ A row is never PASS by default. Every historical PASS was re-run or re-classifie
 | T-05 | Client typecheck | `npx tsc --noEmit` | G/05: 0 errors | **PASS** | — |
 | T-06 | Client lint | `npm run lint` / `npm run lint:ratchet` | G/14 full: 76 `no-explicit-any` remain; G/06 ratchet: pass at baseline 76 | **FAIL (rule)** / **PASS (ratchet)** | burn-down |
 | T-07 | Client production build | `npm run build` | G/07 | **PASS** | — |
-| T-08 | Backend `npm audit --omit=dev` | | G/08 | see log (moderate only expected) | — |
-| T-09 | Client `npm audit --omit=dev` | | G/09 | see log (react-router moderate) | S-2 |
+| T-08 | Backend `npm audit --omit=dev` | | G/08: 0 high, 3 moderate (`qs` via express@4.22.2; `npm audit fix` reports a fix but does not change the tree) | **FAIL (moderate)** | S-3 upstream |
+| T-09 | Client `npm audit --omit=dev` | | G/09: 0 high, 2 moderate (react-router 6.x open redirect; fix is 7.x) | **FAIL (moderate)** | S-2 semver-major |
 | T-10 | Secret scan, tracked tree | G/12 | 0 hits | **PASS** | — |
 | T-11 | Secret scan, git history | — | keys since `943672c` | **OPEN** | owner rotate/purge |
 | T-12 | `.env` never committed | `git ls-files` | ✓ | **PASS** | — |
@@ -176,13 +176,12 @@ A row is never PASS by default. Every historical PASS was re-run or re-classifie
 |---|---:|
 | PASS (fresh executed evidence) | 36 |
 | PASS (code/unit/probe/design) | 40 |
-| FAIL | 9 |
+| FAIL | 11 |
 | BLOCKED | 21 |
 | OPEN | 4 |
 | UNVERIFIED | 10 |
 | PARTIAL | 2 |
 | N/A | 0 |
-| OTHER | 2 |
 | **Total rows** | **124** |
 
 (Counts computed by `reports/scripts/matrix_to_csv.mjs`; the CSV is authoritative for the tally.) Reconciliation to historical items: A-01…A-15, COMPLETION rows, BUG-001..003, latency-doc items, phase-1 findings D-01..D-11 and phase-2 findings — `REGRESSION_CROSSCHECK.md` §1–7. The brief's 314-case sheet is not in the repository (E-8).
