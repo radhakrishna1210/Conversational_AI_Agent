@@ -1201,7 +1201,6 @@ export default function EditAgent() {
     if (languageActedOn.current === null || languageActedOn.current === primaryLanguage) return;
     languageActedOn.current = primaryLanguage;
     translateOffLanguageWelcomes();
-    /* eslint-disable-line react-hooks/exhaustive-deps */
   }, [primaryLanguage]);
 
   const toggleLanguage = (lang: string) => {
