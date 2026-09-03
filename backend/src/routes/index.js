@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import { fileURLToPath } from 'node:url';
 import { authenticate } from '../middleware/authenticate.js';
 import { workspaceContext } from '../middleware/workspaceContext.js';
 import { mockLLMService } from '../services/llm/mock.service.js';
@@ -39,6 +40,7 @@ import contactFormRoutes from './contactForm.routes.js';
 import appointmentRoutes from './appointment.routes.js';
 import reportIssueRoutes from './reportIssue.routes.js';
 import plivoRoutes from './plivo.routes.js';
+import transferRoutes from './transfer.routes.js';
 
 import { getHealth as getGeminiHealth, getMetrics as getGeminiMetrics } from '../controllers/gemini.controller.js';
 import { getHealth as getOpenAIHealth, getMetrics as getOpenAIMetrics } from '../controllers/openai.controller.js';
@@ -64,6 +66,19 @@ router.use('/integrations', integrationsPublicRoutes);
 // callback. Public because a carrier cannot authenticate; the V3 request
 // signature is what protects them. See plivo.routes.js.
 router.use('/plivo', plivoRoutes);
+// Live human-transfer callbacks (Twilio and Plivo <Dial> outcomes). Public
+// for the same reason; authorised by a per-call HMAC token in the URL.
+router.use('/telephony/transfer', transferRoutes);
+// Pre-rendered background beds for the browser call (Mode B ambience). Static,
+// non-sensitive, generated once by scripts/build-chatter-bed.mjs. The name is
+// whitelisted so this can never serve anything but a bed file.
+router.get('/ambience/bed/:file', (req, res) => {
+  const name = String(req.params.file || '');
+  if (!/^[a-z0-9-]+\.24k\.wav$/.test(name)) return res.status(404).end();
+  const dir = process.env.AMBIENCE_ASSET_DIR || fileURLToPath(new URL('../../assets/ambience/', import.meta.url));
+  res.set('Cache-Control', 'public, max-age=86400');
+  return res.sendFile(name, { root: dir }, (err) => { if (err && !res.headersSent) res.status(404).end(); });
+});
 // The only pricing this deployment publishes: one wallet rate per minute.
 router.get('/config/wallet-rate', platform.getWalletRatePublic);
 

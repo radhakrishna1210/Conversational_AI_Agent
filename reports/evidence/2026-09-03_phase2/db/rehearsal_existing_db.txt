@@ -1,0 +1,35 @@
+== rehearsal: EXISTING-database path (production shape) 2026-09-04T00:45:08+05:30
+1) database built to the pre-baseline schema (baseline SQL with vector(1536)->real[] because the embedded Postgres has no pgvector)
+Script executed successfully.
+2) prisma migrate resolve --applied 0000000000000_baseline
+
+Migration 0000000000000_baseline marked as applied.
+
+3) prisma migrate deploy (should apply ONLY 20260904000000_call_transfer)
+
+The following migration(s) have been applied:
+
+migrations/
+  └─ 20260904000000_call_transfer/
+    └─ migration.sql
+      
+All migrations have been successfully applied.
+4) prisma migrate status
+Prisma schema loaded from prisma\schema.prisma
+Datasource "db": PostgreSQL database "hm_rehearsal", schema "public" at "localhost:5499"
+
+2 migrations found in prisma/migrations
+
+Database schema is up to date!
+5) tables + migration rows
+tables 50 CallTransfer 1
+┌─────────┬────────────────────────────────┬──────────┬─────────────┐
+│ (index) │ migration_name                 │ finished │ rolled_back │
+├─────────┼────────────────────────────────┼──────────┼─────────────┤
+│ 0       │ '0000000000000_baseline'       │ true     │ false       │
+│ 1       │ '20260904000000_call_transfer' │ true     │ false       │
+└─────────┴────────────────────────────────┴──────────┴─────────────┘
+  └─ 0000000000001_seed_pricing_bands/
+    └─ migration.sql
+      
+All migrations have been successfully applied.

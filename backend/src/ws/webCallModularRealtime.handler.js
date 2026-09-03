@@ -37,7 +37,10 @@ import logger from '../lib/logger.js';
 import { noInputPromptFor, noInputDelayMs, maxNoInputAttempts } from '../services/voice/noInputPrompt.js';
 import { verifyAccessToken } from '../lib/jwt.js';
 import prisma from '../config/prisma.js';
-import { voiceTurnStream, warmVoiceTurn } from '../services/agentRuntime.service.js';
+import { voiceTurnStream, warmVoiceTurn, converseStream } from '../services/agentRuntime.service.js';
+import { createSpeculator, speculationModeFor } from '../services/voice/speculativeTurn.js';
+import { createFrameVad } from '../services/voice/frameVad.js';
+import { transferAvailability } from '../services/telephony/transfer.service.js';
 import { DeepgramStreamSession, isDeepgramConfigured, toDeepgramLanguage } from '../services/stt/deepgramStream.service.js';
 import { turnEndProfileFor, maxCommitMsFor } from '../services/voice/turnEndProfile.js';
 import { analyzeSpeech, classifyCallerAffect, isEchoOfAgent } from '../services/stt/speechGate.js';
@@ -200,6 +203,48 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
   // in isolation cannot tell that the previous three already opened with "umm",
   // which is exactly how a prompt-only version drifts into sounding nervous.
   const fillerBudget = createFillerBudget();
+  // Speculative LLM execution on interim transcripts — see
+  // services/voice/speculativeTurn.js. Built at auth once the agent's setting
+  // is known; until then a no-op ('off') stands in so every call site below
+  // can be unconditional.
+  let speculator = createSpeculator({ mode: 'off', start: () => { throw new Error('unused'); } });
+  // The server's own view of when the caller stops making sound. Measured on
+  // the wire harness, Deepgram's speech_final trails the last voiced frame by
+  // ~1.2-1.4s; this detector lets the turn ask for a flush after the profile's
+  // endpointing window instead (see DeepgramStreamSession.noteLocalSilence).
+  // The recogniser still decides whether WORDS were said and still runs the
+  // tiered grace window, so a mid-sentence pause is protected as before.
+  const frameVad = createFrameVad();
+  // Human handover on a browser call: never available (no phone leg), and
+  // the prompt says so. Resolved from the agent's settings at auth.
+  let transferOpts = { available: false, condition: '', targetLabel: 'a team member' };
+  const recordWebTransferRequest = (e) => {
+    prisma.callTransfer.create({
+      data: {
+        callLogId: callLogId ?? 'unknown', workspaceId, agentId, channel: 'WEB', carrier: null,
+        source: e.source, reason: String(e.reason || '').slice(0, 500), status: 'WEB_CALLBACK',
+        error: 'browser call: no phone leg to hand over; callback offered', resolvedAt: new Date(),
+      },
+    }).catch((err) => logger.warn(`Modular web call: could not record the transfer request: ${err.message}`));
+  };
+  // What the local detector is allowed to DO with a silence:
+  //   'speculate' (default) start the speculative LLM request on the words so
+  //                far — nothing about the turn boundary changes;
+  //   'commit'    also ask Deepgram to flush and arm the turn-end candidate
+  //                (measured on the wire harness: ~300ms faster to commit, but
+  //                a resumed caller's next interim arrives later than the
+  //                grace window, so mid-sentence pauses get cut — not the
+  //                default until that is solved);
+  //   'off'       ignore the detector.
+  const localEndpointing = ['off', 'speculate', 'commit'].includes(process.env.VOICE_LOCAL_ENDPOINTING)
+    ? process.env.VOICE_LOCAL_ENDPOINTING : 'speculate';
+  let localSilenceSpeculated = false;
+  const buildSpeculator = (agentSettings) => createSpeculator({
+    mode: speculationModeFor(agentSettings),
+    label: 'web speculation',
+    history: () => (Array.isArray(segmentHistory) ? segmentHistory : []),
+    start: (messages, { signal }) => converseStream(workspaceId, agentId, messages, { voiceMode: true, signal, transfer: transferOpts }),
+  });
 
   // Cleared when the auth FRAME arrives — see AUTH_TIMEOUT_MS.
   let authTimer = setTimeout(() => {
@@ -290,6 +335,14 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
         endpointGraceMs: turnProfile.graceMs,
         unfinishedGraceMs: turnProfile.unfinishedGraceMs,
         finishedGraceMs: turnProfile.finishedGraceMs,
+        // Interim hooks feed the speculator. They decide nothing about the
+        // turn boundary and emit nothing to the caller.
+        // Gated on `segmentHistory`: an older client sends no history on
+        // start-turn, and a speculation without the conversation behind it
+        // would answer out of context — the ordinary path waits for end-turn.
+        onTranscript: (text, meta) => { if (capturing && !turnActive && segmentHistory !== undefined) speculator.onTranscript(text, meta); },
+        onEndOfTurnCandidate: (text) => { if (capturing && !turnActive && segmentHistory !== undefined) speculator.onCandidate(text); },
+        onCandidateCancelled: () => speculator.onCandidateCancelled(),
         // Semantic turn end: fires only once the caller is genuinely finished
         // (confirmed speech_final, or an authoritative UtteranceEnd).
         //
@@ -328,6 +381,23 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
     const pcm = Buffer.concat(frames);
     frames = [];
     capturing = false;
+    // The recogniser's own account of where this turn's silence went, for the
+    // latency record: first/last word, speech_final, grace tier, commit.
+    const tl = dgSession?.lastTurnTimeline ?? null;
+    const dgTimeline = tl ? {
+      dgTier: tl.tier, dgReason: tl.reason, dgGraceMs: tl.graceMs,
+      dgCandidates: tl.candidates, dgCandidatesCancelled: tl.candidatesCancelled,
+      dgLastWordToSpeechFinalMs: (tl.lastTranscriptAt != null && tl.speechFinalAt != null) ? Math.round(tl.speechFinalAt - tl.lastTranscriptAt) : null,
+      dgSpeechFinalToCommitMs: (tl.speechFinalAt != null && tl.commitAt != null) ? Math.round(tl.commitAt - tl.speechFinalAt) : null,
+      dgCommitToTurnMs: tl.commitAt != null ? Math.round(turnEndDetectedAt - tl.commitAt) : null,
+      // The server-side detector's own speech end, against which every other
+      // stamp is the honest measure of dead air.
+      vadSpeechEndToSpeechFinalMs: (tl.localSpeechEndAt != null && tl.speechFinalAt != null) ? Math.round(tl.speechFinalAt - tl.localSpeechEndAt) : null,
+      vadSpeechEndToFlushMs: (tl.localSpeechEndAt != null && tl.localFlushAt != null) ? Math.round(tl.localFlushAt - tl.localSpeechEndAt) : null,
+      vadFlushRoundTripMs: (tl.localFlushAt != null && tl.localFlushDoneAt != null) ? Math.round(tl.localFlushDoneAt - tl.localFlushAt) : null,
+      vadFlushResult: tl.localFlushResult,
+      vadSpeechEndToCommitMs: (tl.localSpeechEndAt != null && tl.commitAt != null) ? Math.round(tl.commitAt - tl.localSpeechEndAt) : null,
+    } : null;
 
     // B3: flush the streaming transcript for THIS turn — the session itself
     // stays open for the next one. Empty → voiceTurnStream falls back to
@@ -354,7 +424,7 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
       if (!dgSession.isAlive) dgSession = null; // died mid-call — next turn recreates it
     }
 
-    if (!pcm.length && !streamedText) { send({ type: 'done', timings: null }); return; }
+    if (!pcm.length && !streamedText) { speculator.abort(); send({ type: 'done', timings: null }); return; }
 
     // ── Silence gate (BUG-001) ────────────────────────────────────────────────
     // The caller said NOTHING this turn, so there is no turn to run. Without
@@ -391,6 +461,7 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
         `(dgListened=${dgListened} voicedMs=${speech.voicedMs} ` +
         `contrast=${speech.contrast.toFixed(2)} peak=${speech.peakRms.toFixed(4)})`,
       );
+      speculator.abort();
       send({ type: 'done', timings: null });
       return;
     }
@@ -421,6 +492,7 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
         `contrast=${speech.contrast.toFixed(2)} peak=${speech.peakRms.toFixed(4)}); ` +
         'almost certainly the agent\'s own audio echoing back',
       );
+      speculator.abort();
       send({ type: 'done', timings: null });
       return;
     }
@@ -432,10 +504,16 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
         `Modular web call: discarding "${streamedText}" — echo of the agent's own ` +
         `previous reply ("${lastAgentText.slice(0, 60)}…")`,
       );
+      speculator.abort();
       send({ type: 'done', timings: null });
       return;
     }
 
+    // Settle the speculation against the committed transcript, now that the
+    // gates above have agreed this is a real turn. A hit hands its iterator to
+    // the runtime; a miss (or nothing started) aborts whatever was in flight
+    // and the ordinary path runs.
+    const speculation = { ...speculator.take(streamedText), mode: speculator.mode };
     turnActive = true;
     bargeRequested = false;
     const wav = pcm16ToWav(pcm, sampleRate);
@@ -466,6 +544,11 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
           // discussion silently started ~700ms after the caller stopped
           // talking. Null when the browser's backstop ended the turn instead.
           endpointMs,
+          speculation,
+          extraLatency: dgTimeline,
+          // A browser call has no phone leg to hand over, so the model is told
+          // to be honest and offer a callback; the request is still recorded.
+          transfer: transferOpts,
           shouldAbort: () => bargeRequested,
           onEvent: (e) => {
             if (bargeRequested && e.type !== 'done') return; // caller cut in; drop reply audio
@@ -483,6 +566,12 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
             } else if (e.type === 'audio-end') {
               if (e.text) send({ type: 'transcript', role: 'assistant', text: e.text, done: true });
               send({ type: 'audio-end' });
+            } else if (e.type === 'transfer') {
+              // Recorded as a WEB_CALLBACK: the caller asked for a person on a
+              // browser call. Nothing dials; the reply already offered a
+              // callback. The row makes the request visible per call.
+              recordWebTransferRequest(e);
+              send({ type: 'transfer', source: e.source, available: false, mode: 'callback' });
             } else if (e.type === 'done') {
               send({ type: 'done', turnId, reply: e.reply ?? null, timings: e.timings ?? null });
             }
@@ -491,6 +580,9 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
       );
     } catch (err) {
       logger.warn(`Modular web call turn failed: ${err.message}`);
+      // A speculative iterator the runtime never got to consume must not keep
+      // its request alive.
+      speculation.hit?.iterator?.return?.().catch?.(() => {});
       send({ type: 'error', message: err.message });
       send({ type: 'done', timings: null });
     } finally {
@@ -506,6 +598,7 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
     stopHeartbeat();
     budget?.stop();
     frames = [];
+    speculator.abort();
     if (dgSession) { dgSession.close(); dgSession = null; }
 
     // The media has stopped, so this instant — not whenever the backstop below
@@ -609,6 +702,11 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
       // how the Deepgram socket is opened, and the backstop the browser is told
       // to stay clear of — is derived from this one object.
       turnProfile = turnEndProfileFor(agentSettings);
+      {
+        const a = transferAvailability({ carrierId: null, settings: agentSettings, channel: 'web' });
+        transferOpts = { available: false, condition: a.config.condition, targetLabel: a.config.targetLabel };
+      }
+      speculator = buildSpeculator(agentSettings);
       if (useDeepgram) {
         dgLanguage = toDeepgramLanguage(agentSettings.sttLanguage) || toDeepgramLanguage(agentLanguages[0]);
       }
@@ -737,6 +835,23 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
         const buf = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
         frames.push(buf);            // buffered for the WAV / batch-STT fallback
         dgSession?.send(buf);        // B3: also stream live to Deepgram
+        // Local end-of-speech: once the line has been quiet for the profile's
+        // endpointing window AND the recogniser has heard words this turn, ask
+        // it to flush now rather than waiting for its own speech_final.
+        const v = frameVad.push(buf);
+        if (v.voiced) localSilenceSpeculated = false; // speech resumed: the next silence may speculate again
+        if (localEndpointing !== 'off' && dgSession && !turnActive && frameVad.heardSpeech()
+          && frameVad.silenceMs() >= turnProfile.endpointingMs) {
+          if (localEndpointing === 'commit') {
+            dgSession.noteLocalSilence({ speechEndAt: frameVad.lastVoicedAt() });
+          } else if (!localSilenceSpeculated && segmentHistory !== undefined) {
+            // Start the LLM on what has been heard so far, ~1s before Deepgram
+            // will confirm the turn. If the caller resumes and the final words
+            // differ, take() discards it — a wasted request, never a wrong reply.
+            const soFar = dgSession.turnTextSoFar();
+            if (soFar) { localSilenceSpeculated = true; speculator.onCandidate(soFar); }
+          }
+        }
       }
       return;
     }
@@ -757,11 +872,15 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
         segmentSeq += 1;
         turnId = `${callTag}:${segmentSeq}`;
         turnStartedForSegment = -1;
+        frameVad.resetTurn();
         // The conversation as it stands right now. Nothing can change it while
         // the caller is speaking, so this is the same history 'end-turn' would
         // have carried, available a whole turn earlier. Left undefined by older
         // clients, which keeps them on the wait-for-'end-turn' path.
         segmentHistory = Array.isArray(msg.history) ? msg.history : undefined;
+        // A new listening segment: anything speculated for the previous one is
+        // dead, and this one starts with nothing in flight.
+        speculator.beginTurn();
         // Warm agent/KB/voice/filler caches WHILE the caller is speaking, so a
         // cold cache costs nothing after they stop (the prepMs spikes in
         // latency.log). Already warmed at auth; this covers config edits
@@ -803,6 +922,7 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
         }
         frames = [];
         capturing = false;
+        speculator.abort(); // a silent segment has nothing worth answering
         // Nothing will run for this segment. Claim it so a commit landing right
         // behind this frame cannot resurrect a turn the caller was silent in.
         turnStartedForSegment = segmentSeq;

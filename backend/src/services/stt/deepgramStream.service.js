@@ -50,6 +50,14 @@ export function isDeepgramConfigured() {
 const MIN_FINAL_CONFIDENCE = Number(process.env.DEEPGRAM_MIN_CONFIDENCE) || 0.35;
 
 /**
+ * How long a locally-detected end of speech waits for Deepgram to flush the
+ * words it is still holding before the turn-end candidate is armed anyway.
+ * A flush normally lands in 100-300ms; the bound exists so a lost marker
+ * cannot hold the turn open. See noteLocalSilence().
+ */
+const LOCAL_FLUSH_TIMEOUT_MS = Number(process.env.DEEPGRAM_LOCAL_FLUSH_TIMEOUT_MS) || 500;
+
+/**
  * The languages the phonecall-tuned models actually serve.
  *
  * Not a guess and not "anything starting with en": `en-ZA` is refused with the
@@ -397,10 +405,33 @@ export class DeepgramStreamSession {
   constructor({
     sampleRate = 24000, language, endpointingMs, onEndOfTurn, endpointGraceMs,
     unfinishedGraceMs, finishedGraceMs,
+    onTranscript, onEndOfTurnCandidate, onCandidateCancelled,
     encoding = 'linear16',
   } = {}) {
     this.sampleRate = sampleRate;
     this.language = language;
+    // ── Interim-transcript hooks (speculative execution) ─────────────────────
+    // Deepgram already transcribes DURING speech; until now those interims were
+    // used for one thing only (looksUnfinished on the tail) and the LLM was not
+    // asked anything until the turn had committed. These three callbacks let a
+    // transport start work early and throw it away cheaply:
+    //   onTranscript(text, { isFinal })   every time the turn's text changes —
+    //                                     `text` is the whole turn so far
+    //   onEndOfTurnCandidate(text, tier)  speech_final arrived; the grace window
+    //                                     has just started
+    //   onCandidateCancelled()            the caller resumed inside the window
+    // None of them decides anything about the turn boundary. That stays here.
+    this.onTranscript = typeof onTranscript === 'function' ? onTranscript : null;
+    this.onEndOfTurnCandidate = typeof onEndOfTurnCandidate === 'function' ? onEndOfTurnCandidate : null;
+    this.onCandidateCancelled = typeof onCandidateCancelled === 'function' ? onCandidateCancelled : null;
+    // The latest interim (non-final) transcript for the audio after the last
+    // final. Cleared when a final for that stretch lands, so turnTextSoFar()
+    // never repeats words.
+    this._interim = '';
+    // Per-turn timeline on the monotonic clock, so the latency record can say
+    // where the silence went: when the first/last words landed, when Deepgram
+    // said speech_final, which grace tier ran, and when the commit fired.
+    this._timeline = this._newTimeline();
     // Wire format of the audio being fed in. 'linear16' is the browser path
     // (PCM16 at the AudioContext's rate). 'mulaw' is the telephony path: a
     // carrier's media stream is 8kHz G.711, and Deepgram decodes it natively,
@@ -496,6 +527,10 @@ export class DeepgramStreamSession {
     // finalizeTurn() skip a round trip that cannot return anything new. See the
     // note there.
     this._committed = false;
+    // A pending "please flush, the transport saw silence" request — see
+    // noteLocalSilence(). { timer } while in flight, else null.
+    this._localFlush = null;
+    this._lastTimeline = null;
   }
 
   /**
@@ -619,13 +654,46 @@ export class DeepgramStreamSession {
     // hunt for a word gets the rest of their sentence. Bounded either way: the
     // candidate commits when its window expires.
     if (msg?.type === 'UtteranceEnd') {
+      // Word-timing silence that belongs to the PREVIOUS turn. UtteranceEnd
+      // fires `utterance_end_ms` after the last word Deepgram heard, and that
+      // word can sit in a turn this session has already closed — the caller's
+      // next segment opened, nobody has spoken yet, and the signal arrives.
+      // Committing it ended the new turn with no words at all: the transport
+      // discarded it as silent, stopped capturing, and the caller's actual
+      // sentence — spoken a moment later — went nowhere. Observed on the wire
+      // harness as a whole turn lost. With no words this turn there is nothing
+      // to end; the next transcript will bring its own end-of-turn.
+      // FINALS, not interims: UtteranceEnd is computed from word timings of
+      // finalised words, so one arriving while this turn only has an interim
+      // can only be about the previous turn's words. Committing on it ended
+      // the new turn with an empty transcript ~900ms into the caller's
+      // sentence (harness: "discarding silent 860ms turn" right after
+      // "end of turn (utterance_end)").
+      if (!this.finals.length) return;
+      // And when Deepgram says WHICH word it ended after, refuse one that ends
+      // before this turn's audio began.
+      const lastWordEnd = Number(msg.last_word_end);
+      if (Number.isFinite(lastWordEnd) && this._streamTimeAtTurnStart != null && lastWordEnd <= this._streamTimeAtTurnStart) return;
+      if (this._timeline.utteranceEndAt == null) this._timeline.utteranceEndAt = performance.now();
       if (looksUnfinished(this._tail)) this._armEndOfTurnCandidate('utterance_end');
       else this._commitEndOfTurn('utterance_end');
       return;
     }
 
     const alt = msg?.channel?.alternatives?.[0];
+    // Stream-time high-water mark of transcribed audio, for the stale
+    // UtteranceEnd check above. Deepgram stamps every result with start +
+    // duration in seconds since the socket opened.
+    if (Number.isFinite(Number(msg?.start)) && Number.isFinite(Number(msg?.duration))) {
+      this._streamTimeSeen = Math.max(this._streamTimeSeen ?? 0, Number(msg.start) + Number(msg.duration));
+    }
     if (alt?.transcript) this._tail = alt.transcript;
+    if (alt?.transcript) {
+      const now = performance.now();
+      if (this._timeline.firstTranscriptAt == null) this._timeline.firstTranscriptAt = now;
+      this._timeline.lastTranscriptAt = now;
+      if (!msg.is_final) this._timeline.lastInterimAt = now;
+    }
 
     // ANY further speech — interim or final — means the caller is still talking,
     // so a pending speech_final candidate was a mid-sentence pause, not the end
@@ -639,7 +707,13 @@ export class DeepgramStreamSession {
       // starts its own clock; keeping this one would report the endpoint as
       // everything since the first hesitation.
       this._candidateArmedAt = null;
+      this._timeline.candidatesCancelled += 1;
+      this.onCandidateCancelled?.();
     }
+
+    // Interim bookkeeping for turnTextSoFar(). An interim describes the audio
+    // since the last final; the final for that same stretch replaces it.
+    if (alt?.transcript && !msg.is_final && !this._flushTarget) this._interim = alt.transcript;
 
     if (alt?.transcript && msg.is_final) {
       // Minimum-confidence gate (BUG-001). Deepgram scores each final; a
@@ -659,15 +733,84 @@ export class DeepgramStreamSession {
         this._flushTarget.push(alt.transcript);
       } else {
         this.finals.push(alt.transcript);
+        this._interim = '';
       }
+    }
+    // Tell the transport what the turn says so far. After the final/interim
+    // bookkeeping above so `turnTextSoFar()` is already up to date, and before
+    // the candidate is armed so a speculation started on this text is in
+    // flight when the grace window opens.
+    if (alt?.transcript && !this._flushTarget && this.onTranscript) {
+      this.onTranscript(this.turnTextSoFar(), { isFinal: Boolean(msg.is_final) });
     }
     // speech_final: VAD says the caller stopped. Treat as a CANDIDATE only —
     // arm the grace window rather than ending the turn here.
-    if (msg?.speech_final) this._armEndOfTurnCandidate();
+    if (msg?.speech_final) {
+      // Deepgram also flags speech_final on EMPTY results at the end of a
+      // silent stretch — including the silence right after a turn we already
+      // committed. With no words in this turn there is nothing to end, and
+      // arming a candidate here committed an empty turn ~400ms into the
+      // caller's NEXT sentence: the transport discarded it as silent, told
+      // the browser to stop capturing, and the sentence was lost. Measured on
+      // the wire harness as 7 of 30 turns cut off at their first word.
+      if (!this.finals.length && !this._tail && !this._interim) return;
+      if (this._timeline.speechFinalAt == null) this._timeline.speechFinalAt = performance.now();
+      this._armEndOfTurnCandidate();
+    }
     // from_finalize: the flush we requested in finalizeTurn() has completed —
     // every pending word is now in `finals`, wake the waiter immediately
     // (instead of the old wait-for-socket-close, which cost up to 3s a turn).
-    if (msg?.from_finalize) this._notifyFinalize();
+    if (msg?.from_finalize) {
+      this._notifyFinalize();
+      if (this._localFlush) this._localFlushDone('flushed');
+    }
+  }
+
+  /**
+   * The TRANSPORT's own voice-activity detector has seen the caller go quiet
+   * for the profile's endpointing window. Ask Deepgram to flush what it is
+   * holding now, rather than waiting for its speech_final — which arrives, on
+   * this deployment, ~1.2-1.4s after the last voiced frame.
+   *
+   * Nothing is committed here. The flush lands (or times out), and THEN the
+   * ordinary candidate is armed with the ordinary tiered grace window, so a
+   * mid-sentence pause is still protected exactly as before: any further
+   * transcript cancels the candidate. The only thing that changes is who
+   * notices the silence first.
+   *
+   * Idempotent per decision: ignored while a flush is pending, a candidate is
+   * armed, or the turn has committed; ignored when no words have been heard
+   * yet (the local detector may be reacting to a cough).
+   *
+   * @param {{ speechEndAt?: number }} [info] the detector's last voiced frame,
+   *   on performance.now(), so the real dead air can be reported.
+   */
+  noteLocalSilence({ speechEndAt = null } = {}) {
+    if (this.dead || this._committed || this._endpointTimer || this._localFlush) return;
+    if (!this.finals.length && !this._interim && !this._tail) return;
+    if (speechEndAt != null) this._timeline.localSpeechEndAt = speechEndAt;
+    this._timeline.localFlushAt = performance.now();
+    const timer = setTimeout(() => this._localFlushDone('timeout'), LOCAL_FLUSH_TIMEOUT_MS);
+    timer.unref?.();
+    this._localFlush = { timer };
+    if (this._open && this.ws?.readyState === WebSocket.OPEN) {
+      try { this.ws.send(JSON.stringify({ type: 'Finalize' })); } catch { this._localFlushDone('send-failed'); }
+    } else {
+      this._localFlushDone('not-open');
+    }
+  }
+
+  _localFlushDone(why) {
+    const lf = this._localFlush;
+    if (!lf) return;
+    clearTimeout(lf.timer);
+    this._localFlush = null;
+    this._timeline.localFlushDoneAt = performance.now();
+    this._timeline.localFlushResult = why;
+    if (this.dead || this._committed) return;
+    // Deepgram's own speech_final got there first — its candidate stands.
+    if (this._endpointTimer) return;
+    this._armEndOfTurnCandidate('local_vad');
   }
 
   /**
@@ -695,11 +838,48 @@ export class DeepgramStreamSession {
       : finished ? this.finishedGraceMs
         : this.endpointGraceMs;
     const commitReason = unfinished ? `${reason}:unfinished` : finished ? `${reason}:finished` : reason;
+    this._timeline.candidateAt = performance.now();
+    this._timeline.graceMs = graceMs;
+    this._timeline.tier = unfinished ? 'unfinished' : finished ? 'finished' : 'ordinary';
+    this._timeline.candidates += 1;
+    // The grace window is about to start. A transport that speculates on the
+    // candidate text starts its LLM request HERE, so the window overlaps the
+    // model's first token instead of preceding it.
+    this.onEndOfTurnCandidate?.(this.turnTextSoFar(), this._timeline.tier);
     if (graceMs <= 0) { this._commitEndOfTurn(commitReason); return; }
     this._endpointTimer = setTimeout(() => {
       this._endpointTimer = null;
       this._commitEndOfTurn(commitReason);
     }, graceMs);
+  }
+
+  /** A fresh, empty per-turn timeline. Every field is a performance.now() ms. */
+  _newTimeline() {
+    return {
+      beganAt: performance.now(),
+      firstTranscriptAt: null, lastTranscriptAt: null, lastInterimAt: null,
+      speechFinalAt: null, utteranceEndAt: null, candidateAt: null, commitAt: null,
+      localSpeechEndAt: null, localFlushAt: null, localFlushDoneAt: null, localFlushResult: null,
+      graceMs: null, tier: null, reason: null, candidates: 0, candidatesCancelled: 0,
+    };
+  }
+
+  /**
+   * Everything the recogniser has heard THIS turn, finals first, then the live
+   * interim for the audio after the last final. Never consumes anything.
+   */
+  turnTextSoFar() {
+    const finals = this.finals.join(' ').trim();
+    const interim = String(this._interim || '').trim();
+    return interim ? (finals ? `${finals} ${interim}` : interim) : finals;
+  }
+
+  /**
+   * The timeline of the most recently COMMITTED turn — for the latency record.
+   * Read after onEndOfTurn; beginTurn() starts a fresh one.
+   */
+  get lastTurnTimeline() {
+    return this._lastTimeline ?? null;
   }
 
   /** The caller really is done. Fire once; drop any pending candidate. */
@@ -716,10 +896,17 @@ export class DeepgramStreamSession {
     // The candidate was armed `endpointingMs` after the caller actually went
     // quiet (that is what Deepgram's endpointing parameter means), so total
     // silence-before-commit is that plus however long the grace ran.
-    this.lastEndpointMs = this._candidateArmedAt
-      ? (Date.now() - this._candidateArmedAt) + (Number(this.endpointingMs) || 0)
-      : null;
+    // When the transport's own detector saw the speech end, report the REAL
+    // dead air; otherwise fall back to the recogniser-relative estimate.
+    this.lastEndpointMs = this._timeline.localSpeechEndAt != null
+      ? Math.round(performance.now() - this._timeline.localSpeechEndAt)
+      : this._candidateArmedAt
+        ? (Date.now() - this._candidateArmedAt) + (Number(this.endpointingMs) || 0)
+        : null;
     this._candidateArmedAt = null;
+    this._timeline.commitAt = performance.now();
+    this._timeline.reason = reason;
+    this._lastTimeline = this._timeline;
     // Reaching here means Deepgram sent speech_final (or an authoritative
     // UtteranceEnd) and then a FULL grace window passed with no further
     // transcript — interim or final. Both of those are things _handleMessage
@@ -783,6 +970,11 @@ export class DeepgramStreamSession {
     this._turnSeq += 1;
     this.finals = [];
     this._tail = ''; // the previous turn's last words must not judge this one
+    this._interim = '';
+    this._timeline = this._newTimeline();
+    // Everything transcribed before this instant belongs to earlier turns.
+    this._streamTimeAtTurnStart = this._streamTimeSeen ?? null;
+    if (this._localFlush) { clearTimeout(this._localFlush.timer); this._localFlush = null; }
     // A new turn has not been committed by anyone yet, so its transcript is NOT
     // known to be complete — clear the fast-path flag or finalizeTurn would skip
     // the flush for a turn that really does still have words in flight.
@@ -900,6 +1092,7 @@ export class DeepgramStreamSession {
   close() {
     this.dead = true;
     if (this._endpointTimer) { clearTimeout(this._endpointTimer); this._endpointTimer = null; }
+    if (this._localFlush) { clearTimeout(this._localFlush.timer); this._localFlush = null; }
     this._stopKeepAlive();
     this._notifyFinalize();
     try {

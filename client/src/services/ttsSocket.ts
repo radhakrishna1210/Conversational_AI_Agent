@@ -14,7 +14,7 @@ class TTSSocketService {
   // Configurable via VITE_TTS_WS_URL; defaults to the local FastAPI TTS server
   // in development. Uses wss:// automatically when the page is served over https.
   private readonly url: string = (() => {
-    const fromEnv = (import.meta as any).env?.VITE_TTS_WS_URL as string | undefined;
+    const fromEnv = (import.meta as unknown as { env?: Record<string, string | undefined> }).env?.VITE_TTS_WS_URL;
     if (fromEnv) return fromEnv;
     if (typeof window !== 'undefined' && window.location.protocol === 'https:') {
       return `wss://${window.location.host}/api/tts/ws/tts`;

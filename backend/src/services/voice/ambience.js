@@ -24,6 +24,10 @@
  *  - Randomness is a seeded PRNG, not Math.random, so tests are deterministic.
  */
 
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 // ─── Presets (KEEP IN SYNC with client/src/services/ambientSound.ts) ─────────
 export const AMBIENT_PRESETS = {
   'Quiet Room': { type: 'lowpass', freq: 300, gain: 0.004 },
@@ -43,6 +47,80 @@ const PHONE_RATE = 8000;
 const LOOP_SECONDS = 24;
 /** Bed level target. ~42dB below speech peaks, so no ducking is needed. */
 const TARGET_RMS_DBFS = -48;
+
+// ─── Pre-rendered VOICE beds (Mode B in reports/AMBIENCE_VOICE.md) ───────────
+// Indistinct human chatter, rendered ONCE by scripts/build-chatter-bed.mjs
+// from Fish Audio TTS (innocuous filler sentences, several voices layered at
+// random offsets, band-limited, levelled to TARGET_RMS_DBFS) and stored under
+// backend/assets/ambience. They go through exactly the same mixer as the
+// synthesized beds above, so they cost nothing per turn and add nothing to the
+// hot path. Two variants per preset: two simultaneous calls pick different
+// loops. The name set is pinned by a test on both sides, like AMBIENT_PRESETS.
+export const SAMPLED_AMBIENT_PRESETS = {
+  'Office Chatter': { files: ['office-chatter-1', 'office-chatter-2'], tag: '[office chatter in the background]' },
+  'Call Center Chatter': { files: ['call-center-chatter-1', 'call-center-chatter-2'], tag: '[busy call centre background, many people talking indistinctly]' },
+};
+export const ALL_AMBIENT_PRESET_NAMES = [...Object.keys(AMBIENT_PRESETS), ...Object.keys(SAMPLED_AMBIENT_PRESETS)];
+const ASSET_DIR = process.env.AMBIENCE_ASSET_DIR
+  || fileURLToPath(new URL('../../../assets/ambience/', import.meta.url));
+
+/**
+ * The three-state per-agent switch (Call Configuration → Background sound):
+ *   'off'     no bed of any kind;
+ *   'manual'  the pre-rendered bed named by `ambientSound` (noise or chatter),
+ *             continuous, free per turn;
+ *   'native'  Fish Audio generates the ambience WITH the speech via an S2
+ *             inline tag — only while the agent speaks, only on a Fish voice.
+ * Backwards compatible: an agent saved before the switch existed has no
+ * `ambientMode`; it keeps whatever `ambientSound` did for it (a preset →
+ * manual, 'None' or unset → off), so nothing changes for anyone until they
+ * choose. A NEW agent's editor default is 'off'.
+ */
+export const AMBIENT_MODES = ['off', 'manual', 'native'];
+export function resolveAmbientMode(settings = {}) {
+  const mode = String(settings?.ambientMode || '').toLowerCase();
+  if (AMBIENT_MODES.includes(mode)) return mode;
+  const preset = settings?.ambientSound;
+  return preset && preset !== 'None' ? 'manual' : 'off';
+}
+
+/**
+ * The S2 inline tag that asks Fish Audio to generate the ambience itself
+ * (Mode A). Null unless the agent is in 'native' mode with a preset that has
+ * a tag. The tag is added at SYNTHESIS only (fishaudio.provider.js ttsBody) —
+ * it never touches the reply text, the transcript or the history, so it can
+ * never be echoed back to the model or shown to a person.
+ */
+export function ambienceTagFor(settings = {}) {
+  if (resolveAmbientMode(settings) !== 'native') return null;
+  const preset = settings?.ambientSound;
+  return SAMPLED_AMBIENT_PRESETS[preset]?.tag
+    ?? ({ Office: SAMPLED_AMBIENT_PRESETS['Office Chatter'].tag, 'Call Center': SAMPLED_AMBIENT_PRESETS['Call Center Chatter'].tag })[preset]
+    ?? null;
+}
+
+const sampledCache = new Map(); // file -> Int16Array (8k)
+/**
+ * Load one pre-rendered 8kHz bed. Levelled at build time; re-levelled here to
+ * TARGET_RMS_DBFS anyway so a hand-edited asset cannot arrive loud.
+ * @returns {Int16Array|null} null when the asset is missing (logged once)
+ */
+export function loadSampledBed(file) {
+  if (sampledCache.has(file)) return sampledCache.get(file);
+  let out = null;
+  try {
+    const buf = fs.readFileSync(path.join(ASSET_DIR, `${file}.8k.pcm`));
+    const pcm = new Int16Array(buf.buffer.slice(buf.byteOffset, buf.byteOffset + (buf.length & ~1)));
+    const scale = (32768 * 10 ** (TARGET_RMS_DBFS / 20)) / Math.max(rms(pcm), 1e-9);
+    out = new Int16Array(pcm.length);
+    for (let i = 0; i < pcm.length; i++) out[i] = Math.max(-32768, Math.min(32767, Math.round(pcm[i] * scale)));
+  } catch (err) {
+    out = null;
+    if (!sampledCache.has(file)) console.warn(`[ambience] sampled bed "${file}" unavailable: ${err.message}`);
+  }
+  sampledCache.set(file, out);
+  return out;
+}
 
 // ─── G.711 µ-law companding ──────────────────────────────────────────────────
 // µ-law is logarithmic: byte values are NOT proportional to amplitude, so two
@@ -182,7 +260,16 @@ const loopCache = new Map(); // `${preset}|${rate}|${seconds}` -> Int16Array
  * @returns {Int16Array|null} null for 'None'/unknown — the single guard that
  *   turns the entire feature off everywhere downstream.
  */
-export function renderAmbienceLoop(presetName, { sampleRate = PHONE_RATE, seconds = LOOP_SECONDS, seed = 0x1234567 } = {}) {
+export function renderAmbienceLoop(presetName, { sampleRate = PHONE_RATE, seconds = LOOP_SECONDS, seed = 0x1234567, variant = null } = {}) {
+  const sampled = SAMPLED_AMBIENT_PRESETS[presetName];
+  if (sampled) {
+    // Pre-rendered voice bed: 8kHz only (the phone mixer's rate); the browser
+    // fetches the 24kHz WAV itself. Variant chosen by the caller (per call) or
+    // by the seed, so two concurrent callers rarely share a loop.
+    if (sampleRate !== PHONE_RATE) return null;
+    const idx = variant != null ? (variant % sampled.files.length) : (seed % sampled.files.length);
+    return loadSampledBed(sampled.files[Math.abs(idx)]);
+  }
   const cfg = AMBIENT_PRESETS[presetName];
   if (!cfg) return null;
 

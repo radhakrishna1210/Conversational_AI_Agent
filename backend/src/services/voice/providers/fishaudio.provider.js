@@ -125,6 +125,21 @@ function fishGenerationParams(affect) {
  * that no test would catch. Enable only after the probe script confirms
  * behaviour on the model actually in use.
  */
+/**
+ * Mode A background ambience: an S2 inline tag asking the model to generate
+ * the room itself. Only ever applied to the synthesis request — never to the
+ * text that is logged, echoed to the model or shown to a person — and only on
+ * an S2-family model, which is the family that reads tags as directions
+ * rather than words. Measured on this deployment (reports/AMBIENCE_VOICE.md):
+ * s2.1-pro-free spoke none of 8 tagged utterances' tags aloud.
+ * Exported for the tag-leak regression test.
+ */
+export function applyAmbienceTag(text, tag) {
+  if (!tag || !/^\[[^\]]{2,80}\]$/.test(String(tag))) return text;
+  if (!/^s2/.test(ttsModel())) return text;
+  return `${tag} ${text}`;
+}
+
 function applyEmotionTag(text, affect) {
   if (process.env.FISH_EMOTION_TAGS !== 'true') return text;
   if (!/^s1/.test(ttsModel())) return text;
@@ -192,7 +207,7 @@ function ttsBody(voiceId, text, opts = {}) {
   // rather than a clean failure.
   const format = fishFormat(opts.audioFormat);
   return {
-    text: applyEmotionTag(text, opts.affect),
+    text: applyAmbienceTag(applyEmotionTag(text, opts.affect), opts.ambienceTag),
     reference_id: voiceId,
     format,
     mp3_bitrate: fast ? 64 : 128,

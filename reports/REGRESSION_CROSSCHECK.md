@@ -124,3 +124,26 @@ No consumer reads a name the backend does not produce, so no rename is currently
 | D-09 | hourly renewal sweep is trying to renew 4 `past_due` `__test__` subscriptions and 29 more come due by 2026-09-29 | **OPEN — owner decision** (§7.1 of baseline) |
 | D-10 | repo cannot build a database from scratch (A-07a) | **OPEN** |
 | D-11 | no trace id / wall-clock durations / no audible measurement | **FIXED** `f04cafc` (instrumentation), measurement BLOCKED |
+
+## 7. Phase 2 (2026-09-04) — what changed against the sections above
+
+Every prior claim was re-verified by executing it; where execution disagreed with a document, execution wins and is stated.
+
+| ID | claim / item | phase-2 executable result | status |
+|---|---|---|---|
+| §4 / brief §7 "the modular floor is ~2.2 s" | server-side `waitMs` | wire harness, 24 turns: **2,861 ms actual** with speculation off — the floor was *worse* than the server-side number because Deepgram's end-of-speech lag (~500 ms) was uncounted | corrected (`LATENCY_REPORT.md` §4) |
+| owner claim 1 "STT sends everything to the LLM only at the end" | — | partly wrong as the brief said, and the real serialisation was not `finalizeTurn` either (that round trip is skipped on committed turns, `preLlmMs` ≈ 5): it was **no speculation** + Deepgram's ~950 ms end-of-speech | corrected; speculation built |
+| owner claim 2 "Gemini takes about a second" | brief: p50 1.05 s | bake-off on this account: **p50 1.32 s, p90 5.3 s, max 9.3 s**; Groq p50 9.8 s (rate-limited) | confirmed, and the tail is the bigger problem |
+| §4 "transfer exists" | — | confirmed prompt-only; **built** (`CALL_TRANSFER.md`), live carrier evidence BLOCKED | FIXED (code) / BLOCKED (live) |
+| BUG-001 phantom turn | guards + unit tests | two **new** phantom/cut-off mechanisms found by the harness (empty `speech_final`, stale `UtteranceEnd`) and fixed; 0/72 in run 3 | FIXED (harness-verified), live BLOCKED |
+| BUG-003 ambience audibility | unit only | pre-rendered chatter beds added and unit-verified; live audibility still BLOCKED | unchanged |
+| AGT-13 Fast/Balanced/Patient differ live | unit only | not driven this phase (all arms Balanced) | UNVERIFIED |
+| D-01 `test:ws` | 41/41 | **50/50** (9 transfer-callback tests added), 2 s; the "two files time out" report did not reproduce; bridge import 462 ms | PASS |
+| D-02 client lint | 87 errors | **76 `no-explicit-any`** (−10 fixed properly in auth/audio files, 2 avoided), ratchet + baseline added; `npm run lint:ratchet` is the gate | FAIL → baselined honestly |
+| D-08 fixtures | script "exists" | the script **did not match the `__test__` prefix** that carries 131 workspaces; extended + production guard; not run on production | OPEN (owner) |
+| D-09 renewal sweep | open | `SUBSCRIPTION_RENEWAL_ENABLED=false` switch added; decision still owner's | OPEN (owner) |
+| D-10 baseline migration | open | baselined + rehearsed on a clone shaped like production (`db/rehearsal_existing_db.txt`); production `migrate resolve` pending approval | FIXED (repo) / owner step |
+| T-29 migration rehearsal | BLOCKED | executed | PASS |
+| E-1 no isolated DB | BLOCKED | embedded Postgres + Redis stood up; 57 billing suites still read `DATABASE_URL` | PARTIAL |
+| `QA_REGRESSION_TEST.md`, `MY_QA_STATUS.md`, `QA_FINAL_MATRIX.csv` | referenced by the brief | **do not exist** in the repo or its history; matrix has 109 (+18) rows, not 314 | source gap (E-8) |
+| working tree at session start | — | reverted `139f797` and deleted two reports without a git record; restored, diff preserved (`00_pre_session_worktree.patch`) | noted (D-13) |

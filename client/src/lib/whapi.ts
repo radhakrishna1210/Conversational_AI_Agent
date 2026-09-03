@@ -22,11 +22,11 @@ async function request<T>(path: string, options: RequestInit = {}, _retried = fa
     // with a clear, catchable error.
     if (!token) {
       const err = new Error('Not logged in.');
-      (err as any).code = 'NO_AUTH';
+      (err as Error & { code?: string }).code = 'NO_AUTH';
       throw err;
     }
     const err = new Error('Your session is missing workspace context. Please log out and back in.');
-    (err as any).code = 'NO_WORKSPACE';
+    (err as Error & { code?: string }).code = 'NO_WORKSPACE';
     throw err;
   }
 
@@ -61,10 +61,12 @@ async function request<T>(path: string, options: RequestInit = {}, _retried = fa
       }
     }
 
-    const err = await res.json().catch(() => ({}));
-    let errMsg = (err as any).message ?? (err as any).error ?? `Request failed: ${res.status}`;
-    if ((err as any).debug) {
-      errMsg += ` [DEBUG: ${JSON.stringify((err as any).debug)}]`;
+    // The API's error body: every field is optional.
+    type ApiErrorBody = { message?: string; error?: string; code?: string; debug?: unknown };
+    const err: ApiErrorBody = await res.json().catch(() => ({}));
+    let errMsg = err.message ?? err.error ?? `Request failed: ${res.status}`;
+    if (err.debug !== undefined) {
+      errMsg += ` [DEBUG: ${JSON.stringify(err.debug)}]`;
     }
 
     if (res.status === 401) {
@@ -81,7 +83,7 @@ async function request<T>(path: string, options: RequestInit = {}, _retried = fa
     // and can only show a dead end instead of the action that fixes it.
     const httpError = new Error(errMsg) as Error & { status?: number; code?: string };
     httpError.status = res.status;
-    if ((err as any).code) httpError.code = (err as any).code;
+    if (err.code) httpError.code = err.code;
     throw httpError;
   }
   // 204 No Content (e.g. DELETE) and other empty bodies have no JSON to

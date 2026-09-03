@@ -479,7 +479,11 @@ class GeminiService {
       systemInstruction: options.systemPrompt || "You are a helpful AI assistant.",
     });
 
-    const result = await geminiModel.generateContentStream({ contents, generationConfig });
+    // An AbortSignal from the caller (speculative turns cancel superseded
+    // requests) rides through the SDK to the underlying fetch, so a cancelled
+    // generation stops consuming quota instead of finishing in the background.
+    const requestOptions = options.signal ? { signal: options.signal } : undefined;
+    const result = await geminiModel.generateContentStream({ contents, generationConfig }, requestOptions);
     for await (const chunk of result.stream) {
       const text = typeof chunk?.text === "function" ? chunk.text() : "";
       if (text) yield text;
