@@ -28,8 +28,12 @@
  * @property {string} label            shown in the agent editor
  * @property {string} description      what the caller experiences
  * @property {number} endpointingMs    silence before the recognizer says "final"
- * @property {number} graceMs          confirmation window on a finished-sounding turn
+ * @property {number} graceMs          confirmation window on an ordinary turn
  * @property {number} unfinishedGraceMs  confirmation window when the words dangle
+ * @property {number} finishedGraceMs  confirmation window when the words have
+ *                                     clearly handed over the floor (a question,
+ *                                     a danda, a standalone "yes") — see
+ *                                     looksFinished() in stt/deepgramStream
  */
 
 /** @type {Record<string, TurnEndProfile>} */
@@ -43,6 +47,7 @@ export const TURN_END_PROFILES = {
     endpointingMs: 250,
     graceMs: 250,
     unfinishedGraceMs: 800,
+    finishedGraceMs: 80,
   },
   balanced: {
     id: 'balanced',
@@ -53,6 +58,7 @@ export const TURN_END_PROFILES = {
     endpointingMs: 300,
     graceMs: 400,
     unfinishedGraceMs: 1100,
+    finishedGraceMs: 150,
   },
   patient: {
     id: 'patient',
@@ -63,6 +69,7 @@ export const TURN_END_PROFILES = {
     endpointingMs: 400,
     graceMs: 700,
     unfinishedGraceMs: 1600,
+    finishedGraceMs: 300,
   },
 };
 
@@ -108,6 +115,7 @@ export function turnEndProfileFor(settings = {}) {
     endpointingMs: override('DEEPGRAM_ENDPOINTING_MS', base.endpointingMs),
     graceMs: override('DEEPGRAM_ENDPOINT_GRACE_MS', base.graceMs),
     unfinishedGraceMs: override('DEEPGRAM_UNFINISHED_GRACE_MS', base.unfinishedGraceMs),
+    finishedGraceMs: override('DEEPGRAM_FINISHED_GRACE_MS', base.finishedGraceMs),
   };
 }
 

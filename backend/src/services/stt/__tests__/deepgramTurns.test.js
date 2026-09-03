@@ -10,7 +10,7 @@
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DeepgramStreamSession, looksUnfinished, maxEndpointCommitMs, resolveDeepgramModel } from '../deepgramStream.service.js';
+import { DeepgramStreamSession, looksUnfinished, looksFinished, maxEndpointCommitMs, resolveDeepgramModel } from '../deepgramStream.service.js';
 
 /** Minimal stand-in for the `ws` socket the session opens. */
 function fakeSocket(session) {
@@ -363,7 +363,9 @@ test('a completed thought still commits on the fast path', async () => {
   session._handleMessage({ speech_final: true });
 
   await new Promise((r) => setTimeout(r, 120));
-  assert.deepEqual(fired, ['speech_final'], 'a finished turn must stay snappy');
+  // A sentence-final full stop on a clause is a hand-over, so it now takes the
+  // short tier (tagged) — faster than the ordinary path this test guards.
+  assert.deepEqual(fired, ['speech_final:finished'], 'a finished turn must stay snappy');
 });
 
 test('resuming speech cancels the pending end of turn', async () => {
@@ -429,7 +431,9 @@ test("a new turn is not judged by the previous turn's last words", async () => {
   emitInterim(session, 'Yes');
   session._handleMessage({ speech_final: true });
   await new Promise((r) => setTimeout(r, 120));
-  assert.deepEqual(fired, ['speech_final'], 'stale tail must not slow the new turn');
+  // "Yes" stands alone, so the new turn takes the short tier — the stale
+  // dangling tail from the previous turn must not drag it to the long one.
+  assert.deepEqual(fired, ['speech_final:finished'], 'stale tail must not slow the new turn');
 });
 
 // A one-word turn is a fragment unless the word stands alone. An enumerated
@@ -698,4 +702,126 @@ test('the non-English model is overridable, so a deployment can pin it back', ()
   } finally {
     process.env = saved;
   }
+});
+
+// ─── Finished-tail grace tier (Phase 1.1 of the latency plan) ────────────────
+//
+// The ordinary grace window is ~400ms of dead air on every turn. On a tail
+// that has clearly handed over the floor — a question, a danda, a bare "yes" —
+// it buys nothing, so those commit on a short third tier. The asymmetry from
+// looksUnfinished() still holds: a dangling tail is never "finished", and a
+// number being read out keeps the ordinary window.
+
+function tieredSession({ grace = 60, unfinished = 100, finished = 20 } = {}) {
+  const fired = [];
+  const s = new DeepgramStreamSession({
+    sampleRate: 16000,
+    endpointGraceMs: grace,
+    unfinishedGraceMs: unfinished,
+    finishedGraceMs: finished,
+    onEndOfTurn: (reason) => fired.push(reason),
+  });
+  fakeSocket(s);
+  s.beginTurn();
+  return { s, fired };
+}
+
+test('looksFinished: hand-over tails, and only those', () => {
+  const finished = [
+    'what are your hours?', 'Can you book that for me?', 'क्या आप खुले हैं?',
+    'मुझे कल का अपॉइंटमेंट चाहिए।', 'Yes.', 'okay', 'हाँ', 'Thanks, that is all.',
+    'Please book it for tomorrow morning.', 'That would be great, thanks!',
+  ];
+  const notFinished = [
+    '', 'Like, which?',                 // dangles even with a question mark
+    'my order number is 43.',           // digit in the last word: could be mid-number
+    'book it for tomorrow',             // no terminator: a plain pause
+    'I want to',                        // unfinished
+    'Sure thing so',                    // dangling conjunction
+    'appointment',                      // one-word fragment, not in the stand-alone list
+    'It is 4.',                         // short, and ends on a digit
+  ];
+  for (const t of finished) assert.equal(looksFinished(t), true, `"${t}" should be finished`);
+  for (const t of notFinished) assert.equal(looksFinished(t), false, `"${t}" should NOT be finished`);
+});
+
+test('a question commits on the short tier, tagged so the log can split it', async () => {
+  const { s, fired } = tieredSession();
+  emitSpeechFinal(s, 'what are your weekend hours?');
+  await sleep(40);                       // past finished (20), before ordinary (60)
+  assert.deepEqual(fired, ['speech_final:finished']);
+});
+
+test('a number being read out keeps the ordinary window', async () => {
+  const { s, fired } = tieredSession();
+  emitSpeechFinal(s, 'my order number is 43.');
+  await sleep(40);
+  assert.deepEqual(fired, [], 'must not take the short tier on a digit');
+  await sleep(50);
+  assert.deepEqual(fired, ['speech_final']);
+});
+
+test('a standalone one-word answer commits on the short tier', async () => {
+  const { s, fired } = tieredSession();
+  emitSpeechFinal(s, 'Yes.');
+  await sleep(40);
+  assert.deepEqual(fired, ['speech_final:finished']);
+});
+
+test('a dangling tail is never finished, question mark or not', async () => {
+  const { s, fired } = tieredSession();
+  emitSpeechFinal(s, 'Like, which?');
+  await sleep(80);                       // past ordinary (60), before unfinished (100)
+  assert.deepEqual(fired, [], 'unfinished wins over finished');
+  await sleep(60);
+  assert.deepEqual(fired, ['speech_final:unfinished']);
+});
+
+test('resuming speech inside the short tier still cancels the turn', async () => {
+  const { s, fired } = tieredSession({ finished: 40 });
+  emitSpeechFinal(s, 'is that open on Sunday?');
+  await sleep(15);
+  emitInterim(s, 'or Saturday');
+  await sleep(120);
+  assert.deepEqual(fired, [], 'caller kept going — the short tier must be cancellable too');
+});
+
+test('the finished tier can never wait longer than the ordinary window', () => {
+  const s = new DeepgramStreamSession({ sampleRate: 16000, endpointGraceMs: 40, finishedGraceMs: 500 });
+  assert.equal(s.finishedGraceMs, 40);
+});
+
+test('an agent that passes no finished grace gets the default, capped by its ordinary window', () => {
+  const saved = { ...process.env };
+  try {
+    delete process.env.DEEPGRAM_FINISHED_GRACE_MS;
+    delete process.env.DEEPGRAM_FINISHED_GRACE;
+    assert.equal(new DeepgramStreamSession({ sampleRate: 16000, endpointGraceMs: 400 }).finishedGraceMs, 150);
+    assert.equal(new DeepgramStreamSession({ sampleRate: 16000, endpointGraceMs: 100 }).finishedGraceMs, 100);
+  } finally {
+    process.env = saved;
+  }
+});
+
+test('DEEPGRAM_FINISHED_GRACE=false switches the tier off platform-wide', async () => {
+  const saved = { ...process.env };
+  try {
+    process.env.DEEPGRAM_FINISHED_GRACE = 'false';
+    const { s, fired } = tieredSession();
+    emitSpeechFinal(s, 'what are your weekend hours?');
+    await sleep(40);
+    assert.deepEqual(fired, [], 'kill switch: a question waits the ordinary window');
+    await sleep(50);
+    assert.deepEqual(fired, ['speech_final'], 'and commits untagged, exactly as before the tier existed');
+  } finally {
+    process.env = saved;
+  }
+});
+
+test('the finished tier still reports its endpoint cost', async () => {
+  const { s } = tieredSession({ finished: 20 });
+  s.endpointingMs = 300;
+  emitSpeechFinal(s, 'what are your weekend hours?');
+  await sleep(40);
+  assert.ok(s.lastEndpointMs >= 300 && s.lastEndpointMs < 400, `got ${s.lastEndpointMs}`);
 });
