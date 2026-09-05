@@ -18,6 +18,9 @@ import {
   loadSampledBed,
   resolveAmbientMode,
   ambienceTagFor,
+  TARGET_RMS_DBFS,
+  bedSlug,
+  presetForSlug,
 } from '../ambience.js';
 
 const PRESETS = Object.keys(AMBIENT_PRESETS);
@@ -43,7 +46,13 @@ describe('pre-rendered voice beds (Mode B)', () => {
         assert.ok(b, `${name}: asset present`);
         assert.equal(b.length, 8000 * 24, `${name}: 24s at 8kHz`);
         const db = rmsDbfs(b);
-        assert.ok(Math.abs(db - (-48)) < 1, `${name}: level ${db.toFixed(1)} dBFS is at the bed target`);
+        // Against the constant, not a literal: loadSampledBed re-levels every
+        // asset to TARGET_RMS_DBFS on load precisely so a bed built when the
+        // target was different still plays at today's level.
+        assert.ok(
+          Math.abs(db - TARGET_RMS_DBFS) < 1,
+          `${name}: level ${db.toFixed(1)} dBFS is not at the bed target ${TARGET_RMS_DBFS}`,
+        );
         // Loop seam: the wrap-around layering makes the last and first
         // samples continuous, so the step across the seam stays inside the
         // bed's ordinary sample-to-sample range.
@@ -71,6 +80,47 @@ describe('pre-rendered voice beds (Mode B)', () => {
     assert.equal(ambienceTagFor({ ambientMode: 'native', ambientSound: 'Office Chatter' }), '[office chatter in the background]');
     assert.equal(ambienceTagFor({ ambientMode: 'native', ambientSound: 'Office' }), '[office chatter in the background]');
     assert.equal(ambienceTagFor({ ambientMode: 'native', ambientSound: 'Static' }), null);
+  });
+});
+
+describe('the bed the browser fetches', () => {
+  it('slugs every preset to a distinct name that round-trips', () => {
+    // The slug is in a URL and in an asset filename, so a collision would have
+    // one preset served as another. Round-tripping is what the route relies on.
+    const slugs = ALL_AMBIENT_PRESET_NAMES.map(bedSlug);
+    assert.equal(new Set(slugs).size, slugs.length, 'two presets share a slug');
+    for (const name of Object.keys(AMBIENT_PRESETS)) {
+      assert.equal(presetForSlug(bedSlug(name)), name, `${name} does not round-trip through its slug`);
+    }
+    assert.equal(bedSlug('Call Center'), 'call-center');
+    // A chatter bed is a FILE, not a synthesized preset: the route must fall
+    // through to disk for it rather than rendering something.
+    assert.equal(presetForSlug('office-chatter-1'), null);
+    assert.equal(presetForSlug('../../etc/passwd'), null);
+  });
+
+  it('renders each synthesized preset as a 24kHz WAV at the bed level', async () => {
+    // Imported here rather than at the top of the file: ambienceBed.js reaches
+    // callRecorder.js, and the whole reason it is a separate module is that
+    // ambience.js must not.
+    const { synthesizedBedWav } = await import('../ambienceBed.js');
+    for (const name of Object.keys(AMBIENT_PRESETS)) {
+      const wav = synthesizedBedWav(bedSlug(name));
+      assert.ok(Buffer.isBuffer(wav), `${name}: no bed rendered`);
+      assert.equal(wav.toString('ascii', 0, 4), 'RIFF');
+      assert.equal(wav.readUInt16LE(22), 1, `${name}: must be mono`);
+      assert.equal(wav.readUInt32LE(24), 24000, `${name}: must be 24kHz`);
+      // 24s of 16-bit mono at 24kHz, plus the header.
+      assert.equal(wav.length, 44 + 24 * 24000 * 2 - 24000 * 0.25 * 2, `${name}: wrong loop length`);
+      // Same level as the phone plays it — the entire point of serving it.
+      const pcm = new Int16Array(wav.buffer, wav.byteOffset + 44, (wav.length - 44) / 2);
+      const db = rmsDbfs(pcm);
+      const expected = name === 'Quiet Room' ? TARGET_RMS_DBFS - 9.1 : TARGET_RMS_DBFS;
+      assert.ok(Math.abs(db - expected) < 1.5, `${name}: browser bed at ${db.toFixed(1)} dBFS, phone plays ${expected}`);
+    }
+    // Cached, so a web call does not re-encode ~1.1MB per request.
+    assert.strictEqual(synthesizedBedWav('office'), synthesizedBedWav('office'));
+    assert.equal(synthesizedBedWav('office-chatter-1'), null);
   });
 });
 
@@ -126,9 +176,15 @@ describe('bed synthesis', () => {
   });
 
   it('renders every preset in an audible-but-unobtrusive level band', () => {
+    // Expressed as offsets from the target rather than as absolute dBFS, so
+    // AMBIENCE_BED_DBFS moves the whole feature without editing a test. Quiet
+    // Room is deliberately below the rest — renderAmbienceLoop trims it to 35%
+    // (-9.1dB) because staying near-silent is its entire purpose.
     for (const p of PRESETS) {
       const db = rmsDbfs(renderAmbienceLoop(p));
-      const [lo, hi] = p === 'Quiet Room' ? [-62, -52] : [-52, -44];
+      const [lo, hi] = p === 'Quiet Room'
+        ? [TARGET_RMS_DBFS - 13, TARGET_RMS_DBFS - 5]
+        : [TARGET_RMS_DBFS - 4, TARGET_RMS_DBFS + 4];
       assert.ok(db >= lo && db <= hi, `${p} RMS ${db.toFixed(1)}dBFS outside ${lo}..${hi}`);
     }
   });
@@ -141,6 +197,50 @@ describe('bed synthesis', () => {
     const a = renderAmbienceLoop('Cafe', { seed: 42, seconds: 2 });
     const b = renderAmbienceLoop('Cafe', { seed: 42, seconds: 2 });
     assert.deepEqual(Array.from(a.slice(0, 500)), Array.from(b.slice(0, 500)));
+  });
+
+  /**
+   * Peak, RMS and the count of samples clearing a multiple of RMS — i.e. "is
+   * anything actually HAPPENING in this room, and how far above the room is it".
+   */
+  const excursions = (preset) => {
+    const b = renderAmbienceLoop(preset);
+    let peak = 0;
+    let sum = 0;
+    for (const v of b) { peak = Math.max(peak, Math.abs(v)); sum += v * v; }
+    const rms = Math.sqrt(sum / b.length);
+    let over5 = 0;
+    for (const v of b) if (Math.abs(v) > 5 * rms) over5 += 1;
+    return { crest: peak / rms, over5 };
+  };
+
+  it('gives the layered presets events that stand above their own room', () => {
+    // THE FAILURE THIS EXISTS FOR. renderAmbienceLoop normalises the finished
+    // loop to a fixed RMS, so an event written at "about the same gain as the
+    // bed" is scaled down with it and lands at roughly 1x the bed's RMS —
+    // quieter than the bed's own noise peaks. The first version of these
+    // layers did exactly that: Cafe's crockery reached 1.6x the median
+    // envelope while Quiet Room, which has no events at all, reached 1.9x.
+    //
+    // Every other assertion in this file still passed. Level was correct, the
+    // seam was correct, the preset names were correct, determinism was
+    // correct — and not one event was audible. Nothing but a direct measure
+    // of prominence can catch that, which is why it is measured here.
+    for (const p of ['Office', 'Cafe', 'Street']) {
+      const { crest, over5 } = excursions(p);
+      assert.ok(crest > 4.5, `${p}: crest ${crest.toFixed(2)} — events are buried in the bed`);
+      assert.ok(over5 >= 5, `${p}: only ${over5} samples clear 5x RMS — the event layer is inaudible`);
+    }
+  });
+
+  it('leaves the deliberately featureless presets featureless', () => {
+    // Quiet Room's whole job is to be almost nothing and Static is line noise,
+    // not a room. Both are unlayered on purpose, so an event appearing in
+    // either means a layer has been wired to the wrong preset.
+    for (const p of ['Quiet Room', 'Static']) {
+      const { over5 } = excursions(p);
+      assert.equal(over5, 0, `${p} should have no events, but ${over5} samples clear 5x RMS`);
+    }
   });
 
   it('has no click at the loop seam', () => {
@@ -193,9 +293,17 @@ describe('mixUlawFrame', () => {
     const original = decodeUlaw(engine);
     let maxDelta = 0;
     for (let i = 0; i < mixed.length; i++) maxDelta = Math.max(maxDelta, Math.abs(mixed[i] - original[i]));
-    // The bed peaks around -37dBFS (~460 linear); allow headroom for one
-    // mu-law quantisation step on top, but nothing near speech level.
-    assert.ok(maxDelta < 1500, `speech altered by ${maxDelta}, bed is too loud or mixing is wrong`);
+    // Derived from the bed target rather than hardcoded, so raising
+    // AMBIENCE_BED_DBFS cannot quietly turn this into a test of nothing. A
+    // frame's peak runs a few times its RMS (noise plus, on a layered preset,
+    // an event), and mu-law adds one quantisation step on top — but the result
+    // must still be nowhere near the 12000 speech level below.
+    const bedRms = 32768 * 10 ** (TARGET_RMS_DBFS / 20);
+    const allowed = bedRms * 6 + 64;
+    assert.ok(
+      maxDelta < allowed,
+      `speech altered by ${maxDelta} (allowed ${Math.round(allowed)}) — bed is too loud or mixing is wrong`,
+    );
   });
 
   it('does not clip when speech is already at full scale', () => {

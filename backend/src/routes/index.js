@@ -13,6 +13,7 @@ import * as kbCtrl from '../controllers/kbFile.controller.js';
 import * as callerCtrl from '../controllers/callerNumber.controller.js';
 import * as broadcastCtrl from '../controllers/broadcast.controller.js';
 import * as modelCatalog from '../controllers/modelCatalog.controller.js';
+import { synthesizedBedWav } from '../services/voice/ambienceBed.js';
 import { readFileSync } from 'fs';
 
 import authRoutes from './auth.routes.js';
@@ -69,14 +70,30 @@ router.use('/plivo', plivoRoutes);
 // Live human-transfer callbacks (Twilio and Plivo <Dial> outcomes). Public
 // for the same reason; authorised by a per-call HMAC token in the URL.
 router.use('/telephony/transfer', transferRoutes);
-// Pre-rendered background beds for the browser call (Mode B ambience). Static,
-// non-sensitive, generated once by scripts/build-chatter-bed.mjs. The name is
-// whitelisted so this can never serve anything but a bed file.
+// Background beds for the browser call. Two sources behind one URL shape:
+// SYNTHESIZED presets (Office, Cafe, Street, …) rendered by
+// services/voice/ambience.js, and the pre-rendered chatter beds on disk from
+// scripts/build-chatter-bed.mjs (or an ingested recording from
+// build-ambience-bed.mjs). Static and non-sensitive either way; the name is
+// whitelisted so this can never serve anything but a bed.
+//
+// The synthesized branch is what stops the web-call tester lying about a phone
+// call: the browser used to build its own bed in Web Audio from a duplicated
+// preset table whose gain constants were never reconciled with the phone's, and
+// the two transports differed by up to 23dB between presets. Now both play the
+// output of one renderer. See the note above synthesizedBedWav().
 router.get('/ambience/bed/:file', (req, res) => {
   const name = String(req.params.file || '');
   if (!/^[a-z0-9-]+\.24k\.wav$/.test(name)) return res.status(404).end();
-  const dir = process.env.AMBIENCE_ASSET_DIR || fileURLToPath(new URL('../../assets/ambience/', import.meta.url));
   res.set('Cache-Control', 'public, max-age=86400');
+
+  const wav = synthesizedBedWav(name.replace(/\.24k\.wav$/, ''));
+  if (wav) {
+    res.set('Content-Type', 'audio/wav');
+    return res.send(wav);
+  }
+
+  const dir = process.env.AMBIENCE_ASSET_DIR || fileURLToPath(new URL('../../assets/ambience/', import.meta.url));
   return res.sendFile(name, { root: dir }, (err) => { if (err && !res.headersSent) res.status(404).end(); });
 });
 // The only pricing this deployment publishes: one wallet rate per minute.
