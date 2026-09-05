@@ -16,6 +16,8 @@
  * rate quoted per account, so there is no tier to show (see Pricing.tsx).
  */
 
+import { BRAND } from '@/lib/brand';
+
 export type AccentKey = 'cyan' | 'violet' | 'lime' | 'coral';
 
 export const ACCENT: Record<AccentKey, string> = {
@@ -34,6 +36,54 @@ export const HERO = {
     'Spandan builds AI agents that hold real conversations across voice, WhatsApp, chat and the web — answering questions from your knowledge base, following your rules, and finishing the task before the call ends.',
   primary: { label: 'Start building', to: '/signup' },
   secondary: { label: 'Talk to sales', to: '/contact' },
+};
+
+/* ── "Try an agent" phone box (hero + support widget) ────────────────────
+ * Frontend-only for now: submitting queues client-side and shows a pending
+ * message rather than placing a real call. The outbound-call wiring
+ * (rate limits, abuse controls, a fixed demo agent) is a separate task.
+ */
+
+export interface DialCountry {
+  iso: string;
+  dial: string;
+  flag: string;
+  name: string;
+}
+
+export const DIAL_COUNTRIES: DialCountry[] = [
+  { iso: 'IN', dial: '+91', flag: '🇮🇳', name: 'India' },
+  { iso: 'US', dial: '+1', flag: '🇺🇸', name: 'United States' },
+  { iso: 'GB', dial: '+44', flag: '🇬🇧', name: 'United Kingdom' },
+  { iso: 'AE', dial: '+971', flag: '🇦🇪', name: 'United Arab Emirates' },
+  { iso: 'CA', dial: '+1', flag: '🇨🇦', name: 'Canada' },
+  { iso: 'AU', dial: '+61', flag: '🇦🇺', name: 'Australia' },
+  { iso: 'SG', dial: '+65', flag: '🇸🇬', name: 'Singapore' },
+];
+
+export const TRY_AGENT = {
+  eyebrow: 'HEAR IT FOR YOURSELF',
+  placeholder: 'Phone number',
+  button: 'Try an agent',
+  pending: 'Queuing…',
+  queuedBody: 'You’re on the list — live demo calls launch soon. We’ll text this number the moment they’re on.',
+  errorInvalid: 'Enter a valid phone number.',
+};
+
+/* ── Floating support widget (bottom-right) ──────────────────────────── */
+
+export const SUPPORT_WIDGET = {
+  launcherOpenLabel: 'Open support',
+  launcherCloseLabel: 'Close support',
+  title: 'Spandan Support',
+  subtitle: 'Spandan agents handle support around the clock — chat or request a callback.',
+  chat: {
+    label: 'Chat',
+    placeholder: 'Type a message…',
+    pendingNotice: `Live chat isn’t wired up yet. In the meantime, reach us at ${BRAND.supportEmail}.`,
+  },
+  call: { label: 'Call' },
+  disclaimer: 'By continuing, you agree to our Privacy Policy and Terms.',
 };
 
 export interface Channel {

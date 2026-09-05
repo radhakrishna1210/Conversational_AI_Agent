@@ -1,14 +1,16 @@
-import { useState } from 'react';
+import { useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 import {
   Phone, MessageCircle, MessagesSquare, Globe, ShieldCheck, Check,
   Languages, Zap, Radio, Brain, ArrowRight, Plug, AlertTriangle,
+  X, ArrowLeft, Send,
 } from 'lucide-react';
 import { BRAND } from '@/lib/brand';
 import {
   ACCENT, HERO, CHANNELS, HERO_STATS, CONSOLE, PROOF, OMNI, TRUST, BADGES,
   ASK_AI, CTA_BAND, USE_CASE_BUCKETS, USE_CASES, INDUSTRIES, QA, CAPABILITIES,
   INTEGRATIONS, INTEGRATIONS_LINK, BUILDER, FLOW, FAQ, FINAL,
+  DIAL_COUNTRIES, TRY_AGENT, SUPPORT_WIDGET,
   type Bucket, type Channel,
 } from './home/content';
 import './Home.css';
@@ -50,6 +52,155 @@ function SecHead({ eyebrow, title, intro, violet }: {
       <div className={`lp-eyebrow${violet ? ' is-violet' : ''}`}>{eyebrow}</div>
       <h2 className="lp-h2">{title}</h2>
       {intro && <p className="lp-p lp-sechead-intro">{intro}</p>}
+    </div>
+  );
+}
+
+type CallStatus = 'idle' | 'submitting' | 'queued' | 'error';
+
+/**
+ * The "try an agent" phone box, shared by the hero and the support widget.
+ * Submitting only queues client-side (see TRY_AGENT.queuedBody) — the actual
+ * outbound-call wiring is a separate, backend-gated piece of work.
+ */
+function TryAgentForm({ compact }: { compact?: boolean }) {
+  const [dial, setDial] = useState(DIAL_COUNTRIES[0].dial);
+  const [phone, setPhone] = useState('');
+  const [status, setStatus] = useState<CallStatus>('idle');
+
+  async function handleSubmit(e: FormEvent) {
+    e.preventDefault();
+    const digits = phone.replace(/\D/g, '');
+    if (digits.length < 6 || digits.length > 14) {
+      setStatus('error');
+      return;
+    }
+    setStatus('submitting');
+    await new Promise((r) => setTimeout(r, 600));
+    setStatus('queued');
+  }
+
+  return (
+    <form className={`lp-tryagent${compact ? ' is-compact' : ''}`} onSubmit={handleSubmit}>
+      <div className="lp-tryagent-row">
+        <select
+          className="lp-tryagent-cc"
+          value={dial}
+          onChange={(e) => setDial(e.target.value)}
+          aria-label="Country code"
+        >
+          {DIAL_COUNTRIES.map((c) => (
+            <option key={c.iso} value={c.dial}>{c.flag} {c.dial}</option>
+          ))}
+        </select>
+        <input
+          type="tel"
+          inputMode="tel"
+          className="lp-tryagent-input"
+          placeholder={TRY_AGENT.placeholder}
+          value={phone}
+          onChange={(e) => { setPhone(e.target.value); if (status !== 'idle') setStatus('idle'); }}
+        />
+        <button
+          type="submit"
+          className="lp-btn lp-btn-primary lp-tryagent-btn"
+          disabled={status === 'submitting'}
+        >
+          <Phone size={15} aria-hidden />
+          {status === 'submitting' ? TRY_AGENT.pending : TRY_AGENT.button}
+        </button>
+      </div>
+      {status === 'error' && <p className="lp-tryagent-msg is-error">{TRY_AGENT.errorInvalid}</p>}
+      {status === 'queued' && (
+        <p className="lp-tryagent-msg is-ok"><Check size={13} aria-hidden /> {TRY_AGENT.queuedBody}</p>
+      )}
+    </form>
+  );
+}
+
+type WidgetTab = 'home' | 'chat' | 'call';
+
+/** Floating bottom-right support launcher: a chat stub and the try-an-agent form. */
+function SupportWidget() {
+  const [open, setOpen] = useState(false);
+  const [tab, setTab] = useState<WidgetTab>('home');
+  const [chatDraft, setChatDraft] = useState('');
+
+  function toggle() {
+    setOpen((o) => !o);
+    if (open) setTab('home');
+  }
+
+  return (
+    <div className="lp-widget">
+      {open && (
+        <div className="lp-widget-panel" role="dialog" aria-label={SUPPORT_WIDGET.title}>
+          <div className="lp-widget-head">
+            {tab !== 'home' ? (
+              <button type="button" className="lp-widget-back" onClick={() => setTab('home')} aria-label="Back">
+                <ArrowLeft size={16} aria-hidden />
+              </button>
+            ) : <span />}
+            <button type="button" className="lp-widget-close" onClick={toggle} aria-label="Close">
+              <X size={16} aria-hidden />
+            </button>
+          </div>
+
+          {tab === 'home' && (
+            <div className="lp-widget-home">
+              <div className="lp-widget-mark" aria-hidden>{BRAND.name.slice(0, 1)}</div>
+              <h3 className="lp-widget-title">{SUPPORT_WIDGET.title}</h3>
+              <p className="lp-widget-sub">{SUPPORT_WIDGET.subtitle}</p>
+              <div className="lp-widget-actions">
+                <button type="button" className="lp-btn lp-btn-secondary lp-btn-block" onClick={() => setTab('chat')}>
+                  <MessagesSquare size={15} aria-hidden /> {SUPPORT_WIDGET.chat.label}
+                </button>
+                <button type="button" className="lp-btn lp-btn-primary lp-btn-block" onClick={() => setTab('call')}>
+                  <Phone size={15} aria-hidden /> {SUPPORT_WIDGET.call.label}
+                </button>
+              </div>
+              <p className="lp-widget-disclaimer">{SUPPORT_WIDGET.disclaimer}</p>
+            </div>
+          )}
+
+          {tab === 'chat' && (
+            <div className="lp-widget-chat">
+              <div className="lp-widget-chat-log">
+                <div className="lp-widget-chat-bubble">{SUPPORT_WIDGET.chat.pendingNotice}</div>
+              </div>
+              <form
+                className="lp-widget-chat-input"
+                onSubmit={(e) => { e.preventDefault(); setChatDraft(''); }}
+              >
+                <input
+                  type="text"
+                  placeholder={SUPPORT_WIDGET.chat.placeholder}
+                  value={chatDraft}
+                  onChange={(e) => setChatDraft(e.target.value)}
+                  disabled
+                />
+                <button type="submit" disabled aria-label="Send"><Send size={15} aria-hidden /></button>
+              </form>
+            </div>
+          )}
+
+          {tab === 'call' && (
+            <div className="lp-widget-call">
+              <p className="lp-widget-sub">{TRY_AGENT.eyebrow}</p>
+              <TryAgentForm compact />
+            </div>
+          )}
+        </div>
+      )}
+
+      <button
+        type="button"
+        className="lp-widget-fab"
+        onClick={toggle}
+        aria-label={open ? SUPPORT_WIDGET.launcherCloseLabel : SUPPORT_WIDGET.launcherOpenLabel}
+      >
+        {open ? <X size={22} aria-hidden /> : <Phone size={20} aria-hidden />}
+      </button>
     </div>
   );
 }
@@ -99,6 +250,11 @@ export default function Home() {
           <Link to={HERO.secondary.to} className="lp-btn lp-btn-ghost lp-btn-lg">
             {HERO.secondary.label}
           </Link>
+        </div>
+
+        <div className="lp-tryagent-wrap">
+          <div className="lp-kicker-sm">{TRY_AGENT.eyebrow}</div>
+          <TryAgentForm />
         </div>
 
         {/* Call console mock — static, illustrative, full width below the copy */}
@@ -409,6 +565,8 @@ export default function Home() {
           <a href={`mailto:${BRAND.supportEmail}`}>{BRAND.supportEmail}</a>
         </p>
       </section>
+
+      <SupportWidget />
     </div>
   );
 }
