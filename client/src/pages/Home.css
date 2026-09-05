@@ -238,6 +238,197 @@
   flex-shrink: 0;
 }
 
+/* ── "Try an agent" phone box ─────────────────────────────────────────
+   Shared markup (.lp-tryagent) between the hero and the widget's Call tab;
+   `.is-compact` narrows it and stacks the button under the input for the
+   widget panel's fixed width. */
+
+.lp-tryagent-wrap {
+  margin-top: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.lp-tryagent { width: 100%; max-width: 480px; }
+.lp-tryagent-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  background: var(--s1);
+  border: 1px solid var(--line);
+  border-radius: 100px;
+  padding: 6px;
+}
+.lp-tryagent.is-compact .lp-tryagent-row {
+  flex-wrap: wrap;
+  border-radius: 16px;
+}
+
+.lp-tryagent-cc {
+  border: none;
+  background: transparent;
+  color: var(--tx-2);
+  font-family: var(--ff-m);
+  font-size: 13px;
+  padding: 0 6px 0 12px;
+  border-radius: 100px;
+  cursor: pointer;
+}
+.lp-tryagent-cc:focus-visible { outline: 2px solid var(--cyan); outline-offset: 2px; }
+
+.lp-tryagent-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--tx);
+  font-family: var(--ff-d);
+  font-size: 14.5px;
+  padding: 0 8px;
+}
+.lp-tryagent-input:focus { outline: none; }
+.lp-tryagent-input::placeholder { color: var(--tx-3); }
+
+.lp-tryagent-btn { border-radius: 100px; padding: 11px 20px; white-space: nowrap; }
+.lp-tryagent.is-compact .lp-tryagent-btn { width: 100%; border-radius: 12px; }
+
+.lp-tryagent-msg {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  justify-content: center;
+}
+.lp-tryagent.is-compact .lp-tryagent-msg { justify-content: flex-start; }
+.lp-tryagent-msg.is-error { color: var(--err); }
+.lp-tryagent-msg.is-ok { color: var(--lime); }
+
+/* ── Floating support widget (bottom-right) ──────────────────────────── */
+
+.lp-widget {
+  position: fixed;
+  right: 22px;
+  bottom: 22px;
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 14px;
+}
+
+.lp-widget-fab {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  border: none;
+  background: var(--cyan);
+  color: var(--on-cyan);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 14px 32px -10px rgba(14, 179, 158, 0.55);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+}
+.lp-widget-fab:hover { transform: translateY(-2px); box-shadow: 0 18px 38px -10px rgba(14, 179, 158, 0.65); }
+
+.lp-widget-panel {
+  width: min(340px, calc(100vw - 44px));
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  background: linear-gradient(180deg, var(--s1), var(--bg-2));
+  box-shadow: 0 30px 70px -24px rgba(0, 0, 0, 0.55);
+  padding: 8px 20px 20px;
+  animation: lp-in 0.18s ease;
+}
+html.light .lp-widget-panel { background: linear-gradient(180deg, #ffffff, #f7fafd); }
+
+.lp-widget-head { display: flex; align-items: center; justify-content: space-between; padding-top: 8px; }
+.lp-widget-back,
+.lp-widget-close {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: none;
+  background: transparent;
+  color: var(--tx-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.lp-widget-back:hover,
+.lp-widget-close:hover { background: var(--s2); color: var(--tx); }
+
+.lp-widget-home { text-align: center; }
+.lp-widget-mark {
+  width: 44px;
+  height: 44px;
+  margin: 4px auto 14px;
+  border-radius: 12px;
+  background: var(--cyan);
+  color: var(--on-cyan);
+  font-family: var(--ff-d);
+  font-weight: 700;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.lp-widget-title { font-family: var(--ff-d); font-weight: 600; font-size: 18px; margin: 0; color: var(--tx); }
+.lp-widget-sub { margin: 8px 0 0; font-size: 13px; line-height: 1.55; color: var(--tx-2); }
+.lp-widget-actions { display: flex; flex-direction: column; gap: 10px; margin-top: 18px; }
+.lp-widget-disclaimer { margin: 16px 0 0; font-size: 11px; color: var(--tx-3); }
+
+.lp-widget-chat-log {
+  min-height: 90px;
+  padding-top: 6px;
+}
+.lp-widget-chat-bubble {
+  background: var(--s2);
+  border: 1px solid var(--line);
+  border-radius: 4px 14px 14px 14px;
+  padding: 12px 14px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--tx-2);
+}
+.lp-widget-chat-input {
+  display: flex;
+  gap: 8px;
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  border-radius: 100px;
+  padding: 6px 6px 6px 14px;
+  background: var(--s1);
+}
+.lp-widget-chat-input input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  color: var(--tx);
+  font-size: 13px;
+}
+.lp-widget-chat-input input:disabled { color: var(--tx-3); }
+.lp-widget-chat-input button {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  border: none;
+  background: var(--s3);
+  color: var(--tx-3);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.lp-widget-call { padding-top: 4px; }
+.lp-widget-call .lp-widget-sub { margin-bottom: 4px; }
+
 /* ── Call console mock — full width below the hero copy ─────────────── */
 
 .lp-console {
@@ -1061,6 +1252,9 @@ html.light .lp-rate {
 
 @media (max-width: 620px) {
   .lp { --lp-gutter: 16px; }
+  .lp-widget { right: 14px; bottom: 14px; }
+  .lp-tryagent-row { border-radius: 16px; flex-wrap: wrap; }
+  .lp-tryagent-btn { width: 100%; border-radius: 12px; }
   .lp-uc,
   .lp-proof-grid,
   .lp-caps,
