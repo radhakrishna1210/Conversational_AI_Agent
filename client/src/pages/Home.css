@@ -784,11 +784,16 @@ html.light .lp-cta-band {
   border-radius: 9px;
 }
 
-/* ── QA scorecard — centred, full width below the heading ──────────── */
+/* ── QA "recent calls" — rail + detail pane ────────────────────────────
+   A visitor picks one of the sample calls on the left and gets its
+   recording, scorecard and flagged issues on the right. One bordered card
+   split in two, so it reads as a single object rather than two panels. */
 
-.lp-scorecard {
-  max-width: 760px;
+.lp-calls {
+  max-width: 980px;
   margin: 0 auto;
+  display: grid;
+  grid-template-columns: 288px 1fr;
   border: 1px solid var(--line);
   border-radius: 20px;
   overflow: hidden;
@@ -796,24 +801,239 @@ html.light .lp-cta-band {
   box-shadow: var(--shadow-card);
 }
 
-.lp-scorecard-head {
+.lp-calls-rail {
+  border-right: 1px solid var(--line);
+  background: var(--bg-2);
+  padding: 18px 14px;
+}
+html.light .lp-calls-rail { background: #f7fafd; }
+
+.lp-calls-rail-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 20px;
-  border-bottom: 1px solid var(--line);
+  padding: 0 8px 14px;
   font-family: var(--ff-d);
   font-weight: 700;
+  font-size: 14.5px;
+  color: var(--tx);
+}
+.lp-calls-count { font-family: var(--ff-m); font-weight: 400; font-size: 12px; color: var(--tx-3); }
+
+.lp-calls-list { display: flex; flex-direction: column; gap: 4px; }
+
+.lp-call-row {
+  display: flex;
+  align-items: center;
+  gap: 11px;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid transparent;
+  background: transparent;
+  transition: background 0.16s ease, border-color 0.16s ease;
+}
+.lp-call-row:hover { background: var(--s2); }
+.lp-call-row.is-on { background: var(--s2); border-color: var(--line-2); }
+
+.lp-call-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--tx-3);
+}
+.lp-call-row.is-on .lp-call-dot { background: var(--lime); box-shadow: 0 0 8px var(--lime); }
+
+.lp-call-row-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.lp-call-row-title,
+.lp-call-row-sub { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lp-call-row-title { font-family: var(--ff-d); font-weight: 600; font-size: 14px; color: var(--tx-2); }
+.lp-call-row.is-on .lp-call-row-title { color: var(--tx); }
+.lp-call-row-sub { font-size: 12.5px; color: var(--tx-3); }
+.lp-call-row-len {
+  flex-shrink: 0;
+  font-family: var(--ff-m);
+  font-size: 11.5px;
+  color: var(--tx-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── Detail pane ───────────────────────────────────────────────────── */
+
+.lp-calls-pane {
+  min-width: 0;
+  padding: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.lp-call-head { display: flex; align-items: flex-start; gap: 13px; }
+
+.lp-call-avatar {
+  width: 42px;
+  height: 42px;
+  flex-shrink: 0;
+  border-radius: 11px;
+  display: grid;
+  place-items: center;
+  background: var(--s2);
+  border: 1px solid var(--line-2);
+  font-family: var(--ff-d);
+  font-weight: 700;
+  font-size: 17px;
+  color: var(--cyan-fg);
+}
+
+.lp-call-head-main { flex: 1; min-width: 0; }
+
+.lp-call-who {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  margin: 0;
+  font-family: var(--ff-d);
+  font-weight: 600;
+  font-size: clamp(19px, 2.2vw, 23px);
+  line-height: 1.2;
+  color: var(--tx);
+}
+.lp-call-who svg { color: var(--tx-3); flex-shrink: 0; }
+
+.lp-call-copy {
+  margin-top: 5px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-family: var(--ff-m);
+  font-size: 11.5px;
+  color: var(--tx-3);
+  transition: color 0.15s ease;
+}
+.lp-call-copy:hover { color: var(--cyan-fg); }
+
+.lp-call-meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+.lp-call-meta-k {
+  font-family: var(--ff-m);
+  font-size: 10.5px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  color: var(--tx-3);
+}
+.lp-call-meta-v {
+  margin-top: 4px;
+  font-family: var(--ff-d);
+  font-weight: 600;
   font-size: 14px;
   color: var(--tx);
 }
-.lp-scorecard-note {
+.lp-call-meta-v.is-ok { color: var(--lime); }
+
+/* ── Player ────────────────────────────────────────────────────────────
+   Hand-built rather than `<audio controls>`: the native widget carries its
+   own chrome and ignores every token on this page. */
+
+.lp-player {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 14px 10px 10px;
+  border-radius: 100px;
+  background: var(--bg-2);
+  border: 1px solid var(--line);
+}
+html.light .lp-player { background: #f2f6fa; }
+.lp-player.is-empty { opacity: 0.8; }
+
+.lp-player-btn {
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+  display: grid;
+  place-items: center;
+  background: var(--cyan);
+  color: var(--on-cyan);
+  transition: background 0.15s ease, transform 0.12s ease;
+}
+.lp-player-btn:hover { background: var(--teal-hover); }
+.lp-player-btn:active { transform: scale(0.94); }
+.lp-player-btn.is-off { background: var(--s3); color: var(--tx-3); cursor: default; }
+
+.lp-player-pending { font-family: var(--ff-m); font-size: 12px; color: var(--tx-3); }
+
+.lp-player-time {
+  flex-shrink: 0;
   font-family: var(--ff-m);
-  font-weight: 400;
-  font-size: 10.5px;
-  letter-spacing: 1px;
-  text-transform: uppercase;
+  font-size: 12px;
   color: var(--tx-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The played portion is painted onto the track from --lp-played, which the
+   component updates as the audio advances. */
+.lp-player-range {
+  flex: 1;
+  min-width: 0;
+  height: 4px;
+  border-radius: 3px;
+  cursor: pointer;
+  -webkit-appearance: none;
+  appearance: none;
+  background: linear-gradient(
+    to right,
+    var(--cyan) 0 var(--lp-played, 0%),
+    var(--line-2) var(--lp-played, 0%) 100%
+  );
+}
+.lp-player-range::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--cyan);
+  border: 2px solid var(--bg-2);
+  cursor: pointer;
+}
+.lp-player-range::-moz-range-thumb {
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--cyan);
+  border: 2px solid var(--bg-2);
+  cursor: pointer;
+}
+.lp-player-range:focus-visible { outline: 2px solid var(--cyan); outline-offset: 4px; }
+
+.lp-player-dl {
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  color: var(--tx-3);
+  transition: background 0.15s ease, color 0.15s ease;
+}
+.lp-player-dl:hover { background: var(--s2); color: var(--tx); }
+
+/* The shared metric strip needs its own frame out here in the pane — inside
+   the old scorecard the card's border did that job. */
+.lp-calls-pane .lp-scorecard-metrics {
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  overflow: hidden;
 }
 
 .lp-scorecard-metrics {
@@ -826,31 +1046,65 @@ html.light .lp-cta-band {
 .lp-scorecard-v { font-family: var(--ff-d); font-weight: 700; font-size: 23px; color: var(--cyan-fg); }
 .lp-scorecard-k { font-family: var(--ff-m); font-size: 10.5px; color: var(--tx-3); margin-top: 4px; }
 
-.lp-scorecard-issues {
-  padding: 18px 20px 20px;
-  border-top: 1px solid var(--line);
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
+.lp-scorecard-note {
+  flex-shrink: 0;
+  font-family: var(--ff-m);
+  font-weight: 400;
+  font-size: 10.5px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--tx-3);
 }
-.lp-scorecard-issues .lp-kicker-sm { margin-bottom: 2px; }
+
+/* ── Flagged issues ────────────────────────────────────────────────── */
+
+.lp-call-issues { display: flex; flex-direction: column; gap: 10px; }
+.lp-call-issues-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
 
 .lp-qa-issue {
-  display: flex;
-  align-items: flex-start;
-  gap: 9px;
-  font-size: 13px;
-  line-height: 1.5;
-  color: var(--tx-2);
-  padding: 10px 12px;
-  border-radius: 9px;
+  padding: 13px 15px;
+  border-radius: 12px;
   border: 1px solid var(--line);
   background: var(--bg-2);
 }
-.lp-qa-issue strong { color: var(--tx); font-weight: 600; }
-.lp-qa-issue svg { flex-shrink: 0; margin-top: 2px; }
-.lp-qa-issue.is-high svg { color: var(--coral); }
-.lp-qa-issue.is-med svg { color: var(--warn); }
+html.light .lp-qa-issue { background: #f7fafd; }
+
+.lp-qa-issue-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.lp-qa-issue-head strong { font-family: var(--ff-d); font-weight: 600; font-size: 14.5px; color: var(--tx); }
+
+/* Severity reads from the pill's colour — the same dot-and-caps idiom as
+   .lp-eyebrow, so it needs no icon of its own. */
+.lp-qa-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border-radius: 100px;
+  font-family: var(--ff-m);
+  font-size: 10px;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.lp-qa-tag::before {
+  content: '';
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.lp-qa-issue.is-high .lp-qa-tag {
+  color: var(--coral);
+  background: rgba(249, 115, 22, 0.12);
+  border: 1px solid rgba(249, 115, 22, 0.28);
+}
+.lp-qa-issue.is-med .lp-qa-tag {
+  color: var(--warn);
+  background: rgba(245, 158, 11, 0.12);
+  border: 1px solid rgba(245, 158, 11, 0.28);
+}
+
+.lp-qa-issue-text { margin: 8px 0 0; font-size: 13px; line-height: 1.55; color: var(--tx-2); }
 
 /* ── Capabilities ──────────────────────────────────────────────────── */
 
@@ -1250,6 +1504,16 @@ html.light .lp-rate {
   .lp-how { grid-template-columns: 1fr; }
 }
 
+/* Below this the rail has no room to sit beside the pane, so it becomes a
+   scrollable strip of calls above it. */
+@media (max-width: 860px) {
+  .lp-calls { grid-template-columns: 1fr; }
+  .lp-calls-rail { border-right: none; border-bottom: 1px solid var(--line); }
+  .lp-calls-list { flex-direction: row; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+  .lp-call-row { flex: 0 0 auto; min-width: 208px; }
+  .lp-calls-pane { padding: 18px; }
+}
+
 @media (max-width: 620px) {
   .lp { --lp-gutter: 16px; }
   .lp-widget { right: 14px; bottom: 14px; }
@@ -1262,6 +1526,9 @@ html.light .lp-rate {
   .lp-console-body { grid-template-columns: 1fr; }
   .lp-console-stream { border-right: none; border-bottom: 1px solid var(--line); }
   .lp-scorecard-metrics { grid-template-columns: 1fr 1fr; }
+  .lp-call-meta { grid-template-columns: 1fr 1fr; }
+  .lp-player { gap: 9px; padding: 8px 10px; }
+  .lp-player-time.is-rem { display: none; }
   .lp-price-addons { flex-direction: column; gap: 8px; }
 }
 
