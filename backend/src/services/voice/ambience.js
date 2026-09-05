@@ -45,8 +45,30 @@ const PHONE_RATE = 8000;
  *  is phase-continuous, and long enough that baked-in transients don't read as
  *  repeating under speech. 24s × 8000 × 2B ≈ 384KB per preset. */
 const LOOP_SECONDS = 24;
-/** Bed level target. ~42dB below speech peaks, so no ducking is needed. */
-const TARGET_RMS_DBFS = -48;
+/**
+ * Bed level target, in dBFS RMS — the ONE place the loudness of every bed is
+ * decided, now on both transports.
+ *
+ * It was -48, justified as "~42dB below speech peaks, so no ducking is needed".
+ * That is sound reasoning about ducking and says nothing about whether anybody
+ * can HEAR the room, which is the entire purpose of the feature. Reported from
+ * a live test: only Street was audible at all, and only barely.
+ *
+ * -42 is still ~26dB under speech — unmistakably background, and present.
+ *
+ * ── The phone-side risk, stated plainly ─────────────────────────────────────
+ *
+ * The bed goes out on the outbound leg and comes back up the inbound one as
+ * acoustic echo. The argument that it cannot trip barge-in or reach STT is made
+ * by construction (it sits below bargeThreshold's noise-floor-relative
+ * threshold) and has NEVER been confirmed on a live call — BUG-003 is open on
+ * exactly that. +6dB does not invalidate the argument, but it does spend some
+ * of its margin.
+ *
+ * Hence the env var. If a live call shows phantom turns or the agent barging
+ * itself, AMBIENCE_BED_DBFS=-48 restores the previous behaviour with no deploy.
+ */
+export const TARGET_RMS_DBFS = Number(process.env.AMBIENCE_BED_DBFS) || -42;
 
 // ─── Pre-rendered VOICE beds (Mode B in reports/AMBIENCE_VOICE.md) ───────────
 // Indistinct human chatter, rendered ONCE by scripts/build-chatter-bed.mjs
@@ -289,7 +311,7 @@ export function renderAmbienceLoop(presetName, { sampleRate = PHONE_RATE, second
   const base = makeBiquad(cfg.type, Math.min(corner, sampleRate * 0.45), 0.707, sampleRate);
   for (let i = 0; i < n; i++) buf[i] = base.process(rand() * 2 - 1);
 
-  if (presetName === 'Call Center') addCallCentreLayers(buf, sampleRate, rand);
+  PRESET_LAYERS[presetName]?.(buf, sampleRate, rand);
 
   // Normalize to the target level. Doing this by measurement rather than by
   // trusting the client's gain constants matters because those were tuned for
@@ -360,6 +382,301 @@ function addCallCentreLayers(buf, sampleRate, rand) {
   }
 }
 
+// ─── Layer primitives ────────────────────────────────────────────────────────
+//
+// Four shapes cover every layer below: a wandering bed (the continuous
+// "presence" of a room), and three kinds of discrete event. They exist because
+// Office, Cafe and Street were, for their whole life, the base filter and
+// nothing else — bare filtered white noise, which is why they read as an effect
+// rather than a place while Call Center reads as a call centre. That difference
+// was never a property of the presets, only of which one had had layers written
+// for it.
+//
+// addCallCentreLayers above is DELIBERATELY not re-expressed through these.
+// Its output is what has been shipping; routing it through a helper would
+// change the samples for the one preset that already sounds right, to buy
+// nothing but uniformity.
+//
+// ── What these are tuned against ─────────────────────────────────────────────
+//
+// The phone leg, not a laptop speaker. Frequencies are chosen to land inside
+// the ~300-3400Hz telephone band: real HVAC rumble lives near 100Hz and real
+// traffic lower still, and a carrier deletes both, so a layer placed where the
+// sound actually is would be inaudible on the transport that matters. Each one
+// is therefore written at the lowest frequency that SURVIVES rather than the
+// one that is literally true.
+//
+// ── HOW LOUD AN EVENT HAS TO BE, WHICH IS THE PART THAT IS COUNTERINTUITIVE ──
+//
+// Event gains here look enormous next to the bed gains. They have to be, and
+// the first version of these layers was rewritten because they were not.
+//
+// renderAmbienceLoop normalises the FINISHED loop to TARGET_RMS_DBFS, and the
+// continuous beds carry almost all of a loop's energy. So an event written at
+// "about the same gain as the bed" is scaled down alongside it and lands at
+// roughly 1x the bed's RMS — which, against noise with a crest factor near 4,
+// is quieter than the bed's own peaks. Measured on the first attempt: Cafe's
+// crockery reached 1.6x the median envelope while Quiet Room, which has no
+// events at all, reached 1.9x on pure noise. The events were inaudible, and no
+// amount of choosing better sounds would have fixed a level error.
+//
+// A real transient sits 10-15dB above the room it happens in. That is 3-5x the
+// bed's RMS, not 1x, and it is what these gains are set to produce.
+// `ambience.test.js` asserts it per preset so the calibration cannot silently
+// rot: an event layer that stops standing out has stopped existing.
+
+/**
+ * Filtered noise whose level wanders on an LFO — a room's continuous presence.
+ *
+ * `lfoHz` should be a whole number of cycles per loop (k / LOOP_SECONDS), or
+ * the level is discontinuous across the wrap. That is not a click — the
+ * crossfade joins two adjacent samples, so it survives as a slow lurch in
+ * volume instead, which is harder to notice and much harder to stop noticing.
+ */
+function addWanderingBed(buf, sampleRate, rand, { type, freq, q = 0.9, gain, lfoHz, depth = 0.3 }) {
+  const filter = makeBiquad(type, Math.min(freq, sampleRate * 0.45), q, sampleRate);
+  for (let i = 0; i < buf.length; i++) {
+    const lfo = (1 - depth) + depth * Math.sin((2 * Math.PI * lfoHz * i) / sampleRate);
+    buf[i] += filter.process(rand() * 2 - 1) * gain * lfo;
+  }
+}
+
+/**
+ * Walk sparse events across the loop, calling `emit(at)` at each.
+ *
+ * Events that run past the end are truncated rather than wrapped, which is
+ * safe here and only here: renderAmbienceLoop fades the last 0.25s out
+ * underneath the head, so an event cut by the buffer edge is already at
+ * zero weight exactly where it was cut.
+ */
+function scheduleEvents(n, sampleRate, rand, { firstMaxSec, minGapSec, maxGapSec }, emit) {
+  for (
+    let t = rand() * firstMaxSec * sampleRate;
+    t < n;
+    t += (minGapSec + rand() * (maxGapSec - minGapSec)) * sampleRate
+  ) {
+    emit(Math.floor(t));
+  }
+}
+
+/** A short burst of filtered noise with an exponential decay: a click, a clink,
+ *  a rustle. Smaller `decay` is sharper. */
+function addNoiseBurst(buf, sampleRate, rand, at, { type = 'highpass', freq, q = 0.707, seconds, gain, decay = 0.25 }) {
+  const n = buf.length;
+  const len = Math.floor(seconds * sampleRate);
+  const filter = makeBiquad(type, Math.min(freq, sampleRate * 0.45), q, sampleRate);
+  for (let i = 0; i < len && at + i < n; i++) {
+    buf[at + i] += filter.process(rand() * 2 - 1) * Math.exp(-i / (len * decay)) * gain;
+  }
+}
+
+/** Filtered noise that swells and fades — something passing, or a machine
+ *  running for a second or two. `skew` moves the peak (0.5 is centred). */
+function addNoiseSwell(buf, sampleRate, rand, at, { freq, q = 0.7, seconds, gain, skew = 0.5 }) {
+  const n = buf.length;
+  const len = Math.floor(seconds * sampleRate);
+  const peak = Math.max(1, Math.floor(len * skew));
+  const filter = makeBiquad('bandpass', Math.min(freq, sampleRate * 0.45), q, sampleRate);
+  for (let i = 0; i < len && at + i < n; i++) {
+    const ramp = i < peak ? i / peak : (len - i) / Math.max(1, len - peak);
+    buf[at + i] += filter.process(rand() * 2 - 1) * Math.sin((Math.PI * ramp) / 2) * gain;
+  }
+}
+
+/**
+ * A struck resonance — ceramic, glass, a spoon on a saucer.
+ *
+ * Deliberately NOT a noise burst, which is what this started as. A cup has a
+ * PITCH, and at telephone bandwidth the pitch is most of what survives: a
+ * filtered-noise "clink" measured 1.9x the median in its own band while the
+ * same event as a decaying tone measures several times that, because the
+ * energy is concentrated at one frequency instead of spread across a decade of
+ * spectrum the bed already occupies. It is also simply what the object does.
+ *
+ * The second partial is inharmonic (x2.76 — a struck plate, not a string),
+ * which is what keeps it from reading as a musical note, and it is dropped
+ * rather than aliased when it would land above Nyquist.
+ */
+function addRing(buf, sampleRate, at, { freq, seconds, gain, decay = 0.28 }) {
+  const n = buf.length;
+  const len = Math.floor(seconds * sampleRate);
+  const partial = freq * 2.76;
+  const withPartial = partial < sampleRate * 0.45;
+  // ~2ms, enough to stop the onset itself being a click.
+  const attackSamples = Math.max(1, Math.floor(sampleRate * 0.002));
+  for (let i = 0; i < len && at + i < n; i++) {
+    const env = Math.exp(-i / (len * decay)) * Math.min(1, i / attackSamples);
+    let v = Math.sin((2 * Math.PI * freq * i) / sampleRate);
+    if (withPartial) v += 0.45 * Math.sin((2 * Math.PI * partial * i) / sampleRate);
+    buf[at + i] += v * env * gain;
+  }
+}
+
+/** A tone under a raised-cosine envelope: a distant ring, one note of a horn. */
+function addTone(buf, sampleRate, at, { freq, seconds, gain }) {
+  const n = buf.length;
+  const len = Math.floor(seconds * sampleRate);
+  for (let i = 0; i < len && at + i < n; i++) {
+    buf[at + i] += Math.sin((2 * Math.PI * freq * i) / sampleRate)
+      * Math.sin((Math.PI * i) / len) * gain;
+  }
+}
+
+// ─── Per-preset layers ───────────────────────────────────────────────────────
+
+/**
+ * Office character: the BUILDING, not the people in it.
+ *
+ * The division of labour matters, because there are two office presets. "Office
+ * Chatter" is the pre-rendered bed for an office you can hear colleagues in;
+ * this one is the office you can hear the air handling in, with only the
+ * occasional sign that somebody else is present. Making this one chatter too
+ * would leave the picker offering the same room twice.
+ */
+function addOfficeLayers(buf, sampleRate, rand) {
+  // HVAC — the one sound every office has all day. Written at 260Hz rather
+  // than the ~110Hz it really occupies: see the band note above.
+  addWanderingBed(buf, sampleRate, rand, {
+    type: 'bandpass', freq: 260, q: 0.9, gain: 0.70, lfoHz: 1 / 24, depth: 0.22,
+  });
+  // Voices two rooms away — an order quieter than Call Center's murmur, and
+  // narrower, so it reads as "somebody is somewhere" rather than as speech.
+  addWanderingBed(buf, sampleRate, rand, {
+    type: 'bandpass', freq: 520, q: 1.4, gain: 0.16, lfoHz: 3 / 24, depth: 0.35,
+  });
+
+  scheduleEvents(buf.length, sampleRate, rand, { firstMaxSec: 6, minGapSec: 6, maxGapSec: 16 }, (at) => {
+    const roll = rand();
+    if (roll < 0.55) {
+      // A short flurry of typing. Quieter than the call centre's, where the
+      // keyboard is the room's defining sound rather than an interruption.
+      // A BANDPASS at 2200, not a highpass at 2800, and the difference is
+      // audibility rather than timbre. A highpass at 2800 puts most of a tick's
+      // energy between 2800Hz and Nyquist — and the telephone band stops around
+      // 3400Hz, so the carrier deleted over half of every tick. Measured: not
+      // one Office event cleared 5x the bed's RMS while Cafe and Street both
+      // did. Centred at 2200 the whole burst survives the line, and it still
+      // reads as a click against a bed that is lowpassed at 700.
+      const ticks = 4 + Math.floor(rand() * 5);
+      for (let k = 0; k < ticks; k++) {
+        addNoiseBurst(buf, sampleRate, rand, Math.floor(at + k * (0.08 + rand() * 0.06) * sampleRate), {
+          type: 'bandpass', freq: 2200, q: 0.8, seconds: 0.025, gain: 2.2, decay: 0.22,
+        });
+      }
+    } else if (roll < 0.85) {
+      // Paper, a sleeve, a chair — broadband, soft-edged, over in a moment.
+      addNoiseBurst(buf, sampleRate, rand, at, {
+        type: 'bandpass', freq: 1600, q: 0.8, seconds: 0.18 + rand() * 0.14, gain: 1.3, decay: 0.45,
+      });
+    } else {
+      // A phone somewhere down the corridor — further away and rarer than the
+      // call centre's, so it stays at the quiet end of the event range.
+      for (let r = 0; r < 2; r++) {
+        addTone(buf, sampleRate, Math.floor(at + r * 0.5 * sampleRate), { freq: 950, seconds: 0.35, gain: 0.5 });
+      }
+    }
+  });
+}
+
+/**
+ * Cafe character: a crowd, crockery, and the machine behind the counter.
+ *
+ * The crockery is what makes it a cafe. A crowd alone is any busy room, and the
+ * base lowpass alone is any quiet one; the clinks are the only part a listener
+ * can actually name, so they carry the identification and everything else sets
+ * the scale of the room around them.
+ */
+function addCafeLayers(buf, sampleRate, rand) {
+  // Crowd babble. Two beds at different rates rather than one, so the room's
+  // density has no single obvious cycle to lock onto over a long call.
+  addWanderingBed(buf, sampleRate, rand, {
+    type: 'bandpass', freq: 480, q: 1.2, gain: 0.72, lfoHz: 2 / 24, depth: 0.30,
+  });
+  addWanderingBed(buf, sampleRate, rand, {
+    type: 'bandpass', freq: 760, q: 1.0, gain: 0.28, lfoHz: 6 / 24, depth: 0.40,
+  });
+
+  scheduleEvents(buf.length, sampleRate, rand, { firstMaxSec: 4, minGapSec: 3, maxGapSec: 8 }, (at) => {
+    if (rand() < 0.72) {
+      // Cup on saucer, spoon, a plate stacked — one to three, close together,
+      // each at its own pitch so a repeat of the loop is not a repeat of a
+      // recognisable phrase. The pitch range is bounded above so the inharmonic
+      // partial (x2.76) still fits under Nyquist at the 8kHz line rate.
+      const clinks = 1 + Math.floor(rand() * 3);
+      for (let k = 0; k < clinks; k++) {
+        addRing(buf, sampleRate, Math.floor(at + k * (0.11 + rand() * 0.13) * sampleRate), {
+          freq: 1080 + rand() * 380, seconds: 0.13, gain: 0.85 + rand() * 0.35, decay: 0.26,
+        });
+      }
+    } else {
+      // The steam wand. A texture rather than a transient, so it sits lower
+      // than the crockery — it is meant to be noticed as the room, not as an
+      // event happening to the caller.
+      addNoiseSwell(buf, sampleRate, rand, at, {
+        freq: 2100, q: 0.7, seconds: 0.9 + rand() * 0.9, gain: 0.70, skew: 0.35,
+      });
+    }
+  });
+}
+
+/**
+ * Street character: traffic, and things going past.
+ *
+ * A passing vehicle is the whole point — a street without one is just rumble,
+ * and rumble is what the preset already was.
+ */
+function addStreetLayers(buf, sampleRate, rand) {
+  // The road itself: constant, barely modulated.
+  addWanderingBed(buf, sampleRate, rand, {
+    type: 'bandpass', freq: 220, q: 0.8, gain: 0.85, lfoHz: 1 / 24, depth: 0.18,
+  });
+  // Middle distance — tyre noise and general city hiss, which is what actually
+  // survives the telephone band once the rumble below has been filtered out.
+  addWanderingBed(buf, sampleRate, rand, {
+    type: 'bandpass', freq: 900, q: 0.9, gain: 0.30, lfoHz: 3 / 24, depth: 0.35,
+  });
+
+  scheduleEvents(buf.length, sampleRate, rand, { firstMaxSec: 5, minGapSec: 4, maxGapSec: 10 }, (at) => {
+    if (rand() < 0.80) {
+      // ── A vehicle passing, and the cheap way to imply Doppler ────────────
+      //
+      // A real pass shifts DOWN in frequency as it goes by, and a static
+      // biquad cannot sweep — the coefficients are fixed when it is built.
+      // Rebuilding one per sample to chase the pitch would cost more than the
+      // entire bed does.
+      //
+      // Two fixed bands with offset envelopes give the same impression for
+      // almost nothing: the higher band peaks early (approaching), the lower
+      // one late (receding), so the centre of energy travels downward across
+      // the pass exactly as it should, without anything actually sweeping.
+      const seconds = 1.8 + rand() * 1.4;
+      const gain = 0.75 + rand() * 0.45;
+      addNoiseSwell(buf, sampleRate, rand, at, { freq: 950, q: 0.7, seconds, gain: gain * 0.8, skew: 0.35 });
+      addNoiseSwell(buf, sampleRate, rand, at, { freq: 420, q: 0.7, seconds, gain, skew: 0.62 });
+    } else {
+      // A horn a street away. Two notes, because a car horn is a chord (a
+      // rough major third) and a single tone reads as a test signal.
+      const at2 = Math.floor(at);
+      const seconds = 0.28 + rand() * 0.16;
+      addTone(buf, sampleRate, at2, { freq: 440, seconds, gain: 0.40 });
+      addTone(buf, sampleRate, at2, { freq: 554, seconds, gain: 0.30 });
+    }
+  });
+}
+
+/**
+ * Which presets get layers. Quiet Room and Static deliberately get none:
+ * Quiet Room's entire job is to be almost nothing (it is additionally trimmed
+ * to 35% in renderAmbienceLoop), and Static is not a room at all — it is line
+ * noise, which is exactly what unlayered filtered noise already is.
+ */
+const PRESET_LAYERS = {
+  'Call Center': addCallCentreLayers,
+  Office: addOfficeLayers,
+  Cafe: addCafeLayers,
+  Street: addStreetLayers,
+};
+
 /**
  * An endless frame source over the cached loop.
  * @returns {{ nextFrame(): Int16Array }|null} null when ambience is off.
@@ -408,3 +725,46 @@ export function mixUlawFrame(engineUlaw, bedInt16) {
 
 /** Is this a preset we can actually synthesize? ('None'/undefined → false) */
 export const isAmbienceEnabled = (presetName) => Boolean(AMBIENT_PRESETS[presetName]);
+
+// ─── Serving the same bed to the browser ─────────────────────────────────────
+//
+// ── WHY THE CLIENT NO LONGER SYNTHESIZES ITS OWN ────────────────────────────
+//
+// It used to, in Web Audio, from the preset table duplicated in
+// client/src/services/ambientSound.ts — a BufferSource of white noise through a
+// BiquadFilterNode at a hardcoded `gain`. Those gain constants were the final
+// level in the browser, and nothing measured or normalised them, so what a
+// caller heard depended on how much energy each filter happened to pass at the
+// browser's own sample rate. A lowpass at 700Hz keeps ~18% of the spectrum at
+// the 8kHz line rate and ~3% at a 48kHz AudioContext, and nothing accounted for
+// the difference. Measured across the six presets:
+//
+//   Quiet Room -71.2 dBFS   Office -58.1   Street -55.2
+//   Cafe       -53.0        Call Center -52.2   Static -39.2
+//
+// A 23dB spread that nobody chose, against a phone leg where every preset is
+// normalised to exactly TARGET_RMS_DBFS. Office was 10dB below the phone and
+// simply inaudible; Static was 9dB ABOVE it. That is also why the layers added
+// to Office, Cafe and Street measured correctly on the phone and could not be
+// heard in the tester — the tester was never playing the same thing.
+//
+// So the browser now plays the bed this module renders, as a 24kHz WAV, and
+// there is one implementation of level, layers and loop length instead of two
+// that were never equal. The client keeps only the preset NAMES.
+//
+// The WAV encoding itself lives in ambienceBed.js, not here: encodeWav() sits
+// in callRecorder.js, which reaches telephonyAudio.js, which imports encodeUlaw
+// and ULAW_FRAME_BYTES back out of THIS module. Importing it here closes that
+// loop and Node fails the whole module graph with a TDZ error on
+// ULAW_FRAME_BYTES before any test runs.
+export const BROWSER_BED_RATE = 24000;
+
+/** "Call Center" -> "call-center". Also how build-ambience-bed.mjs names files,
+ *  so a synthesized preset and an ingested recording share a URL shape. */
+export const bedSlug = (name) => String(name || '')
+  .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+
+const PRESET_BY_SLUG = new Map(Object.keys(AMBIENT_PRESETS).map((n) => [bedSlug(n), n]));
+
+/** Which synthesized preset a bed URL names, if any. */
+export const presetForSlug = (slug) => PRESET_BY_SLUG.get(String(slug || '')) || null;

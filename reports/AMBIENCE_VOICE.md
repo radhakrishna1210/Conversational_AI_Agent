@@ -4,7 +4,8 @@
 
 ## 1. Current state, verified
 
-- `services/voice/ambience.js` synthesizes six noise beds (Quiet Room, Office, Call Center, Static, Cafe, Street) as 24 s, 8 kHz loops at `TARGET_RMS_DBFS = −48`; `ambiencePump.js` mixes them into every 20 ms frame on the phone leg; `client/src/services/ambientSound.ts` reproduces them in Web Audio. "Call Center" is a filtered murmur, not speech.
+- `services/voice/ambience.js` synthesizes six beds (Quiet Room, Office, Call Center, Static, Cafe, Street) as 24 s, 8 kHz loops at `TARGET_RMS_DBFS = −48`; `ambiencePump.js` mixes them into every 20 ms frame on the phone leg; `client/src/services/ambientSound.ts` reproduces them in Web Audio. None of them is speech — where a preset has voices they are filtered murmur, and any preset that should carry recognisable talk is a Mode B chatter bed instead (§3).
+- Four of the six carry **layers** on top of the base filtered noise — see §8. Quiet Room and Static are deliberately bare.
 - Fish Audio is a TTS provider (`providers/fishaudio.provider.js`), configured by `FISH_API_KEY` / `FISH_TTS_MODEL`; this deployment runs **`s2.1-pro-free`**, whose `/tts/live` socket never returns audio (documented in the provider), so Fish voices use the HTTP split path.
 - `piopiyMediaRealtime.handler.js` disables ambience (µ-law-only mixer) and logs it once.
 
@@ -63,3 +64,75 @@ Design position: the bed is mixed into the **outbound** frame only; the inbound 
 ## 7. Recommendation
 
 Default **Off**. When a room is wanted, **Manual bed** — continuous, free per turn, level-controlled, echo-safe by the existing argument — with the chatter presets enabled in production only once the Fish account is on a paid plan. Mode A stays available for Fish S2 voices as an experiment; do not rely on it.
+
+## 8. Preset layers (2026-09-05)
+
+**Why.** Only `Call Center` had ever had layers written for it (`addCallCentreLayers`). `Office`, `Cafe` and `Street` were the base filter and nothing else — white noise through one biquad — which is why they read as an effect rather than a place. The alternative considered was replacing all six with real recordings; rejected because the phone leg is mono 8 kHz µ-law at −48 dBFS under speech 42 dB louder, which removes most of what a recording buys, and because sourcing them would add six more assets with the licence provenance problem already open as E-7. The ingest path was built anyway (`scripts/build-ambience-bed.mjs`, tested) so recordings remain a drop-in if a commercially-licensed library is ever purchased — that purchase would also close E-7 by regenerating the chatter beds, which is the one thing layering cannot do.
+
+**What.** Four primitives (`addWanderingBed`, `addNoiseBurst`, `addNoiseSwell`, `addRing`, plus `addTone` and a `scheduleEvents` walker) and a `PRESET_LAYERS` table. `addCallCentreLayers` is left byte-for-byte as it shipped.
+
+| preset | continuous | events |
+|---|---|---|
+| Office | HVAC (bp 260 Hz, 1 cycle/loop), distant voices (bp 520 Hz) | keyboard flurry, paper/chair, far-off phone — every 6–16 s |
+| Cafe | crowd babble at two rates (bp 480 / 760 Hz) | crockery as a pitched decay with an inharmonic partial, steam wand — every 3–8 s |
+| Street | road (bp 220 Hz), tyre noise (bp 900 Hz) | passing vehicle, horn — every 4–10 s |
+
+Two things drove the tuning, both measured rather than assumed:
+
+1. **Frequencies are placed where they survive the line, not where they really are.** Real HVAC sits near 110 Hz and traffic lower; the telephone band starts around 300 Hz, so both would be deleted. Office's keyboard was likewise moved from a 2800 Hz highpass to a 2200 Hz bandpass — above 3400 Hz the carrier was discarding over half of every tick.
+2. **Event gains have to be far larger than bed gains.** `renderAmbienceLoop` normalises the finished loop to a fixed RMS, so an event written at "about bed gain" is scaled down with it and lands at ~1× the bed's RMS — below the bed's own noise peaks. The first implementation did exactly that: Cafe's crockery reached 1.6× the median envelope while Quiet Room, which has no events at all, reached 1.9×. Every existing assertion still passed. Gains are now set so events peak 10–15 dB over the room, which is where a real transient sits.
+
+**Measured** (24 s loop, 8 kHz, crest = peak/RMS; `samples>5×RMS` is the discriminator):
+
+| preset | crest | dB over room | samples >5× RMS |
+|---|---:|---:|---:|
+| Office | 6.51 | 16.3 | 10 |
+| Cafe | 5.80 | 15.3 | 17 |
+| Street | 6.97 | 16.9 | 20 |
+| Call Center *(untouched)* | 3.73 | 11.4 | 0 |
+| Quiet Room *(unlayered control)* | 3.90 | 11.8 | 0 |
+| Static *(unlayered control)* | 3.11 | 9.9 | 0 |
+
+**Tests.** `ambience.test.js` gains two cases — event prominence per layered preset, and the assertion that Quiet Room and Static stay featureless. Level, seam, determinism and preset-name pins are unchanged and still pass (23 in the file, 354 across `test:voice`, 1019 across `npm test`). The client layers were executed against a mock `AudioContext` (300 event firings per preset) to check node lifecycle and automation-curve validity, which is not otherwise covered.
+
+## 9. Why none of §8 was audible, and the level fix (2026-09-05)
+
+Reported from a live test of the layered presets: **only Street could be heard, and barely; the others produced nothing.** The §8 measurements were correct and were measuring the wrong transport.
+
+**Cause 1 — the browser never used any of it.** `client/src/services/ambientSound.ts` synthesized its own bed in Web Audio from a *duplicated* preset table: white noise → `BiquadFilterNode` → a hardcoded per-preset `gain`. Those constants **were** the level; nothing measured or normalised them, so each preset came out at whatever energy its filter happened to pass **at the browser's sample rate**. A lowpass at 700 Hz keeps ~18 % of the spectrum at the 8 kHz line rate and ~3 % at a 48 kHz `AudioContext`, and nothing accounted for the difference:
+
+| preset | browser was | phone | delta |
+|---|---:|---:|---:|
+| Quiet Room | −71.2 | −57.1 | −14.0 |
+| Office | −58.1 | −48.0 | −10.1 |
+| Street | −55.2 | −48.0 | −7.3 |
+| Cafe | −53.0 | −48.0 | −4.9 |
+| Call Center | −52.2 | −48.0 | −4.2 |
+| Static | −39.2 | −48.0 | **+8.8** |
+
+A 23 dB spread nobody chose. Office sat 10 dB under the phone and was inaudible; Static was 9 dB *over* it. The §8 layers were never played in the tester at all.
+
+**Cause 2 — −48 dBFS was too quiet to hear even where it was correct.** The constant was justified as "~42 dB below speech peaks, so no ducking is needed" — sound reasoning about ducking that says nothing about audibility.
+
+**Fix.** The browser no longer synthesizes anything. It fetches the loop this backend renders, over the existing `GET /api/v1/ambience/bed/<file>.24k.wav`, which now serves synthesized presets (rendered on demand, cached as encoded bytes, 67–170 ms and ~1.1 MB once per preset per process) alongside the on-disk chatter beds. One implementation of level, layers and loop length instead of two that were never equal. `TARGET_RMS_DBFS` moved to −42 and is now `AMBIENCE_BED_DBFS`.
+
+| preset | browser was | browser now | change | phone now |
+|---|---:|---:|---:|---:|
+| Quiet Room | −71.2 | −51.1 | **+20.1** | −51.1 |
+| Office | −58.1 | −42.0 | **+16.1** | −42.0 |
+| Street | −55.2 | −42.0 | **+13.2** | −42.0 |
+| Cafe | −53.0 | −42.0 | **+11.0** | −42.0 |
+| Call Center | −52.2 | −42.0 | **+10.2** | −42.0 |
+| Static | −39.2 | −42.0 | −2.8 | −42.0 |
+
+Browser and phone are now identical for every preset. Static is the one that gets *quieter*, which is the consistency working.
+
+**The cost, stated.** A bed that cannot be fetched leaves the call silent instead of failing it — already the behaviour for chatter beds, now true for all presets. Losing local synthesis is the price of the two transports agreeing.
+
+**The risk, stated.** +6 dB on the phone spends some of the margin behind BUG-003 (the bed must not trip barge-in or reach STT via acoustic echo), which has never been confirmed on a live call. `AMBIENCE_BED_DBFS=-48` restores the old level with no deploy.
+
+**Tests.** Two new cases (slug round-trip and collision; each preset served as a 24 kHz mono WAV at the bed level), and the three assertions that hardcoded −48 now derive from `TARGET_RMS_DBFS` so the env var cannot turn them into tests of nothing. The route was additionally exercised over real HTTP: six presets render, both chatter beds still serve from disk, unknown names / wrong suffix / traversal all 404.
+
+---
+
+**Not verified by listening.** Everything in §8 is a signal measurement. Whether these sound like the rooms they are named after is owner/QA work, and on the phone leg it is BLOCKED with the rest of the phone evidence (E-2). Note also that `Call Center` — deliberately not retuned — measures *below* both unlayered controls on excursions, so if the three new presets land well it is the next candidate.
