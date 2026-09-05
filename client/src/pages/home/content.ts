@@ -274,17 +274,68 @@ export const INDUSTRIES = [
   { label: 'Restaurants', to: '/solutions/verticals/restaurants' },
 ];
 
-/* ── QA & analytics ──────────────────────────────────────────────────── */
+/* ── QA & analytics — the "recent calls" demo player ──────────────────
+ *
+ * The section heading promises a scorecard on every conversation, so the
+ * visual under it is a small, real version of that: three sample calls the
+ * visitor can pick between, each with its recording, its metrics, and the
+ * issues our QA pass would have flagged.
+ *
+ * AUDIO. `audio` is a path into `client/public/demo-calls/`, or null while a
+ * recording is still to be produced — the player renders a disabled state for
+ * those rather than pretending to have something to play. Two are pending;
+ * drop the file in and fill the path to light one up:
+ *   collections → /demo-calls/collections-reminder.webm
+ *   support     → /demo-calls/customer-support.webm
+ *
+ * `durationSec` is the authoritative length. Chrome's MediaRecorder writes no
+ * Duration into the WebM header, so `<audio>.duration` reads Infinity until
+ * the element is forced to scan the whole file; the player trusts this number
+ * and defers to the element only once the element reports something finite.
+ * The 72s below is the recording's decoded length (72.24s), measured off the
+ * samples themselves rather than estimated from the container.
+ *
+ * The metrics and issues are illustrative — nothing in the product scores a
+ * call yet — and the card says so, the way the old static one did.
+ */
 
-export const QA = {
-  kicker: 'QA & ANALYTICS',
-  title: 'A scorecard and an alert on every conversation.',
-  body:
-    'Every call is transcribed, scored against your success criteria, and checked for the failure modes that matter — off-script claims, talking over the caller, missed hand-offs. Problems surface as alerts, not as something you find a week later.',
-  link: { label: 'See call analytics', to: '/analytics' },
-  card: {
-    title: 'Call · appointment booking',
-    note: 'illustrative',
+export type CallSeverity = 'high' | 'med';
+
+export interface DemoCallIssue {
+  /** Short category, shown as a pill. */
+  tag: string;
+  severity: CallSeverity;
+  title: string;
+  text: string;
+}
+
+export interface DemoCall {
+  /** Shown under the caller, and what the copy button puts on the clipboard. */
+  id: string;
+  /** Rail heading — the vertical this call belongs to. */
+  vertical: string;
+  /** Rail sub-line — what the call was about. */
+  scenario: string;
+  caller: string;
+  completedAt: string;
+  durationSec: number;
+  status: string;
+  /** Path under client/public, or null while the recording is pending. */
+  audio: string | null;
+  metrics: Array<{ label: string; value: string }>;
+  issues: DemoCallIssue[];
+}
+
+export const DEMO_CALLS: DemoCall[] = [
+  {
+    id: 'call_8f2c41a7d093',
+    vertical: 'Appointments',
+    scenario: 'SaaS demo booking',
+    caller: 'Aarav',
+    completedAt: 'Aug 20, 10:41am',
+    durationSec: 72,
+    status: 'Success',
+    audio: '/demo-calls/appointment-booking.webm',
     metrics: [
       { label: 'Criteria met', value: '4 / 4' },
       { label: 'Answer relevance', value: '93%' },
@@ -294,15 +345,96 @@ export const QA = {
     issues: [
       {
         tag: 'Off-script claim',
-        severity: 'high' as const,
-        text: 'Quoted a delivery window that isn’t in the knowledge base.',
+        severity: 'high',
+        title: 'Quoted a window it could not source',
+        text: 'The agent offered a delivery window that is not in the knowledge base. Ground the answer or hand off — don’t estimate.',
       },
       {
         tag: 'Talk-over',
-        severity: 'med' as const,
-        text: 'Started speaking once before the caller had finished.',
+        severity: 'med',
+        title: 'One interruption',
+        text: 'Started speaking once before the caller had finished. Endpointing fired early on a mid-sentence pause.',
       },
     ],
+  },
+  {
+    id: 'call_2b71e5c8a4f6',
+    vertical: 'Collections',
+    scenario: 'Overdue invoice reminder',
+    caller: 'Meera',
+    completedAt: 'Aug 21, 3:12pm',
+    durationSec: 224,
+    status: 'Payment plan set',
+    audio: null,
+    metrics: [
+      { label: 'Criteria met', value: '3 / 4' },
+      { label: 'Answer relevance', value: '96%' },
+      { label: 'Tool calls valid', value: '100%' },
+      { label: 'Script adherence', value: '91%' },
+    ],
+    issues: [
+      {
+        tag: 'Disclosure',
+        severity: 'high',
+        title: 'Recording notice came late',
+        text: 'The consent line was read after the balance was discussed. It belongs in the opening turn, before anything account-specific.',
+      },
+      {
+        tag: 'Tone',
+        severity: 'med',
+        title: 'Pushed once past a refusal',
+        text: 'Re-offered the payment plan after the caller had declined twice. One offer, then close.',
+      },
+    ],
+  },
+  {
+    id: 'call_5d94f0b23e17',
+    vertical: 'Customer support',
+    scenario: 'Order status & return',
+    caller: 'Rohan',
+    completedAt: 'Aug 21, 6:03pm',
+    durationSec: 127,
+    status: 'Resolved',
+    audio: null,
+    metrics: [
+      { label: 'Criteria met', value: '4 / 4' },
+      { label: 'Answer relevance', value: '89%' },
+      { label: 'Tool calls valid', value: '86%' },
+      { label: 'Script adherence', value: '94%' },
+    ],
+    issues: [
+      {
+        tag: 'Tool call',
+        severity: 'high',
+        title: 'Retried the order lookup twice',
+        text: 'The first two lookups went out with the order number unnormalised and failed — six seconds of dead air before the third succeeded.',
+      },
+      {
+        tag: 'Pronunciation',
+        severity: 'med',
+        title: 'Mispronounced the caller’s name',
+        text: 'Said the name three different ways across the call. Worth a lexicon entry for the common ones.',
+      },
+    ],
+  },
+];
+
+export const QA = {
+  kicker: 'QA & ANALYTICS',
+  title: 'A scorecard and an alert on every conversation.',
+  body:
+    'Every call is transcribed, scored against your success criteria, and checked for the failure modes that matter — off-script claims, talking over the caller, missed hand-offs. Problems surface as alerts, not as something you find a week later.',
+  link: { label: 'See call analytics', to: '/analytics' },
+  railTitle: 'Recent calls',
+  note: 'illustrative',
+  issuesTitle: 'Issues across this call',
+  copyId: 'Copy call ID',
+  copiedId: 'Copied',
+  noAudio: 'Recording coming soon',
+  meta: {
+    completed: 'Call completed',
+    duration: 'Call duration',
+    status: 'Call status',
   },
 };
 

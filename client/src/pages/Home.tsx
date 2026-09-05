@@ -1,17 +1,20 @@
-import { useState, type FormEvent } from 'react';
+import {
+  useState, useRef,
+  type FormEvent, type ChangeEvent, type KeyboardEvent, type CSSProperties,
+} from 'react';
 import { Link } from 'react-router-dom';
 import {
   Phone, MessageCircle, MessagesSquare, Globe, ShieldCheck, Check,
-  Languages, Zap, Radio, Brain, ArrowRight, Plug, AlertTriangle,
-  X, ArrowLeft, Send,
+  Languages, Zap, Radio, Brain, ArrowRight, Plug,
+  X, ArrowLeft, Send, Play, Pause, Download, Copy,
 } from 'lucide-react';
 import { BRAND } from '@/lib/brand';
 import {
   ACCENT, HERO, CHANNELS, HERO_STATS, CONSOLE, PROOF, OMNI, TRUST, BADGES,
   ASK_AI, CTA_BAND, USE_CASE_BUCKETS, USE_CASES, INDUSTRIES, QA, CAPABILITIES,
   INTEGRATIONS, INTEGRATIONS_LINK, BUILDER, FLOW, FAQ, FINAL,
-  DIAL_COUNTRIES, TRY_AGENT, SUPPORT_WIDGET,
-  type Bucket, type Channel,
+  DIAL_COUNTRIES, TRY_AGENT, SUPPORT_WIDGET, DEMO_CALLS,
+  type Bucket, type Channel, type DemoCall,
 } from './home/content';
 import './Home.css';
 
@@ -201,6 +204,294 @@ function SupportWidget() {
       >
         {open ? <X size={22} aria-hidden /> : <Phone size={20} aria-hidden />}
       </button>
+    </div>
+  );
+}
+
+/** `m:ss`, for the player's running clock. */
+function fmtClock(sec: number): string {
+  const n = Number.isFinite(sec) && sec > 0 ? sec : 0;
+  return `${Math.floor(n / 60)}:${String(Math.floor(n % 60)).padStart(2, '0')}`;
+}
+
+/** `3m 44s`, the way a call log lists a length. */
+function fmtLength(sec: number): string {
+  const m = Math.floor(sec / 60);
+  const s = Math.round(sec % 60);
+  return m ? `${m}m ${String(s).padStart(2, '0')}s` : `${s}s`;
+}
+
+/**
+ * The player for one demo call.
+ *
+ * Mounted under a `key` of the call id, so picking another call in the rail
+ * throws this away and starts clean rather than leaking a paused position
+ * across recordings.
+ *
+ * Deliberately not `<audio controls>`: the native widget brings its own
+ * chrome, which reads as a foreign object on a page where every other surface
+ * is drawn from the Resonance tokens.
+ */
+function CallPlayer({ call }: { call: DemoCall }) {
+  const ref = useRef<HTMLAudioElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const [time, setTime] = useState(0);
+  /* The declared length is authoritative until the element knows better —
+     see the note on DemoCall.durationSec. */
+  const [total, setTotal] = useState(call.durationSec);
+  const probed = useRef(false);
+  const rewound = useRef(false);
+
+  function toggle() {
+    const el = ref.current;
+    if (!el) return;
+    if (el.paused) void el.play().catch(() => setPlaying(false));
+    else el.pause();
+  }
+
+  /*
+   * Chrome's MediaRecorder writes no Duration into the WebM header, so the
+   * element reports Infinity and the seek bar has nothing to scale against.
+   * Seeking far past the end forces a scan of the file; the durationchange
+   * that follows carries the real length, and we rewind to the start.
+   */
+  function handleMeta() {
+    const el = ref.current;
+    if (!el || probed.current) return;
+    probed.current = true;
+    if (Number.isFinite(el.duration) && el.duration > 0) setTotal(el.duration);
+    else el.currentTime = 1e101;
+  }
+
+  function handleDuration() {
+    const el = ref.current;
+    if (!el || !Number.isFinite(el.duration) || el.duration <= 0) return;
+    setTotal(el.duration);
+    /* Undo the probe's seek, but never a position the visitor chose. */
+    if (!rewound.current && el.paused) {
+      rewound.current = true;
+      el.currentTime = 0;
+      setTime(0);
+    }
+  }
+
+  function seek(e: ChangeEvent<HTMLInputElement>) {
+    const el = ref.current;
+    const at = Number(e.target.value);
+    setTime(at);
+    if (el) el.currentTime = at;
+  }
+
+  if (!call.audio) {
+    return (
+      <div className="lp-player is-empty">
+        <span className="lp-player-btn is-off" aria-hidden><Play size={16} /></span>
+        <span className="lp-player-pending">{QA.noAudio}</span>
+      </div>
+    );
+  }
+
+  const pct = total > 0 ? Math.min(100, (time / total) * 100) : 0;
+
+  return (
+    <div className="lp-player">
+      <audio
+        ref={ref}
+        src={call.audio}
+        preload="metadata"
+        onLoadedMetadata={handleMeta}
+        onDurationChange={handleDuration}
+        onTimeUpdate={() => setTime(ref.current?.currentTime ?? 0)}
+        onPlay={() => setPlaying(true)}
+        onPause={() => setPlaying(false)}
+        onEnded={() => {
+          setPlaying(false);
+          setTime(0);
+          if (ref.current) ref.current.currentTime = 0;
+        }}
+      />
+
+      <button
+        type="button"
+        className="lp-player-btn"
+        onClick={toggle}
+        aria-label={`${playing ? 'Pause' : 'Play'} the ${call.scenario} recording`}
+      >
+        {playing ? <Pause size={16} /> : <Play size={16} />}
+      </button>
+
+      <span className="lp-player-time">{fmtClock(time)}</span>
+
+      <input
+        type="range"
+        className="lp-player-range"
+        min={0}
+        max={total}
+        step={0.1}
+        value={Math.min(time, total)}
+        onChange={seek}
+        aria-label="Seek within the recording"
+        aria-valuetext={`${fmtClock(time)} of ${fmtClock(total)}`}
+        style={{ '--lp-played': `${pct}%` } as CSSProperties}
+      />
+
+      <span className="lp-player-time is-rem">-{fmtClock(Math.max(0, total - time))}</span>
+
+      <a className="lp-player-dl" href={call.audio} download aria-label="Download this recording">
+        <Download size={15} aria-hidden />
+      </a>
+    </div>
+  );
+}
+
+/**
+ * "Recent calls" — the QA section's centrepiece.
+ *
+ * A rail of sample calls on the left, and on the right the one you picked:
+ * its recording, the scorecard our QA pass produces, and the issues it
+ * flagged. The metrics are illustrative — nothing in the product scores a
+ * call yet — and the card says so, the way the static version it replaces did.
+ */
+function CallShowcase() {
+  const [active, setActive] = useState(0);
+  const [copied, setCopied] = useState(false);
+  const railRef = useRef<HTMLDivElement>(null);
+  const call = DEMO_CALLS[active];
+
+  /*
+   * Only the selected call sits in the tab order (the roving tabindex below),
+   * which is the tablist pattern — but it means the rail owes the visitor
+   * arrow keys, or the other calls cannot be reached by keyboard at all.
+   */
+  function onRailKeys(e: KeyboardEvent<HTMLDivElement>) {
+    const last = DEMO_CALLS.length - 1;
+    let next: number;
+    switch (e.key) {
+      case 'ArrowDown': case 'ArrowRight': next = active === last ? 0 : active + 1; break;
+      case 'ArrowUp': case 'ArrowLeft': next = active === 0 ? last : active - 1; break;
+      case 'Home': next = 0; break;
+      case 'End': next = last; break;
+      default: return;
+    }
+    e.preventDefault();
+    setActive(next);
+    setCopied(false);
+    railRef.current?.querySelectorAll<HTMLButtonElement>('.lp-call-row')[next]?.focus();
+  }
+
+  async function copyId() {
+    try {
+      await navigator.clipboard.writeText(call.id);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1600);
+    } catch {
+      /* No clipboard over plain http, or inside some embedded webviews. The
+         id is on screen regardless, so there is nothing to recover from. */
+    }
+  }
+
+  return (
+    <div className="lp-calls">
+      <div className="lp-calls-rail">
+        <div className="lp-calls-rail-head">
+          <span>{QA.railTitle}</span>
+          <span className="lp-calls-count">{DEMO_CALLS.length}</span>
+        </div>
+        <div
+          ref={railRef}
+          className="lp-calls-list"
+          role="tablist"
+          aria-label={QA.railTitle}
+          aria-orientation="vertical"
+          onKeyDown={onRailKeys}
+        >
+          {DEMO_CALLS.map((c, i) => (
+            <button
+              key={c.id}
+              type="button"
+              role="tab"
+              id={`lp-call-tab-${c.id}`}
+              aria-controls={`lp-call-panel-${c.id}`}
+              aria-selected={i === active}
+              tabIndex={i === active ? 0 : -1}
+              className={`lp-call-row${i === active ? ' is-on' : ''}`}
+              onClick={() => { setActive(i); setCopied(false); }}
+            >
+              <span className="lp-call-dot" aria-hidden />
+              <span className="lp-call-row-main">
+                <span className="lp-call-row-title">{c.vertical}</span>
+                <span className="lp-call-row-sub">{c.scenario}</span>
+              </span>
+              <span className="lp-call-row-len">{fmtLength(c.durationSec)}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div
+        className="lp-calls-pane"
+        role="tabpanel"
+        id={`lp-call-panel-${call.id}`}
+        aria-labelledby={`lp-call-tab-${call.id}`}
+      >
+        <div className="lp-call-head">
+          <span className="lp-call-avatar" aria-hidden>{call.caller.slice(0, 1)}</span>
+          <div className="lp-call-head-main">
+            <h3 className="lp-call-who">
+              {call.caller}
+              <ArrowRight size={18} aria-hidden />
+              {call.vertical}
+            </h3>
+            <button type="button" className="lp-call-copy" onClick={copyId}>
+              {copied ? <Check size={13} aria-hidden /> : <Copy size={13} aria-hidden />}
+              {copied ? QA.copiedId : QA.copyId}
+            </button>
+          </div>
+          <span className="lp-scorecard-note">{QA.note}</span>
+        </div>
+
+        <div className="lp-call-meta">
+          <div>
+            <div className="lp-call-meta-k">{QA.meta.completed}</div>
+            <div className="lp-call-meta-v">{call.completedAt}</div>
+          </div>
+          <div>
+            <div className="lp-call-meta-k">{QA.meta.duration}</div>
+            <div className="lp-call-meta-v">{fmtLength(call.durationSec)}</div>
+          </div>
+          <div>
+            <div className="lp-call-meta-k">{QA.meta.status}</div>
+            <div className="lp-call-meta-v is-ok">{call.status}</div>
+          </div>
+        </div>
+
+        <CallPlayer key={call.id} call={call} />
+
+        <div className="lp-scorecard-metrics">
+          {call.metrics.map((m) => (
+            <div key={m.label}>
+              <div className="lp-scorecard-v">{m.value}</div>
+              <div className="lp-scorecard-k">{m.label}</div>
+            </div>
+          ))}
+        </div>
+
+        <div className="lp-call-issues">
+          <div className="lp-call-issues-head">
+            <span className="lp-kicker-sm">{QA.issuesTitle}</span>
+            <span className="lp-kicker-sm">{call.issues.length} flagged</span>
+          </div>
+          {call.issues.map((iss) => (
+            <div key={iss.tag} className={`lp-qa-issue is-${iss.severity}`}>
+              <div className="lp-qa-issue-head">
+                <span className="lp-qa-tag">{iss.tag}</span>
+                <strong>{iss.title}</strong>
+              </div>
+              <p className="lp-qa-issue-text">{iss.text}</p>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
@@ -434,29 +725,7 @@ export default function Home() {
       <section className="lp-sec">
         <SecHead eyebrow={QA.kicker} title={QA.title} intro={QA.body} />
 
-        <div className="lp-scorecard" aria-hidden>
-          <div className="lp-scorecard-head">
-            <span>{QA.card.title}</span>
-            <span className="lp-scorecard-note">{QA.card.note}</span>
-          </div>
-          <div className="lp-scorecard-metrics">
-            {QA.card.metrics.map((m) => (
-              <div key={m.label}>
-                <div className="lp-scorecard-v">{m.value}</div>
-                <div className="lp-scorecard-k">{m.label}</div>
-              </div>
-            ))}
-          </div>
-          <div className="lp-scorecard-issues">
-            <div className="lp-kicker-sm">Issues flagged on this call</div>
-            {QA.card.issues.map((iss) => (
-              <div key={iss.tag} className={`lp-qa-issue is-${iss.severity}`}>
-                <AlertTriangle size={14} aria-hidden />
-                <span><strong>{iss.tag}</strong> — {iss.text}</span>
-              </div>
-            ))}
-          </div>
-        </div>
+        <CallShowcase />
 
         <div className="lp-sechead-link">
           <Link to={QA.link.to} className="lp-uc-more">
