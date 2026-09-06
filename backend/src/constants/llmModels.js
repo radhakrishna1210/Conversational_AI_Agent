@@ -9,6 +9,8 @@ export const LLM_PROVIDERS = {
   GEMINI: "gemini",
   CUSTOM: "custom",
   SARVAM: "sarvam",
+  GROQ: "groq",
+  OPENROUTER: "openrouter",
 };
 
 export const ALLOWED_MODELS = {
@@ -41,6 +43,30 @@ export const ALLOWED_MODELS = {
     "sarvam-105b-conversations",
     "sarvam-105b",
   ],
+  groq: [
+    "llama-3.3-70b-versatile",
+    "llama-3.1-8b-instant",
+    "openai/gpt-oss-20b",
+  ],
+  openrouter: [
+    "meta-llama/llama-3.3-70b-instruct:free",
+    "meta-llama/llama-3.1-8b-instruct:free",
+    "qwen/qwen-2.5-72b-instruct:free",
+    "google/gemini-2.0-flash-exp:free",
+    "google/gemma-3-27b-it:free",
+    "google/gemma-3-12b-it:free",
+    "google/gemma-3-4b-it:free",
+    "google/gemma-3-1b-it:free",
+    "google/gemma-2-9b-it:free",
+    "pipecat-ai/phonellm-alpha-1",
+    "pipecat-ai/phonellm-alpha-1:free",
+    "mistralai/mistral-7b-instruct:free",
+    "deepseek/deepseek-chat:free",
+    "openai/gpt-4o-mini",
+    "anthropic/claude-3.5-haiku",
+    "anthropic/claude-3.5-sonnet",
+    "meta-llama/llama-3.3-70b-instruct",
+  ],
 };
 
 export const PROVIDER_CONFIGS = {
@@ -70,6 +96,18 @@ export const PROVIDER_CONFIGS = {
     timeout: 30000,
     maxRetries: 3,
   },
+  groq: {
+    apiKeyEnv: "GROQ_API_KEY",
+    baseUrlEnv: "GROQ_BASE_URL",
+    timeout: 30000,
+    maxRetries: 3,
+  },
+  openrouter: {
+    apiKeyEnv: "OPENROUTER_API_KEY",
+    baseUrlEnv: "OPENROUTER_BASE_URL",
+    timeout: 30000,
+    maxRetries: 3,
+  },
 };
 
 export const DEFAULT_TEMPERATURE = 0.7;
@@ -83,6 +121,13 @@ export const MAX_TEMPERATURE = 1;
  * @returns {boolean} - True if valid, false otherwise
  */
 export const isValidModel = (provider, model) => {
+  if (provider === "openrouter") {
+    const allowed = ALLOWED_MODELS.openrouter;
+    return Boolean(
+      allowed &&
+      (allowed.includes(model) || (typeof model === "string" && model.includes("/")))
+    );
+  }
   const allowedModels = ALLOWED_MODELS[provider];
   return allowedModels && allowedModels.includes(model);
 };

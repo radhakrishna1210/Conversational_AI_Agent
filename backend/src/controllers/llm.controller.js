@@ -29,18 +29,113 @@ const allowedLlmValues = async () => {
  */
 export const mapAgentModel = (label) => {
   if (!label || typeof label !== "string") return {};
-  const norm = label.trim().toLowerCase().replace(/\s+/g, "-");
+  const raw = label.trim();
+  const lower = raw.toLowerCase();
+  const norm = lower.replace(/\s+/g, "-");
 
-  // Exact match against known model IDs first
+  // Exact match against known model IDs first (case-insensitive)
   for (const [provider, models] of Object.entries(ALLOWED_MODELS)) {
-    if (models.includes(norm)) return { provider, model: norm };
+    const match = models.find(
+      (m) => m === raw || m.toLowerCase() === lower || m.toLowerCase() === norm
+    );
+    if (match) return { provider, model: match };
+  }
+
+  // OpenRouter explicit model paths (e.g. "openrouter/meta-llama/...", "openrouter:...")
+  if (lower.startsWith("openrouter/") || lower.startsWith("openrouter:")) {
+    const m = raw.replace(/^openrouter[\/:]/i, "").trim();
+    return { provider: "openrouter", model: m };
+  }
+
+  // Known OpenRouter model author prefixes (e.g. meta-llama/..., qwen/..., mistralai/..., deepseek/..., pipecat-ai/...)
+  if (
+    raw.includes("/") &&
+    (lower.startsWith("meta-llama/") ||
+      lower.startsWith("qwen/") ||
+      lower.startsWith("mistralai/") ||
+      lower.startsWith("deepseek/") ||
+      lower.startsWith("google/") ||
+      lower.startsWith("anthropic/") ||
+      lower.startsWith("openai/") ||
+      lower.startsWith("pipecat-ai/"))
+  ) {
+    return { provider: "openrouter", model: raw };
+  }
+
+  // OpenRouter heuristic mapping
+  if (norm.includes("openrouter")) {
+    if (norm.includes("phonellm") || norm.includes("phone-llm")) {
+      return { provider: "openrouter", model: "pipecat-ai/phonellm-alpha-1" };
+    }
+    if (norm.includes("gemma-3") || norm.includes("gemma3")) {
+      return { provider: "openrouter", model: "google/gemma-3-27b-it:free" };
+    }
+    if (norm.includes("3.3") || norm.includes("70b")) {
+      return { provider: "openrouter", model: "meta-llama/llama-3.3-70b-instruct:free" };
+    }
+    if (norm.includes("3.1") || norm.includes("8b")) {
+      return { provider: "openrouter", model: "meta-llama/llama-3.1-8b-instruct:free" };
+    }
+    if (norm.includes("qwen")) {
+      return { provider: "openrouter", model: "qwen/qwen-2.5-72b-instruct:free" };
+    }
+    if (norm.includes("gemini")) {
+      return { provider: "openrouter", model: "google/gemini-2.0-flash-exp:free" };
+    }
+    if (norm.includes("mistral")) {
+      return { provider: "openrouter", model: "mistralai/mistral-7b-instruct:free" };
+    }
+    if (norm.includes("deepseek")) {
+      return { provider: "openrouter", model: "deepseek/deepseek-chat:free" };
+    }
+    if (norm.includes("haiku") || norm.includes("claude")) {
+      return { provider: "openrouter", model: "anthropic/claude-3.5-haiku" };
+    }
+    if (norm.includes("4o-mini")) {
+      return { provider: "openrouter", model: "openai/gpt-4o-mini" };
+    }
+    return { provider: "openrouter", model: "meta-llama/llama-3.3-70b-instruct:free" };
+  }
+
+  // PhoneLLM (Pipecat AI - purpose-built for phone voice agents)
+  if (norm.includes("phonellm") || norm.includes("phone-llm")) {
+    if (process.env.PHONELLM_BASE_URL) {
+      return { provider: "custom", model: "pipecat-ai/phonellm-alpha-1" };
+    }
+    return { provider: "openrouter", model: "pipecat-ai/phonellm-alpha-1" };
+  }
+
+  // Gemma 3 & Gemma models
+  if (norm.includes("gemma")) {
+    if (norm.includes("3")) {
+      if (norm.includes("12b")) return { provider: "openrouter", model: "google/gemma-3-12b-it:free" };
+      if (norm.includes("4b")) return { provider: "openrouter", model: "google/gemma-3-4b-it:free" };
+      if (norm.includes("1b")) return { provider: "openrouter", model: "google/gemma-3-1b-it:free" };
+      return { provider: "openrouter", model: "google/gemma-3-27b-it:free" };
+    }
+    return { provider: "openrouter", model: "google/gemma-2-9b-it:free" };
+  }
+
+  // Claude models default to OpenRouter
+  if (norm.includes("claude")) {
+    if (norm.includes("sonnet")) {
+      return { provider: "openrouter", model: "anthropic/claude-3.5-sonnet" };
+    }
+    return { provider: "openrouter", model: "anthropic/claude-3.5-haiku" };
+  }
+
+  // Qwen models default to OpenRouter free
+  if (norm.includes("qwen")) {
+    return { provider: "openrouter", model: "qwen/qwen-2.5-72b-instruct:free" };
   }
 
   // Groq (LPU, ultra-low-latency) — selected explicitly as the agent's AI Model.
   // Checked before the generic "llama" rule since Groq serves Llama models.
   if (norm.includes("groq")) {
-    // See groq.service.js: the old llama-3.3-70b id was retired and now 404s.
-    return { provider: "groq", model: process.env.GROQ_MODEL || "openai/gpt-oss-20b" };
+    if (norm.includes("8b") || norm.includes("3.1")) {
+      return { provider: "groq", model: "llama-3.1-8b-instant" };
+    }
+    return { provider: "groq", model: process.env.GROQ_MODEL || "llama-3.3-70b-versatile" };
   }
 
   // Heuristic mapping for label variants

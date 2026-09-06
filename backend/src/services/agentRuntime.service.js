@@ -463,11 +463,18 @@ export function resolveLlmForAgent(agent, { lowLatency = false } = {}) {
     : p === 'azure' ? Boolean(process.env.AZURE_OPENAI_API_KEY)
     : p === 'groq' ? Boolean(process.env.GROQ_API_KEY)
     : p === 'sarvam' ? Boolean(process.env.SARVAM_API_KEY)
+    : p === 'openrouter' ? Boolean(process.env.OPENROUTER_API_KEY)
     : true;
   if (!hasKey(provider)) {
     if (process.env.GEMINI_API_KEY) {
       provider = 'gemini';
       model = process.env.DEFAULT_LLM_MODEL || 'gemini-3.5-flash-lite';
+    } else if (process.env.OPENROUTER_API_KEY) {
+      provider = 'openrouter';
+      model = process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.3-70b-instruct:free';
+    } else if (process.env.GROQ_API_KEY) {
+      provider = 'groq';
+      model = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
     } else if (process.env.OPENAI_API_KEY) {
       provider = 'openai';
       model = 'gpt-4o-mini';
