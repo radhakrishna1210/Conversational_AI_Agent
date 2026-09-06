@@ -39,7 +39,7 @@ const COLUMNS: Column[] = [
   {
     title: 'Developers',
     links: [
-      { label: 'Documentation', to: '/documentation' },
+      { label: 'Documentation', to: '/docs' },
       { label: 'API reference', to: '/docs' },
       { label: 'Integrations', to: '/integrations' },
       { label: 'Phone numbers', to: '/phone_numbers' },

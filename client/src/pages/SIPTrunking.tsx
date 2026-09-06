@@ -354,7 +354,7 @@ export default function Vonage() {
             </div>
 
             <Link
-              to="/documentation"
+              to="/docs"
               style={{
                 display: "inline-flex",
                 alignItems: "center",
