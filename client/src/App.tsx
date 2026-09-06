@@ -12,11 +12,36 @@ import AnnouncementBar from './components/AnnouncementBar';
 // Pages
 import Home from './pages/Home';
 import Pricing from './pages/Pricing';
-import Documentation from './pages/Documentation';
 import BookAppointment from './pages/BookAppointment';
 import Contact from './pages/Contact';
-import Docs from './pages/Docs';
 import ReportIssue from './pages/ReportIssue';
+
+// Documentation Portal Layout & Pages
+import DocsLayout from './pages/docs/DocsLayout';
+import DocsHome from './pages/docs/DocsHome';
+
+// User Documentation
+import UserOverview from './pages/docs/user/Overview';
+import UserGettingStarted from './pages/docs/user/GettingStarted';
+import UserVoiceAssistants from './pages/docs/user/VoiceAssistants';
+import UserAgents from './pages/docs/user/Agents';
+import UserCloneVoice from './pages/docs/user/CloneVoice';
+import UserKnowledgeBase from './pages/docs/user/KnowledgeBase';
+import UserPhoneNumbers from './pages/docs/user/PhoneNumbers';
+import UserContacts from './pages/docs/user/Contacts';
+import UserBulkCampaigns from './pages/docs/user/BulkCampaigns';
+import UserVoiceBroadcast from './pages/docs/user/VoiceBroadcast';
+import UserCallLogs from './pages/docs/user/CallLogs';
+import UserCallsLogs from './pages/docs/user/CallsLogs';
+import UserAnalytics from './pages/docs/user/Analytics';
+import UserWhatsApp from './pages/docs/user/WhatsApp';
+import UserIntegrations from './pages/docs/user/Integrations';
+import UserTeam from './pages/docs/user/Team';
+import UserBilling from './pages/docs/user/Billing';
+import UserApiKeys from './pages/docs/user/ApiKeys';
+import UserTroubleshooting from './pages/docs/user/Troubleshooting';
+import UserFaq from './pages/docs/user/Faq';
+
 import Finance from './pages/Finance';
 import Education from './pages/Education';
 import Ecommerce from './pages/Ecommerce';
@@ -163,8 +188,6 @@ function DashboardLayoutWrapper() {
   );
 }
 
-
-
 function App() {
   return (
     <ThemeProvider>
@@ -174,10 +197,39 @@ function App() {
       <Routes>
         <Route path="/" element={<DefaultLayout><Home /></DefaultLayout>} />
         <Route path="/pricing" element={<DefaultLayout><Pricing /></DefaultLayout>} />
-        <Route path="/documentation" element={<DefaultLayout><Documentation /></DefaultLayout>} />
+        <Route path="/documentation" element={<Navigate to="/docs" replace />} />
         <Route path="/book-appointment" element={<DefaultLayout><BookAppointment /></DefaultLayout>} />
         <Route path="/contact" element={<DefaultLayout><Contact /></DefaultLayout>} />
-        <Route path="/docs" element={<AdaptiveLayout><Docs /></AdaptiveLayout>} />
+        
+        {/* Documentation Portal */}
+        <Route path="/docs" element={<DocsLayout />}>
+          <Route index element={<DocsHome />} />
+          {/* User Documentation Routes */}
+          <Route path="user/overview" element={<UserOverview />} />
+          <Route path="user/getting-started" element={<UserGettingStarted />} />
+          <Route path="user/voice-assistants" element={<UserVoiceAssistants />} />
+          <Route path="user/agents" element={<UserAgents />} />
+          <Route path="user/clone-voice" element={<UserCloneVoice />} />
+          <Route path="user/knowledge-base" element={<UserKnowledgeBase />} />
+          <Route path="user/phone-numbers" element={<UserPhoneNumbers />} />
+          <Route path="user/contacts" element={<UserContacts />} />
+          <Route path="user/bulk-campaigns" element={<UserBulkCampaigns />} />
+          <Route path="user/voice-broadcast" element={<UserVoiceBroadcast />} />
+          <Route path="user/call-logs" element={<UserCallLogs />} />
+          <Route path="user/calls-logs" element={<UserCallsLogs />} />
+          <Route path="user/analytics" element={<UserAnalytics />} />
+          <Route path="user/whatsapp" element={<UserWhatsApp />} />
+          <Route path="user/integrations" element={<UserIntegrations />} />
+          <Route path="user/team" element={<UserTeam />} />
+          <Route path="user/billing" element={<UserBilling />} />
+          <Route path="user/api-keys" element={<UserApiKeys />} />
+          <Route path="user/troubleshooting" element={<UserTroubleshooting />} />
+          <Route path="user/faq" element={<UserFaq />} />
+
+          {/* Safe redirect for any developer doc URLs */}
+          <Route path="developer/*" element={<Navigate to="/docs" replace />} />
+        </Route>
+        
         <Route path="/report-issue" element={<AdaptiveLayout><ReportIssue /></AdaptiveLayout>} />
         {/* Public: Airtel verified-calling guide, linked from the caller-number picker */}
         <Route path="/airtel-verified-calling" element={<AirtelVerifiedCalling />} />
