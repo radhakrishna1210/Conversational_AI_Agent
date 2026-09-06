@@ -11,7 +11,7 @@ import {
   LLM_PROVIDERS,
 } from "../../constants/llmModels.js";
 
-export const DEFAULT_OPENROUTER_MODEL = "meta-llama/llama-3.3-70b-instruct:free";
+export const DEFAULT_OPENROUTER_MODEL = "google/gemma-4-31b-it:free";
 
 /**
  * Strips reasoning / internal monologue tokens (e.g. <think>...</think>)

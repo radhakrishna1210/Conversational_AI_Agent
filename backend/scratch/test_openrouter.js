@@ -5,7 +5,7 @@
 
 import { openrouterService } from "../src/services/llm/openrouter.service.js";
 
-const testModel = process.argv[2] || "google/gemma-3-27b-it:free";
+const testModel = process.argv[2] || "google/gemma-4-31b-it:free";
 const prompt = "Hello! In 2 short sentences, who are you and how can you help me on a phone call?";
 
 async function main() {
