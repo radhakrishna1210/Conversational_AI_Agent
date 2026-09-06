@@ -100,10 +100,18 @@ export const MODEL_GROUPS = [
       { id: 'llm:openrouter:gemma-3-27b-free', value: 'google/gemma-3-27b-it:free', label: 'Gemma 3 27B (Free / OpenRouter)', provider: 'OpenRouter', envKey: 'OPENROUTER_API_KEY' },
       { id: 'llm:phonellm:alpha-1',            value: 'pipecat-ai/phonellm-alpha-1', label: 'PhoneLLM Alpha 1 (Pipecat Voice)', provider: 'PhoneLLM', envKey: 'OPENROUTER_API_KEY' },
       { id: 'llm:openrouter:mistral-7b-free',    value: 'mistralai/mistral-7b-instruct:free',    label: 'Mistral 7B (Free / OpenRouter)',    provider: 'OpenRouter', envKey: 'OPENROUTER_API_KEY' },
-      { id: 'llm:openrouter:deepseek-chat-free', value: 'deepseek/deepseek-chat:free',          label: 'DeepSeek V3 (Free / OpenRouter)',   provider: 'OpenRouter', envKey: 'OPENROUTER_API_KEY' },
-      { id: 'llm:openrouter:claude-3.5-haiku',   value: 'anthropic/claude-3.5-haiku',           label: 'Claude 3.5 Haiku (OpenRouter)',     provider: 'OpenRouter', envKey: 'OPENROUTER_API_KEY' },
-      { id: 'llm:openrouter:gpt-4o-mini',        value: 'openai/gpt-4o-mini',                   label: 'GPT-4o Mini (OpenRouter)',          provider: 'OpenRouter', envKey: 'OPENROUTER_API_KEY' },
-      { id: 'llm:groq:llama-3.1-8b',             value: 'llama-3.1-8b-instant',                 label: 'Groq Llama 3.1 8B (Fast Voice)',    provider: 'Groq',       envKey: 'GROQ_API_KEY' },
+      { id: 'llm:groq:gpt-oss-20b',       value: 'openai/gpt-oss-20b',      label: 'Groq GPT-OSS 20B (Ultra-fast voice ~400ms)', provider: 'Groq', envKey: 'GROQ_API_KEY' },
+      { id: 'llm:groq:gpt-oss-120b',      value: 'openai/gpt-oss-120b',     label: 'Groq GPT-OSS 120B (High reasoning)', provider: 'Groq', envKey: 'GROQ_API_KEY' },
+      { id: 'llm:groq:qwen3-8-27b',       value: 'qwen/qwen3.8-27b',        label: 'Groq Qwen 3.8 27B (Fast voice ~500ms)', provider: 'Groq', envKey: 'GROQ_API_KEY' },
+      { id: 'llm:groq:compound-mini',     value: 'groq/compound-mini',      label: 'Groq Compound Mini', provider: 'Groq', envKey: 'GROQ_API_KEY' },
+      // Mistral AI Native Models
+      { id: 'llm:mistral:mistral-small',  value: 'mistral-small-latest',    label: 'Mistral Small (Fast)', provider: 'Mistral', envKey: 'MISTRAL_API_KEY' },
+      { id: 'llm:mistral:open-nemo',      value: 'open-mistral-nemo',       label: 'Mistral Nemo (Open weights)', provider: 'Mistral', envKey: 'MISTRAL_API_KEY' },
+      { id: 'llm:mistral:mistral-large',  value: 'mistral-large-latest',    label: 'Mistral Large (High reasoning)', provider: 'Mistral', envKey: 'MISTRAL_API_KEY' },
+      // Together AI Models
+      { id: 'llm:together:llama-3.3-70b', value: 'meta-llama/Llama-3.3-70B-Instruct-Turbo', label: 'Together Llama 3.3 70B Turbo', provider: 'Together', envKey: 'TOGETHER_API_KEY' },
+      { id: 'llm:together:qwen-2.5-72b',  value: 'Qwen/Qwen2.5-72B-Instruct-Turbo', label: 'Together Qwen 2.5 72B Turbo', provider: 'Together', envKey: 'TOGETHER_API_KEY' },
+      { id: 'llm:together:deepseek-v3',   value: 'deepseek-ai/DeepSeek-V3', label: 'Together DeepSeek V3', provider: 'Together', envKey: 'TOGETHER_API_KEY' },
     ],
   },
   {

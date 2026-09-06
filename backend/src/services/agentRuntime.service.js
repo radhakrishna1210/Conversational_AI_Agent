@@ -464,17 +464,25 @@ export function resolveLlmForAgent(agent, { lowLatency = false } = {}) {
     : p === 'groq' ? Boolean(process.env.GROQ_API_KEY)
     : p === 'sarvam' ? Boolean(process.env.SARVAM_API_KEY)
     : p === 'openrouter' ? Boolean(process.env.OPENROUTER_API_KEY)
+    : p === 'mistral' ? Boolean(process.env.MISTRAL_API_KEY)
+    : p === 'together' ? Boolean(process.env.TOGETHER_API_KEY)
     : true;
   if (!hasKey(provider)) {
-    if (process.env.GEMINI_API_KEY) {
+    if (process.env.GROQ_API_KEY) {
+      provider = 'groq';
+      model = process.env.GROQ_MODEL || 'openai/gpt-oss-20b';
+    } else if (process.env.GEMINI_API_KEY) {
       provider = 'gemini';
       model = process.env.DEFAULT_LLM_MODEL || 'gemini-3.5-flash-lite';
     } else if (process.env.OPENROUTER_API_KEY) {
       provider = 'openrouter';
-      model = process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.3-70b-instruct:free';
-    } else if (process.env.GROQ_API_KEY) {
-      provider = 'groq';
-      model = process.env.GROQ_MODEL || 'llama-3.1-8b-instant';
+      model = process.env.OPENROUTER_MODEL || 'google/gemma-4-31b-it:free';
+    } else if (process.env.MISTRAL_API_KEY) {
+      provider = 'mistral';
+      model = process.env.MISTRAL_MODEL || 'mistral-small-latest';
+    } else if (process.env.TOGETHER_API_KEY) {
+      provider = 'together';
+      model = process.env.TOGETHER_MODEL || 'meta-llama/Llama-3.3-70B-Instruct-Turbo';
     } else if (process.env.OPENAI_API_KEY) {
       provider = 'openai';
       model = 'gpt-4o-mini';

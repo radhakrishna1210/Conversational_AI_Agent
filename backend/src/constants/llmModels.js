@@ -11,6 +11,8 @@ export const LLM_PROVIDERS = {
   SARVAM: "sarvam",
   GROQ: "groq",
   OPENROUTER: "openrouter",
+  MISTRAL: "mistral",
+  TOGETHER: "together",
 };
 
 export const ALLOWED_MODELS = {
@@ -44,9 +46,28 @@ export const ALLOWED_MODELS = {
     "sarvam-105b",
   ],
   groq: [
+    "openai/gpt-oss-20b",
+    "openai/gpt-oss-120b",
+    "qwen/qwen3.8-27b",
+    "groq/compound-mini",
     "llama-3.3-70b-versatile",
     "llama-3.1-8b-instant",
-    "openai/gpt-oss-20b",
+  ],
+  mistral: [
+    "mistral-small-latest",
+    "open-mistral-nemo",
+    "mistral-large-latest",
+    "open-mistral-7b",
+    "open-mixtral-8x7b",
+    "codestral-latest",
+  ],
+  together: [
+    "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+    "mistralai/Mistral-7B-Instruct-v0.3",
+    "mistralai/Mixtral-8x7B-Instruct-v0.1",
+    "Qwen/Qwen2.5-72B-Instruct-Turbo",
+    "deepseek-ai/DeepSeek-V3",
   ],
   openrouter: [
     "google/gemma-4-31b-it:free",

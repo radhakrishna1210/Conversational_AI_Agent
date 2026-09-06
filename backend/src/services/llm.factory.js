@@ -11,12 +11,14 @@ import { geminiService } from "./gemini.service.js";
 import CustomLLMService from "./llm/custom.service.js";
 import { sarvamLLMService } from "./llm/sarvam.service.js";
 import { openrouterService } from "./llm/openrouter.service.js";
+import { mistralService } from "./llm/mistral.service.js";
+import { togetherService } from "./llm/together.service.js";
 import { groqService } from "./groq.service.js";
 import { mockLLMService } from "./llm/mock.service.js";
 
 /**
  * Factory function to get LLM provider instance
- * @param {string} provider - The provider type (openai, azure, gemini, custom, sarvam, groq, openrouter)
+ * @param {string} provider - The provider type (openai, azure, gemini, custom, sarvam, groq, openrouter, mistral, together)
  * @returns {Object} - Provider service instance
  * @throws {Error} - If provider is invalid
  */
@@ -45,6 +47,12 @@ export const getLLMProvider = (provider) => {
     case LLM_PROVIDERS.OPENROUTER:
       return openrouterService;
 
+    case LLM_PROVIDERS.MISTRAL:
+      return mistralService;
+
+    case LLM_PROVIDERS.TOGETHER:
+      return togetherService;
+
     default:
       const error = new Error(
         `Invalid LLM provider: ${provider}. Supported providers: ${Object.values(LLM_PROVIDERS).join(", ")}`
@@ -68,7 +76,9 @@ export const getLLMProviderWithFallback = (primaryProvider) => {
     !process.env.AZURE_OPENAI_API_KEY &&
     !process.env.SARVAM_API_KEY &&
     !process.env.GROQ_API_KEY &&
-    !process.env.OPENROUTER_API_KEY
+    !process.env.OPENROUTER_API_KEY &&
+    !process.env.MISTRAL_API_KEY &&
+    !process.env.TOGETHER_API_KEY
   ) {
     logger.info("No LLM API keys configured. Using Mock LLM Service.");
     return mockLLMService;
@@ -92,20 +102,32 @@ export const getLLMProviderWithFallback = (primaryProvider) => {
     if (primaryProvider.toLowerCase() === LLM_PROVIDERS.OPENROUTER && !process.env.OPENROUTER_API_KEY) {
       throw new Error("OpenRouter API key is missing");
     }
+    if (primaryProvider.toLowerCase() === LLM_PROVIDERS.MISTRAL && !process.env.MISTRAL_API_KEY) {
+      throw new Error("Mistral API key is missing");
+    }
+    if (primaryProvider.toLowerCase() === LLM_PROVIDERS.TOGETHER && !process.env.TOGETHER_API_KEY) {
+      throw new Error("Together AI API key is missing");
+    }
     return provider;
   } catch (error) {
     logger.warn(
       `Failed to initialize or missing key for primary provider ${primaryProvider}, falling back: ${error.message}`
     );
-    // Fallback order: Gemini -> OpenRouter -> Groq -> OpenAI -> Sarvam -> Mock
+    // Fallback order: Groq -> Gemini -> OpenRouter -> Mistral -> Together -> OpenAI -> Sarvam -> Mock
+    if (process.env.GROQ_API_KEY) {
+      return groqService;
+    }
     if (process.env.GEMINI_API_KEY) {
       return geminiService;
     }
     if (process.env.OPENROUTER_API_KEY) {
       return openrouterService;
     }
-    if (process.env.GROQ_API_KEY) {
-      return groqService;
+    if (process.env.MISTRAL_API_KEY) {
+      return mistralService;
+    }
+    if (process.env.TOGETHER_API_KEY) {
+      return togetherService;
     }
     if (process.env.OPENAI_API_KEY) {
       return openaiService;
