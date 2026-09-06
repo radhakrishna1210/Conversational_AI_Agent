@@ -43,6 +43,11 @@ class OpenAIService {
   async initializeClient() {
     if (this.client) return;
 
+    this.apiKey = process.env.OPENAI_API_KEY;
+    if (!this.apiKey) {
+      throw new Error("OPENAI_API_KEY is not configured");
+    }
+
     try {
       const { default: OpenAI } = await import("openai");
       this.client = new OpenAI({
