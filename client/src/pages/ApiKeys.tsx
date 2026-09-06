@@ -235,7 +235,7 @@ export default function ApiKeys() {
   -d agent_id=riya_receptionist \\
   -d to=+14155550148`}</pre>
           <div className="rz-cluster-sm" style={{ marginTop: 16 }}>
-            <Link className="rz-btn rz-btn-secondary rz-btn-sm" to="/documentation">Read the docs</Link>
+            <Link className="rz-btn rz-btn-secondary rz-btn-sm" to="/docs">Read the docs</Link>
             <Link className="rz-btn rz-btn-ghost rz-btn-sm" to="/docs">API reference</Link>
           </div>
         </div>

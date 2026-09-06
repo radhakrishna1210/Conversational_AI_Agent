@@ -172,7 +172,7 @@ export default function CalCom() {
           <div style={{ fontSize: 13, color: 'var(--tx-2)', marginBottom: 14, lineHeight: 1.65 }}>
             Step-by-step instructions with screenshots, including dashboard setup and agent-side configuration.
           </div>
-          <Link to="/documentation" style={{ fontSize: 13, fontWeight: 600, color: '#0eb39e', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
+          <Link to="/docs" style={{ fontSize: 13, fontWeight: 600, color: '#0eb39e', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: 4 }}>
             Read the Cal.com setup guide <ArrowRight size={13} />
           </Link>
         </div>

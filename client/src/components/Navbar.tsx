@@ -212,7 +212,7 @@ export default function Navbar() {
           )}
         </li>
 
-        <li><Link to="/documentation" className={`nav-link ${isActive('/documentation')}`}>Documentation</Link></li>
+        <li><Link to="/docs" className={`nav-link ${isActive('/docs')}`}>Documentation</Link></li>
         <li><Link to="/pricing" className={`nav-link ${isActive('/pricing')}`}>Pricing</Link></li>
         <li><Link to="/book-appointment" className={`nav-link ${isActive('/book-appointment')}`}>Book a demo</Link></li>
         <li className="nav-sales-sep" aria-hidden />
