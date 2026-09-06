@@ -88,6 +88,7 @@ export const MODEL_GROUPS = [
       { id: 'llm:sarvam:sarvam-105b-conversations', value: 'sarvam-105b-conversations', label: 'Sarvam 105B Conversations', provider: 'Sarvam', envKey: 'SARVAM_API_KEY' },
       { id: 'llm:sarvam:sarvam-105b',      value: 'sarvam-105b',             label: 'Sarvam 105B',          provider: 'Sarvam', envKey: 'SARVAM_API_KEY' },
       // OpenRouter Free & Conversational Models
+      { id: 'llm:openrouter:nemotron-35-free',   value: 'nvidia/nemotron-3.5-lightning:free',   label: 'NVIDIA Nemotron 3.5 (Free / OpenRouter)', provider: 'OpenRouter', envKey: 'OPENROUTER_API_KEY' },
       { id: 'llm:openrouter:gemma-4-31b-free',   value: 'google/gemma-4-31b-it:free',           label: 'Google Gemma 4 31B (Free / OpenRouter)', provider: 'OpenRouter', envKey: 'OPENROUTER_API_KEY' },
       { id: 'llm:openrouter:ling-3-fin-free',     value: 'inclusionai/ling-3.0-flash-fin:free',  label: 'Ling 3.0 Flash Fin (Free / Fast)',      provider: 'OpenRouter', envKey: 'OPENROUTER_API_KEY' },
       { id: 'llm:openrouter:poolside-laguna-free',value: 'poolside/laguna-s-2.1:free',          label: 'Poolside Laguna S 2.1 (Free / Voice)',  provider: 'OpenRouter', envKey: 'OPENROUTER_API_KEY' },

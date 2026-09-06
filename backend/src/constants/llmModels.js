@@ -70,6 +70,7 @@ export const ALLOWED_MODELS = {
     "deepseek-ai/DeepSeek-V3",
   ],
   openrouter: [
+    "nvidia/nemotron-3.5-lightning:free",
     "google/gemma-4-31b-it:free",
     "google/gemma-4-26b-a4b-it:free",
     "inclusionai/ling-3.0-flash-fin:free",
