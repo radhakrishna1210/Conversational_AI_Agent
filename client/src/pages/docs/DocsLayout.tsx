@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Outlet, NavLink, Link, useLocation } from 'react-router-dom';
-import { Search, Menu, X, BookOpen, ChevronRight } from 'lucide-react';
+import { Search, Menu, X, BookOpen, ChevronRight, ArrowLeft } from 'lucide-react';
 
 const DOCS_MENU = [
   {
@@ -127,6 +127,10 @@ export default function DocsLayout() {
         zIndex: 50,
         width: '100%'
       }}>
+        <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-primary)', textDecoration: 'none', fontWeight: 600 }}>
+          <ArrowLeft size={20} style={{ color: 'var(--teal)' }} />
+          <span>Back to Home</span>
+        </Link>
         <Link to="/docs" style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-primary)', textDecoration: 'none', fontWeight: 600 }}>
           <BookOpen size={20} style={{ color: 'var(--teal)' }} />
           <span>Spandan Docs</span>
@@ -163,13 +167,17 @@ export default function DocsLayout() {
           overflowY: 'auto'
         }}
       >
-        {/* Brand Home Link (Desktop only) */}
-        <div className="docs-sidebar-brand" style={{ marginBottom: 20 }}>
-          <Link to="/docs" style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-primary)', textDecoration: 'none', fontWeight: 700, fontSize: 18 }}>
-            <BookOpen size={22} style={{ color: 'var(--teal)' }} />
-            <span>Spandan Docs</span>
-          </Link>
-        </div>
+{/* Brand Home Link (Desktop only) */}
+<div className="docs-sidebar-brand" style={{ marginBottom: 20 }}>
+  <Link to="/" style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-primary)', textDecoration: 'none', fontWeight: 600 }}>
+    <ArrowLeft size={20} style={{ color: 'var(--teal)' }} />
+    <span>Back to Home</span>
+  </Link>
+  <Link to="/docs" style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-primary)', textDecoration: 'none', fontWeight: 700, fontSize: 18, marginTop: 8 }}>
+    <BookOpen size={22} style={{ color: 'var(--teal)' }} />
+    <span>Spandan Docs</span>
+  </Link>
+</div>
 
         {/* Search Bar */}
         <div style={{ position: 'relative', marginBottom: 20 }}>
