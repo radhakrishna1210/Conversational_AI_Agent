@@ -6,7 +6,7 @@
 import { openaiService } from "../src/services/llm/openai.service.js";
 
 const testModel = process.argv[2] || "gpt-4o-mini";
-const prompt = "Hello! In 2 short sentences, who are you and how can you help me on a phone call?";
+const prompt = "Hello! In 1 short sentence, who are you and how can you help me on a phone call?";
 
 async function main() {
   console.log(`\n=== Testing OpenAI with model: ${testModel} ===`);
@@ -44,8 +44,10 @@ async function main() {
     const totalTime = Date.now() - startTime;
     console.log(`\n\n✅ Stream completed in ${totalTime}ms.`);
     console.log(`Total text length: ${fullReply.length} characters.\n`);
+    process.exit(0);
   } catch (err) {
     console.error(`\n❌ Error during generation: ${err.message}`);
+    process.exit(1);
   }
 }
 

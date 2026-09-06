@@ -6,7 +6,7 @@
 import { togetherService } from "../src/services/llm/together.service.js";
 
 const testModel = process.argv[2] || "meta-llama/Llama-3.3-70B-Instruct-Turbo";
-const prompt = "Hello! In 2 short sentences, who are you and how can you help me on a phone call?";
+const prompt = "Hello! In 1 short sentence, who are you and how can you help me on a phone call?";
 
 async function main() {
   console.log(`\n=== Testing Together AI with model: ${testModel} ===`);

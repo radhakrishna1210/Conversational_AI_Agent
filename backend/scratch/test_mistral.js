@@ -6,7 +6,7 @@
 import { mistralService } from "../src/services/llm/mistral.service.js";
 
 const testModel = process.argv[2] || "mistral-small-latest";
-const prompt = "Hello! In 2 short sentences, who are you and how can you help me on a phone call?";
+const prompt = "Hello! In 1 short sentence, who are you and how can you help me on a phone call?";
 
 async function main() {
   console.log(`\n=== Testing Mistral AI with model: ${testModel} ===`);

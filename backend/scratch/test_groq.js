@@ -6,7 +6,7 @@
 import { groqService } from "../src/services/groq.service.js";
 
 const testModel = process.argv[2] || "openai/gpt-oss-20b";
-const prompt = "Hello! In 2 short sentences, who are you and how can you help me on a phone call?";
+const prompt = "Hello! In 1 short sentence, who are you and how can you help me on a phone call?";
 
 async function main() {
   console.log(`\n=== Testing Groq with model: ${testModel} ===`);
