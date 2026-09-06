@@ -37,8 +37,25 @@ const envValue     = (name) => {
   const v = name ? env[name] : null;
   return typeof v === 'string' && v.trim() ? v.trim() : null;
 };
-const clientId     = (p) => p.oauth ? envValue(p.oauth.clientIdEnv)     : null;
-const clientSecret = (p) => p.oauth ? envValue(p.oauth.clientSecretEnv) : null;
+
+// A workspace's own OAuth app (bring-your-own Zoho/Salesforce/etc. Developer
+// Console registration) beats the platform's shared one whenever it's set —
+// see saveIntegrationSettings for how clientSecretCipher gets there. This is
+// the ONLY place a workspace's credentials are meant to differ from the env
+// default; every other provider on this platform is expected to keep sharing
+// the env-configured app, which is why this is a fallback, not a requirement.
+const settingsClientId = (settingsJson) => {
+  const v = safeJson(settingsJson, {}).clientId;
+  return typeof v === 'string' && v.trim() ? v.trim() : null;
+};
+const settingsClientSecret = (settingsJson) => {
+  const cipher = safeJson(settingsJson, {}).clientSecretCipher;
+  if (!cipher) return null;
+  try { return decryptToken(cipher); } catch { return null; }
+};
+
+const clientId     = (p, settingsJson) => settingsClientId(settingsJson)     ?? (p.oauth ? envValue(p.oauth.clientIdEnv)     : null);
+const clientSecret = (p, settingsJson) => settingsClientSecret(settingsJson) ?? (p.oauth ? envValue(p.oauth.clientSecretEnv) : null);
 const redirectUri  = (p) => p.oauth ? envValue(p.oauth.redirectUriEnv)  : null;
 const genesysRegion = () => env.GENESYS_REGION || 'mypurecloud.com';
 // Which data center's accounts server a Zoho org lives on (.com/.eu/.in/.com.cn/
@@ -46,7 +63,14 @@ const genesysRegion = () => env.GENESYS_REGION || 'mypurecloud.com';
 // DC is invisible to every other DC's accounts server — presenting it to the
 // wrong one is exactly what produces Zoho's "invalid_client" error, with no
 // hint that the DC is the actual problem.
-const zohoAccountsBase = () => env.ZOHO_ACCOUNTS_BASE_URL || 'https://accounts.zoho.com';
+//
+// Two different workspaces can have Zoho orgs on two different DCs, so this
+// is NOT a single platform-wide value: `settingsJson` is this specific
+// workspace's own choice (set on the Integrations page — see accountsBase in
+// constants/integrations.js / Integrations.tsx) and always wins when present;
+// ZOHO_ACCOUNTS_BASE_URL (env) is only the default for a workspace that
+// hasn't configured one yet.
+const zohoAccountsBase = (settingsJson) => safeJson(settingsJson, {}).accountsBase || env.ZOHO_ACCOUNTS_BASE_URL || 'https://accounts.zoho.com';
 
 const isMockProvider = (p) => false;
 // Fake "connected" integrations are a demo-only behavior and must be opted into
@@ -89,6 +113,15 @@ const upsertRow = async (workspaceId, providerKey) => {
   });
 };
 
+// clientSecretCipher is still ciphertext, not the plaintext secret — but it's
+// an internal storage detail with no reason to ever leave the server, so it
+// never reaches the API response. `hasClientSecret` tells the frontend
+// whether a custom OAuth app secret is on file without exposing it.
+const redactSettings = (json) => {
+  const { clientSecretCipher, ...rest } = json ?? {};
+  return clientSecretCipher ? { ...rest, hasClientSecret: true } : rest;
+};
+
 const serialize = (i) => ({
   id: i.id,
   workspaceId: i.workspaceId,
@@ -104,12 +137,12 @@ const serialize = (i) => ({
   webhookStatus: i.webhookStatus,
   webhookEnabled: i.webhookEnabled,
   lastSyncedCount: i.lastSyncedCount,
-  settingsJson: safeJson(i.settingsJson, {}),
+  settingsJson: redactSettings(safeJson(i.settingsJson, {})),
   metadata: safeJson(i.metadata, {}),
   settings: i.settings ? {
     enabled: i.settings.enabled,
     webhookEnabled: i.settings.webhookEnabled,
-    settingsJson: safeJson(i.settings.settingsJson, {}),
+    settingsJson: redactSettings(safeJson(i.settings.settingsJson, {})),
     selectedChannels: safeJson(i.settings.selectedChannels, []),
     lastValidatedAt: i.settings.lastValidatedAt,
   } : null,
@@ -135,10 +168,10 @@ const getAccessToken = async (integration) => {
   try { return decryptToken(integration.token.accessTokenCipher); } catch { return null; }
 };
 
-const buildAuthUrl = (p, state, redirectUriOverride) => {
-  const base = p.oauth.authorizationUrl.replace('{region}', genesysRegion()).replace('{accountsBase}', zohoAccountsBase());
+const buildAuthUrl = (p, state, redirectUriOverride, settingsJson) => {
+  const base = p.oauth.authorizationUrl.replace('{region}', genesysRegion()).replace('{accountsBase}', zohoAccountsBase(settingsJson));
   const url = new URL(base);
-  url.searchParams.set('client_id',    clientId(p) ?? '');
+  url.searchParams.set('client_id',    clientId(p, settingsJson) ?? '');
   url.searchParams.set('redirect_uri', redirectUriOverride ?? redirectUri(p) ?? '');
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('state', state);
@@ -147,11 +180,11 @@ const buildAuthUrl = (p, state, redirectUriOverride) => {
   return url.toString();
 };
 
-const exchangeCode = async (p, code, cbUri) => {
+const exchangeCode = async (p, code, cbUri, settingsJson) => {
   // Notion wants client_id/secret as HTTP Basic auth + a JSON body — every
   // other provider here wants them as form fields in the body instead.
   if (p.oauth.tokenAuthMethod === 'basic_json') {
-    const basic = Buffer.from(`${clientId(p) ?? ''}:${clientSecret(p) ?? ''}`).toString('base64');
+    const basic = Buffer.from(`${clientId(p, settingsJson) ?? ''}:${clientSecret(p, settingsJson) ?? ''}`).toString('base64');
     const res = await fetch(p.oauth.tokenUrl, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Basic ${basic}` },
@@ -166,10 +199,10 @@ const exchangeCode = async (p, code, cbUri) => {
     grant_type:   'authorization_code',
     code,
     redirect_uri: cbUri,
-    client_id:    clientId(p) ?? '',
-    client_secret: clientSecret(p) ?? '',
+    client_id:    clientId(p, settingsJson) ?? '',
+    client_secret: clientSecret(p, settingsJson) ?? '',
   });
-  const res = await fetch(p.oauth.tokenUrl.replace('{region}', genesysRegion()).replace('{accountsBase}', zohoAccountsBase()), {
+  const res = await fetch(p.oauth.tokenUrl.replace('{region}', genesysRegion()).replace('{accountsBase}', zohoAccountsBase(settingsJson)), {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
     body: params.toString(),
@@ -604,12 +637,12 @@ export const createOAuthConnectUrl = async (workspaceId, providerKey, userId, re
     data: { workspaceId, integrationId: row.id, provider: p.key, userId: userId ?? 'unknown', state, redirectUri: cbUri, expiresAt: new Date(Date.now() + oauthExpiryMs), metadata: jsonStr({ mock: isMockProvider(p) }) },
   });
 
-  if (!clientId(p) || !clientSecret(p)) {
+  if (!clientId(p, row.settingsJson) || !clientSecret(p, row.settingsJson)) {
     throw Object.assign(new Error(`OAuth is not configured for ${p.name}. Set Google client credentials in environment variables.`), { statusCode: 400 });
   }
 
   await addLog({ workspaceId, provider: p.key, integrationId: row.id, event: 'oauth_started', message: `${p.name} OAuth flow started` });
-  return { authorizationUrl: buildAuthUrl(p, state, cbUri), state };
+  return { authorizationUrl: buildAuthUrl(p, state, cbUri, row.settingsJson), state };
 };
 
 export const completeOAuthCallback = async (providerKey, code, state, callbackUri = null) => {
@@ -621,8 +654,13 @@ export const completeOAuthCallback = async (providerKey, code, state, callbackUr
   if (session.consumedAt)                   throw Object.assign(new Error('OAuth session already used — please try connecting again.'),          { statusCode: 400 });
   if (session.expiresAt < now())            throw Object.assign(new Error('OAuth session expired — please try connecting again.'),               { statusCode: 400 });
 
+  // This workspace's own configured datacenter (accountsBase), if any — read
+  // from the Integration row the OAuth session was opened against, so the
+  // token exchange hits the same datacenter the authorize step used.
+  const existingRow = await prisma.integration.findUnique({ where: { id: session.integrationId } }).catch(() => null);
+
   const cbUri       = callbackUri ?? session.redirectUri ?? redirectUri(p) ?? '';
-  const tokenPayload = await exchangeCode(p, code, cbUri);
+  const tokenPayload = await exchangeCode(p, code, cbUri, existingRow?.settingsJson);
 
   const connected = await markConnected(session.workspaceId, p.key, p, tokenPayload.expires_in);
   await upsertToken(connected.id, session.workspaceId, p.key, tokenPayload);
@@ -688,12 +726,30 @@ export const disconnectIntegration = async (workspaceId, providerKey) => {
 
 export const saveIntegrationSettings = async (workspaceId, providerKey, settings, enabled = true) => {
   const row = await upsertRow(workspaceId, providerKey);
+
+  // A workspace's own OAuth app (bring-your-own client_id/secret — e.g. their
+  // own Zoho Developer Console registration, kept separate from the shared
+  // platform app) travels through this same generic settings save. The secret
+  // is encrypted before it reaches the DB and never stored as plaintext.
+  // Omitting `clientSecret` on a later save (updating some unrelated field)
+  // keeps whatever was already stored instead of silently deleting it, since
+  // this call replaces settingsJson wholesale rather than patching it.
+  const persistedSettings = { ...settings };
+  if (persistedSettings?.clientSecret) {
+    persistedSettings.clientSecretCipher = encryptToken(persistedSettings.clientSecret);
+    delete persistedSettings.clientSecret;
+  } else {
+    delete persistedSettings?.clientSecret;
+    const existingCipher = safeJson(row.settingsJson, {}).clientSecretCipher;
+    if (existingCipher) persistedSettings.clientSecretCipher = existingCipher;
+  }
+
   await prisma.integrationSetting.upsert({
     where: { integrationId: row.id },
-    create: { workspaceId, integrationId: row.id, provider: providerKey, settingsJson: jsonStr(settings), enabled, webhookEnabled: Boolean(settings?.webhookEnabled), selectedChannels: jsonStr(settings?.selectedChannels ?? []), lastValidatedAt: now() },
-    update: { settingsJson: jsonStr(settings), enabled, webhookEnabled: Boolean(settings?.webhookEnabled), selectedChannels: jsonStr(settings?.selectedChannels ?? []), lastValidatedAt: now() },
+    create: { workspaceId, integrationId: row.id, provider: providerKey, settingsJson: jsonStr(persistedSettings), enabled, webhookEnabled: Boolean(settings?.webhookEnabled), selectedChannels: jsonStr(settings?.selectedChannels ?? []), lastValidatedAt: now() },
+    update: { settingsJson: jsonStr(persistedSettings), enabled, webhookEnabled: Boolean(settings?.webhookEnabled), selectedChannels: jsonStr(settings?.selectedChannels ?? []), lastValidatedAt: now() },
   });
-  await prisma.integration.update({ where: { id: row.id }, data: { settingsJson: jsonStr(settings), webhookEnabled: Boolean(settings?.webhookEnabled) } });
+  await prisma.integration.update({ where: { id: row.id }, data: { settingsJson: jsonStr(persistedSettings), webhookEnabled: Boolean(settings?.webhookEnabled) } });
 
   // Custom API — save config
   if (providerKey === 'custom_api' && settings?.endpointUrl) {

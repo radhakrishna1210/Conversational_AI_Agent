@@ -52,27 +52,24 @@ export const notionFetch = async (workspaceId, path, init = {}) => {
 };
 
 /**
- * Which database new call pages get created in. There is no picker UI for
- * this yet (same gap as Google Sheets' spreadsheet picker, minus the picker) —
- * so on first use this auto-discovers the first database the user shared with
- * the integration during Notion's OAuth consent screen, and persists the
- * choice into Integration.settingsJson so every later call reuses the same
- * database instead of re-searching (and so a future picker UI has somewhere
- * to write a deliberate choice instead of this guess).
+ * Which database new call pages get created in. Set from the Integrations
+ * page (Configure → "Notion Database ID") — that value lives in this
+ * workspace's own Integration.settingsJson.databaseId and always wins, since
+ * it's this specific tenant's deliberate choice of database, and two
+ * workspaces can each have their own Notion database shared with the
+ * integration. If nothing has been configured yet, this auto-discovers the
+ * first database the user shared with the integration during Notion's OAuth
+ * consent screen and persists the choice into settingsJson so every later
+ * call reuses the same database instead of re-searching (and so the
+ * Configure UI has a real value to show instead of a guess).
  *
- * NOTION_DATABASE_ID (env) overrides all of that unconditionally — set it to
- * force an exact database when auto-discovery picked the wrong one out of
- * several shared databases (Notion's search API gives no control over which
- * comes back first). Deliberately NOT written into the cache: .env is already
- * the persistence mechanism for a deliberate choice, and writing an env
- * override into the DB too means a throwaway one-off override (e.g. testing
- * with `NOTION_DATABASE_ID=x node ...` inline, without touching .env)
- * silently and permanently clobbers the real cached value for every run
- * after, including ones with the env var unset.
+ * NOTION_DATABASE_ID (env) is only a last-resort platform-wide default for
+ * single-tenant/dev setups with nothing configured per-workspace yet — it
+ * must NOT unconditionally override a workspace's own configured or
+ * auto-discovered database, or every tenant silently gets routed to the same
+ * one database.
  */
 async function resolveTargetDatabaseId(workspaceId) {
-  if (env.NOTION_DATABASE_ID) return env.NOTION_DATABASE_ID;
-
   const integration = await prisma.integration.findUnique({
     where: { workspaceId_provider: { workspaceId, provider: 'notion' } },
   });
@@ -80,6 +77,8 @@ async function resolveTargetDatabaseId(workspaceId) {
 
   const settings = safeJson(integration.settingsJson, {});
   if (settings.databaseId) return settings.databaseId;
+
+  if (env.NOTION_DATABASE_ID) return env.NOTION_DATABASE_ID;
 
   const res = await notionFetch(workspaceId, '/v1/search', {
     method: 'POST',

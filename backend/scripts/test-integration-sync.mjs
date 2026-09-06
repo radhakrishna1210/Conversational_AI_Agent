@@ -217,19 +217,21 @@ async function run() {
     } else if (!notionIntegration.token) {
       console.log('SKIPPED — Notion shows connected but has no stored token. Reconnect it on the Integrations page.');
     } else {
-      // Read back the SAME value createPostCallPage will resolve to: forced
-      // NOTION_DATABASE_ID wins if set, else the cached Integration.settingsJson.
-      // databaseId, else auto-discovery on this run. Logged here in the script
-      // rather than in the service file, so this stays a one-off diagnostic and
-      // not permanent debug noise in production code.
+      // Read back the SAME value createPostCallPage will resolve to: this
+      // workspace's own settingsJson.databaseId wins if set (configured on the
+      // Integrations page, or auto-discovered and cached on a prior run), else
+      // NOTION_DATABASE_ID is the platform-wide default, else auto-discovery
+      // runs now. Logged here in the script rather than in the service file,
+      // so this stays a one-off diagnostic and not permanent debug noise in
+      // production code.
       const cachedDatabaseId = (() => { try { return JSON.parse(notionIntegration.settingsJson).databaseId; } catch { return undefined; } })();
-      if (env.NOTION_DATABASE_ID) {
-        console.log(`\nTarget Notion databaseId: ${env.NOTION_DATABASE_ID}  (forced via NOTION_DATABASE_ID env var — overrides cache${cachedDatabaseId && cachedDatabaseId !== env.NOTION_DATABASE_ID ? `, which was ${cachedDatabaseId}` : ''})`);
-      } else if (cachedDatabaseId) {
-        console.log(`\nTarget Notion databaseId (cached in Integration.settingsJson): ${cachedDatabaseId}`);
-        console.log('If this is still the OLD "Projects" database and not "AI Call Records", set NOTION_DATABASE_ID to force the right one — the cache will NOT auto-switch on its own.');
+      if (cachedDatabaseId) {
+        console.log(`\nTarget Notion databaseId (this workspace's configured/cached value): ${cachedDatabaseId}`);
+        console.log('To point this workspace at a different database, set it on the Integrations page (Configure) rather than editing NOTION_DATABASE_ID — the env var is only a fallback default for workspaces with nothing configured yet.');
+      } else if (env.NOTION_DATABASE_ID) {
+        console.log(`\nTarget Notion databaseId: ${env.NOTION_DATABASE_ID}  (platform-wide NOTION_DATABASE_ID default — this workspace has nothing configured yet)`);
       } else {
-        console.log('\nTarget Notion databaseId: (none cached, no NOTION_DATABASE_ID set — will auto-discover and cache one this run)');
+        console.log('\nTarget Notion databaseId: (none configured, no NOTION_DATABASE_ID set — will auto-discover and cache one this run)');
       }
 
       try {

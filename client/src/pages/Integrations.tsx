@@ -15,6 +15,13 @@ interface ProviderMeta {
   key: string; name: string; category: string; tab: string;
   connectType: 'oauth' | 'apikey' | 'webhook' | 'custom';
   connectFields: ConnectField[];
+  // Config fields (e.g. a specific Notion database ID, or which Zoho
+  // datacenter this workspace's org lives on) — shown for both OAuth and
+  // manual connect, saved into this workspace's own Integration.settingsJson
+  // via PATCH /integrations/:provider/settings, and editable again later via
+  // the "Configure" action on an already-connected card. Distinct from
+  // connectFields, which are only shown when doing a manual token connect.
+  configFields?: ConnectField[];
   logo: string; accent: string; tint: string;
   description: string; modalDescription: string;
   connectLabel: string; docsUrl: string; dashboardUrl?: string;
@@ -24,6 +31,7 @@ interface Integration {
   id: string; provider: string; name: string; status: string; connected: boolean;
   accountLabel?: string | null; lastSyncAt?: string | null; lastSyncedCount?: number;
   lastError?: string | null; webhookEnabled?: boolean; metadata?: Record<string, any>;
+  settingsJson?: Record<string, any>;
 }
 
 interface Dashboard {
@@ -130,6 +138,13 @@ const PROVIDERS: ProviderMeta[] = [
     modalDescription: 'Connect Zoho CRM to automatically log calls, update leads, and manage deals post-call.',
     connectLabel: 'Connect with Zoho CRM',
     dashboardUrl: 'https://crm.zoho.com',
+    configFields: [
+      {
+        name: 'accountsBase', label: 'Zoho Data Center', type: 'select', placeholder: 'https://accounts.zoho.com',
+        options: ['https://accounts.zoho.com', 'https://accounts.zoho.eu', 'https://accounts.zoho.in', 'https://accounts.zoho.com.cn', 'https://accounts.zoho.jp', 'https://accounts.zoho.com.au'],
+        help: 'Which regional datacenter your Zoho org was created in. A mismatch here is the #1 cause of Zoho\'s "invalid_client" error — check the domain in your Zoho CRM URL if unsure.',
+      },
+    ],
     connectFields: [
       { name: 'description', label: 'Description', placeholder: 'Log call outcomes and update CRM records automatically.', type: 'textarea', optional: true },
     ],
@@ -142,6 +157,12 @@ const PROVIDERS: ProviderMeta[] = [
     modalDescription: 'Connect Notion to automatically log call summaries and extracted variables into pages or a database you pick.',
     connectLabel: 'Connect with Notion',
     dashboardUrl: 'https://www.notion.so',
+    configFields: [
+      {
+        name: 'databaseId', label: 'Notion Database ID', type: 'text', placeholder: 'e.g. 3cdff65b6b4c80139cb8ea4b2315eaeb', optional: true,
+        help: 'Optional — the 32-character ID from your database\'s Notion URL. Leave blank to auto-pick the first database you share with the integration. Must be shared with the integration first (database → "···" → Connections).',
+      },
+    ],
     connectFields: [
       { name: 'description', label: 'Description', placeholder: 'Log call summaries into Notion after each call.', type: 'textarea', optional: true },
     ],
@@ -306,21 +327,71 @@ const TAB_LABELS: Record<string, string> = {
   connected: 'Connected',
 };
 
-function ConnectModal({ provider, oauthAvailable, onClose, onConnected }: {
-  provider: ProviderMeta; oauthAvailable: boolean; onClose: () => void; onConnected: () => void;
+function ConnectModal({ provider, oauthAvailable, existingSettings, configOnly, onClose, onConnected }: {
+  provider: ProviderMeta; oauthAvailable: boolean; existingSettings?: Record<string, any>; configOnly?: boolean;
+  onClose: () => void; onConnected: () => void;
 }) {
   const [values, setValues] = useState<Record<string, string>>({
     integrationName: `My ${provider.name} Integration`,
     method: 'POST', authType: 'none',
+  });
+  const [configValues, setConfigValues] = useState<Record<string, string>>(() => {
+    const initial: Record<string, string> = {};
+    // A select field always has a real value on screen (it falls back to its
+    // first option — see renderField) even before the user touches it, so the
+    // saved state must start there too. Otherwise an untouched select reads as
+    // '' and saveConfig() silently skips it, even though the UI shows a value
+    // selected — e.g. Zoho's datacenter picker looking "set" but never saved.
+    for (const f of provider.configFields ?? []) {
+      initial[f.name] = existingSettings?.[f.name] ?? (f.type === 'select' ? (f.options?.[0] ?? '') : '');
+    }
+    return initial;
   });
   const [saving, setSaving] = useState(false);
   const [error,  setError]  = useState('');
   const [showManual, setShowManual] = useState(provider.connectType !== 'oauth' || !oauthAvailable);
 
   const set = (k: string, v: string) => setValues(prev => ({ ...prev, [k]: v }));
+  const setConfig = (k: string, v: string) => setConfigValues(prev => ({ ...prev, [k]: v }));
+
+  // Persists configFields (e.g. Notion database ID, Zoho datacenter) into
+  // this workspace's own Integration.settingsJson via the generic settings
+  // endpoint — the same store zoho.service.js / notion.service.js read back
+  // per-workspace instead of falling back to a global env default. Skips the
+  // call entirely if there are no configFields or nothing was filled in, so
+  // providers without config fields see no behavior change.
+  const saveConfig = async () => {
+    if (!provider.configFields?.length) return;
+    const settings: Record<string, string> = {};
+    for (const f of provider.configFields) {
+      const v = configValues[f.name]?.trim();
+      if (v) settings[f.name] = v;
+    }
+    if (!Object.keys(settings).length) return;
+    await whapi.patch(`/integrations/${provider.key}/settings`, { settings });
+  };
 
   const handleOAuthConnect = async () => {
     setSaving(true); setError('');
+
+    // Step 1: persist configFields (e.g. Zoho's datacenter) first. A failure
+    // here is a config-save problem, not an "OAuth isn't available" problem —
+    // report it and stop, WITHOUT falling back to manual mode. Falling back
+    // here used to be the bug: it silently dropped OAuth-only providers like
+    // Zoho/Notion (whose connectFields have no accessToken input at all) into
+    // a manual form they can never complete, surfacing an unrelated "OAuth
+    // access token is required" error on the next click.
+    try {
+      await saveConfig();
+    } catch (e: any) {
+      setError(e.message || 'Could not save configuration.');
+      setSaving(false);
+      return;
+    }
+
+    // Step 2: redirect to the provider's OAuth authorization URL. Only THIS
+    // failing (the platform's OAuth app itself isn't configured server-side)
+    // is a legitimate reason to offer the manual-token fallback.
     try {
       const r = await whapi.post<any>(`/integrations/${provider.key}/connect`, {});
       if (r.authorizationUrl) {
@@ -339,7 +410,29 @@ function ConnectModal({ provider, oauthAvailable, onClose, onConnected }: {
     } finally { setSaving(false); }
   };
 
+  const handleSaveConfigOnly = async () => {
+    setSaving(true); setError('');
+    try {
+      await saveConfig();
+      toast.success(`${provider.name} configuration saved.`);
+      onConnected();
+      onClose();
+    } catch (e: any) {
+      setError(e.message || 'Could not save configuration.');
+    } finally { setSaving(false); }
+  };
+
   const handleSubmit = async () => {
+    // OAuth connections are handled entirely by handleOAuthConnect (save
+    // configFields, then redirect) and must never fall through to the manual
+    // access-token check below — that check is for providers actually being
+    // connected by pasting a token, not for an OAuth redirect that hasn't
+    // even happened yet.
+    if (provider.connectType === 'oauth' && !showManual) {
+      await handleOAuthConnect();
+      return;
+    }
+
     setSaving(true); setError('');
     try {
       const payload = { ...values };
@@ -347,17 +440,13 @@ function ConnectModal({ provider, oauthAvailable, onClose, onConnected }: {
         if (typeof value === 'string') payload[key] = value.trim();
       });
 
-      if (provider.connectType === 'oauth' && !showManual) {
-        await handleOAuthConnect();
-        return;
-      }
-
       if (provider.connectType === 'oauth' && showManual) {
         if (!payload.accessToken?.trim()) {
           throw new Error('OAuth access token is required for manual connection.');
         }
       }
 
+      await saveConfig();
       const result = await whapi.post<any>(`/integrations/${provider.key}/connect-token`, payload);
       if (result?.connected || result?.integration?.connected) {
         toast.success(`${provider.name} connected successfully!`);
@@ -379,6 +468,41 @@ function ConnectModal({ provider, oauthAvailable, onClose, onConnected }: {
     outline: 'none', boxSizing: 'border-box', fontFamily: 'var(--ff-b)', transition: 'border-color 0.2s',
   };
 
+  const renderField = (field: ConnectField, value: string, onChange: (v: string) => void) => (
+    <div key={field.name}>
+      <label className="rz-field-label" style={{ display: 'block', marginBottom: '8px' }}>
+        {field.label}{field.optional && <span className="rz-muted" style={{ fontWeight: 400 }}> (optional)</span>}
+      </label>
+
+      {field.type === 'select' ? (
+        <select value={value || field.options?.[0] || ''} onChange={e => onChange(e.target.value)} style={{ ...inp }}>
+          {field.options?.map(o => <option key={o} value={o}>{o}</option>)}
+        </select>
+      ) : field.type === 'textarea' ? (
+        <textarea
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder={field.placeholder}
+          rows={3}
+          style={{ ...inp, resize: 'vertical', minHeight: '80px' }}
+        />
+      ) : (
+        <input
+          type={field.type === 'password' ? 'password' : field.type === 'url' ? 'url' : 'text'}
+          value={value}
+          onChange={e => onChange(e.target.value)}
+          placeholder={field.placeholder}
+          style={inp}
+          autoComplete="off"
+          onFocus={e => (e.currentTarget.style.borderColor = provider.accent)}
+          onBlur={e => (e.currentTarget.style.borderColor = 'var(--line-2)')}
+        />
+      )}
+
+      {field.help && <p className="rz-field-hint" style={{ margin: '6px 0 0' }}>{field.help}</p>}
+    </div>
+  );
+
   return (
     <div style={{ position: 'fixed', inset: 0, zIndex: 9999, background: 'rgba(0,0,0,0.75)', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '20px' }}>
       <div className="rz-enter" style={{ width: 'min(580px,100%)', maxHeight: '90vh', overflowY: 'auto', background: 'var(--s1)', border: '1px solid var(--line-2)', borderRadius: '16px' }}>
@@ -390,8 +514,8 @@ function ConnectModal({ provider, oauthAvailable, onClose, onConnected }: {
               {provider.logo}
             </div>
             <div>
-              <h2 className="rz-h3" style={{ margin: 0 }}>{provider.name} Integration</h2>
-              <p className="rz-sub" style={{ margin: '6px 0 0', maxWidth: '400px' }}>{provider.modalDescription}</p>
+              <h2 className="rz-h3" style={{ margin: 0 }}>{provider.name} {configOnly ? 'Configuration' : 'Integration'}</h2>
+              <p className="rz-sub" style={{ margin: '6px 0 0', maxWidth: '400px' }}>{configOnly ? `Update workspace-specific settings for ${provider.name}.` : provider.modalDescription}</p>
             </div>
           </div>
           <button onClick={onClose} aria-label="Close" style={{ background: 'transparent', border: 'none', color: 'var(--tx-3)', cursor: 'pointer', padding: '4px', flexShrink: 0 }}>
@@ -405,6 +529,31 @@ function ConnectModal({ provider, oauthAvailable, onClose, onConnected }: {
             <div style={{ background: 'rgba(248,113,113,0.08)', border: '1px solid rgba(248,113,113,0.3)', borderRadius: '10px', padding: '12px 14px', color: 'var(--err)', fontSize: '13px', display: 'flex', gap: '10px', alignItems: 'flex-start' }}>
               <AlertCircle size={16} style={{ flexShrink: 0, marginTop: '1px' }} />
               <span>{error}</span>
+            </div>
+          )}
+
+          {configOnly ? (
+            <>
+              {(provider.configFields ?? []).map(field => renderField(field, configValues[field.name] ?? '', v => setConfig(field.name, v)))}
+
+              <div style={{ display: 'flex', gap: '12px', paddingTop: '4px' }}>
+                <button onClick={onClose} className="rz-btn rz-btn-secondary" style={{ flex: 1, padding: '13px' }}>
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveConfigOnly}
+                  disabled={saving}
+                  style={{ flex: 2, padding: '13px', borderRadius: '11px', border: 'none', background: provider.accent, color: '#fff', fontFamily: 'var(--ff-d)', fontSize: '14px', fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', opacity: saving ? 0.75 : 1, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
+                >
+                  {saving ? <><Loader2 size={16} className="animate-spin" /> Saving…</> : 'Save Configuration'}
+                </button>
+              </div>
+            </>
+          ) : (
+          <>
+          {(provider.configFields ?? []).length > 0 && (
+            <div style={{ display: 'grid', gap: '18px', padding: '14px 16px', borderRadius: '11px', border: '1px dashed var(--line-2)' }}>
+              {provider.configFields!.map(field => renderField(field, configValues[field.name] ?? '', v => setConfig(field.name, v)))}
             </div>
           )}
 
@@ -423,40 +572,7 @@ function ConnectModal({ provider, oauthAvailable, onClose, onConnected }: {
             </div>
           )}
 
-          {(showManual || provider.connectType !== 'oauth') && provider.connectFields.map(field => (
-            <div key={field.name}>
-              <label className="rz-field-label" style={{ display: 'block', marginBottom: '8px' }}>
-                {field.label}{field.optional && <span className="rz-muted" style={{ fontWeight: 400 }}> (optional)</span>}
-              </label>
-
-              {field.type === 'select' ? (
-                <select value={values[field.name] ?? field.options?.[0] ?? ''} onChange={e => set(field.name, e.target.value)} style={{ ...inp }}>
-                  {field.options?.map(o => <option key={o} value={o}>{o}</option>)}
-                </select>
-              ) : field.type === 'textarea' ? (
-                <textarea
-                  value={values[field.name] ?? ''}
-                  onChange={e => set(field.name, e.target.value)}
-                  placeholder={field.placeholder}
-                  rows={3}
-                  style={{ ...inp, resize: 'vertical', minHeight: '80px' }}
-                />
-              ) : (
-                <input
-                  type={field.type === 'password' ? 'password' : field.type === 'url' ? 'url' : 'text'}
-                  value={values[field.name] ?? ''}
-                  onChange={e => set(field.name, e.target.value)}
-                  placeholder={field.placeholder}
-                  style={inp}
-                  autoComplete="off"
-                  onFocus={e => (e.currentTarget.style.borderColor = provider.accent)}
-                  onBlur={e => (e.currentTarget.style.borderColor = 'var(--line-2)')}
-                />
-              )}
-
-              {field.help && <p className="rz-field-hint" style={{ margin: '6px 0 0' }}>{field.help}</p>}
-            </div>
-          ))}
+          {(showManual || provider.connectType !== 'oauth') && provider.connectFields.map(field => renderField(field, values[field.name] ?? '', v => set(field.name, v)))}
 
           {/* Docs link */}
           <a href={provider.docsUrl} target="_blank" rel="noopener noreferrer"
@@ -479,6 +595,8 @@ function ConnectModal({ provider, oauthAvailable, onClose, onConnected }: {
             </button>
           </div>
           )}
+          </>
+          )}
         </div>
       </div>
     </div>
@@ -492,6 +610,7 @@ export default function Integrations() {
   const [loading,    setLoading]    = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [modal,      setModal]      = useState<ProviderMeta | null>(null);
+  const [configTarget, setConfigTarget] = useState<ProviderMeta | null>(null);
   const [disconnecting, setDisconnecting] = useState<string | null>(null);
   const [syncing,       setSyncing]       = useState<string | null>(null);
   const [filter, setFilter] = useState<'all' | 'calendar' | 'automation' | 'telephony' | 'messaging' | 'custom' | 'connected'>('all');
@@ -715,6 +834,12 @@ export default function Integrations() {
                           {syncing === meta.key ? <Loader2 size={12} className="animate-spin" /> : <RefreshCw size={12} />}
                           Sync
                         </button>
+                        {(meta.configFields?.length ?? 0) > 0 && (
+                          <button onClick={() => setConfigTarget(meta)}
+                            className="rz-btn rz-btn-secondary rz-btn-sm">
+                            Configure
+                          </button>
+                        )}
                       </>
                     ) : (
                       <button onClick={() => setModal(meta)}
@@ -747,8 +872,21 @@ export default function Integrations() {
         <ConnectModal
           provider={modal}
           oauthAvailable={!!oauthAvailable[modal.key]}
+          existingSettings={byProvider.get(modal.key)?.settingsJson}
           onClose={() => setModal(null)}
           onConnected={() => { load(true); setModal(null); }}
+        />
+      )}
+
+      {/* ── Configure Modal (already-connected providers with configFields) ── */}
+      {configTarget && (
+        <ConnectModal
+          provider={configTarget}
+          oauthAvailable={!!oauthAvailable[configTarget.key]}
+          existingSettings={byProvider.get(configTarget.key)?.settingsJson}
+          configOnly
+          onClose={() => setConfigTarget(null)}
+          onConnected={() => { load(true); setConfigTarget(null); }}
         />
       )}
      </div>
