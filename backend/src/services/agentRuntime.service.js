@@ -462,6 +462,7 @@ export function resolveLlmForAgent(agent, { lowLatency = false } = {}) {
     : p === 'gemini' ? Boolean(process.env.GEMINI_API_KEY)
     : p === 'azure' ? Boolean(process.env.AZURE_OPENAI_API_KEY)
     : p === 'groq' ? Boolean(process.env.GROQ_API_KEY)
+    : p === 'sarvam' ? Boolean(process.env.SARVAM_API_KEY)
     : true;
   if (!hasKey(provider)) {
     if (process.env.GEMINI_API_KEY) {
@@ -470,6 +471,9 @@ export function resolveLlmForAgent(agent, { lowLatency = false } = {}) {
     } else if (process.env.OPENAI_API_KEY) {
       provider = 'openai';
       model = 'gpt-4o-mini';
+    } else if (process.env.SARVAM_API_KEY) {
+      provider = 'sarvam';
+      model = 'sarvam-105b-conversations';
     }
   }
 

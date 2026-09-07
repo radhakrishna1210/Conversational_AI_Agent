@@ -51,6 +51,12 @@ export const mapAgentModel = (label) => {
     // GEMINI_MODEL_MAPPING for why 2.5-flash-lite no longer resolves at all.
     return { provider: "gemini", model: norm.includes("lite") ? "gemini-3.5-flash-lite" : "gemini-2.5-flash" };
   }
+  if (norm.includes("sarvam")) {
+    const m = norm.includes("105b-conversations") ? "sarvam-105b-conversations"
+      : norm === "sarvam-105b" ? "sarvam-105b"
+      : "sarvam-105b-conversations";
+    return { provider: "sarvam", model: m };
+  }
   if (norm.startsWith("azure")) {
     const m = ALLOWED_MODELS.azure.find((x) => norm.includes(x.replace("azure-", ""))) || "azure-gpt-4o-mini";
     return { provider: "azure", model: m };
@@ -510,7 +516,7 @@ Provide 4 to 8 logical, structured conversational steps (flow items) that cover 
     logger.warn(`Primary LLM provider failed for agent flow generation, trying Sarvam AI fallback: ${error.message}`);
     if (process.env.SARVAM_API_KEY) {
       const sarvamUrl = process.env.SARVAM_URL || "https://api.sarvam.ai";
-      const sarvamModel = process.env.SARVAM_MODEL || "sarvam-30b";
+      const sarvamModel = process.env.SARVAM_MODEL || "sarvam-105b-conversations";
       try {
         const res = await fetch(`${sarvamUrl}/v1/chat/completions`, {
           method: "POST",
