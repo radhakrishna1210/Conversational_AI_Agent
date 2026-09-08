@@ -1327,7 +1327,20 @@ model VoiceNumber {
 model WhatsAppTemplateBinding {
   id                 String    @id @default(cuid())
   workspaceId        String
-  presetId           String
+  /// Which shipped preset this came from. NULL for a template the client wrote or
+  /// had drafted for them — those have no preset to point at, and carry their own
+  /// wording in the columns below instead.
+  presetId           String?
+  /// "preset" | "custom". Which of the two shapes above this row is.
+  origin             String    @default("preset")
+  /// Custom templates only — presets read these from the constant instead.
+  label              String?
+  bodyText           String?
+  /// [{ index, label, example, variableKey }] — what each {{n}} means and the
+  /// sample Meta was shown at submission.
+  placeholders       Json?
+  category           String?
+  createdByUserId    String?
   // ChatFlow's own Template.id. Kept for status polling; NOT what sends resolve by.
   chatflowTemplateId String?
   // The derived Meta-legal name. Sends resolve by name + language, so this is the
@@ -1341,7 +1354,14 @@ model WhatsAppTemplateBinding {
   updatedAt          DateTime  @updatedAt
   workspace          Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
+  /// Kept exactly as it was. Postgres treats every NULL as distinct, so this stays
+  /// completely inert for custom rows while still guaranteeing one row per preset —
+  /// which is what stops the same preset being submitted to Meta twice. Do not
+  /// "fix" this into a partial index; it is doing its job.
   @@unique([workspaceId, presetId])
+  /// The real duplicate guard for the library, covering both origins: sends resolve
+  /// a template by name + language, so two rows sharing those would be ambiguous.
+  @@unique([workspaceId, chatflowName, language])
   @@index([workspaceId])
 }
 

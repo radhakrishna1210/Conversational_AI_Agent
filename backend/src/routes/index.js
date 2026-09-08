@@ -240,6 +240,11 @@ ws.get('/whatsapp-templates/webhook', chatflowWebhook.getWebhookStatus);
 ws.post('/whatsapp-templates/webhook', authorize('Member'), chatflowWebhook.registerWebhook);
 ws.get('/whatsapp-templates', waTemplates.listTemplates);
 ws.post('/whatsapp-templates', authorize('Member'), waTemplates.createTemplate);
+// A template the client wrote themselves, and the AI draft that feeds it. The
+// draft endpoint creates nothing — it returns text for review, which then goes
+// through the same validation and the same submit path as anything hand-typed.
+ws.post('/whatsapp-templates/custom', authorize('Member'), waTemplates.createCustomTemplate);
+ws.post('/whatsapp-templates/draft', authorize('Member'), waTemplates.draftTemplate);
 
 // Caller-number picker ("call from your own number") — Twilio-backed, no DB.
 ws.get('/caller-numbers', callerCtrl.listCallerNumbers);
