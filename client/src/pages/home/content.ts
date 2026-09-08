@@ -277,23 +277,24 @@ export const INDUSTRIES = [
 /* ── QA & analytics — the "recent calls" demo player ──────────────────
  *
  * The section heading promises a scorecard on every conversation, so the
- * visual under it is a small, real version of that: three sample calls the
+ * visual under it is a small, real version of that: four sample calls the
  * visitor can pick between, each with its recording, its metrics, and the
  * issues our QA pass would have flagged.
  *
  * AUDIO. `audio` is a path into `client/public/demo-calls/`, or null while a
  * recording is still to be produced — the player renders a disabled state for
- * those rather than pretending to have something to play. Two are pending;
- * drop the file in and fill the path to light one up:
- *   collections → /demo-calls/collections-reminder.webm
- *   support     → /demo-calls/customer-support.webm
+ * those rather than pretending to have something to play. All four have a
+ * recording now; the null branch stays for the next one added.
  *
  * `durationSec` is the authoritative length. Chrome's MediaRecorder writes no
  * Duration into the WebM header, so `<audio>.duration` reads Infinity until
  * the element is forced to scan the whole file; the player trusts this number
  * and defers to the element only once the element reports something finite.
- * The 72s below is the recording's decoded length (72.24s), measured off the
- * samples themselves rather than estimated from the container.
+ * The numbers below are the recordings' decoded lengths — 107.34s, 133.56s,
+ * 76.08s and 72.24s — measured off the samples rather than estimated from the
+ * container, which carries no duration at all.
+ *
+ * The rail reads newest first, so a call added later belongs at the top.
  *
  * The metrics and issues are illustrative — nothing in the product scores a
  * call yet — and the card says so, the way the old static one did.
@@ -328,6 +329,96 @@ export interface DemoCall {
 
 export const DEMO_CALLS: DemoCall[] = [
   {
+    id: 'call_3e6b90d17c24',
+    vertical: 'Customer support',
+    scenario: 'Order status & return',
+    caller: 'Rohan',
+    completedAt: 'Sep 8, 2:40pm',
+    durationSec: 107,
+    status: 'Resolved',
+    audio: '/demo-calls/customer-support.webm',
+    metrics: [
+      { label: 'Criteria met', value: '4 / 4' },
+      { label: 'Answer relevance', value: '89%' },
+      { label: 'Tool calls valid', value: '86%' },
+      { label: 'Script adherence', value: '94%' },
+    ],
+    issues: [
+      {
+        tag: 'Tool call',
+        severity: 'high',
+        title: 'Retried the order lookup twice',
+        text: 'The first two lookups went out with the order number unnormalised and failed — six seconds of dead air before the third succeeded.',
+      },
+      {
+        tag: 'Hand-off',
+        severity: 'med',
+        title: 'Held on past a request for a human',
+        text: 'Kept restating the returns policy after the caller asked to be put through. One clarification, then transfer.',
+      },
+    ],
+  },
+  {
+    id: 'call_a41d7f2c68b5',
+    vertical: 'Insurance',
+    scenario: 'Renewal & coverage check',
+    caller: 'Priya',
+    completedAt: 'Sep 8, 2:25pm',
+    durationSec: 133,
+    status: 'Renewal scheduled',
+    audio: '/demo-calls/insurance-policy.webm',
+    metrics: [
+      { label: 'Criteria met', value: '4 / 4' },
+      { label: 'Answer relevance', value: '91%' },
+      { label: 'Tool calls valid', value: '100%' },
+      { label: 'Script adherence', value: '86%' },
+    ],
+    issues: [
+      {
+        tag: 'Disclosure',
+        severity: 'high',
+        title: 'Quoted a premium before the disclosure',
+        text: 'Named a renewal figure before identifying the insurer and reading the licence line. In this vertical the disclosure belongs ahead of the first number.',
+      },
+      {
+        tag: 'Grounding',
+        severity: 'med',
+        title: 'Paraphrased an exclusion',
+        text: 'Summarised a policy exclusion in its own words instead of reading the clause. Quote the wording or point at the document.',
+      },
+    ],
+  },
+  {
+    id: 'call_7c05be9a3d18',
+    vertical: 'E-commerce',
+    scenario: 'Abandoned cart follow-up',
+    caller: 'Nikhil',
+    completedAt: 'Sep 8, 2:09pm',
+    durationSec: 76,
+    status: 'Cart recovered',
+    audio: '/demo-calls/cart-recovery.webm',
+    metrics: [
+      { label: 'Criteria met', value: '3 / 4' },
+      { label: 'Answer relevance', value: '94%' },
+      { label: 'Tool calls valid', value: '100%' },
+      { label: 'Script adherence', value: '82%' },
+    ],
+    issues: [
+      {
+        tag: 'Off-script offer',
+        severity: 'high',
+        title: 'Invented a discount to close',
+        text: 'Offered ten percent off unprompted. No promotion in the campaign authorises it — discounts come from the offer list or not at all.',
+      },
+      {
+        tag: 'Pacing',
+        severity: 'med',
+        title: 'Pitched before identifying the caller',
+        text: 'Went into the cart contents before confirming it had the right person. Identify first, then sell.',
+      },
+    ],
+  },
+  {
     id: 'call_8f2c41a7d093',
     vertical: 'Appointments',
     scenario: 'SaaS demo booking',
@@ -354,66 +445,6 @@ export const DEMO_CALLS: DemoCall[] = [
         severity: 'med',
         title: 'One interruption',
         text: 'Started speaking once before the caller had finished. Endpointing fired early on a mid-sentence pause.',
-      },
-    ],
-  },
-  {
-    id: 'call_2b71e5c8a4f6',
-    vertical: 'Collections',
-    scenario: 'Overdue invoice reminder',
-    caller: 'Meera',
-    completedAt: 'Aug 21, 3:12pm',
-    durationSec: 224,
-    status: 'Payment plan set',
-    audio: null,
-    metrics: [
-      { label: 'Criteria met', value: '3 / 4' },
-      { label: 'Answer relevance', value: '96%' },
-      { label: 'Tool calls valid', value: '100%' },
-      { label: 'Script adherence', value: '91%' },
-    ],
-    issues: [
-      {
-        tag: 'Disclosure',
-        severity: 'high',
-        title: 'Recording notice came late',
-        text: 'The consent line was read after the balance was discussed. It belongs in the opening turn, before anything account-specific.',
-      },
-      {
-        tag: 'Tone',
-        severity: 'med',
-        title: 'Pushed once past a refusal',
-        text: 'Re-offered the payment plan after the caller had declined twice. One offer, then close.',
-      },
-    ],
-  },
-  {
-    id: 'call_5d94f0b23e17',
-    vertical: 'Customer support',
-    scenario: 'Order status & return',
-    caller: 'Rohan',
-    completedAt: 'Aug 21, 6:03pm',
-    durationSec: 127,
-    status: 'Resolved',
-    audio: null,
-    metrics: [
-      { label: 'Criteria met', value: '4 / 4' },
-      { label: 'Answer relevance', value: '89%' },
-      { label: 'Tool calls valid', value: '86%' },
-      { label: 'Script adherence', value: '94%' },
-    ],
-    issues: [
-      {
-        tag: 'Tool call',
-        severity: 'high',
-        title: 'Retried the order lookup twice',
-        text: 'The first two lookups went out with the order number unnormalised and failed — six seconds of dead air before the third succeeded.',
-      },
-      {
-        tag: 'Pronunciation',
-        severity: 'med',
-        title: 'Mispronounced the caller’s name',
-        text: 'Said the name three different ways across the call. Worth a lexicon entry for the common ones.',
       },
     ],
   },
