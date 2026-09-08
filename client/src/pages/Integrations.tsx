@@ -144,7 +144,7 @@ const PROVIDERS: ProviderMeta[] = [
     description: 'Send a WhatsApp confirmation to the caller after a call books an appointment.',
     modalDescription: 'Connect your ChatFlow workspace so agents can send WhatsApp confirmations from your own verified number. Create the key in ChatFlow with the templates:read, templates:write, messages:send and webhooks:write scopes.',
     connectLabel: 'Connect ChatFlow',
-    dashboardUrl: 'https://chatflo.mannmate.com',
+    dashboardUrl: 'https://chatflow.mannmate.com',
     connectFields: [
       { name: 'integrationName', label: 'Integration Name', placeholder: 'My ChatFlow Integration', type: 'text' },
       { name: 'apiKey', label: 'ChatFlow API Key', placeholder: 'Paste your ChatFlow key', type: 'password', help: 'ChatFlow → Settings → API Keys. Needs templates:read, templates:write, messages:send and webhooks:write.' },
