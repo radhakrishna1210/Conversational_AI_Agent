@@ -24,9 +24,17 @@ import './Home.css';
  * ═══════════════════════════════════════════════════════════════════════════
  *
  * A centred, single-column marketing flow: hero (icons → headline → CTA →
- * full-width console), social proof, an omnichannel band, a trust band, a
- * get-started band, use-case tabs, the QA scorecard, a capability grid, the
- * integrations grid, the builder canvas, an FAQ, and a closing CTA.
+ * full-width console), social proof, use-case tabs, the QA scorecard and call
+ * recordings, outcome cards, a capability grid, the integrations grid, the
+ * builder canvas, an omnichannel band, a trust band, a get-started band, an
+ * FAQ, and a closing CTA.
+ *
+ * Section order deliberately tracks the reference flow: prove it works and let
+ * the visitor hear a real call early (recordings sit fourth, not two-thirds
+ * down), and hold the omnichannel/trust/get-started bands until after the
+ * product itself has been shown. To reorder, move a whole banner-commented
+ * block: those banners are the section boundaries, and nothing outside a
+ * block depends on the order.
  *
  * One flat --bg surface the whole way down — section rhythm comes from
  * whitespace, not from alternating panels. Everything is scoped under `.lp`
@@ -534,6 +542,17 @@ export default function Home() {
         <h1 className="lp-h1">{HERO.title}</h1>
         <p className="lp-lede">{HERO.lede}</p>
 
+        {/*
+         * The phone box is the hero's headline action and sits directly under
+         * the lede — a visitor should be able to hear an agent before they are
+         * asked to read anything else. The signup/demo pair follows it as the
+         * fallback for anyone not ready to hand over a number.
+         */}
+        <div className="lp-tryagent-wrap">
+          <div className="lp-kicker-sm">{TRY_AGENT.eyebrow}</div>
+          <TryAgentForm />
+        </div>
+
         <div className="lp-hero-cta">
           <Link to={HERO.primary.to} className="lp-btn lp-btn-primary lp-btn-lg">
             {HERO.primary.label}
@@ -541,11 +560,6 @@ export default function Home() {
           <Link to={HERO.secondary.to} className="lp-btn lp-btn-ghost lp-btn-lg">
             {HERO.secondary.label}
           </Link>
-        </div>
-
-        <div className="lp-tryagent-wrap">
-          <div className="lp-kicker-sm">{TRY_AGENT.eyebrow}</div>
-          <TryAgentForm />
         </div>
 
         {/* Call console mock — static, illustrative, full width below the copy */}
@@ -591,9 +605,71 @@ export default function Home() {
         <div className="lp-sechead">
           <div className="lp-eyebrow">{PROOF.heading}</div>
         </div>
+        {/*
+         * The page's single industries list. It reads as the vertical strip
+         * directly under the hero, and every name links to its own page —
+         * there is no second, text-only copy further down.
+         */}
         <div className="lp-proof-industries">
-          {PROOF.industries.map((i) => <span key={i}>{i}</span>)}
+          {INDUSTRIES.map((i) => (
+            <Link key={i.label} to={i.to}>{i.label}</Link>
+          ))}
         </div>
+      </section>
+
+      {/* ══ USE CASES ═════════════════════════════════════════════════════ */}
+      <section className="lp-sec">
+        <SecHead
+          eyebrow="USE CASES"
+          title="Perfect for every conversation you have."
+          intro="The same agent, pointed at a different job. Pick where it earns its keep first."
+        />
+
+        <div className="lp-uc-tabs" role="tablist" aria-label="Use case categories">
+          {USE_CASE_BUCKETS.map((b) => (
+            <button
+              key={b.key}
+              type="button"
+              role="tab"
+              aria-selected={b.key === bucket}
+              onClick={() => setBucket(b.key)}
+              className={`lp-uc-tab${b.key === bucket ? ' is-on' : ''}`}
+            >
+              <strong>{b.label}</strong>
+              <span>{b.blurb}</span>
+            </button>
+          ))}
+        </div>
+
+        <div className="lp-uc">
+          {cases.map((u) => (
+            <Link key={u.title} to={u.to} className="lp-uc-card">
+              <div className="lp-kicker-sm">{u.tag}</div>
+              <h3 className="lp-uc-title">{u.title}</h3>
+              <p className="lp-uc-body">{u.body}</p>
+              <span className="lp-uc-more">Explore <ArrowRight size={13} aria-hidden /></span>
+            </Link>
+          ))}
+        </div>
+
+      </section>
+
+      {/* ══ QA & ANALYTICS ════════════════════════════════════════════════ */}
+      <section className="lp-sec">
+        <SecHead eyebrow={QA.kicker} title={QA.title} intro={QA.body} />
+
+        <CallShowcase />
+
+        <div className="lp-sechead-link">
+          <Link to={QA.link.to} className="lp-uc-more">
+            {QA.link.label} <ArrowRight size={13} aria-hidden />
+          </Link>
+        </div>
+      </section>
+
+      {/* ══ OUTCOMES ══════════════════════════════════════════════════════ */}
+      <section className="lp-sec">
+        <SecHead eyebrow={PROOF.outcomesKicker} title={PROOF.outcomesTitle} violet />
         <div className="lp-proof-grid">
           {PROOF.outcomes.map((o) => (
             <figure key={o.label} className="lp-proof-card">
@@ -601,6 +677,70 @@ export default function Home() {
               <figcaption>{o.label}</figcaption>
             </figure>
           ))}
+        </div>
+      </section>
+
+      {/* ══ CAPABILITIES ══════════════════════════════════════════════════ */}
+      <section className="lp-sec">
+        <SecHead eyebrow="BUILT FOR REAL CALLS" title="Fast, multilingual, and ready for volume." />
+        <div className="lp-caps">
+          {CAPABILITIES.map((c, i) => {
+            const Icon = CAPABILITY_ICONS[i] ?? Zap;
+            return (
+              <div key={c.title} className="lp-cap-card">
+                <span className="lp-cap-icon" style={{ color: ACCENT[c.accent] }}>
+                  <Icon size={20} aria-hidden />
+                </span>
+                <div className="lp-cap-stat" style={{ color: ACCENT[c.accent] }}>{c.stat}</div>
+                <h3 className="lp-cap-title">{c.title}</h3>
+                <p className="lp-cap-body">{c.body}</p>
+              </div>
+            );
+          })}
+        </div>
+      </section>
+
+      {/* ══ INTEGRATIONS ══════════════════════════════════════════════════ */}
+      <section className="lp-sec">
+        <SecHead
+          eyebrow="INTEGRATIONS"
+          title="One layer to orchestrate every tool."
+          intro="The agent reads and writes the systems you already run — during the call, not after it."
+        />
+        <div className="lp-int">
+          {INTEGRATIONS.map((it) => (
+            <div key={it.name} className="lp-int-card">
+              <span className="lp-int-mark"><Plug size={15} aria-hidden /></span>
+              <div>
+                <div className="lp-int-name">{it.name}</div>
+                <div className="lp-int-detail">{it.detail}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="lp-sechead-link">
+          <Link to={INTEGRATIONS_LINK.to} className="lp-uc-more">
+            {INTEGRATIONS_LINK.label} <ArrowRight size={13} aria-hidden />
+          </Link>
+        </div>
+      </section>
+
+      {/* ══ BUILDER CANVAS ════════════════════════════════════════════════ */}
+      <section className="lp-sec">
+        <SecHead eyebrow={BUILDER.kicker} title={BUILDER.title} intro={BUILDER.body} violet />
+        <div className="lp-flow" aria-hidden>
+          {FLOW.map((n, i) => (
+            <div key={i} className={`lp-flow-node is-${n.kind}`}>
+              <span className="lp-flow-dot" style={{ background: n.accent ? ACCENT[n.accent] : 'var(--tx-3)' }} />
+              <span className="lp-flow-label">{n.label}</span>
+              {n.meta && <span className="lp-flow-meta">{n.meta}</span>}
+            </div>
+          ))}
+        </div>
+        <div className="lp-sechead-link">
+          <Link to={BUILDER.link.to} className="lp-btn lp-btn-secondary">
+            {BUILDER.link.label} <ArrowRight size={14} aria-hidden />
+          </Link>
         </div>
       </section>
 
@@ -673,128 +813,6 @@ export default function Home() {
               ))}
             </span>
           </div>
-        </div>
-      </section>
-
-      {/* ══ USE CASES ═════════════════════════════════════════════════════ */}
-      <section className="lp-sec">
-        <SecHead
-          eyebrow="USE CASES"
-          title="Perfect for every conversation you have."
-          intro="The same agent, pointed at a different job. Pick where it earns its keep first."
-        />
-
-        <div className="lp-uc-tabs" role="tablist" aria-label="Use case categories">
-          {USE_CASE_BUCKETS.map((b) => (
-            <button
-              key={b.key}
-              type="button"
-              role="tab"
-              aria-selected={b.key === bucket}
-              onClick={() => setBucket(b.key)}
-              className={`lp-uc-tab${b.key === bucket ? ' is-on' : ''}`}
-            >
-              <strong>{b.label}</strong>
-              <span>{b.blurb}</span>
-            </button>
-          ))}
-        </div>
-
-        <div className="lp-uc">
-          {cases.map((u) => (
-            <Link key={u.title} to={u.to} className="lp-uc-card">
-              <div className="lp-kicker-sm">{u.tag}</div>
-              <h3 className="lp-uc-title">{u.title}</h3>
-              <p className="lp-uc-body">{u.body}</p>
-              <span className="lp-uc-more">Explore <ArrowRight size={13} aria-hidden /></span>
-            </Link>
-          ))}
-        </div>
-
-        <div className="lp-sechead" style={{ marginTop: 44, marginBottom: 0 }}>
-          <div className="lp-eyebrow is-violet">INDUSTRIES</div>
-        </div>
-        <div className="lp-chips lp-chips--centre">
-          {INDUSTRIES.map((i) => (
-            <Link key={i.label} to={i.to} className="lp-chip">{i.label}</Link>
-          ))}
-        </div>
-      </section>
-
-      {/* ══ QA & ANALYTICS ════════════════════════════════════════════════ */}
-      <section className="lp-sec">
-        <SecHead eyebrow={QA.kicker} title={QA.title} intro={QA.body} />
-
-        <CallShowcase />
-
-        <div className="lp-sechead-link">
-          <Link to={QA.link.to} className="lp-uc-more">
-            {QA.link.label} <ArrowRight size={13} aria-hidden />
-          </Link>
-        </div>
-      </section>
-
-      {/* ══ CAPABILITIES ══════════════════════════════════════════════════ */}
-      <section className="lp-sec">
-        <SecHead eyebrow="BUILT FOR REAL CALLS" title="Fast, multilingual, and ready for volume." />
-        <div className="lp-caps">
-          {CAPABILITIES.map((c, i) => {
-            const Icon = CAPABILITY_ICONS[i] ?? Zap;
-            return (
-              <div key={c.title} className="lp-cap-card">
-                <span className="lp-cap-icon" style={{ color: ACCENT[c.accent] }}>
-                  <Icon size={20} aria-hidden />
-                </span>
-                <div className="lp-cap-stat" style={{ color: ACCENT[c.accent] }}>{c.stat}</div>
-                <h3 className="lp-cap-title">{c.title}</h3>
-                <p className="lp-cap-body">{c.body}</p>
-              </div>
-            );
-          })}
-        </div>
-      </section>
-
-      {/* ══ INTEGRATIONS ══════════════════════════════════════════════════ */}
-      <section className="lp-sec">
-        <SecHead
-          eyebrow="INTEGRATIONS"
-          title="One layer to orchestrate every tool."
-          intro="The agent reads and writes the systems you already run — during the call, not after it."
-        />
-        <div className="lp-int">
-          {INTEGRATIONS.map((it) => (
-            <div key={it.name} className="lp-int-card">
-              <span className="lp-int-mark"><Plug size={15} aria-hidden /></span>
-              <div>
-                <div className="lp-int-name">{it.name}</div>
-                <div className="lp-int-detail">{it.detail}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-        <div className="lp-sechead-link">
-          <Link to={INTEGRATIONS_LINK.to} className="lp-uc-more">
-            {INTEGRATIONS_LINK.label} <ArrowRight size={13} aria-hidden />
-          </Link>
-        </div>
-      </section>
-
-      {/* ══ BUILDER CANVAS ════════════════════════════════════════════════ */}
-      <section className="lp-sec">
-        <SecHead eyebrow={BUILDER.kicker} title={BUILDER.title} intro={BUILDER.body} violet />
-        <div className="lp-flow" aria-hidden>
-          {FLOW.map((n, i) => (
-            <div key={i} className={`lp-flow-node is-${n.kind}`}>
-              <span className="lp-flow-dot" style={{ background: n.accent ? ACCENT[n.accent] : 'var(--tx-3)' }} />
-              <span className="lp-flow-label">{n.label}</span>
-              {n.meta && <span className="lp-flow-meta">{n.meta}</span>}
-            </div>
-          ))}
-        </div>
-        <div className="lp-sechead-link">
-          <Link to={BUILDER.link.to} className="lp-btn lp-btn-secondary">
-            {BUILDER.link.label} <ArrowRight size={14} aria-hidden />
-          </Link>
         </div>
       </section>
 

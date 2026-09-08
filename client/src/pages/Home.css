@@ -225,7 +225,9 @@
   flex-wrap: wrap;
   justify-content: center;
   gap: 14px;
-  margin-top: 36px;
+  /* Sits under the phone box in the hero, as the secondary action — hence the
+     tighter gap. Re-used centred in the get-started band, which sets its own. */
+  margin-top: 22px;
 }
 
 .lp-blink-dot {
@@ -244,7 +246,8 @@
    widget panel's fixed width. */
 
 .lp-tryagent-wrap {
-  margin-top: 28px;
+  /* First thing under the lede, and the hero's primary action. */
+  margin-top: 34px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -562,14 +565,20 @@ html.light .lp-console-side { background: #f7fafd; }
   flex-wrap: wrap;
   justify-content: center;
   gap: 12px 30px;
-  margin: 22px 0 40px;
+  /* Last element in its section — .lp-sec spaces sections with top padding
+     alone, so a bottom margin here would double the gap to the next one. */
+  margin: 22px 0 0;
 }
-.lp-proof-industries span {
+.lp-proof-industries a {
   font-family: var(--ff-d);
   font-weight: 600;
   font-size: 15px;
   color: var(--tx-3);
+  text-decoration: none;
+  transition: color 0.15s ease;
 }
+.lp-proof-industries a:hover,
+.lp-proof-industries a:focus-visible { color: var(--cyan-fg); }
 
 .lp-proof-grid {
   display: grid;
