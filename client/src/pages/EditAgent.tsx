@@ -429,6 +429,33 @@ export default function EditAgent() {
     : (welcomeInbound.trim() || welcomeOutbound));
   const [agentNotFound, setAgentNotFound] = useState(false);
   const [postCallConfigs, setPostCallConfigs] = useState<PostCallConfig[]>([createDefaultPostCallConfig()]);
+  /**
+   * What the agent captures on a call — one list for the whole agent.
+   *
+   * The backend has always merged every destination's list by `key` into a single
+   * extraction prompt, so this is the shape that was already true at runtime. It
+   * is still WRITTEN into each config on save (see the persist path) so nothing
+   * about the stored settings JSON or the backend has to change.
+   */
+  const [extractedVariables, setExtractedVariables] = useState<ExtractedVariable[]>(
+    () => createDefaultPostCallConfig().extractedVariables,
+  );
+
+  /**
+   * What actually gets persisted: the shared variable list stamped onto every
+   * destination.
+   *
+   * This is what lets the variables be agent-level in the editor without a single
+   * backend or schema change. collectExtractionDefinitions unions every config's
+   * list and dedupes by `key`; feed it N identical lists and the union collapses
+   * to exactly the one list the user edited. Use this everywhere `postCallConfigs`
+   * would otherwise be sent or exported — sending the raw state would write back
+   * whatever stale per-config copies were loaded.
+   */
+  const postCallConfigsForSave = useMemo(
+    () => postCallConfigs.map((c) => ({ ...c, extractedVariables })),
+    [postCallConfigs, extractedVariables],
+  );
   const [testingPostCall, setTestingPostCall] = useState<Record<string, 'idle' | 'loading' | 'done' | 'error'>>({});
   const [testPostCallResults, setTestPostCallResults] = useState<Record<string, string>>({});
   // Real connection status for the Integrations tab. The card list itself is
@@ -478,25 +505,43 @@ export default function EditAgent() {
   const [waTemplates, setWaTemplates] = useState<WhatsappTemplate[]>([]);
   const [waState, setWaState] = useState<'idle' | 'loading' | 'error'>('idle');
   const [waError, setWaError] = useState('');
+  /** Set when the template list could not be fetched but the form is still usable. */
+  const [waTemplatesWarning, setWaTemplatesWarning] = useState('');
   const [waSubmitting, setWaSubmitting] = useState('');
 
   const loadWhatsappTemplates = async () => {
     setWaState('loading');
     setWaError('');
-    try {
-      const [presetRes, templateRes] = await Promise.all([
-        whapi.get<{ presets: WhatsappPreset[] }>('/whatsapp-templates/presets'),
-        whapi.get<{ templates: WhatsappTemplate[] }>('/whatsapp-templates'),
-      ]);
-      setWaPresets(presetRes?.presets ?? []);
-      setWaTemplates(templateRes?.templates ?? []);
-      setWaState('idle');
-    } catch (err) {
-      // The usual cause is ChatFlow not being connected yet, and the backend says
-      // exactly that — so show its sentence rather than inventing one.
+    setWaTemplatesWarning('');
+    // allSettled, not all. These two requests fail for different reasons and only
+    // one of them is fatal: the presets are static and served locally, while the
+    // template list needs ChatFlow to be connected and reachable. Under
+    // Promise.all a ChatFlow outage rejected both, and the error state hides the
+    // ENTIRE form — including the preset dropdown, whose data had loaded fine.
+    const [presetRes, templateRes] = await Promise.allSettled([
+      whapi.get<{ presets: WhatsappPreset[] }>('/whatsapp-templates/presets'),
+      whapi.get<{ templates: WhatsappTemplate[] }>('/whatsapp-templates'),
+    ]);
+
+    if (presetRes.status === 'rejected') {
+      // Nothing can be authored without these, so this one is genuinely fatal.
+      const err = presetRes.reason;
       setWaError(err instanceof Error ? err.message : 'Could not load WhatsApp templates');
       setWaState('error');
+      return;
     }
+    setWaPresets(presetRes.value?.presets ?? []);
+
+    if (templateRes.status === 'fulfilled') {
+      setWaTemplates(templateRes.value?.templates ?? []);
+    } else {
+      // Degraded, not broken: you can still pick a preset and map variables. You
+      // just cannot be told what you have already submitted.
+      setWaTemplates([]);
+      const err = templateRes.reason;
+      setWaTemplatesWarning(err instanceof Error ? err.message : 'Could not check previously submitted templates.');
+    }
+    setWaState('idle');
   };
 
   /**
@@ -1073,13 +1118,38 @@ export default function EditAgent() {
           }
           setInterruptibleEnabled(agent.interruptibleEnabled ?? true);
           setFlowItems((agent.flowItems as any) || getDefaultFlowItems(agent.name || ''));
-          setPostCallConfigs(savedPostCallConfigs?.length
+          const hydratedConfigs: PostCallConfig[] = savedPostCallConfigs?.length
             ? savedPostCallConfigs.map((config: Partial<PostCallConfig>) => ({
                 ...createDefaultPostCallConfig(),
                 ...config,
                 extractedVariables: Array.isArray(config.extractedVariables) ? config.extractedVariables : [],
               }))
-            : [createDefaultPostCallConfig()]);
+            : [createDefaultPostCallConfig()];
+          setPostCallConfigs(hydratedConfigs);
+
+          // Union every config's variables into the one agent-level list, keyed by
+          // `key` — exactly what the backend already does to build the extraction
+          // prompt. An agent whose destinations happen to hold different sets sees
+          // them merged here once; that difference was never visible or usable in
+          // the editor, and the backend was merging them regardless.
+          const merged: ExtractedVariable[] = [];
+          const seen = new Set<string>();
+          for (const cfg of hydratedConfigs) {
+            for (const v of cfg.extractedVariables ?? []) {
+              const key = String(v.key ?? '').trim();
+              if (!key) continue;
+              const existing = merged.find((m) => m.key === key);
+              if (existing) {
+                // First non-empty description wins, so a blank copy in one
+                // destination cannot wipe a real one written in another.
+                if (!existing.description && v.description) existing.description = v.description;
+                continue;
+              }
+              seen.add(key);
+              merged.push({ ...v });
+            }
+          }
+          setExtractedVariables(merged.length ? merged : createDefaultPostCallConfig().extractedVariables);
           // KB URLs saved in agent settings
           setKbUrls((agent as any).kbUrls ?? []);
           // Integrations tab
@@ -1153,7 +1223,7 @@ export default function EditAgent() {
       ambientSound,
       ambientMode,
       interruptibleEnabled,
-      postCallConfigs,
+      postCallConfigs: postCallConfigsForSave,
       kbUrls,
       kbFiles: kbFiles.map(f => f.fileName),
       // STT settings
@@ -1367,7 +1437,7 @@ export default function EditAgent() {
         maxSilenceBeforeHangup, endCallMessage, transferNumber, transferCondition,
         transferLabel, transferMode, transferTimeoutSec, transferOutOfHours, transferHours, speculation,
         fillerWords, speakingRate, ambientSound, ambientMode, interruptibleEnabled,
-        postCallConfigs, kbUrls, kbFiles: kbFiles.map(f => f.fileName)
+        postCallConfigs: postCallConfigsForSave, kbUrls, kbFiles: kbFiles.map(f => f.fileName)
       };
       await whapi.put(`/agents/${agentId}`, agentData);
     } catch {
@@ -1425,7 +1495,7 @@ export default function EditAgent() {
       postCallHydrated.current = true;
       return;
     }
-    const timer = setTimeout(() => { handleSave({ postCallConfigs }, { silent: true }); }, 900);
+    const timer = setTimeout(() => { handleSave({ postCallConfigs: postCallConfigsForSave }, { silent: true }); }, 900);
     return () => clearTimeout(timer);
   }, [postCallConfigs, isLoading, agentId]);
 
@@ -1444,57 +1514,34 @@ export default function EditAgent() {
     );
   };
 
-  const addExtractedVariable = (configId: string) => {
-    setPostCallConfigs((prev) =>
-      prev.map((config) =>
-        config.id === configId
-          ? {
-              ...config,
-              extractedVariables: [
-                ...config.extractedVariables,
-                {
-                  id: `variable_${Date.now()}`,
-                  key: '',
-                  description: ''
-                }
-              ]
-            }
-          : config
-      )
-    );
+  // ── Extracted variables are agent-level, not per destination ───────────────
+  // The backend always treated them that way: collectExtractionDefinitions
+  // (postCallExtraction.utils.js) unions every config's list and dedupes by key
+  // to build ONE extraction prompt per agent. Only the editor pretended each
+  // destination had its own, which meant a variable added under WhatsApp was
+  // invisible to the Sheets card while the backend quietly merged them anyway.
+  //
+  // Stored per config still, so nothing on the wire or in the database changes —
+  // see the save path, which writes this one list into every config.
+  const addExtractedVariable = () => {
+    setExtractedVariables((prev) => [
+      ...prev,
+      { id: `variable_${Date.now()}`, key: '', description: '' },
+    ]);
   };
 
   const updateExtractedVariable = (
-    configId: string,
     variableId: string,
     field: keyof ExtractedVariable,
     value: string
   ) => {
-    setPostCallConfigs((prev) =>
-      prev.map((config) =>
-        config.id === configId
-          ? {
-              ...config,
-              extractedVariables: config.extractedVariables.map((variable) =>
-                variable.id === variableId ? { ...variable, [field]: value } : variable
-              )
-            }
-          : config
-      )
+    setExtractedVariables((prev) =>
+      prev.map((variable) => (variable.id === variableId ? { ...variable, [field]: value } : variable))
     );
   };
 
-  const removeExtractedVariable = (configId: string, variableId: string) => {
-    setPostCallConfigs((prev) =>
-      prev.map((config) =>
-        config.id === configId
-          ? {
-              ...config,
-              extractedVariables: config.extractedVariables.filter((variable) => variable.id !== variableId)
-            }
-          : config
-      )
-    );
+  const removeExtractedVariable = (variableId: string) => {
+    setExtractedVariables((prev) => prev.filter((variable) => variable.id !== variableId));
   };
 
   const handleTestChat = async () => {
@@ -5142,27 +5189,100 @@ export default function EditAgent() {
 
         {activeTab === 'postcall' && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-            <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+            <div>
+              <div style={{ fontSize: '17px', fontWeight: '700', color: 'var(--tx)', marginBottom: '6px' }}>What the agent should capture on the call</div>
+              <div style={{ fontSize: '13px', color: 'var(--tx-3)', marginBottom: '20px', lineHeight: 1.45 }}>
+                One list for the whole agent. Every destination below can use these, and the WhatsApp message can only use variables that appear here — a placeholder with nothing behind it could never be filled.
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                {extractedVariables.map((variable) => (
+                  <div
+                    key={variable.id}
+                    style={{
+                      background: 'var(--s1)',
+                      border: '1px solid var(--s2)',
+                      borderRadius: '13px',
+                      padding: '20px',
+                      display: 'grid',
+                      gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) 64px',
+                      gap: '14px',
+                      alignItems: 'center'
+                    }}
+                  >
+                    <input
+                      type="text"
+                      value={variable.key}
+                      onChange={(e) => updateExtractedVariable(variable.id, 'key', e.target.value)}
+                      placeholder="variable_name"
+                      style={{
+                        width: '100%',
+                        height: '44px',
+                        padding: '0 16px',
+                        background: 'var(--s1)',
+                        border: '1px solid var(--line-2)',
+                        borderRadius: '8px',
+                        color: 'var(--tx)',
+                        fontSize: '14px',
+                        outline: 'none'
+                      }}
+                    />
+                    <input
+                      type="text"
+                      value={variable.description}
+                      onChange={(e) => updateExtractedVariable(variable.id, 'description', e.target.value)}
+                      placeholder="Description of how the value should be extracted"
+                      style={{
+                        width: '100%',
+                        height: '44px',
+                        padding: '0 16px',
+                        background: 'var(--s1)',
+                        border: '1px solid var(--line-2)',
+                        borderRadius: '8px',
+                        color: 'var(--tx)',
+                        fontSize: '14px',
+                        outline: 'none'
+                      }}
+                    />
+                    <button
+                      onClick={() => removeExtractedVariable(variable.id)}
+                      style={{
+                        width: '60px',
+                        height: '44px',
+                        background: 'var(--bg-primary)',
+                        border: '1px solid var(--line)',
+                        borderRadius: '9px',
+                        color: 'var(--err)',
+                        fontSize: '18px',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      X
+                    </button>
+                  </div>
+                ))}
+              </div>
 
               <button
-                onClick={addPostCallConfig}
+                onClick={() => addExtractedVariable()}
                 style={{
-                  padding: '0 18px',
-                  height: '38px',
+                  marginTop: '14px',
+                  padding: '0 16px',
+                  height: '40px',
                   background: 'transparent',
-                  border: '1px solid #333333',
-                  borderRadius: '10px',
-                  color: 'var(--tx)',
-                  cursor: 'pointer',
+                  border: '1px solid var(--cyan-fg)',
+                  borderRadius: '9px',
+                  color: 'var(--cyan-fg)',
                   fontSize: '13px',
-                  fontWeight: '600'
+                  fontWeight: '600',
+                  cursor: 'pointer'
                 }}
               >
-                + Add Configuration
+                + Add Variable
               </button>
             </div>
 
-            {postCallConfigs.map((config) => (
+            {postCallConfigs.map((config, configIndex) => (
               <div
                 key={config.id}
                 style={{
@@ -5173,6 +5293,13 @@ export default function EditAgent() {
                   marginTop: '2px'
                 }}
               >
+                {/* Naming each card is what makes a second one read as another
+                    destination rather than a duplicated form. Several can run at
+                    once — Sheets and WhatsApp together is the common case — and
+                    nothing in the UI said so. */}
+                <div style={{ fontFamily: 'var(--mono, monospace)', fontSize: '11px', letterSpacing: '.12em', textTransform: 'uppercase', color: 'var(--tx-3)', marginBottom: '14px' }}>
+                  Destination {configIndex + 1}{config.deliveryMethod ? ` — ${config.deliveryMethod}` : ''}
+                </div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '20px', marginBottom: '24px' }}>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontSize: '17px', lineHeight: 1.2, fontWeight: '700', color: 'var(--tx)', marginBottom: '14px' }}>Delivery Method</div>
@@ -5286,7 +5413,7 @@ export default function EditAgent() {
                           }}
                         >
                           <option value="">Select an extracted variable</option>
-                          {config.extractedVariables.map((v) => (
+                          {extractedVariables.map((v) => (
                             <option key={v.id} value={v.key}>{v.key}</option>
                           ))}
                         </select>
@@ -5351,6 +5478,12 @@ export default function EditAgent() {
 
                           {waState !== 'error' && (
                             <>
+                              {/* Degraded, not fatal — the form below still works. */}
+                              {waTemplatesWarning && (
+                                <div style={{ width: '480px', marginBottom: '12px', padding: '10px 13px', background: 'rgba(255,176,32,0.06)', border: '1px solid rgba(255,176,32,0.35)', borderRadius: '9px', fontSize: '12.5px', color: '#FFB020', boxSizing: 'border-box' }}>
+                                  {waTemplatesWarning} You can still choose a template below.
+                                </div>
+                              )}
                               <div style={{ fontSize: '13px', color: 'var(--tx-2)', marginBottom: '8px' }}>Message template <span style={{ color: 'var(--err)' }}>*</span></div>
                               <select
                                 value={config.presetId || ''}
@@ -5412,7 +5545,7 @@ export default function EditAgent() {
                                     }}
                                   >
                                     <option value="">Select an extracted variable</option>
-                                    {config.extractedVariables.map((v) => (
+                                    {extractedVariables.map((v) => (
                                       <option key={v.id} value={v.key}>{v.key}</option>
                                     ))}
                                   </select>
@@ -5489,7 +5622,7 @@ export default function EditAgent() {
                                 }}
                               >
                                 <option value="">Select an extracted variable</option>
-                                {config.extractedVariables.map((v) => (
+                                {extractedVariables.map((v) => (
                                   <option key={v.id} value={v.key}>{v.key}</option>
                                 ))}
                               </select>
@@ -5512,7 +5645,7 @@ export default function EditAgent() {
                                 }}
                               >
                                 <option value="">The number the caller phoned from</option>
-                                {config.extractedVariables.map((v) => (
+                                {extractedVariables.map((v) => (
                                   <option key={v.id} value={v.key}>{v.key}</option>
                                 ))}
                               </select>
@@ -5731,23 +5864,26 @@ export default function EditAgent() {
                   </div>
 
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'flex-end' }}>
-                    <button
-                      onClick={() => removePostCallConfig(config.id)}
-                      disabled={postCallConfigs.length === 1}
-                      style={{
-                        padding: '0 20px',
-                        height: '44px',
-                        background: '#0e0e0e',
-                        border: '1px solid var(--line)',
-                        borderRadius: '9px',
-                        color: postCallConfigs.length === 1 ? '#666666' : 'var(--err)',
-                        cursor: postCallConfigs.length === 1 ? 'not-allowed' : 'pointer',
-                        fontSize: '14px',
-                        fontWeight: '600'
-                      }}
-                    >
-                      Remove
-                    </button>
+                    {/* Hidden rather than disabled on the last one. A greyed-out
+                        button invites a click and then explains nothing. */}
+                    {postCallConfigs.length > 1 && (
+                      <button
+                        onClick={() => removePostCallConfig(config.id)}
+                        style={{
+                          padding: '0 20px',
+                          height: '44px',
+                          background: '#0e0e0e',
+                          border: '1px solid var(--line)',
+                          borderRadius: '9px',
+                          color: 'var(--err)',
+                          cursor: 'pointer',
+                          fontSize: '14px',
+                          fontWeight: '600'
+                        }}
+                      >
+                        Remove
+                      </button>
+                    )}
 
                     {/* Test Delivery Button */}
                     <button
@@ -5895,100 +6031,36 @@ export default function EditAgent() {
                   </div>
                 </div>
 
-                <div>
-                  <div style={{ fontSize: '17px', fontWeight: '700', color: 'var(--tx)', marginBottom: '6px' }}>Extracted Variables</div>
-                  <div style={{ fontSize: '13px', color: 'var(--tx-3)', marginBottom: '20px', lineHeight: 1.45 }}>
-                    Specify what variables you want to extract from the conversation. For each variable, provide a name and a description of how to extract it.
-                  </div>
-
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                    {config.extractedVariables.map((variable) => (
-                      <div
-                        key={variable.id}
-                        style={{
-                          background: 'var(--s1)',
-                          border: '1px solid var(--s2)',
-                          borderRadius: '13px',
-                          padding: '20px',
-                          display: 'grid',
-                          gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) 64px',
-                          gap: '14px',
-                          alignItems: 'center'
-                        }}
-                      >
-                        <input
-                          type="text"
-                          value={variable.key}
-                          onChange={(e) => updateExtractedVariable(config.id, variable.id, 'key', e.target.value)}
-                          placeholder="variable_name"
-                          style={{
-                            width: '100%',
-                            height: '44px',
-                            padding: '0 16px',
-                            background: 'var(--s1)',
-                            border: '1px solid var(--line-2)',
-                            borderRadius: '8px',
-                            color: 'var(--tx)',
-                            fontSize: '14px',
-                            outline: 'none'
-                          }}
-                        />
-                        <input
-                          type="text"
-                          value={variable.description}
-                          onChange={(e) => updateExtractedVariable(config.id, variable.id, 'description', e.target.value)}
-                          placeholder="Description of how the value should be extracted"
-                          style={{
-                            width: '100%',
-                            height: '44px',
-                            padding: '0 16px',
-                            background: 'var(--s1)',
-                            border: '1px solid var(--line-2)',
-                            borderRadius: '8px',
-                            color: 'var(--tx)',
-                            fontSize: '14px',
-                            outline: 'none'
-                          }}
-                        />
-                        <button
-                          onClick={() => removeExtractedVariable(config.id, variable.id)}
-                          style={{
-                            width: '60px',
-                            height: '44px',
-                            background: 'var(--bg-primary)',
-                            border: '1px solid var(--line)',
-                            borderRadius: '9px',
-                            color: 'var(--err)',
-                            fontSize: '18px',
-                            cursor: 'pointer'
-                          }}
-                        >
-                          X
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-
-                  <button
-                    onClick={() => addExtractedVariable(config.id)}
-                    style={{
-                      marginTop: '14px',
-                      padding: '0 16px',
-                      height: '40px',
-                      background: 'transparent',
-                      border: '1px solid var(--cyan-fg)',
-                      borderRadius: '9px',
-                      color: 'var(--cyan-fg)',
-                      fontSize: '13px',
-                      fontWeight: '600',
-                      cursor: 'pointer'
-                    }}
-                  >
-                    + Add Variable
-                  </button>
-                </div>
               </div>
             ))}
+
+            {/* Beneath the cards, not floating above them: read in place it is
+                obviously "another one of these". It used to sit top-right saying
+                "Add Configuration", which nobody connected with being able to log
+                to Sheets AND message the caller on WhatsApp at the same time —
+                something that already worked. */}
+            <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '8px' }}>
+              <button
+                onClick={addPostCallConfig}
+                style={{
+                  padding: '0 18px',
+                  height: '40px',
+                  background: 'transparent',
+                  border: '1px dashed var(--line-2)',
+                  borderRadius: '10px',
+                  color: 'var(--tx)',
+                  cursor: 'pointer',
+                  fontSize: '13px',
+                  fontWeight: '600'
+                }}
+              >
+                + Add another destination
+              </button>
+              <div style={{ fontSize: '12px', color: '#808080', maxWidth: '520px' }}>
+                Each destination runs independently after a call — log to a spreadsheet and
+                message the caller on WhatsApp by adding one of each.
+              </div>
+            </div>
           </div>
         )}
 
