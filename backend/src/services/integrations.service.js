@@ -388,7 +388,33 @@ export const connectWithCredentials = async (workspaceId, providerKey, credentia
       if (!res.ok) {
         throw Object.assign(new Error(data.error || 'Invalid or revoked ChatFlow API key'), { statusCode: 400 });
       }
+      // Name the ChatFlow workspace on the card, not just "ChatFlow". Which
+      // workspace a key belongs to is otherwise invisible here — it is implicit
+      // in the key — and a wrong paste would send a client's confirmations from
+      // another business's WhatsApp number with nothing reporting a problem.
+      //
+      // Best-effort: /public/me is newer than the connect flow, so a ChatFlow
+      // that predates it 404s. A missing label is cosmetic; refusing an
+      // otherwise valid key over it would not be.
       accountLabel = 'ChatFlow';
+      try {
+        const meRes = await fetch(`${base}/api/v1/public/me`, {
+          headers: { 'x-api-key': accessToken },
+          signal: AbortSignal.timeout(10_000),
+        });
+        if (meRes.ok) {
+          const me = await meRes.json().catch(() => null);
+          if (me?.workspace?.name) accountLabel = `ChatFlow — ${me.workspace.name}`;
+          extraMeta.chatflowWorkspaceId = me?.workspace?.id ?? null;
+          extraMeta.chatflowWorkspaceName = me?.workspace?.name ?? null;
+          // Stored so the post-call send can name a number explicitly. ChatFlow
+          // picks with findFirst and no ordering when none is given, so a
+          // workspace with two numbers sends from an arbitrary one.
+          extraMeta.chatflowWaNumbers = Array.isArray(me?.waNumbers)
+            ? me.waNumbers.map((n) => ({ id: n.id, phoneNumber: n.phoneNumber, displayName: n.displayName, status: n.status }))
+            : [];
+        }
+      } catch { /* label stays 'ChatFlow'; the connection itself is already proven */ }
     }
     else if (providerKey === 'hubspot') {
       accessToken = sanitizedCredentials.accessToken;
