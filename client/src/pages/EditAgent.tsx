@@ -153,10 +153,56 @@ interface WhatsappPreset {
   variableCount: number;
 }
 
+/** How the client is arriving at a template: pick one, write one, or describe one. */
+type TemplateMode = 'existing' | 'custom' | 'ai';
+
+interface DraftPlaceholder {
+  index: number;
+  label: string;
+  example: string;
+  /** Which extracted variable fills this. Always one the agent already captures. */
+  variableKey: string;
+}
+
+/** A template being composed, before it is submitted to Meta. */
+interface TemplateDraft {
+  label: string;
+  bodyText: string;
+  category: string;
+  language: string;
+  placeholders: DraftPlaceholder[];
+  /** Plain-English description, for the AI mode. */
+  intent: string;
+  busy: boolean;
+  error: string;
+  notice: string;
+}
+
+const emptyDraft = (): TemplateDraft => ({
+  label: '',
+  bodyText: '',
+  // UTILITY unless someone deliberately changes it: a post-call confirmation is
+  // transactional, and MARKETING costs more and needs opt-in.
+  category: 'UTILITY',
+  language: 'en',
+  placeholders: [],
+  intent: '',
+  busy: false,
+  error: '',
+  notice: '',
+});
+
 /** A preset that has been submitted to Meta, and where its review got to. */
 interface WhatsappTemplate {
   id: string;
-  presetId: string;
+  /** 'preset' for a shipped one, 'custom' for one written in this workspace. */
+  origin?: 'preset' | 'custom';
+  presetId: string | null;
+  /** Human name. Backfilled from the preset constant for preset rows. */
+  label?: string;
+  bodyText?: string | null;
+  placeholders?: { index: number; label?: string; example?: string; variableKey?: string | null }[];
+  category?: string | null;
   name: string;
   language: string;
   status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'DELETED';
@@ -562,6 +608,110 @@ export default function EditAgent() {
       setWaError(err instanceof Error ? err.message : 'Could not submit the template');
     } finally {
       setWaSubmitting('');
+    }
+  };
+
+  // ── Template composer ──────────────────────────────────────────────────────
+  // Three ways to end up with a template, all converging on one review step and
+  // one submit: pick a shipped preset, write the body yourself, or describe the
+  // message and have it drafted. Keyed by destination, because two WhatsApp
+  // destinations on the same agent are authoring independently.
+  const [waMode, setWaMode] = useState<Record<string, TemplateMode>>({});
+  const [waDrafts, setWaDrafts] = useState<Record<string, TemplateDraft>>({});
+
+  const draftFor = (configId: string): TemplateDraft => waDrafts[configId] ?? emptyDraft();
+
+  const patchDraft = (configId: string, patch: Partial<TemplateDraft>) => {
+    setWaDrafts((prev) => ({ ...prev, [configId]: { ...(prev[configId] ?? emptyDraft()), ...patch } }));
+  };
+
+  /**
+   * Keep the placeholder rows in step with whatever is in the body.
+   *
+   * The body is the source of truth — someone can type or delete a {{n}} directly
+   * — so the rows are rebuilt from it on every change, carrying across whatever
+   * was already filled in for an index that survived.
+   */
+  const syncDraftBody = (configId: string, bodyText: string) => {
+    const current = draftFor(configId);
+    const indices = [...new Set(
+      [...bodyText.matchAll(/\{\{(\d+)\}\}/g)].map((m) => Number(m[1])).filter((n) => Number.isInteger(n) && n > 0),
+    )].sort((a, b) => a - b);
+    const placeholders = indices.map((index) => {
+      const kept = current.placeholders.find((p) => p.index === index);
+      return kept ?? { index, label: `Value ${index}`, example: '', variableKey: '' };
+    });
+    patchDraft(configId, { bodyText, placeholders });
+  };
+
+  /** Append the next {{n}} bound to a variable the agent actually captures. */
+  const insertDraftVariable = (configId: string, variableKey: string) => {
+    const d = draftFor(configId);
+    const next = d.placeholders.reduce((max, p) => Math.max(max, p.index), 0) + 1;
+    const meta = extractedVariables.find((v) => v.key === variableKey);
+    patchDraft(configId, {
+      bodyText: `${d.bodyText}{{${next}}}`,
+      placeholders: [...d.placeholders, {
+        index: next,
+        label: meta?.description || variableKey,
+        example: meta?.description || 'Sample',
+        variableKey,
+      }],
+    });
+  };
+
+  const runAiDraft = async (configId: string) => {
+    const d = draftFor(configId);
+    if (!d.intent.trim()) { patchDraft(configId, { error: 'Describe the message you want first.' }); return; }
+    patchDraft(configId, { busy: true, error: '', notice: '' });
+    try {
+      const res = await whapi.post<{ bodyText: string; placeholders: DraftPlaceholder[]; droppedCount: number }>(
+        '/whatsapp-templates/draft',
+        { intent: d.intent, variables: extractedVariables.map((v) => ({ key: v.key, description: v.description })) },
+      );
+      patchDraft(configId, {
+        bodyText: res.bodyText ?? '',
+        placeholders: (res.placeholders ?? []).map((p) => ({
+          index: p.index, label: p.label || p.variableKey, example: p.example || '', variableKey: p.variableKey,
+        })),
+        busy: false,
+        // Say it out loud rather than quietly producing a shorter message.
+        notice: res.droppedCount
+          ? `${res.droppedCount} suggested value${res.droppedCount === 1 ? '' : 's'} left out — the agent does not capture ${res.droppedCount === 1 ? 'it' : 'them'}.`
+          : '',
+      });
+    } catch (err) {
+      patchDraft(configId, { busy: false, error: err instanceof Error ? err.message : 'Could not draft a message.' });
+    }
+  };
+
+  const submitCustomTemplate = async (configId: string) => {
+    const d = draftFor(configId);
+    patchDraft(configId, { busy: true, error: '' });
+    try {
+      const res = await whapi.post<{ template: WhatsappTemplate }>('/whatsapp-templates/custom', {
+        label: d.label,
+        category: d.category,
+        language: d.language,
+        bodyText: d.bodyText,
+        placeholders: d.placeholders,
+      });
+      const tpl = res?.template;
+      if (tpl) {
+        setWaTemplates((prev) => [...prev.filter((t) => t.id !== tpl.id), tpl]);
+        // Bind the destination to it, and carry the variable mapping the composer
+        // already established so nobody re-picks what they just chose.
+        updatePostCallConfigAndSave(configId, {
+          whatsappBindingId: tpl.id,
+          presetId: '',
+          variableMapping: d.placeholders
+            .filter((p) => p.variableKey)
+            .map((p) => ({ placeholderIndex: p.index, variableKey: p.variableKey })),
+        });
+      }
+      patchDraft(configId, { busy: false });
+    } catch (err) {
+      patchDraft(configId, { busy: false, error: err instanceof Error ? err.message : 'Could not submit the template.' });
     }
   };
 
@@ -5457,18 +5607,42 @@ export default function EditAgent() {
                         booked" call status to trigger on, so the send is gated on
                         an extracted variable actually having a value. */}
                     {config.deliveryMethod === 'WhatsApp' && (() => {
-                      const preset = waPresets.find((p) => p.id === config.presetId) || null;
                       const template = waTemplates.find((t) => t.id === config.whatsappBindingId) || null;
+                      const mode: TemplateMode = waMode[config.id] ?? 'existing';
+                      const draft = draftFor(config.id);
                       const badge = template?.status === 'APPROVED'
                         ? { text: 'Approved — sending', bg: 'rgba(11,191,203,0.06)', line: 'rgba(11,191,203,0.35)', fg: 'var(--cyan-fg)' }
                         : template?.status === 'REJECTED'
                           ? { text: 'Rejected by Meta', bg: 'rgba(255,90,90,0.06)', line: 'rgba(255,90,90,0.35)', fg: 'var(--err)' }
                           : { text: 'Awaiting Meta approval', bg: 'rgba(255,176,32,0.06)', line: 'rgba(255,176,32,0.35)', fg: '#FFB020' };
 
+                      // Meta reads the template to decide UTILITY (cheap) vs
+                      // MARKETING (dearer, needs opt-in). A body that is mostly
+                      // placeholders reads as unclear and gets reclassified —
+                      // silently, after approval. A heuristic, so it warns only.
+                      const literalLen = draft.bodyText.replace(/\{\{\d+\}\}/g, '').trim().length;
+                      const thinCopy = draft.bodyText.length > 0 && literalLen < 40;
+
+                      const tab = (id: TemplateMode, label: string) => (
+                        <button
+                          key={id}
+                          type="button"
+                          onClick={() => setWaMode((prev) => ({ ...prev, [config.id]: id }))}
+                          style={{
+                            padding: '7px 14px', borderRadius: '8px', cursor: 'pointer', fontSize: '13px', fontWeight: 600,
+                            background: mode === id ? 'var(--cyan)14' : 'transparent',
+                            border: mode === id ? '1px solid var(--cyan-fg)' : '1px solid var(--line-2)',
+                            color: mode === id ? 'var(--cyan-fg)' : 'var(--tx-2)',
+                          }}
+                        >
+                          {label}
+                        </button>
+                      );
+
                       return (
                         <div style={{ marginTop: '14px' }}>
                           {waState === 'error' && (
-                            <div style={{ width: '480px', padding: '12px 14px', background: 'rgba(255,90,90,0.06)', border: '1px solid rgba(255,90,90,0.35)', borderRadius: '9px', fontSize: '13px', color: 'var(--err)', boxSizing: 'border-box' }}>
+                            <div style={{ width: '520px', padding: '12px 14px', background: 'rgba(255,90,90,0.06)', border: '1px solid rgba(255,90,90,0.35)', borderRadius: '9px', fontSize: '13px', color: 'var(--err)', boxSizing: 'border-box' }}>
                               {waError}
                               <div style={{ marginTop: '6px', color: 'var(--tx-2)' }}>
                                 Connect ChatFlow under <a href="/integrations" style={{ color: 'var(--cyan-fg)' }}>Integrations</a> first.
@@ -5478,107 +5652,19 @@ export default function EditAgent() {
 
                           {waState !== 'error' && (
                             <>
-                              {/* Degraded, not fatal — the form below still works. */}
                               {waTemplatesWarning && (
-                                <div style={{ width: '480px', marginBottom: '12px', padding: '10px 13px', background: 'rgba(255,176,32,0.06)', border: '1px solid rgba(255,176,32,0.35)', borderRadius: '9px', fontSize: '12.5px', color: '#FFB020', boxSizing: 'border-box' }}>
+                                <div style={{ width: '520px', marginBottom: '12px', padding: '10px 13px', background: 'rgba(255,176,32,0.06)', border: '1px solid rgba(255,176,32,0.35)', borderRadius: '9px', fontSize: '12.5px', color: '#FFB020', boxSizing: 'border-box' }}>
                                   {waTemplatesWarning} You can still choose a template below.
                                 </div>
                               )}
-                              <div style={{ fontSize: '13px', color: 'var(--tx-2)', marginBottom: '8px' }}>Message template <span style={{ color: 'var(--err)' }}>*</span></div>
-                              <select
-                                value={config.presetId || ''}
-                                disabled={!!template}
-                                onChange={(e) => {
-                                  const presetId = e.target.value;
-                                  const already = waTemplates.find((t) => t.presetId === presetId);
-                                  updatePostCallConfigAndSave(config.id, {
-                                    presetId,
-                                    // Reusing an existing approved template rather than
-                                    // submitting a second copy of the same preset.
-                                    whatsappBindingId: already?.id ?? '',
-                                    variableMapping: [],
-                                  });
-                                }}
-                                style={{
-                                  width: '400px', height: '42px', padding: '0 16px',
-                                  background: 'var(--bg-secondary)', border: '1px solid var(--line-2)',
-                                  borderRadius: '9px', color: config.presetId ? 'var(--tx)' : 'var(--tx-2)',
-                                  fontSize: '14px', outline: 'none', boxSizing: 'border-box',
-                                  opacity: template ? 0.6 : 1,
-                                }}
-                              >
-                                <option value="">Select a template</option>
-                                {waPresets.map((p) => (
-                                  <option key={p.id} value={p.id}>{p.label}</option>
-                                ))}
-                              </select>
 
-                              {preset && (
-                                <div style={{ width: '480px', marginTop: '10px', padding: '14px 16px', background: 'var(--bg-secondary)', border: '1px solid var(--line-2)', borderRadius: '9px', boxSizing: 'border-box' }}>
-                                  <div style={{ fontSize: '13px', color: 'var(--tx)', lineHeight: 1.55 }}>{preset.bodyText}</div>
-                                  <div style={{ fontSize: '12px', color: '#808080', marginTop: '8px' }}>
-                                    The wording is fixed. Meta reviews it once, and changing it would mean a fresh review.
-                                  </div>
-                                </div>
-                              )}
-
-                              {/* Variable mapping — one row per {{n}}. */}
-                              {preset && preset.placeholders.map((ph) => (
-                                <div key={ph.index} style={{ marginTop: '12px' }}>
-                                  <div style={{ fontSize: '13px', color: 'var(--tx-2)', marginBottom: '6px' }}>
-                                    {`{{${ph.index}}}`} — {ph.label}
-                                  </div>
-                                  <select
-                                    value={config.variableMapping?.find((m) => m.placeholderIndex === ph.index)?.variableKey || ''}
-                                    onChange={(e) => {
-                                      const rest = (config.variableMapping ?? []).filter((m) => m.placeholderIndex !== ph.index);
-                                      const next = e.target.value
-                                        ? [...rest, { placeholderIndex: ph.index, variableKey: e.target.value }]
-                                        : rest;
-                                      updatePostCallConfigAndSave(config.id, { variableMapping: next });
-                                    }}
-                                    style={{
-                                      width: '400px', height: '42px', padding: '0 16px',
-                                      background: 'var(--bg-secondary)', border: '1px solid var(--line-2)',
-                                      borderRadius: '9px', color: 'var(--tx)', fontSize: '14px',
-                                      outline: 'none', boxSizing: 'border-box',
-                                    }}
-                                  >
-                                    <option value="">Select an extracted variable</option>
-                                    {extractedVariables.map((v) => (
-                                      <option key={v.id} value={v.key}>{v.key}</option>
-                                    ))}
-                                  </select>
-                                </div>
-                              ))}
-
-                              {/* Submit, or the status of the one already submitted. */}
-                              {preset && !template && (
-                                <div style={{ marginTop: '14px' }}>
-                                  <button
-                                    onClick={() => createWhatsappTemplate(config.id, preset.id)}
-                                    disabled={waSubmitting === config.id}
-                                    style={{
-                                      height: '42px', padding: '0 20px', background: 'var(--cyan)',
-                                      border: 'none', borderRadius: '9px', color: '#04121a',
-                                      fontSize: '14px', fontWeight: 700,
-                                      cursor: waSubmitting === config.id ? 'default' : 'pointer',
-                                      opacity: waSubmitting === config.id ? 0.6 : 1,
-                                    }}
-                                  >
-                                    {waSubmitting === config.id ? 'Submitting…' : 'Submit to Meta for approval'}
-                                  </button>
-                                  <div style={{ fontSize: '12px', color: '#808080', marginTop: '8px', maxWidth: '480px' }}>
-                                    Meta reviews this once, usually within a few hours but sometimes longer.
-                                    Nothing is sent until it is approved.
-                                  </div>
-                                </div>
-                              )}
-
-                              {template && (
-                                <div style={{ marginTop: '14px' }}>
+                              {/* Once a template is bound, authoring is over —
+                                  Meta reviewed it, and it is reused from here on. */}
+                              {template ? (
+                                <div>
+                                  <div style={{ fontSize: '13px', color: 'var(--tx-2)', marginBottom: '8px' }}>Message template</div>
                                   <div style={{
-                                    display: 'flex', alignItems: 'center', gap: '10px', width: '480px',
+                                    display: 'flex', alignItems: 'center', gap: '10px', width: '520px',
                                     padding: '14px 16px', background: badge.bg, border: `1px solid ${badge.line}`,
                                     borderRadius: '9px', boxSizing: 'border-box',
                                   }}>
@@ -5586,59 +5672,351 @@ export default function EditAgent() {
                                       {template.status === 'APPROVED' ? '✓' : template.status === 'REJECTED' ? '✕' : '⏳'}
                                     </span>
                                     <div style={{ minWidth: 0, flex: 1 }}>
-                                      <div style={{ fontSize: '14px', color: 'var(--tx)', fontWeight: 600 }}>{badge.text}</div>
+                                      <div style={{ fontSize: '14px', color: 'var(--tx)', fontWeight: 600 }}>{template.label || template.name}</div>
                                       <div style={{ fontSize: '12px', color: 'var(--tx-2)', marginTop: '2px' }}>
-                                        {template.rejectedReason || template.name}
+                                        {template.rejectedReason || badge.text}
                                       </div>
                                     </div>
                                     <button
+                                      type="button"
                                       onClick={loadWhatsappTemplates}
                                       style={{ height: '32px', padding: '0 12px', background: 'transparent', border: '1px solid var(--line-2)', borderRadius: '7px', color: 'var(--tx-2)', fontSize: '12px', cursor: 'pointer' }}
                                     >
                                       {waState === 'loading' ? 'Checking…' : 'Check status'}
                                     </button>
                                   </div>
-                                  {template.stale && (
-                                    <div style={{ fontSize: '12px', color: '#FFB020', marginTop: '6px' }}>
-                                      ChatFlow could not be reached — this is the last known status.
+                                  {template.bodyText && (
+                                    <div style={{ width: '520px', marginTop: '10px', padding: '14px 16px', background: 'var(--bg-secondary)', border: '1px solid var(--line-2)', borderRadius: '9px', boxSizing: 'border-box', fontSize: '13px', color: 'var(--tx)', lineHeight: 1.55 }}>
+                                      {template.bodyText}
                                     </div>
                                   )}
+                                  <button
+                                    type="button"
+                                    onClick={() => updatePostCallConfigAndSave(config.id, { whatsappBindingId: '', presetId: '', variableMapping: [] })}
+                                    style={{ marginTop: '10px', background: 'transparent', border: 'none', color: 'var(--tx-3)', fontSize: '12px', cursor: 'pointer', padding: 0, textDecoration: 'underline' }}
+                                  >
+                                    Use a different template
+                                  </button>
                                 </div>
+                              ) : (
+                                <>
+                                  <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
+                                    {tab('existing', 'Choose existing')}
+                                    {tab('custom', 'Write your own')}
+                                    {tab('ai', 'Generate with AI')}
+                                  </div>
+
+                                  {/* ── Choose an existing one ─────────────── */}
+                                  {mode === 'existing' && (
+                                    <>
+                                      <div style={{ fontSize: '13px', color: 'var(--tx-2)', marginBottom: '8px' }}>
+                                        Message template <span style={{ color: 'var(--err)' }}>*</span>
+                                      </div>
+                                      <select
+                                        value={config.presetId || ''}
+                                        onChange={(e) => {
+                                          const presetId = e.target.value;
+                                          const already = waTemplates.find((t) => t.presetId === presetId);
+                                          updatePostCallConfigAndSave(config.id, {
+                                            presetId,
+                                            whatsappBindingId: already?.id ?? '',
+                                            variableMapping: [],
+                                          });
+                                        }}
+                                        style={{
+                                          width: '420px', height: '42px', padding: '0 16px',
+                                          background: 'var(--bg-secondary)', border: '1px solid var(--line-2)',
+                                          borderRadius: '9px', color: config.presetId ? 'var(--tx)' : 'var(--tx-2)',
+                                          fontSize: '14px', outline: 'none', boxSizing: 'border-box',
+                                        }}
+                                      >
+                                        <option value="">Select a template</option>
+                                        {waTemplates.filter((t) => t.status === 'APPROVED').length > 0 && (
+                                          <optgroup label="Ready to send">
+                                            {waTemplates.filter((t) => t.status === 'APPROVED').map((t) => (
+                                              <option key={t.id} value={t.presetId ?? ''}>{t.label || t.name}</option>
+                                            ))}
+                                          </optgroup>
+                                        )}
+                                        <optgroup label="Start from a preset">
+                                          {waPresets.map((p) => (
+                                            <option key={p.id} value={p.id}>{p.label}</option>
+                                          ))}
+                                        </optgroup>
+                                      </select>
+
+                                      {(() => {
+                                        const preset = waPresets.find((p) => p.id === config.presetId) || null;
+                                        if (!preset) return null;
+                                        return (
+                                          <>
+                                            <div style={{ width: '520px', marginTop: '10px', padding: '14px 16px', background: 'var(--bg-secondary)', border: '1px solid var(--line-2)', borderRadius: '9px', boxSizing: 'border-box' }}>
+                                              <div style={{ fontSize: '13px', color: 'var(--tx)', lineHeight: 1.55 }}>{preset.bodyText}</div>
+                                              <div style={{ fontSize: '12px', color: '#808080', marginTop: '8px' }}>
+                                                Meta reviews the wording once. To change it, write your own instead.
+                                              </div>
+                                            </div>
+
+                                            {preset.placeholders.map((ph) => (
+                                              <div key={ph.index} style={{ marginTop: '12px' }}>
+                                                <div style={{ fontSize: '13px', color: 'var(--tx-2)', marginBottom: '6px' }}>
+                                                  {`{{${ph.index}}}`} — {ph.label}
+                                                </div>
+                                                <select
+                                                  value={config.variableMapping?.find((m) => m.placeholderIndex === ph.index)?.variableKey || ''}
+                                                  onChange={(e) => {
+                                                    const rest = (config.variableMapping ?? []).filter((m) => m.placeholderIndex !== ph.index);
+                                                    updatePostCallConfigAndSave(config.id, {
+                                                      variableMapping: e.target.value
+                                                        ? [...rest, { placeholderIndex: ph.index, variableKey: e.target.value }]
+                                                        : rest,
+                                                    });
+                                                  }}
+                                                  style={{
+                                                    width: '420px', height: '42px', padding: '0 16px',
+                                                    background: 'var(--bg-secondary)', border: '1px solid var(--line-2)',
+                                                    borderRadius: '9px', color: 'var(--tx)', fontSize: '14px',
+                                                    outline: 'none', boxSizing: 'border-box',
+                                                  }}
+                                                >
+                                                  <option value="">Select a captured value</option>
+                                                  {extractedVariables.map((v) => (
+                                                    <option key={v.id} value={v.key}>{v.key}</option>
+                                                  ))}
+                                                </select>
+                                              </div>
+                                            ))}
+
+                                            <button
+                                              type="button"
+                                              onClick={() => createWhatsappTemplate(config.id, preset.id)}
+                                              disabled={waSubmitting === config.id}
+                                              style={{
+                                                marginTop: '14px', height: '42px', padding: '0 20px', background: 'var(--cyan)',
+                                                border: 'none', borderRadius: '9px', color: '#04121a', fontSize: '14px', fontWeight: 700,
+                                                cursor: waSubmitting === config.id ? 'default' : 'pointer',
+                                                opacity: waSubmitting === config.id ? 0.6 : 1,
+                                              }}
+                                            >
+                                              {waSubmitting === config.id ? 'Submitting…' : 'Submit to Meta for approval'}
+                                            </button>
+                                          </>
+                                        );
+                                      })()}
+                                    </>
+                                  )}
+
+                                  {/* ── Write it, or have it drafted ───────── */}
+                                  {(mode === 'custom' || mode === 'ai') && (
+                                    <>
+                                      {mode === 'ai' && (
+                                        <div style={{ marginBottom: '18px' }}>
+                                          <div style={{ fontSize: '13px', color: 'var(--tx-2)', marginBottom: '8px' }}>
+                                            What should the message say?
+                                          </div>
+                                          <textarea
+                                            value={draft.intent}
+                                            onChange={(e) => patchDraft(config.id, { intent: e.target.value })}
+                                            placeholder="Confirm a dental appointment and remind them to arrive ten minutes early"
+                                            style={{
+                                              width: '520px', minHeight: '70px', padding: '12px 14px',
+                                              background: 'var(--bg-secondary)', border: '1px solid var(--line-2)',
+                                              borderRadius: '9px', color: 'var(--tx)', fontSize: '14px',
+                                              outline: 'none', boxSizing: 'border-box', resize: 'vertical',
+                                              fontFamily: 'inherit', lineHeight: 1.5,
+                                            }}
+                                          />
+                                          <div style={{ fontSize: '12px', color: '#808080', marginTop: '6px', maxWidth: '520px' }}>
+                                            It can only use the values the agent captures, listed at the top of this tab —
+                                            a placeholder for anything else could never be filled in.
+                                          </div>
+                                          <button
+                                            type="button"
+                                            onClick={() => runAiDraft(config.id)}
+                                            disabled={draft.busy}
+                                            style={{
+                                              marginTop: '10px', height: '38px', padding: '0 16px', background: 'transparent',
+                                              border: '1px solid var(--cyan-fg)', borderRadius: '9px', color: 'var(--cyan-fg)',
+                                              fontSize: '13px', fontWeight: 600,
+                                              cursor: draft.busy ? 'default' : 'pointer', opacity: draft.busy ? 0.6 : 1,
+                                            }}
+                                          >
+                                            {draft.busy ? 'Writing…' : draft.bodyText ? 'Rewrite' : 'Draft the message'}
+                                          </button>
+                                          {draft.notice && (
+                                            <div style={{ fontSize: '12px', color: '#FFB020', marginTop: '8px', maxWidth: '520px' }}>
+                                              {draft.notice}
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+
+                                      <div style={{ fontSize: '13px', color: 'var(--tx-2)', marginBottom: '6px' }}>
+                                        Template name <span style={{ color: 'var(--err)' }}>*</span>
+                                      </div>
+                                      <input
+                                        type="text"
+                                        value={draft.label}
+                                        onChange={(e) => patchDraft(config.id, { label: e.target.value })}
+                                        placeholder="Appointment confirmation"
+                                        style={{
+                                          width: '420px', height: '42px', padding: '0 16px',
+                                          background: 'var(--bg-secondary)', border: '1px solid var(--line-2)',
+                                          borderRadius: '9px', color: 'var(--tx)', fontSize: '14px',
+                                          outline: 'none', boxSizing: 'border-box',
+                                        }}
+                                      />
+
+                                      <div style={{ fontSize: '13px', color: 'var(--tx-2)', margin: '16px 0 6px' }}>
+                                        Message <span style={{ color: 'var(--err)' }}>*</span>
+                                      </div>
+                                      <textarea
+                                        value={draft.bodyText}
+                                        onChange={(e) => syncDraftBody(config.id, e.target.value)}
+                                        placeholder="Hi {{1}}, your appointment is confirmed for {{2}}."
+                                        style={{
+                                          width: '520px', minHeight: '110px', padding: '12px 14px',
+                                          background: 'var(--bg-secondary)', border: '1px solid var(--line-2)',
+                                          borderRadius: '9px', color: 'var(--tx)', fontSize: '14px',
+                                          outline: 'none', boxSizing: 'border-box', resize: 'vertical',
+                                          fontFamily: 'inherit', lineHeight: 1.55,
+                                        }}
+                                      />
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', width: '520px', marginTop: '6px' }}>
+                                        <div style={{ fontSize: '12px', color: '#808080' }}>Insert a captured value:</div>
+                                        <div style={{ fontSize: '12px', color: draft.bodyText.length > 1024 ? 'var(--err)' : '#808080', fontVariantNumeric: 'tabular-nums' }}>
+                                          {draft.bodyText.length} / 1024
+                                        </div>
+                                      </div>
+                                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px', width: '520px' }}>
+                                        {extractedVariables.filter((v) => v.key).map((v) => (
+                                          <button
+                                            key={v.id}
+                                            type="button"
+                                            onClick={() => insertDraftVariable(config.id, v.key)}
+                                            style={{
+                                              padding: '5px 10px', borderRadius: '7px', background: 'transparent',
+                                              border: '1px dashed var(--line-2)', color: 'var(--tx-2)',
+                                              fontSize: '12px', cursor: 'pointer', fontFamily: 'monospace',
+                                            }}
+                                          >
+                                            + {v.key}
+                                          </button>
+                                        ))}
+                                        {extractedVariables.filter((v) => v.key).length === 0 && (
+                                          <div style={{ fontSize: '12px', color: '#808080' }}>
+                                            Add what the agent should capture at the top of this tab first.
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      {thinCopy && (
+                                        <div style={{ width: '520px', marginTop: '12px', padding: '10px 13px', background: 'rgba(255,176,32,0.06)', border: '1px solid rgba(255,176,32,0.35)', borderRadius: '9px', fontSize: '12.5px', color: '#FFB020', boxSizing: 'border-box' }}>
+                                          Mostly placeholders. Meta may classify this as Marketing, which costs more and
+                                          needs opt-in — write a sentence around the values.
+                                        </div>
+                                      )}
+
+                                      {draft.placeholders.map((ph) => (
+                                        <div key={ph.index} style={{ marginTop: '14px' }}>
+                                          <div style={{ fontSize: '13px', color: 'var(--tx-2)', marginBottom: '6px' }}>
+                                            {`{{${ph.index}}}`} — which captured value, and an example for Meta
+                                          </div>
+                                          <div style={{ display: 'flex', gap: '10px', width: '520px' }}>
+                                            <select
+                                              value={ph.variableKey}
+                                              onChange={(e) => patchDraft(config.id, {
+                                                placeholders: draft.placeholders.map((p) => (p.index === ph.index ? { ...p, variableKey: e.target.value } : p)),
+                                              })}
+                                              style={{
+                                                flex: 1, height: '42px', padding: '0 14px',
+                                                background: 'var(--bg-secondary)', border: '1px solid var(--line-2)',
+                                                borderRadius: '9px', color: 'var(--tx)', fontSize: '14px',
+                                                outline: 'none', boxSizing: 'border-box',
+                                              }}
+                                            >
+                                              <option value="">Select a captured value</option>
+                                              {extractedVariables.map((v) => (
+                                                <option key={v.id} value={v.key}>{v.key}</option>
+                                              ))}
+                                            </select>
+                                            <input
+                                              type="text"
+                                              value={ph.example}
+                                              onChange={(e) => patchDraft(config.id, {
+                                                placeholders: draft.placeholders.map((p) => (p.index === ph.index ? { ...p, example: e.target.value } : p)),
+                                              })}
+                                              placeholder="Example, e.g. Priya"
+                                              style={{
+                                                flex: 1, height: '42px', padding: '0 14px',
+                                                background: 'var(--bg-secondary)', border: '1px solid var(--line-2)',
+                                                borderRadius: '9px', color: 'var(--tx)', fontSize: '14px',
+                                                outline: 'none', boxSizing: 'border-box',
+                                              }}
+                                            />
+                                          </div>
+                                        </div>
+                                      ))}
+
+                                      {draft.error && (
+                                        <div style={{ width: '520px', marginTop: '12px', padding: '10px 13px', background: 'rgba(255,90,90,0.06)', border: '1px solid rgba(255,90,90,0.35)', borderRadius: '9px', fontSize: '12.5px', color: 'var(--err)', boxSizing: 'border-box' }}>
+                                          {draft.error}
+                                        </div>
+                                      )}
+
+                                      <button
+                                        type="button"
+                                        onClick={() => submitCustomTemplate(config.id)}
+                                        disabled={draft.busy || !draft.label.trim() || !draft.bodyText.trim()}
+                                        style={{
+                                          marginTop: '16px', height: '42px', padding: '0 20px', background: 'var(--cyan)',
+                                          border: 'none', borderRadius: '9px', color: '#04121a', fontSize: '14px', fontWeight: 700,
+                                          cursor: draft.busy ? 'default' : 'pointer',
+                                          opacity: draft.busy || !draft.label.trim() || !draft.bodyText.trim() ? 0.5 : 1,
+                                        }}
+                                      >
+                                        {draft.busy ? 'Submitting…' : 'Submit to Meta for approval'}
+                                      </button>
+                                      <div style={{ fontSize: '12px', color: '#808080', marginTop: '8px', maxWidth: '520px' }}>
+                                        Meta reviews this once, usually within a few hours. Nothing sends until it is approved,
+                                        and every agent in this workspace can use it afterwards.
+                                      </div>
+                                    </>
+                                  )}
+                                </>
                               )}
 
-                              {/* The trigger. Without this the message would go out
+                              {/* The trigger. Without it the message would go out
                                   after every call, including ones that booked nothing. */}
-                              <div style={{ fontSize: '13px', color: 'var(--tx-2)', margin: '18px 0 8px' }}>
-                                Send only when this variable is captured <span style={{ color: 'var(--err)' }}>*</span>
+                              <div style={{ fontSize: '13px', color: 'var(--tx-2)', margin: '22px 0 8px' }}>
+                                Send only when this value is captured <span style={{ color: 'var(--err)' }}>*</span>
                               </div>
                               <select
                                 value={config.triggerVariable || ''}
                                 onChange={(e) => updatePostCallConfigAndSave(config.id, { triggerVariable: e.target.value })}
                                 style={{
-                                  width: '400px', height: '42px', padding: '0 16px',
+                                  width: '420px', height: '42px', padding: '0 16px',
                                   background: 'var(--bg-secondary)', border: '1px solid var(--line-2)',
                                   borderRadius: '9px', color: config.triggerVariable ? 'var(--tx)' : 'var(--tx-2)',
                                   fontSize: '14px', outline: 'none', boxSizing: 'border-box',
                                 }}
                               >
-                                <option value="">Select an extracted variable</option>
+                                <option value="">Select a captured value</option>
                                 {extractedVariables.map((v) => (
                                   <option key={v.id} value={v.key}>{v.key}</option>
                                 ))}
                               </select>
-                              <div style={{ fontSize: '12px', color: '#808080', marginTop: '6px', maxWidth: '480px' }}>
-                                Pick the variable that only gets a value when the booking actually happened —
+                              <div style={{ fontSize: '12px', color: '#808080', marginTop: '6px', maxWidth: '520px' }}>
+                                Pick the value that only gets filled in when the booking actually happened —
                                 the appointment date, for example. Calls that capture nothing for it send no message.
                               </div>
 
-                              {/* Web calls carry no caller number, so this is the way
-                                  to message someone on a channel that has none. */}
                               <div style={{ fontSize: '13px', color: 'var(--tx-2)', margin: '18px 0 8px' }}>Send to (optional)</div>
                               <select
                                 value={config.recipientVariable || ''}
                                 onChange={(e) => updatePostCallConfigAndSave(config.id, { recipientVariable: e.target.value })}
                                 style={{
-                                  width: '400px', height: '42px', padding: '0 16px',
+                                  width: '420px', height: '42px', padding: '0 16px',
                                   background: 'var(--bg-secondary)', border: '1px solid var(--line-2)',
                                   borderRadius: '9px', color: 'var(--tx)', fontSize: '14px',
                                   outline: 'none', boxSizing: 'border-box',
@@ -5649,8 +6027,8 @@ export default function EditAgent() {
                                   <option key={v.id} value={v.key}>{v.key}</option>
                                 ))}
                               </select>
-                              <div style={{ fontSize: '12px', color: '#808080', marginTop: '6px', maxWidth: '480px' }}>
-                                Web calls have no caller number. Choose a variable here if the agent collects one.
+                              <div style={{ fontSize: '12px', color: '#808080', marginTop: '6px', maxWidth: '520px' }}>
+                                Web calls have no caller number. Choose a captured value here if the agent collects one.
                               </div>
                             </>
                           )}
