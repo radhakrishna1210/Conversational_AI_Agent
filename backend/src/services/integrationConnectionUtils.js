@@ -100,6 +100,7 @@ export const validateIntegrationCredentials = (providerKey, credentials = {}) =>
   if (['google_calendar', 'google_meet', 'google_sheets'].includes(providerKey)) requiredFields.push({ key: 'accessToken', label: 'OAuth access token' });
   if (providerKey === 'calendly') requiredFields.push({ key: 'personalToken', label: 'Personal access token' });
   if (providerKey === 'cal') requiredFields.push({ key: 'apiKey', label: 'API key' });
+  if (providerKey === 'chatflow') requiredFields.push({ key: 'apiKey', label: 'ChatFlow API key' });
   if (providerKey === 'hubspot') requiredFields.push({ key: 'accessToken', label: 'Access token' });
   if (providerKey === 'slack') requiredFields.push({ key: 'botToken', label: 'Bot token' });
   if (providerKey === 'salesforce') {

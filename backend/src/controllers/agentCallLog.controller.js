@@ -47,7 +47,14 @@ const sanitizeTranscript = (transcript) => {
   return JSON.stringify(turns);
 };
 
-const toApi = (row) => ({
+/**
+ * @param {object} row
+ * @param {Array<object>} [waSends] WhatsApp confirmations for this call. An array
+ *   rather than a single value because one call can have several Post-Call
+ *   destinations configured, each sending its own message. Omitted (and therefore
+ *   `[]`) on the single-call responses, which do not query for them.
+ */
+const toApi = (row, waSends = []) => ({
   id: row.id,
   type: row.type,
   status: row.status,
@@ -61,6 +68,15 @@ const toApi = (row) => ({
   extractionError: row.extractionError,
   extractedAt: row.extractedAt,
   extractedData: (() => { try { return JSON.parse(row.extractedData); } catch { return {}; } })(),
+  // Delivery of the post-call WhatsApp confirmation, as ChatFlow reported it.
+  // PENDING/SENT come from our own send; DELIVERED/READ/FAILED arrive later on
+  // the status webhook, so this changes after the call is already finished.
+  whatsapp: waSends.map((s) => ({
+    status: s.status,
+    recipient: s.recipient,
+    sentAt: s.sentAt,
+    error: s.lastError,
+  })),
 });
 
 const isTerminalStatus = (status) => status === 'COMPLETED' || status === 'FAILED';
@@ -160,7 +176,24 @@ export const listCallLogs = async (req, res) => {
       orderBy: { startedAt: 'desc' },
       take: limit,
     });
-    res.json({ success: true, calls: rows.map(toApi) });
+
+    // One extra query for the whole page rather than one per row. Most workspaces
+    // send no WhatsApp confirmations at all, so skip it entirely when there is
+    // nothing to look up.
+    const sendsByCall = new Map();
+    if (rows.length) {
+      const sends = await prisma.whatsAppPostCallSend.findMany({
+        where: { workspaceId, callLogId: { in: rows.map((r) => r.id) } },
+        orderBy: { createdAt: 'asc' },
+      });
+      for (const s of sends) {
+        const list = sendsByCall.get(s.callLogId) ?? [];
+        list.push(s);
+        sendsByCall.set(s.callLogId, list);
+      }
+    }
+
+    res.json({ success: true, calls: rows.map((r) => toApi(r, sendsByCall.get(r.id) ?? [])) });
   } catch (err) {
     sendError(res, err, 'Failed to list call logs');
   }

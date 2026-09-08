@@ -214,6 +214,9 @@ const parseSnapshotResponse = (providerKey, data, fallbackLabel, fallbackCount) 
   else if (providerKey === 'google_calendar' || providerKey === 'google_meet') count = data.items?.length ?? count;
   else if (providerKey === 'google_sheets') count = data.files?.length ?? count;
   else if (providerKey === 'twilio')      label = data.friendly_name ?? label;
+  // ChatFlow's template list is a bare array, so the count is the useful signal:
+  // the card reads "N templates" rather than a meaningless 0.
+  else if (providerKey === 'chatflow')    count = Array.isArray(data) ? data.length : count;
 
   return { accountLabel: label, lastSyncedCount: count };
 };
@@ -283,9 +286,15 @@ const fetchSnapshot = async (integration) => {
   const url = verifyUrl || (baseUrl && endpoint ? `${baseUrl}${endpoint}` : '');
   if (!url) return { accountLabel: fallbackLabel, lastSyncedCount: fallbackCount };
 
+  // ChatFlow authenticates with x-api-key, not a bearer token. Without this the
+  // sync fired right after a successful connect would 401 and immediately flip
+  // the integration to `error` — the card would read "connected" then "error"
+  // seconds later, with a working key.
   const headers = p.key === 'cal'
     ? calApiHeaders(token)
-    : { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+    : p.key === 'chatflow'
+      ? { 'x-api-key': token, 'Content-Type': 'application/json' }
+      : { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
 
   const res = await fetch(url, { headers });
   const data = await res.json().catch(() => ({}));
@@ -347,6 +356,39 @@ export const connectWithCredentials = async (workspaceId, providerKey, credentia
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw Object.assign(new Error(data.message || 'Invalid Cal.com API key'), { statusCode: 400 });
       accountLabel = data.data?.username ?? data.data?.email ?? 'Cal.com';
+    }
+    else if (providerKey === 'chatflow') {
+      accessToken = sanitizedCredentials.apiKey;
+      // Listing templates is the cheapest call that proves both halves of what we
+      // need: the key resolves to a real ChatFlow workspace, and it carries at
+      // least `templates:read`. An empty array is a pass — a brand-new workspace
+      // legitimately has no templates yet. A 403 here means the key exists but was
+      // issued without the scopes, which is worth saying plainly rather than
+      // letting it surface days later as a failed confirmation.
+      //
+      // Not routed through assertPublicHttpUrl on purpose: CHATFLOW_API_BASE_URL is
+      // set by the operator and points at loopback on the shared VPS, which that
+      // guard blocks by design. It protects against tenant-supplied URLs; this is
+      // not one. Same reasoning as every other branch here calling a known host.
+      const base = String(env.CHATFLOW_API_BASE_URL || '').replace(/\/+$/, '');
+      if (!base) throw Object.assign(new Error('CHATFLOW_API_BASE_URL is not configured on this server.'), { statusCode: 500 });
+      let res;
+      try {
+        res = await fetch(`${base}/api/v1/public/templates`, {
+          headers: { 'x-api-key': accessToken },
+          signal: AbortSignal.timeout(10_000),
+        });
+      } catch (netErr) {
+        throw Object.assign(new Error(`Could not reach ChatFlow at ${base}: ${netErr.message}`), { statusCode: 502 });
+      }
+      const data = await res.json().catch(() => ({}));
+      if (res.status === 403) {
+        throw Object.assign(new Error(data.error || 'This ChatFlow key is missing the templates:read scope.'), { statusCode: 400 });
+      }
+      if (!res.ok) {
+        throw Object.assign(new Error(data.error || 'Invalid or revoked ChatFlow API key'), { statusCode: 400 });
+      }
+      accountLabel = 'ChatFlow';
     }
     else if (providerKey === 'hubspot') {
       accessToken = sanitizedCredentials.accessToken;

@@ -7,6 +7,9 @@ import { sendMail, isMailerConfigured } from '../lib/mailer.js';
 import { assertPublicHttpUrl } from '../lib/safeUrl.js';
 import { appendCallRow } from '../services/googleSheets.service.js';
 import { createEvent, resolveAppointmentStart } from '../services/googleCalendar.service.js';
+import { getBinding } from '../services/whatsappTemplates.service.js';
+import { sendWhatsAppConfirmation, buildPositionalVariables } from '../services/whatsappPostCall.service.js';
+import { enqueueWhatsAppSend } from '../queues/whatsappPostCall.queue.js';
 import { getWalletRate, setWalletRate, WALLET_RATE_PLAN } from '../services/billing/walletRate.js';
 import { listBuckets, createBucket, updateBucket, deleteBucket } from '../services/billing/pricingBuckets.js';
 import { resolveWorkspaceRate, assignBucket, setRateOverride } from '../services/billing/workspaceRate.js';
@@ -331,6 +334,90 @@ export const executePostCall = async (agentId, workspaceId, payload) => {
           attendees: cfg.attendeeVariable ? [findVar(cfg.attendeeVariable)].filter(Boolean) : undefined,
         });
         results.push({ method: 'googlecalendar', target: out.htmlLink || out.id, ok: true, bookedFrom: resolved.from, ...out });
+      } else if (method === 'whatsapp') {
+        // A WhatsApp confirmation through the workspace's own ChatFlow account.
+        //
+        // The trigger is NOT the call outcome. There is no "appointment booked"
+        // status in this system — `outcome` only ever carries Completed or Failed
+        // — so what fires this is the PRESENCE of a named extracted variable, the
+        // same way the calendar branch above infers a booking from having found a
+        // date. If the caller booked nothing, the variable is empty and no message
+        // goes out, which is the whole point: a confirmation for a booking that
+        // never happened is what earns Meta quality complaints.
+        const findVar = (key) => variables.find((v) => String(v.key).toLowerCase() === String(key ?? '').toLowerCase());
+
+        const triggerKey = String(cfg.triggerVariable ?? '').trim();
+        if (!triggerKey) {
+          results.push({ method: 'whatsapp', ok: false, error: 'No trigger variable is set, so this message would fire on every call. Choose the variable that means the booking happened.' });
+          continue;
+        }
+        const triggerValue = findVar(triggerKey)?.value;
+        if (triggerValue == null || String(triggerValue).trim() === '') {
+          results.push({ method: 'whatsapp', ok: true, skipped: true, reason: `Nothing was captured for "${triggerKey}" on this call` });
+          continue;
+        }
+
+        const binding = await getBinding(workspaceId, cfg.whatsappBindingId);
+        if (!binding) {
+          results.push({ method: 'whatsapp', ok: false, error: 'No WhatsApp template is linked to this destination' });
+          continue;
+        }
+        // ChatFlow's public send path does not check approval before forwarding to
+        // Meta (its API-playground path does), so an unapproved template would come
+        // back as an opaque Graph API error. Check it here, and treat it as
+        // permanent-for-now: a Meta review runs for days, so retrying is pointless.
+        if (binding.status !== 'APPROVED') {
+          results.push({
+            method: 'whatsapp',
+            ok: false,
+            permanent: true,
+            error: binding.status === 'REJECTED'
+              ? `Meta rejected this template${binding.rejectedReason ? `: ${binding.rejectedReason}` : ''}`
+              : 'Template is still awaiting Meta approval, so nothing was sent',
+          });
+          continue;
+        }
+
+        const built = buildPositionalVariables(cfg.variableMapping, findVar);
+        if (!built.ok) {
+          results.push({ method: 'whatsapp', ok: false, error: `Nothing was captured for ${built.missing.join(', ')}` });
+          continue;
+        }
+
+        // A phone call carries the caller's number; a web call has none, which is
+        // what recipientVariable is for — the agent can collect one on the web.
+        const recipient = cfg.recipientVariable ? findVar(cfg.recipientVariable)?.value : payload.phoneNumber;
+        const sendArgs = {
+          to: recipient,
+          templateName: binding.chatflowName,
+          language: binding.language,
+          variables: built.values,
+          // "Test delivery" runs this branch with no callId (see testPostCall).
+          // A synthetic, unique one lets the test actually send — which is the
+          // point of the button, since nobody wants to discover a broken template
+          // mapping on a real customer — while keeping each press its own
+          // idempotency key rather than deduping against the previous test.
+          callLogId: payload.callId || `test-${cfg.id}-${Date.now()}`,
+          postCallConfigId: cfg.id,
+        };
+
+        // Queue it so a ChatFlow restart mid-deploy retries instead of losing a
+        // customer's confirmation. Redis is optional here, and enqueue returns
+        // null without it — send inline in that case rather than reporting a
+        // message queued that nothing will ever pick up.
+        const job = await enqueueWhatsAppSend({ workspaceId, ...sendArgs });
+        if (job) {
+          results.push({ method: 'whatsapp', target: String(recipient ?? ''), ok: true, queued: true });
+        } else {
+          const sent = await sendWhatsAppConfirmation(workspaceId, sendArgs);
+          results.push({
+            method: 'whatsapp',
+            target: sent.duplicate ? 'already sent' : String(recipient ?? ''),
+            ok: true,
+            duplicate: sent.duplicate === true,
+            messageId: sent.messageId ?? null,
+          });
+        }
       } else {
         results.push({ method: method || 'unknown', ok: false, error: 'Unsupported or incomplete config' });
       }

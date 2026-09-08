@@ -67,6 +67,28 @@ export const INTEGRATION_PROVIDERS = {
     syncEndpoint: '/v2/me',
     verifyUrl: 'https://api.cal.com/v2/me',
   },
+  // ChatFlow — our own WhatsApp Business platform, not a third party. The client
+  // signs up there, completes Meta's business verification and connects their own
+  // WhatsApp number, then pastes a ChatFlow API key here. That key IS the tenant:
+  // ChatFlow derives the workspace from it, so one client's key can only ever send
+  // from that client's number and no cross-tenant send is expressible.
+  //
+  // Post Call, not During Call: the message goes out after the conversation ends,
+  // from executePostCall — there is no in-call tool calling in this system.
+  chatflow: {
+    key: 'chatflow',
+    name: 'ChatFlow (WhatsApp)',
+    category: 'Post Call',
+    connectType: 'apikey',
+    connectFields: [
+      { name: 'apiKey', label: 'ChatFlow API Key', placeholder: 'Paste your ChatFlow key', type: 'password', help: 'ChatFlow → Settings → API Keys. Needs the templates:read, templates:write, messages:send and webhooks:write scopes.' },
+    ],
+    oauth: null,
+    // Unlike every other provider here, the base URL is per-deployment rather than
+    // a fixed vendor domain, so it is resolved from env at call time.
+    apiBaseUrlEnv: 'CHATFLOW_API_BASE_URL',
+    syncEndpoint: '/api/v1/public/templates',
+  },
   calendly: {
     key: 'calendly',
     name: 'Calendly',
@@ -207,6 +229,7 @@ export const INTEGRATION_ORDER = [
   'google_sheets',
   'cal',
   'calendly',
+  'chatflow',
   'salesforce',
   'hubspot',
   'slack',

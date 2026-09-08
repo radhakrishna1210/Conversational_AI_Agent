@@ -11,7 +11,7 @@ import { cspDirectives } from './config/csp.js';
 import { buildCorsOptions } from './config/cors.js';
 import routes from './routes/index.js';
 import { errorHandler } from './middleware/errorHandler.js';
-import logger from './lib/logger.js';
+import logger, { scrubUrl } from './lib/logger.js';
 
 const app = express();
 
@@ -61,7 +61,9 @@ app.use(express.json({ limit: env.JSON_BODY_LIMIT }));
 app.use(express.urlencoded({ extended: false, limit: env.JSON_BODY_LIMIT }));
 
 app.use((req, _res, next) => {
-  logger.debug({ method: req.method, url: req.url }, 'Incoming request');
+  // scrubUrl, not req.url: several public endpoints carry their authorisation as
+  // an HMAC token in the URL, and this line runs for every request.
+  logger.debug({ method: req.method, url: scrubUrl(req.url) }, 'Incoming request');
   next();
 });
 

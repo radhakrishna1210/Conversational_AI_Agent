@@ -68,20 +68,20 @@ model User {
 // are gone from here now; if any of it is ever needed again it comes back
 // through a migration that actually creates the table, not by being re-declared.
 model Workspace {
-  id                  String               @id @default(cuid())
+  id                  String                    @id @default(cuid())
   name                String
-  slug                String               @unique
+  slug                String                    @unique
   logoUrl             String?
-  planName            String               @default("Starter")
+  planName            String                    @default("Starter")
   // ── Pricing (Super Admin only; never surfaced to customers) ────────────────
   // Resolution order at charge time is override -> bucket -> platform default.
   // Both nullable: null on either means "fall through to the next rule", so an
   // untouched workspace bills exactly as it did before this existed.
   rateOverrideInr     Float?
   pricingBucketId     String?
-  pricingBucket       PricingBucket?       @relation(fields: [pricingBucketId], references: [id], onDelete: SetNull)
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
+  pricingBucket       PricingBucket?            @relation(fields: [pricingBucketId], references: [id], onDelete: SetNull)
+  createdAt           DateTime                  @default(now())
+  updatedAt           DateTime                  @updatedAt
   agents              Agent[]
   apiKeys             ApiKey[]
   broadcasts          Broadcast[]
@@ -107,6 +107,8 @@ model Workspace {
   invites             WorkspaceInvite[]
   members             WorkspaceMember[]
   settings            WorkspaceSettings?
+  waTemplateBindings  WhatsAppTemplateBinding[]
+  waPostCallSends     WhatsAppPostCallSend[]
 }
 
 model WorkspaceMember {
@@ -497,29 +499,29 @@ model Agent {
 // work" is answerable per call without parsing logs. A browser call that asked
 // for a person gets a WEB_CALLBACK row (no leg to dial; a callback was offered).
 model CallTransfer {
-  id             String    @id @default(cuid())
-  callLogId      String
-  workspaceId    String
-  agentId        String
-  channel        String    // PHONE | WEB
-  carrier        String?   // TWILIO | PLIVO | PIOPIY | null (web)
-  carrierCallId  String?
-  target         String?   // E.164 dialled, null when nothing was dialled
-  mode           String    @default("announce")
+  id            String    @id @default(cuid())
+  callLogId     String
+  workspaceId   String
+  agentId       String
+  channel       String // PHONE | WEB
+  carrier       String? // TWILIO | PLIVO | PIOPIY | null (web)
+  carrierCallId String?
+  target        String? // E.164 dialled, null when nothing was dialled
+  mode          String    @default("announce")
   // How the request was recognised: marker (model), regex (pre-filter), condition
-  source         String
-  reason         String?   // the caller's words, or the configured condition
+  source        String
+  reason        String? // the caller's words, or the configured condition
   // REQUESTED | DIALING | CONNECTED | NO_ANSWER | BUSY | FAILED | CANCELED |
   // REJECTED (carrier refused the redirect) | UNAVAILABLE (no number / out of
   // hours / unsupported carrier) | WEB_CALLBACK
-  status         String    @default("REQUESTED")
-  error          String?
-  requestedAt    DateTime  @default(now())
-  dialedAt       DateTime?
-  resolvedAt     DateTime?
-  humanLegSec    Int       @default(0)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  status        String    @default("REQUESTED")
+  error         String?
+  requestedAt   DateTime  @default(now())
+  dialedAt      DateTime?
+  resolvedAt    DateTime?
+  humanLegSec   Int       @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   @@index([callLogId])
   @@index([workspaceId, agentId, requestedAt])
@@ -1280,22 +1282,22 @@ model VoiceNumber {
   // can be reconciled against our own rows. NEVER shown to a client and never
   // used to compute their price — that comes from the platform rate card, so
   // a carrier price change cannot silently reprice a live customer.
-  carrierMonthlyCents   Int?
+  carrierMonthlyCents Int?
   // What the CLIENT pays per month, frozen at rent time. Frozen rather than
   // read live from the rate card so raising the platform price does not
   // retroactively raise every existing number's next renewal.
-  clientMonthlyCents    Int?
+  clientMonthlyCents  Int?
   // When the next monthly debit is due. Null means this number is not on a
   // recurring charge — a number recorded by hand before billing existed.
-  nextRenewalAt         DateTime?
+  nextRenewalAt       DateTime?
   // When a renewal first failed for lack of funds. The grace period runs from
   // here, and clearing it is what marks the number healthy again.
-  renewalFailedAt       DateTime?
+  renewalFailedAt     DateTime?
   // Rolling reputation guard. A number's answer rate collapsing is the earliest
   // signal that carriers have started filtering it.
-  dailyDialCap          Int       @default(200)
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
+  dailyDialCap        Int       @default(200)
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
@@ -1304,4 +1306,73 @@ model VoiceNumber {
   // creates it as a partial index (WHERE "nextRenewalAt" IS NOT NULL), which
   // Prisma cannot express — same index name, so the two do not fight.
   @@index([nextRenewalAt])
+}
+
+// One approved-once, reused-forever WhatsApp template, as it exists on ChatFlow.
+//
+// Meta reviews a template once; after that the same template is sent thousands of
+// times with different variable values. So this row is the *binding* between a
+// Spandan preset and the ChatFlow/Meta template it became — not a per-message row.
+//
+// `@@unique([workspaceId, presetId])` is load-bearing. ChatFlow's own Template table
+// has NO unique constraint on (workspaceId, name, language), and its send path
+// resolves templates with findFirst — so submitting the same preset twice would
+// leave two rows and make every later send pick one of them at random. Deduping
+// here is what stops that, because we cannot fix it there.
+//
+// `status` mirrors ChatFlow's PENDING | APPROVED | REJECTED | DELETED and is a
+// cache refreshed by polling. It is checked before every send: ChatFlow's public
+// send path does NOT verify approval (unlike its API-playground path), so an
+// unapproved template would otherwise fail as an opaque Graph API error.
+model WhatsAppTemplateBinding {
+  id                 String    @id @default(cuid())
+  workspaceId        String
+  presetId           String
+  // ChatFlow's own Template.id. Kept for status polling; NOT what sends resolve by.
+  chatflowTemplateId String?
+  // The derived Meta-legal name. Sends resolve by name + language, so this is the
+  // identifier that actually matters at send time.
+  chatflowName       String
+  language           String    @default("en")
+  status             String    @default("PENDING")
+  rejectedReason     String?
+  lastCheckedAt      DateTime?
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  workspace          Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, presetId])
+  @@index([workspaceId])
+}
+
+// One WhatsApp send attempt for one call and one post-call destination.
+//
+// This table exists to stop duplicate messages, and the unique constraint is the
+// mechanism — not the queue. ChatFlow's POST /public/messages accepts no
+// idempotency key, so a BullMQ retry after a response was lost would send the
+// customer a second confirmation. The row is claimed BEFORE ChatFlow is called;
+// a unique violation against an existing SENT row means "already delivered, stop".
+//
+// It doubles as the delivery-status record: ChatFlow reports SENT -> DELIVERED ->
+// READ (or FAILED) by webhook, matched back on chatflowMessageId.
+model WhatsAppPostCallSend {
+  id                String    @id @default(cuid())
+  workspaceId       String
+  callLogId         String
+  // PostCallConfig.id from the agent's settings JSON. One call can have several
+  // WhatsApp destinations configured, and each is independently idempotent.
+  postCallConfigId  String
+  status            String    @default("PENDING")
+  recipient         String?
+  chatflowMessageId String?
+  attempts          Int       @default(0)
+  lastError         String?
+  sentAt            DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+  workspace         Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([callLogId, postCallConfigId])
+  @@index([workspaceId, status])
+  @@index([chatflowMessageId])
 }

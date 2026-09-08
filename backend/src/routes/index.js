@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { fileURLToPath } from 'node:url';
 import { authenticate } from '../middleware/authenticate.js';
+import { authorize } from '../middleware/authorize.js';
 import { workspaceContext } from '../middleware/workspaceContext.js';
 import { mockLLMService } from '../services/llm/mock.service.js';
 import { getLLMProviderWithFallback } from '../services/llm.factory.js';
@@ -13,6 +14,8 @@ import * as kbCtrl from '../controllers/kbFile.controller.js';
 import * as callerCtrl from '../controllers/callerNumber.controller.js';
 import * as broadcastCtrl from '../controllers/broadcast.controller.js';
 import * as modelCatalog from '../controllers/modelCatalog.controller.js';
+import * as waTemplates from '../controllers/whatsappTemplates.controller.js';
+import * as chatflowWebhook from '../controllers/chatflowWebhook.controller.js';
 import { synthesizedBedWav } from '../services/voice/ambienceBed.js';
 import { readFileSync } from 'fs';
 
@@ -108,6 +111,18 @@ router.get('/config/wallet-rate', platform.getWalletRatePublic);
 // /plivo/answer and /plivo/hangup endpoints, which are signature-verified.
 router.get('/broadcast-audio/:recordingId', broadcastCtrl.publicAudio);
 router.post('/broadcast/twilio/status', broadcastCtrl.twilioStatus);
+
+// WhatsApp delivery reports from ChatFlow (SENT / DELIVERED / READ / FAILED).
+// Public because a webhook sender cannot hold a session, and authorised by the
+// HMAC token in the URL — ChatFlow's own signature header is computed with an
+// empty secret it has no way to set, so it authenticates nothing. See
+// services/chatflowWebhook.service.js. Rate-limited because it is unauthenticated
+// until that token is checked.
+router.post(
+  '/integrations/chatflow/status/:workspaceId/:token',
+  rateLimit({ windowMs: 60_000, max: 240, keyPrefix: 'cfstatus' }),
+  chatflowWebhook.receiveStatus,
+);
 
 // Razorpay webhook. NOT authenticated by session on purpose: Razorpay cannot
 // hold a token. The X-Razorpay-Signature HMAC over the raw body is the
@@ -215,6 +230,16 @@ ws.get('/model-catalog', modelCatalog.clientGetCatalog);
 
 ws.get('/agents/:agentId/kb-text', kbCtrl.agentKbText);
 ws.post('/agents/:agentId/post-call/test', platform.testPostCall);
+
+// WhatsApp templates, submitted to Meta through the workspace's own ChatFlow
+// account. Workspace-scoped like everything else on this router; the ChatFlow API
+// key that authorises the far side is stored per workspace as the `chatflow`
+// integration. See services/whatsappTemplates.service.js.
+ws.get('/whatsapp-templates/presets', waTemplates.getPresets);
+ws.get('/whatsapp-templates/webhook', chatflowWebhook.getWebhookStatus);
+ws.post('/whatsapp-templates/webhook', authorize('Member'), chatflowWebhook.registerWebhook);
+ws.get('/whatsapp-templates', waTemplates.listTemplates);
+ws.post('/whatsapp-templates', authorize('Member'), waTemplates.createTemplate);
 
 // Caller-number picker ("call from your own number") — Twilio-backed, no DB.
 ws.get('/caller-numbers', callerCtrl.listCallerNumbers);

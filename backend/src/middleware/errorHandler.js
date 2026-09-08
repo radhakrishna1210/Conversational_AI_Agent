@@ -2,10 +2,12 @@ import { ZodError } from 'zod';
 import { Prisma } from '@prisma/client';
 import multer from 'multer';
 import { MetaApiError } from '../lib/metaApi.js';
-import logger from '../lib/logger.js';
+import logger, { scrubUrl } from '../lib/logger.js';
 
 export const errorHandler = (err, req, res, next) => {
-  logger.error({ err, url: req.url, method: req.method }, 'Request error');
+  // Errors are mirrored to disk (lib/logger.js), so an unscrubbed URL would write
+  // a replayable capability token to a file that outlives the process.
+  logger.error({ err, url: scrubUrl(req.url), method: req.method }, 'Request error');
 
   // Bug fix #8: Multer file size / type errors
   if (err instanceof multer.MulterError) {

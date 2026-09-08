@@ -141,6 +141,31 @@ interface ExtractedVariable {
   description: string;
 }
 
+/** A Meta-safe body Spandan ships. The client maps variables in; it cannot edit the wording. */
+interface WhatsappPreset {
+  id: string;
+  label: string;
+  blurb: string;
+  category: string;
+  language: string;
+  bodyText: string;
+  placeholders: { index: number; label: string; example: string }[];
+  variableCount: number;
+}
+
+/** A preset that has been submitted to Meta, and where its review got to. */
+interface WhatsappTemplate {
+  id: string;
+  presetId: string;
+  name: string;
+  language: string;
+  status: 'PENDING' | 'APPROVED' | 'REJECTED' | 'DELETED';
+  rejectedReason?: string | null;
+  lastCheckedAt?: string | null;
+  /** true when ChatFlow could not be reached and this is the cached status */
+  stale?: boolean;
+}
+
 interface PostCallConfig {
   id: string;
   deliveryMethod: string;
@@ -156,6 +181,23 @@ interface PostCallConfig {
   dateVariable?: string;
   /** event length in minutes when only a start time is extracted (default 30) */
   durationMin?: number;
+  /** WhatsAppTemplateBinding.id — the Meta-approved template this sends */
+  whatsappBindingId?: string;
+  /** which preset that binding came from, so the UI can show its wording */
+  presetId?: string;
+  /**
+   * Which extracted variable feeds each {{n}} in the template. Meta placeholders
+   * are positional and 1-based, and ChatFlow keeps no record of what a position
+   * means, so this mapping only exists here.
+   */
+  variableMapping?: { placeholderIndex: number; variableKey: string }[];
+  /**
+   * The message sends only when this extracted variable has a value. There is no
+   * "appointment booked" call status to trigger on, so its presence is the signal.
+   */
+  triggerVariable?: string;
+  /** extracted-variable key holding a number to message instead of the caller's */
+  recipientVariable?: string;
   triggerStatuses: string[];
   includeCallSummary: boolean;
   includeFullConversation: boolean;
@@ -192,6 +234,11 @@ const createDefaultPostCallConfig = (): PostCallConfig => ({
   spreadsheetName: '',
   dateVariable: '',
   durationMin: 30,
+  whatsappBindingId: '',
+  presetId: '',
+  variableMapping: [],
+  triggerVariable: '',
+  recipientVariable: '',
   triggerStatuses: ['Completed', 'Voicemail Detected'],
   includeCallSummary: true,
   includeFullConversation: true,
@@ -423,6 +470,61 @@ export default function EditAgent() {
       setSpreadsheetsState('error');
     }
   };
+  // ── WhatsApp templates ─────────────────────────────────────────────────────
+  // A template is approved by Meta ONCE and then reused for every call, so this
+  // is a short list that rarely changes. Its `status` is what decides whether
+  // anything can actually be sent, and it is refreshed server-side on read.
+  const [waPresets, setWaPresets] = useState<WhatsappPreset[]>([]);
+  const [waTemplates, setWaTemplates] = useState<WhatsappTemplate[]>([]);
+  const [waState, setWaState] = useState<'idle' | 'loading' | 'error'>('idle');
+  const [waError, setWaError] = useState('');
+  const [waSubmitting, setWaSubmitting] = useState('');
+
+  const loadWhatsappTemplates = async () => {
+    setWaState('loading');
+    setWaError('');
+    try {
+      const [presetRes, templateRes] = await Promise.all([
+        whapi.get<{ presets: WhatsappPreset[] }>('/whatsapp-templates/presets'),
+        whapi.get<{ templates: WhatsappTemplate[] }>('/whatsapp-templates'),
+      ]);
+      setWaPresets(presetRes?.presets ?? []);
+      setWaTemplates(templateRes?.templates ?? []);
+      setWaState('idle');
+    } catch (err) {
+      // The usual cause is ChatFlow not being connected yet, and the backend says
+      // exactly that — so show its sentence rather than inventing one.
+      setWaError(err instanceof Error ? err.message : 'Could not load WhatsApp templates');
+      setWaState('error');
+    }
+  };
+
+  /**
+   * Submit a preset to Meta (through ChatFlow) and link it to this destination.
+   * Creating IS submitting, so what comes back is Pending, never sendable.
+   */
+  const createWhatsappTemplate = async (configId: string, presetId: string) => {
+    setWaSubmitting(configId);
+    setWaError('');
+    try {
+      const res = await whapi.post<{ template: WhatsappTemplate }>('/whatsapp-templates', { presetId });
+      const tpl = res?.template;
+      if (tpl) {
+        setWaTemplates((prev) => [...prev.filter((t) => t.id !== tpl.id), tpl]);
+        updatePostCallConfigAndSave(configId, { whatsappBindingId: tpl.id, presetId });
+      }
+    } catch (err) {
+      setWaError(err instanceof Error ? err.message : 'Could not submit the template');
+    } finally {
+      setWaSubmitting('');
+    }
+  };
+
+  const usesWhatsapp = postCallConfigs.some((c) => c.deliveryMethod === 'WhatsApp');
+  useEffect(() => {
+    if (usesWhatsapp && waPresets.length === 0 && waState === 'idle') loadWhatsappTemplates();
+  }, [usesWhatsapp]);
+
   // An agent already configured for Sheets should show real names, not just the
   // one id it saved — fetch once, only for agents that actually use it.
   const usesSheets = postCallConfigs.some((c) => c.deliveryMethod === 'Google Sheets');
@@ -474,6 +576,17 @@ export default function EditAgent() {
     extractionStatus?: 'PENDING' | 'PROCESSING' | 'COMPLETED' | 'SKIPPED' | 'FAILED';
     extractionError?: string | null;
     extractedAt?: string | null;
+    /**
+     * Post-call WhatsApp confirmations for this call — one per configured
+     * destination. DELIVERED/READ/FAILED arrive on ChatFlow's status webhook
+     * after the call is already over, so this keeps changing post-hoc.
+     */
+    whatsapp?: {
+      status: 'PENDING' | 'SENT' | 'DELIVERED' | 'READ' | 'FAILED';
+      recipient?: string | null;
+      sentAt?: string | null;
+      error?: string | null;
+    }[];
     extractedData?: {
       variables?: {
         key: string;
@@ -5067,8 +5180,9 @@ export default function EditAgent() {
                       value={config.deliveryMethod}
                       onChange={(e) => {
                         const deliveryMethod = e.target.value;
-                        updatePostCallConfigAndSave(config.id, { deliveryMethod, url: '', email: '', spreadsheetId: '', spreadsheetName: '', dateVariable: '' });
+                        updatePostCallConfigAndSave(config.id, { deliveryMethod, url: '', email: '', spreadsheetId: '', spreadsheetName: '', dateVariable: '', whatsappBindingId: '', presetId: '', variableMapping: [], triggerVariable: '', recipientVariable: '' });
                         if (deliveryMethod === 'Google Sheets' && spreadsheets.length === 0) loadSpreadsheets();
+                        if (deliveryMethod === 'WhatsApp') loadWhatsappTemplates();
                       }}
                       style={{
                         width: '310px',
@@ -5089,7 +5203,7 @@ export default function EditAgent() {
                       <option value="Google Calendar">Google Calendar</option>
                       <option value="CRM" disabled>CRM (coming soon)</option>
                       <option value="Slack" disabled>Slack (coming soon)</option>
-                      <option value="WhatsApp" disabled>WhatsApp (coming soon)</option>
+                      <option value="WhatsApp">WhatsApp</option>
                     </select>
 
                     {/* Webhook URL input */}
@@ -5203,6 +5317,213 @@ export default function EditAgent() {
                         />
                       </div>
                     )}
+
+                    {/* WhatsApp — a confirmation to the caller through the
+                        workspace's own ChatFlow account.
+
+                        Three things drive the shape of this form. Meta reviews a
+                        template ONCE and it is then reused for every call, so the
+                        submit control disappears after the first time and becomes
+                        a status badge. Placeholders are positional, and ChatFlow
+                        stores no record of what {{1}} means, so the mapping below
+                        is the only place that knows. And there is no "appointment
+                        booked" call status to trigger on, so the send is gated on
+                        an extracted variable actually having a value. */}
+                    {config.deliveryMethod === 'WhatsApp' && (() => {
+                      const preset = waPresets.find((p) => p.id === config.presetId) || null;
+                      const template = waTemplates.find((t) => t.id === config.whatsappBindingId) || null;
+                      const badge = template?.status === 'APPROVED'
+                        ? { text: 'Approved — sending', bg: 'rgba(11,191,203,0.06)', line: 'rgba(11,191,203,0.35)', fg: 'var(--cyan-fg)' }
+                        : template?.status === 'REJECTED'
+                          ? { text: 'Rejected by Meta', bg: 'rgba(255,90,90,0.06)', line: 'rgba(255,90,90,0.35)', fg: 'var(--err)' }
+                          : { text: 'Awaiting Meta approval', bg: 'rgba(255,176,32,0.06)', line: 'rgba(255,176,32,0.35)', fg: '#FFB020' };
+
+                      return (
+                        <div style={{ marginTop: '14px' }}>
+                          {waState === 'error' && (
+                            <div style={{ width: '480px', padding: '12px 14px', background: 'rgba(255,90,90,0.06)', border: '1px solid rgba(255,90,90,0.35)', borderRadius: '9px', fontSize: '13px', color: 'var(--err)', boxSizing: 'border-box' }}>
+                              {waError}
+                              <div style={{ marginTop: '6px', color: 'var(--tx-2)' }}>
+                                Connect ChatFlow under <a href="/integrations" style={{ color: 'var(--cyan-fg)' }}>Integrations</a> first.
+                              </div>
+                            </div>
+                          )}
+
+                          {waState !== 'error' && (
+                            <>
+                              <div style={{ fontSize: '13px', color: 'var(--tx-2)', marginBottom: '8px' }}>Message template <span style={{ color: 'var(--err)' }}>*</span></div>
+                              <select
+                                value={config.presetId || ''}
+                                disabled={!!template}
+                                onChange={(e) => {
+                                  const presetId = e.target.value;
+                                  const already = waTemplates.find((t) => t.presetId === presetId);
+                                  updatePostCallConfigAndSave(config.id, {
+                                    presetId,
+                                    // Reusing an existing approved template rather than
+                                    // submitting a second copy of the same preset.
+                                    whatsappBindingId: already?.id ?? '',
+                                    variableMapping: [],
+                                  });
+                                }}
+                                style={{
+                                  width: '400px', height: '42px', padding: '0 16px',
+                                  background: 'var(--bg-secondary)', border: '1px solid var(--line-2)',
+                                  borderRadius: '9px', color: config.presetId ? 'var(--tx)' : 'var(--tx-2)',
+                                  fontSize: '14px', outline: 'none', boxSizing: 'border-box',
+                                  opacity: template ? 0.6 : 1,
+                                }}
+                              >
+                                <option value="">Select a template</option>
+                                {waPresets.map((p) => (
+                                  <option key={p.id} value={p.id}>{p.label}</option>
+                                ))}
+                              </select>
+
+                              {preset && (
+                                <div style={{ width: '480px', marginTop: '10px', padding: '14px 16px', background: 'var(--bg-secondary)', border: '1px solid var(--line-2)', borderRadius: '9px', boxSizing: 'border-box' }}>
+                                  <div style={{ fontSize: '13px', color: 'var(--tx)', lineHeight: 1.55 }}>{preset.bodyText}</div>
+                                  <div style={{ fontSize: '12px', color: '#808080', marginTop: '8px' }}>
+                                    The wording is fixed. Meta reviews it once, and changing it would mean a fresh review.
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Variable mapping — one row per {{n}}. */}
+                              {preset && preset.placeholders.map((ph) => (
+                                <div key={ph.index} style={{ marginTop: '12px' }}>
+                                  <div style={{ fontSize: '13px', color: 'var(--tx-2)', marginBottom: '6px' }}>
+                                    {`{{${ph.index}}}`} — {ph.label}
+                                  </div>
+                                  <select
+                                    value={config.variableMapping?.find((m) => m.placeholderIndex === ph.index)?.variableKey || ''}
+                                    onChange={(e) => {
+                                      const rest = (config.variableMapping ?? []).filter((m) => m.placeholderIndex !== ph.index);
+                                      const next = e.target.value
+                                        ? [...rest, { placeholderIndex: ph.index, variableKey: e.target.value }]
+                                        : rest;
+                                      updatePostCallConfigAndSave(config.id, { variableMapping: next });
+                                    }}
+                                    style={{
+                                      width: '400px', height: '42px', padding: '0 16px',
+                                      background: 'var(--bg-secondary)', border: '1px solid var(--line-2)',
+                                      borderRadius: '9px', color: 'var(--tx)', fontSize: '14px',
+                                      outline: 'none', boxSizing: 'border-box',
+                                    }}
+                                  >
+                                    <option value="">Select an extracted variable</option>
+                                    {config.extractedVariables.map((v) => (
+                                      <option key={v.id} value={v.key}>{v.key}</option>
+                                    ))}
+                                  </select>
+                                </div>
+                              ))}
+
+                              {/* Submit, or the status of the one already submitted. */}
+                              {preset && !template && (
+                                <div style={{ marginTop: '14px' }}>
+                                  <button
+                                    onClick={() => createWhatsappTemplate(config.id, preset.id)}
+                                    disabled={waSubmitting === config.id}
+                                    style={{
+                                      height: '42px', padding: '0 20px', background: 'var(--cyan)',
+                                      border: 'none', borderRadius: '9px', color: '#04121a',
+                                      fontSize: '14px', fontWeight: 700,
+                                      cursor: waSubmitting === config.id ? 'default' : 'pointer',
+                                      opacity: waSubmitting === config.id ? 0.6 : 1,
+                                    }}
+                                  >
+                                    {waSubmitting === config.id ? 'Submitting…' : 'Submit to Meta for approval'}
+                                  </button>
+                                  <div style={{ fontSize: '12px', color: '#808080', marginTop: '8px', maxWidth: '480px' }}>
+                                    Meta reviews this once, usually within a few hours but sometimes longer.
+                                    Nothing is sent until it is approved.
+                                  </div>
+                                </div>
+                              )}
+
+                              {template && (
+                                <div style={{ marginTop: '14px' }}>
+                                  <div style={{
+                                    display: 'flex', alignItems: 'center', gap: '10px', width: '480px',
+                                    padding: '14px 16px', background: badge.bg, border: `1px solid ${badge.line}`,
+                                    borderRadius: '9px', boxSizing: 'border-box',
+                                  }}>
+                                    <span style={{ color: badge.fg, fontSize: '16px', lineHeight: 1 }}>
+                                      {template.status === 'APPROVED' ? '✓' : template.status === 'REJECTED' ? '✕' : '⏳'}
+                                    </span>
+                                    <div style={{ minWidth: 0, flex: 1 }}>
+                                      <div style={{ fontSize: '14px', color: 'var(--tx)', fontWeight: 600 }}>{badge.text}</div>
+                                      <div style={{ fontSize: '12px', color: 'var(--tx-2)', marginTop: '2px' }}>
+                                        {template.rejectedReason || template.name}
+                                      </div>
+                                    </div>
+                                    <button
+                                      onClick={loadWhatsappTemplates}
+                                      style={{ height: '32px', padding: '0 12px', background: 'transparent', border: '1px solid var(--line-2)', borderRadius: '7px', color: 'var(--tx-2)', fontSize: '12px', cursor: 'pointer' }}
+                                    >
+                                      {waState === 'loading' ? 'Checking…' : 'Check status'}
+                                    </button>
+                                  </div>
+                                  {template.stale && (
+                                    <div style={{ fontSize: '12px', color: '#FFB020', marginTop: '6px' }}>
+                                      ChatFlow could not be reached — this is the last known status.
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+
+                              {/* The trigger. Without this the message would go out
+                                  after every call, including ones that booked nothing. */}
+                              <div style={{ fontSize: '13px', color: 'var(--tx-2)', margin: '18px 0 8px' }}>
+                                Send only when this variable is captured <span style={{ color: 'var(--err)' }}>*</span>
+                              </div>
+                              <select
+                                value={config.triggerVariable || ''}
+                                onChange={(e) => updatePostCallConfigAndSave(config.id, { triggerVariable: e.target.value })}
+                                style={{
+                                  width: '400px', height: '42px', padding: '0 16px',
+                                  background: 'var(--bg-secondary)', border: '1px solid var(--line-2)',
+                                  borderRadius: '9px', color: config.triggerVariable ? 'var(--tx)' : 'var(--tx-2)',
+                                  fontSize: '14px', outline: 'none', boxSizing: 'border-box',
+                                }}
+                              >
+                                <option value="">Select an extracted variable</option>
+                                {config.extractedVariables.map((v) => (
+                                  <option key={v.id} value={v.key}>{v.key}</option>
+                                ))}
+                              </select>
+                              <div style={{ fontSize: '12px', color: '#808080', marginTop: '6px', maxWidth: '480px' }}>
+                                Pick the variable that only gets a value when the booking actually happened —
+                                the appointment date, for example. Calls that capture nothing for it send no message.
+                              </div>
+
+                              {/* Web calls carry no caller number, so this is the way
+                                  to message someone on a channel that has none. */}
+                              <div style={{ fontSize: '13px', color: 'var(--tx-2)', margin: '18px 0 8px' }}>Send to (optional)</div>
+                              <select
+                                value={config.recipientVariable || ''}
+                                onChange={(e) => updatePostCallConfigAndSave(config.id, { recipientVariable: e.target.value })}
+                                style={{
+                                  width: '400px', height: '42px', padding: '0 16px',
+                                  background: 'var(--bg-secondary)', border: '1px solid var(--line-2)',
+                                  borderRadius: '9px', color: 'var(--tx)', fontSize: '14px',
+                                  outline: 'none', boxSizing: 'border-box',
+                                }}
+                              >
+                                <option value="">The number the caller phoned from</option>
+                                {config.extractedVariables.map((v) => (
+                                  <option key={v.id} value={v.key}>{v.key}</option>
+                                ))}
+                              </select>
+                              <div style={{ fontSize: '12px', color: '#808080', marginTop: '6px', maxWidth: '480px' }}>
+                                Web calls have no caller number. Choose a variable here if the agent collects one.
+                              </div>
+                            </>
+                          )}
+                        </div>
+                      );
+                    })()}
 
                     {/* Google Sheets target — collapses to a confirmation once
                         chosen, so the picker/create controls don't linger and
@@ -5888,6 +6209,43 @@ export default function EditAgent() {
                                   ))}
                                 </div>
                               )}
+                            </div>
+                          )}
+                          {/* WhatsApp confirmation, if this call sent one. The
+                              status keeps moving after the call ends — DELIVERED
+                              and READ arrive on ChatFlow's webhook minutes later —
+                              so this is the only place it can be seen. */}
+                          {(call.whatsapp?.length ?? 0) > 0 && (
+                            <div style={{ marginBottom: '16px', padding: '14px', border: '1px solid #28343a', borderRadius: '10px', background: '#10171a' }}>
+                              <div style={{ fontSize: '12px', fontWeight: '700', color: '#25D366', marginBottom: '10px' }}>WhatsApp confirmation</div>
+                              <div style={{ display: 'grid', gap: '8px' }}>
+                                {call.whatsapp!.map((w, i) => {
+                                  const tone = w.status === 'FAILED'
+                                    ? 'var(--err)'
+                                    : w.status === 'READ' || w.status === 'DELIVERED'
+                                      ? '#25D366'
+                                      : '#b5a36a';
+                                  const label = w.status === 'PENDING' ? 'Sending…' : w.status.toLowerCase();
+                                  return (
+                                    <div key={`${w.recipient ?? 'x'}-${i}`} style={{ padding: '9px 11px', borderRadius: '8px', background: '#0b1012', border: '1px solid #202b30' }}>
+                                      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <span style={{ fontSize: '12px', fontWeight: 700, color: tone, textTransform: 'capitalize' }}>{label}</span>
+                                        {w.recipient && (
+                                          <span style={{ fontFamily: 'monospace', fontSize: '12px', color: '#718087' }}>{w.recipient}</span>
+                                        )}
+                                        {w.sentAt && (
+                                          <span style={{ fontSize: '11px', color: '#667277', marginLeft: 'auto' }}>
+                                            {new Date(w.sentAt).toLocaleString()}
+                                          </span>
+                                        )}
+                                      </div>
+                                      {w.error && (
+                                        <div style={{ marginTop: '6px', fontSize: '11px', color: 'var(--err)' }}>{w.error}</div>
+                                      )}
+                                    </div>
+                                  );
+                                })}
+                              </div>
                             </div>
                           )}
                           {transcript.length > 0 ? (

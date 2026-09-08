@@ -114,6 +114,13 @@ export const env = {
   GOOGLE_API_BASE_URL: optional('GOOGLE_API_BASE_URL', 'https://www.googleapis.com'),
   SLACK_API_BASE_URL: optional('SLACK_API_BASE_URL', 'https://slack.com/api'),
   GENESYS_API_BASE_URL: optional('GENESYS_API_BASE_URL'),
+  // ChatFlow (our own WhatsApp platform) — first-party, and on the shared VPS it
+  // sits on loopback beside this process. Deliberately NOT the public
+  // https://chatflo.mannmate.com hostname: that would hairpin every internal call
+  // out through nginx and back for no benefit. Because it is a private address,
+  // the ChatFlow calls must bypass assertPublicHttpUrl (see safeUrl.js) — that
+  // guard exists to constrain URLs a TENANT types, not one an operator sets here.
+  CHATFLOW_API_BASE_URL: optional('CHATFLOW_API_BASE_URL', 'http://127.0.0.1:4400'),
 
   UPLOAD_DIR: optional('UPLOAD_DIR', 'uploads'),
   // Raised from 10 to cover the 1-20MB KB file range RAG is meant for
