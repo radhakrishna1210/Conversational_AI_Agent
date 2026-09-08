@@ -3,6 +3,7 @@ import { RefreshCw, Loader2, X, AlertCircle, ExternalLink, Plug, Zap, PlugZap, S
 import { toast } from 'sonner';
 import { whapi } from '../lib/whapi';
 import { integrationsApi } from '../lib/integrationsApi';
+import { openOAuthPopup, reportOAuthResultToOpener } from '../lib/oauthPopup';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -136,6 +137,20 @@ const PROVIDERS: ProviderMeta[] = [
       { name: 'description', label: 'Description', placeholder: 'Sync contacts and deals from AI call outcomes.', type: 'textarea', optional: true },
     ],
     docsUrl: 'https://www.omnidim.io/docs/guides/hubspot-integration',
+  },
+  {
+    key: 'chatflow', name: 'ChatFlow (WhatsApp)', category: 'Post Call', tab: 'messaging', connectType: 'apikey',
+    logo: '🟢', accent: '#25D366', tint: 'rgba(37,211,102,0.12)',
+    description: 'Send a WhatsApp confirmation to the caller after a call books an appointment.',
+    modalDescription: 'Connect your ChatFlow workspace so agents can send WhatsApp confirmations from your own verified number. Create the key in ChatFlow with the templates:read, templates:write, messages:send and webhooks:write scopes.',
+    connectLabel: 'Connect ChatFlow',
+    dashboardUrl: 'https://chatflo.mannmate.com',
+    connectFields: [
+      { name: 'integrationName', label: 'Integration Name', placeholder: 'My ChatFlow Integration', type: 'text' },
+      { name: 'apiKey', label: 'ChatFlow API Key', placeholder: 'Paste your ChatFlow key', type: 'password', help: 'ChatFlow → Settings → API Keys. Needs templates:read, templates:write, messages:send and webhooks:write.' },
+      { name: 'description', label: 'Description', placeholder: 'Send WhatsApp confirmations after calls.', type: 'textarea', optional: true },
+    ],
+    docsUrl: '/docs/user/whatsapp',
   },
   {
     key: 'slack', name: 'Slack', category: 'Post Call', tab: 'messaging', connectType: 'apikey',
@@ -300,7 +315,29 @@ function ConnectModal({ provider, oauthAvailable, onClose, onConnected }: {
     try {
       const r = await whapi.post<any>(`/integrations/${provider.key}/connect`, {});
       if (r.authorizationUrl) {
-        window.location.href = r.authorizationUrl;
+        // Popup first, because someone who already has an account should not
+        // lose the page they were part-way through configuring. It escalates to
+        // a full-page redirect on its own when the provider says it needs a
+        // signup — see lib/oauthPopup.ts for why signup cannot live in a popup.
+        //
+        // Note this runs after an await, so a strict popup blocker may refuse
+        // it; `blocked` is handled the same as `escalate` — take the whole
+        // window, which is exactly what the old behaviour always did.
+        const outcome = await openOAuthPopup(r.authorizationUrl);
+
+        if (outcome.status === 'success') {
+          toast.success(`${provider.name} connected successfully!`);
+          onConnected();
+          onClose();
+          return;
+        }
+        if (outcome.status === 'escalate' || outcome.status === 'blocked') {
+          window.location.href = r.authorizationUrl;
+          return;
+        }
+        if (outcome.status === 'error') throw new Error(outcome.message);
+        // dismissed: they closed it themselves. Not a failure — say nothing and
+        // leave the modal exactly as it was so they can try again.
         return;
       }
       // Honest state (#7): a null authorizationUrl means this platform's OAuth
@@ -329,9 +366,17 @@ function ConnectModal({ provider, oauthAvailable, onClose, onConnected }: {
       }
 
       if (provider.connectType === 'oauth' && showManual) {
-        if (!payload.accessToken?.trim()) {
-          throw new Error('OAuth access token is required for manual connection.');
-        }
+        // Ask for whatever THIS provider's manual form actually collects, rather
+        // than assuming a field called `accessToken`. Google's happens to be
+        // named that, so the hardcoded check went unnoticed — but a provider
+        // whose manual credential is an API key would fail here demanding a
+        // field its own form never renders, and the backend would have accepted
+        // it perfectly well. The field list is the source of truth.
+        const required = provider.connectFields.filter(
+          (f) => !f.optional && f.name !== 'integrationName' && f.name !== 'description',
+        );
+        const missing = required.find((f) => !payload[f.name]?.trim());
+        if (missing) throw new Error(`${missing.label} is required for manual connection.`);
       }
 
       const result = await whapi.post<any>(`/integrations/${provider.key}/connect-token`, payload);
@@ -499,6 +544,22 @@ export default function Integrations() {
   useEffect(() => {
     const p = new URLSearchParams(window.location.search);
     const connected = p.get('connected'); const provider = p.get('provider'); const err = p.get('error');
+
+    // The popup finishes its life here: the provider redirected to our backend
+    // callback, which redirected to this page. We are same-origin by now, so the
+    // result can go straight back to the window that opened us — no cooperation
+    // needed from the provider for the success or denial paths.
+    if (connected || err) {
+      const reported = reportOAuthResultToOpener(
+        err
+          ? { status: 'error', message: decodeURIComponent(err) }
+          : { status: 'success' },
+      );
+      // In a popup we are about to close; skip the toasts and the reload, which
+      // belong to the opener and would only flash for an instant here.
+      if (reported) return;
+    }
+
     if (connected && provider) {
       const providerName = provider.replace(/_/g, ' ');
       const message = `${providerName.charAt(0).toUpperCase() + providerName.slice(1)} connected successfully.`;
