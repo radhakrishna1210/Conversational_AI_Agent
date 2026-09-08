@@ -11,6 +11,7 @@ import { renewDueSubscriptions } from './services/billing/subscription.service.j
 import { renewDueNumbers } from './services/billing/numberBilling.service.js';
 import { SSE_KEEPALIVE_INTERVAL_MS, SHUTDOWN_GRACE_PERIOD_MS } from './constants/limits.js';
 import { createCampaignWorker } from './workers/campaign.worker.js';
+import { createWhatsAppPostCallWorker } from './workers/whatsappPostCall.worker.js';
 import { startIntegrationScheduler } from './services/integrationScheduler.service.js';
 import { startVoiceSyncScheduler } from './services/voice/voice.startup.js';
 import { sweepDueBroadcasts } from './services/broadcast/broadcast.service.js';
@@ -77,6 +78,18 @@ if (campaignWorker) {
   logger.info('✅ Campaign worker started');
 } else {
   logger.warn('⚠️ Campaign worker skipped (Redis/Queue unavailable)');
+}
+
+// Post-call WhatsApp confirmations. Without this worker the queue fills and
+// nothing drains it, so the branch in executePostCall falls back to sending
+// inline when there is no Redis — see whatsappPostCall.queue.js.
+const whatsappWorker = createWhatsAppPostCallWorker();
+if (whatsappWorker) {
+  whatsappWorker.on('completed', (job) => logger.info({ jobId: job.id }, 'WhatsApp confirmation job completed'));
+  whatsappWorker.on('failed', (job, err) => logger.error({ jobId: job?.id, err }, 'WhatsApp confirmation job failed'));
+  logger.info('✅ WhatsApp post-call worker started');
+} else {
+  logger.warn('⚠️ WhatsApp post-call worker skipped (Redis/Queue unavailable) — confirmations will send inline');
 }
 
 const integrationScheduler = startIntegrationScheduler();

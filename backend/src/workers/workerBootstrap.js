@@ -1,6 +1,7 @@
 import '../config/env.js'; // validate env on startup
 import { installKeepAliveDispatcher } from '../lib/httpKeepAlive.js';
 import { createCampaignWorker } from './campaign.worker.js';
+import { createWhatsAppPostCallWorker } from './whatsappPostCall.worker.js';
 import logger from '../lib/logger.js';
 
 // Same reason as server.js: campaign workers dial calls, so their turns pay
@@ -9,6 +10,7 @@ installKeepAliveDispatcher();
 
 const workers = [
   createCampaignWorker(),
+  createWhatsAppPostCallWorker(),
 ].filter(Boolean);
 
 if (workers.length === 0) {

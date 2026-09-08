@@ -82,4 +82,27 @@ const decorate = (instance) => {
 
 const logger = decorate(base);
 
+/**
+ * A request URL with any capability token removed, for logging.
+ *
+ * Several endpoints here cannot hold a session — carriers, payment gateways and
+ * ChatFlow all POST to us without one — so they are authorised by an HMAC token
+ * carried in the URL itself. That makes the URL a credential: anyone who reads it
+ * out of a log file can replay the request. `app.js` logs `req.url` for every
+ * request and `errorHandler.js` logs it again on failure, and warn-and-worse is
+ * mirrored to disk, so an unscrubbed token would be written to a file that
+ * outlives the process.
+ *
+ * Two shapes exist: `?token=…` (broadcast audio) and a trailing path segment
+ * (ChatFlow delivery reports). Both are masked. This is not a general-purpose
+ * sanitiser — it is a specific fix for the specific credentials this server puts
+ * in URLs, and a new one of those needs a line adding here.
+ */
+export function scrubUrl(url) {
+  if (typeof url !== 'string' || !url) return url;
+  return url
+    .replace(/([?&](?:token|sig|signature)=)[^&]+/gi, '$1***')
+    .replace(/(\/integrations\/chatflow\/status\/[^/?]+\/)[^/?]+/i, '$1***');
+}
+
 export default logger;
