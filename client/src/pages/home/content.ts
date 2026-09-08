@@ -122,17 +122,25 @@ export const CONSOLE = {
 
 /* ── Social proof — generic, unattributed ──────────────────────────────── */
 
+/*
+ * The industries strip under this heading renders from INDUSTRIES below —
+ * there is deliberately no second list here. A text-only copy used to live in
+ * this object and a linked copy at the foot of the use-case section, listing
+ * the same six verticals twice on one page.
+ */
 export const PROOF = {
   heading: 'Built for teams that live on the phone',
-  industries: [
-    'Healthcare', 'Fintech', 'E-commerce', 'Insurance',
-    'Real estate', 'Education', 'Logistics', 'Restaurants',
-  ],
   /*
    * Outcome statements, not quotes. Each is drawn from this product's own
    * use-case and vertical material — no customer is named, and no individual
    * is attributed. The label is the segment the outcome belongs to.
+   *
+   * These render as their own section further down the page, so they carry
+   * their own heading. Keep it descriptive — it must not read as a customer
+   * testimonial, because none of these are attributed to one.
    */
+  outcomesKicker: 'OUTCOMES',
+  outcomesTitle: 'What changes once the phone answers itself.',
   outcomes: [
     {
       quote:
