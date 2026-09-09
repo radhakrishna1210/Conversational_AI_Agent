@@ -5756,7 +5756,7 @@ export default function EditAgent() {
                               ) : (
                                 <>
                                   <div style={{ display: 'flex', gap: '8px', marginBottom: '16px' }}>
-                                    {tab('existing', 'Choose existing')}
+                                    {tab('existing', 'Ready-made')}
                                     {tab('custom', 'Write your own')}
                                     {tab('ai', 'Generate with AI')}
                                   </div>
@@ -5768,12 +5768,27 @@ export default function EditAgent() {
                                         Message template <span style={{ color: 'var(--err)' }}>*</span>
                                       </div>
                                       <select
-                                        value={config.presetId || ''}
+                                        value={config.whatsappBindingId ? `tpl:${config.whatsappBindingId}` : (config.presetId ? `preset:${config.presetId}` : '')}
                                         onChange={(e) => {
-                                          const presetId = e.target.value;
-                                          const already = waTemplates.find((t) => t.presetId === presetId);
+                                          // Prefixed because the two groups are different things: a row
+                                          // that already exists in ChatFlow, or a preset wording that does
+                                          // not yet. Keying options on presetId meant a CUSTOM template —
+                                          // which has none — rendered value='' and was indistinguishable
+                                          // from the placeholder option, so the templates someone had just
+                                          // written could never be picked again.
+                                          const [kind, id] = e.target.value.split(':');
+                                          if (kind === 'tpl') {
+                                            const chosen = waTemplates.find((t) => t.id === id);
+                                            updatePostCallConfigAndSave(config.id, {
+                                              whatsappBindingId: id,
+                                              presetId: chosen?.presetId ?? '',
+                                              variableMapping: [],
+                                            });
+                                            return;
+                                          }
+                                          const already = waTemplates.find((t) => t.presetId === id);
                                           updatePostCallConfigAndSave(config.id, {
-                                            presetId,
+                                            presetId: id ?? '',
                                             whatsappBindingId: already?.id ?? '',
                                             variableMapping: [],
                                           });
@@ -5789,13 +5804,13 @@ export default function EditAgent() {
                                         {waTemplates.filter((t) => t.status === 'APPROVED').length > 0 && (
                                           <optgroup label="Ready to send">
                                             {waTemplates.filter((t) => t.status === 'APPROVED').map((t) => (
-                                              <option key={t.id} value={t.presetId ?? ''}>{t.label || t.name}</option>
+                                              <option key={t.id} value={`tpl:${t.id}`}>{t.label || t.name}</option>
                                             ))}
                                           </optgroup>
                                         )}
                                         <optgroup label="Start from a preset">
                                           {waPresets.map((p) => (
-                                            <option key={p.id} value={p.id}>{p.label}</option>
+                                            <option key={p.id} value={`preset:${p.id}`}>{p.label}</option>
                                           ))}
                                         </optgroup>
                                       </select>
@@ -5808,7 +5823,9 @@ export default function EditAgent() {
                                             <div style={{ width: '520px', marginTop: '10px', padding: '14px 16px', background: 'var(--bg-secondary)', border: '1px solid var(--line-2)', borderRadius: '9px', boxSizing: 'border-box' }}>
                                               <div style={{ fontSize: '13px', color: 'var(--tx)', lineHeight: 1.55 }}>{preset.bodyText}</div>
                                               <div style={{ fontSize: '12px', color: '#808080', marginTop: '8px' }}>
-                                                Meta reviews the wording once. To change it, write your own instead.
+                                                {waTemplates.some((t) => t.presetId === preset.id)
+                                                  ? 'Already sent to Meta from this workspace.'
+                                                  : 'This wording is ready to use, but Meta has not reviewed it for your workspace yet — that happens once, below. To change the words, write your own instead.'}
                                               </div>
                                             </div>
 
