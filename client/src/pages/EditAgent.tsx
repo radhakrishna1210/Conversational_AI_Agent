@@ -302,7 +302,25 @@ const createDefaultPostCallConfig = (): PostCallConfig => ({
   // onboarding generator already answers that from the user's own description
   // (llm.controller.js postCallVariables → Dashboard.tsx). Starting empty lets
   // that answer stand instead of layering it on top of finance boilerplate.
-  extractedVariables: []
+  //
+  // The two below are the exception, because they are not use-case guesses:
+  //
+  //  - customer_name: almost every destination wants to address the person.
+  //  - objective_completed: the WhatsApp trigger fires on a variable being
+  //    PRESENT, not on its contents (platform.controller.js), so this is worded
+  //    to stay empty unless the call actually achieved something. A yes/no flag
+  //    would be exactly wrong here — "no" is a value, so it would pass the
+  //    trigger and send a booking confirmation for a booking that never
+  //    happened, which is what earns Meta quality complaints.
+  extractedVariables: [
+    { id: 'customer_name', key: 'customer_name', description: 'The name the caller gave for themselves.' },
+    {
+      id: 'objective_completed',
+      key: 'objective_completed',
+      description:
+        "What the caller actually completed on this call — a booking made, an appointment confirmed, an order placed. Fill this ONLY if it genuinely went through; leave it empty if they only enquired, changed their mind, or it fell through.",
+    },
+  ]
 });
 
 // An inbound-style "thank you for calling" opener — wrong for an OUTBOUND agent,
