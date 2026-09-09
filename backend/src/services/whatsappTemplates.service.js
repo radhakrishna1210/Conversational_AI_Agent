@@ -501,6 +501,16 @@ Reply with JSON only, no prose and no code fences:
 {"bodyText":"Hi {{1}}, ...","placeholders":[{"index":1,"variableKey":"customer_name","example":"Priya"}]}`;
 
   const llm = getLLMProviderWithFallback(provider);
+  // getLLMProviderWithFallback silently returns the mock service when no provider
+  // key is configured, and the mock echoes the prompt back. That echo is not JSON,
+  // so it surfaced as "the model did not return a usable draft" — blaming the
+  // wording for what is actually an unconfigured server. Name it here instead.
+  if (llm?.constructor?.name === 'MockLLMService') {
+    throw httpError(
+      'No AI provider is configured on the server, so drafting is unavailable. Set GEMINI_API_KEY (or OPENAI_API_KEY) and restart. You can still write the template by hand.',
+      503,
+    );
+  }
   const raw = await llm.generateResponse(
     `Write the message body for: ${prompt}`,
     { model, temperature: 0.3 },
@@ -508,7 +518,12 @@ Reply with JSON only, no prose and no code fences:
     // placeholder object per variable, and a JSON object cut off at the token
     // ceiling does not parse at all — it fails as "no usable draft" rather than as
     // a slightly shorter message, which is a confusing way to lose.
-    { systemPrompt, maxTokens: 1400 },
+    // thinkingBudget 0: this is structured JSON generation, not reasoning, and
+    // gemini-2.5-flash otherwise spends a reasoning pass out of the SAME output
+    // budget as the reply (geminiModels.js measured 190 thoughts when omitted).
+    // thinkingConfigFor() translates 0 into whatever spelling the configured
+    // model accepts, so this stays correct if DEFAULT_LLM_MODEL changes.
+    { systemPrompt, maxTokens: 1400, thinkingBudget: 0 },
   );
   const text = typeof raw === 'object' ? (raw.message ?? raw.text ?? '') : raw;
 
