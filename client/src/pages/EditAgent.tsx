@@ -290,13 +290,19 @@ const createDefaultPostCallConfig = (): PostCallConfig => ({
   includeFullConversation: true,
   includeSentimentAnalysis: true,
   includeExtractedInformation: true,
-  extractedVariables: [
-    { id: 'user_name', key: 'user_name', description: 'Name of the customer being called' },
-    { id: 'company_name', key: 'company_name', description: 'Name of the financial institution making the call' },
-    { id: 'agent_name', key: 'agent_name', description: 'Name of the virtual agent' },
-    { id: 'loan_amount', key: 'loan_amount', description: 'Amount due for the loan repayment' },
-    { id: 'due_date', key: 'due_date', description: 'Due date for the loan repayment' }
-  ]
+  // Deliberately empty. This used to seed five debt-collection variables
+  // (company_name described as "the financial institution making the call",
+  // loan_amount, due_date) onto EVERY agent, whatever it did — so a hotel agent
+  // opened with loan fields it would never capture. Since each one is sent to the
+  // extraction model after every call, wrong defaults are not merely untidy: they
+  // cost tokens per call and invite the model to invent values for fields the
+  // conversation never mentioned.
+  //
+  // What an agent should capture depends entirely on what it does, and the
+  // onboarding generator already answers that from the user's own description
+  // (llm.controller.js postCallVariables → Dashboard.tsx). Starting empty lets
+  // that answer stand instead of layering it on top of finance boilerplate.
+  extractedVariables: []
 });
 
 // An inbound-style "thank you for calling" opener — wrong for an OUTBOUND agent,
@@ -483,9 +489,7 @@ export default function EditAgent() {
    * is still WRITTEN into each config on save (see the persist path) so nothing
    * about the stored settings JSON or the backend has to change.
    */
-  const [extractedVariables, setExtractedVariables] = useState<ExtractedVariable[]>(
-    () => createDefaultPostCallConfig().extractedVariables,
-  );
+  const [extractedVariables, setExtractedVariables] = useState<ExtractedVariable[]>([]);
 
   /**
    * What actually gets persisted: the shared variable list stamped onto every
@@ -1322,7 +1326,7 @@ export default function EditAgent() {
               merged.push({ ...v });
             }
           }
-          setExtractedVariables(merged.length ? merged : createDefaultPostCallConfig().extractedVariables);
+          setExtractedVariables(merged);
           // KB URLs saved in agent settings
           setKbUrls((agent as any).kbUrls ?? []);
           // Integrations tab
@@ -5369,6 +5373,16 @@ export default function EditAgent() {
               </div>
 
               <div style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                {extractedVariables.length === 0 && (
+                  <div style={{ padding: '18px 20px', background: 'var(--s1)', border: '1px dashed var(--s2)', borderRadius: '13px', fontSize: '13px', color: 'var(--tx-3)', lineHeight: 1.55 }}>
+                    Nothing is being captured yet. Add the few things this call should record —
+                    a booking agent might want <code style={{ color: 'var(--tx-2)' }}>customer_name</code>,
+                    <code style={{ color: 'var(--tx-2)' }}>check_in</code> and
+                    <code style={{ color: 'var(--tx-2)' }}>confirmation_number</code>. Keep the list short:
+                    every one is asked of the model after each call, and a field the conversation never
+                    covers comes back empty.
+                  </div>
+                )}
                 {extractedVariables.map((variable) => (
                   <div
                     key={variable.id}
