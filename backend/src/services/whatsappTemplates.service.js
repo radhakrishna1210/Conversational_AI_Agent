@@ -504,7 +504,11 @@ Reply with JSON only, no prose and no code fences:
   const raw = await llm.generateResponse(
     `Write the message body for: ${prompt}`,
     { model, temperature: 0.3 },
-    { systemPrompt, maxTokens: 700 },
+    // Generous on purpose. The body itself is short, but the reply also carries a
+    // placeholder object per variable, and a JSON object cut off at the token
+    // ceiling does not parse at all — it fails as "no usable draft" rather than as
+    // a slightly shorter message, which is a confusing way to lose.
+    { systemPrompt, maxTokens: 1400 },
   );
   const text = typeof raw === 'object' ? (raw.message ?? raw.text ?? '') : raw;
 
