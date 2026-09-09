@@ -525,6 +525,14 @@ Reply with JSON only, no prose and no code fences:
     // model accepts, so this stays correct if DEFAULT_LLM_MODEL changes.
     { systemPrompt, maxTokens: 1400, thinkingBudget: 0 },
   );
+  // gemini.service.generateResponse does not throw on an API failure — it logs and
+  // RETURNS { success: false, error }, with no message/text field. Reading it as a
+  // reply yields an empty string, which then fails to parse and got reported as
+  // "the model did not return a usable draft": a quota block, an expired key and a
+  // safety refusal all arrived looking like bad prompt wording. Surface the cause.
+  if (raw && typeof raw === 'object' && raw.success === false) {
+    throw httpError(`The AI provider could not draft this message: ${raw.error || 'no reason given'}`, 502);
+  }
   const text = typeof raw === 'object' ? (raw.message ?? raw.text ?? '') : raw;
 
   // Reuse the extraction parser rather than a bare JSON.parse: it already strips
