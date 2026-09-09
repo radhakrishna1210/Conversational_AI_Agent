@@ -644,6 +644,29 @@ export default function EditAgent() {
     patchDraft(configId, { bodyText, placeholders });
   };
 
+  /**
+   * The body in names rather than numbers, for reading back.
+   *
+   * Meta requires positional {{1}}/{{2}}, so that is what gets submitted and what
+   * the editor holds — but a sentence full of numbers cannot be checked by eye,
+   * and a placeholder bound to the wrong value reads as perfectly correct until
+   * a customer receives it. Rendering the same string with each number resolved
+   * to its variable makes a crossed binding obvious while it is still editable.
+   */
+  const draftPreviewParts = (d: TemplateDraft) => {
+    const parts: { text: string; kind: 'text' | 'bound' | 'unbound' }[] = [];
+    let last = 0;
+    for (const m of d.bodyText.matchAll(/{{(d+)}}/g)) {
+      const at = m.index ?? 0;
+      if (at > last) parts.push({ text: d.bodyText.slice(last, at), kind: 'text' });
+      const bound = d.placeholders.find((ph) => ph.index === Number(m[1]))?.variableKey;
+      parts.push(bound ? { text: bound, kind: 'bound' } : { text: `{{${m[1]}}} not set`, kind: 'unbound' });
+      last = at + m[0].length;
+    }
+    if (last < d.bodyText.length) parts.push({ text: d.bodyText.slice(last), kind: 'text' });
+    return parts;
+  };
+
   /** Append the next {{n}} bound to a variable the agent actually captures. */
   const insertDraftVariable = (configId: string, variableKey: string) => {
     const d = draftFor(configId);
@@ -5888,6 +5911,28 @@ export default function EditAgent() {
                                           {draft.bodyText.length} / 1024
                                         </div>
                                       </div>
+
+                                      {draft.bodyText.includes(`{{`) && (
+                                        <div style={{ width: '520px', marginTop: '10px', padding: '10px 13px', background: 'var(--bg-secondary)', border: '1px dashed var(--line-2)', borderRadius: '9px', boxSizing: 'border-box' }}>
+                                          <div style={{ fontSize: '11.5px', color: '#808080', marginBottom: '5px', letterSpacing: '0.03em', textTransform: 'uppercase' }}>Reads as</div>
+                                          <div style={{ fontSize: '13.5px', color: 'var(--tx-2)', lineHeight: 1.6 }}>
+                                            {draftPreviewParts(draft).map((part, i) => (
+                                              part.kind === 'text' ? <span key={i}>{part.text}</span> : (
+                                                <span
+                                                  key={i}
+                                                  style={{
+                                                    padding: '1px 6px', borderRadius: '5px', fontFamily: 'monospace', fontSize: '12.5px',
+                                                    background: part.kind === 'bound' ? 'rgba(0,200,150,0.10)' : 'rgba(255,90,90,0.10)',
+                                                    color: part.kind === 'bound' ? 'var(--accent)' : 'var(--err)',
+                                                  }}
+                                                >
+                                                  {part.text}
+                                                </span>
+                                              )
+                                            ))}
+                                          </div>
+                                        </div>
+                                      )}
                                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px', width: '520px' }}>
                                         {extractedVariables.filter((v) => v.key).map((v) => (
                                           <button
