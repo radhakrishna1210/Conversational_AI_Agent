@@ -486,6 +486,9 @@ Configuration rules:
 - "aiModel": pick the model best suited to the use case; "Gemini-Pro" is a good general default.
 - CALLER PHONE NUMBER — IMPORTANT: the assistant ALREADY has the caller's phone number (the call takes place on it) and it is recorded automatically as a pre-defined column in the connected Google Sheet. So the assistant must NEVER ask the caller for their phone, mobile, or WhatsApp number — not in the welcomeMessage and not in ANY flow item body — and a phone / mobile number must NEVER appear in postCallVariables.
 - "postCallVariables": the data points to capture from EVERY call, tailored to the use case. If the description EXPLICITLY lists fields/variables to capture, include those (up to 15, picking the most important). Otherwise infer 3-8 — e.g. an appointment-booking agent needs appointment_date, appointment_time, service_type; a lead-gen agent needs company_name, decision_maker, interest_level; a support agent needs issue_type, resolution_status. Include customer identity fields like customer_name or email when relevant, but NEVER include the caller's phone or mobile number — it is captured automatically from the call and is a pre-defined Google Sheet column, so it must NOT be a postCallVariable. Keys are snake_case; each description says exactly what to extract.
+  ALWAYS include these two first, whatever the use case, because downstream delivery depends on them:
+    1. "customer_name" — the name the caller gave for themselves.
+    2. "objective_completed" — what the caller actually completed on this call, named in the terms of THIS agent (a room booked, an appointment confirmed, an order placed). Word its description so it is filled ONLY when the thing genuinely went through, and left empty when the caller merely enquired or it fell through. It must NOT be a yes/no or true/false flag: a post-call WhatsApp confirmation is triggered by this variable having any value at all, so "no" would fire it and confirm a booking that never happened.
 ${voiceOptions.length ? `- "voice": choose from AVAILABLE VOICES a voice whose language matches the primary conversation language and whose gender fits the described persona (default female if unspecified). Copy the label EXACTLY.
 
 AVAILABLE VOICES:
@@ -705,6 +708,22 @@ Provide 4 to 8 logical, structured conversational steps (flow items) that cover 
           description: typeof v.description === 'string' ? v.description.trim().slice(0, 200) : '',
         }))
         .filter((v) => v.key && !isPhoneNumberKey(v.key));
+      // Guarantee the two the rest of the product depends on, rather than
+      // trusting the model to have followed the instruction. customer_name is
+      // what a confirmation addresses; objective_completed is what triggers one
+      // at all — a post-call WhatsApp send fires on that variable being present,
+      // so an agent generated without it opens with an empty trigger dropdown and
+      // silently never sends. Prepended, because the slice above keeps the first
+      // 15 and these two must not be the ones a long list pushes out.
+      const have = new Set(sanitized.postCallVariables.map((v) => v.key));
+      const required = [
+        { key: 'customer_name', description: 'The name the caller gave for themselves.' },
+        {
+          key: 'objective_completed',
+          description: 'What the caller actually completed on this call. Fill this ONLY if it genuinely went through; leave it empty if they only enquired or it fell through.',
+        },
+      ].filter((v) => !have.has(v.key));
+      sanitized.postCallVariables = [...required, ...sanitized.postCallVariables].slice(0, 15);
       if (!sanitized.postCallVariables.length) delete sanitized.postCallVariables;
     } else {
       delete sanitized.postCallVariables;
