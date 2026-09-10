@@ -220,11 +220,11 @@ flowchart TD
 - [x] **Persistent WebSockets:** Ensure long-lived connections across all STT/TTS streams.
 
 ### 🔹 Phase 2: Conversational Nuance & Tool Acceleration
-- [ ] **Dynamic VAD Thresholds:** Auto-expand silence timer to 1.5s for complex cognitive inputs (credit card numbers, policy IDs, addresses).
-- [ ] **Back-Channeling Engine:** Fast regex/micro-model detection for *"yeah"*, *"ok"*, *"uh-huh"* to acknowledge quickly without triggering a heavy LLM call.
-- [ ] **2-Second LLM Hang Fallback:** Trigger instant filler sound + secondary stream hedge if upstream TTFT exceeds 2,000ms.
-- [ ] **Predictive & Parallel Tool Execution:** Trigger background database queries while user is still speaking.
-- [ ] **Dynamic Language Swapping:** Detect mid-call language shifts and swap STT & TTS profiles within a single turn.
+- [x] **Dynamic VAD Thresholds:** Auto-expand silence timer to 1.5s for complex cognitive inputs (credit card numbers, policy IDs, addresses).
+- [x] **Back-Channeling Engine:** Fast regex/micro-model detection for *"yeah"*, *"ok"*, *"uh-huh"* to acknowledge quickly without triggering a heavy LLM call.
+- [x] **2-Second LLM Hang Fallback:** Trigger instant filler sound + secondary stream hedge if upstream TTFT exceeds 2,000ms.
+- [x] **Predictive & Parallel Tool Execution:** Trigger background database queries while user is still speaking.
+- [x] **Dynamic Language Swapping:** Detect mid-call language shifts and swap STT & TTS profiles within a single turn.
 
 ### 🔹 Phase 3: Acoustics, Media Pipeline & Telephony Edge
 - [ ] **Full-Duplex Dual-Stream Audio:** Continuous background listening for sub-50ms barge-in interruption.

@@ -17,6 +17,8 @@ import {
   turnEndProfileFor,
   maxCommitMsFor,
   turnEndProfileList,
+  detectCognitiveLoadQuestion,
+  dynamicTurnEndProfileFor,
   TURN_END_PROFILES,
   DEFAULT_TURN_END_PROFILE,
 } from '../turnEndProfile.js';
@@ -147,5 +149,33 @@ describe('maxCommitMsFor', () => {
     for (const p of turnEndProfileList()) {
       assert.ok(maxCommitMsFor(p) > 0 && Number.isFinite(maxCommitMsFor(p)), p.id);
     }
+  });
+});
+
+describe('dynamicTurnEndProfileFor', () => {
+  test('detects cognitive load questions correctly', () => {
+    assert.equal(detectCognitiveLoadQuestion('Can you read me the 16-digit number on your card?'), true);
+    assert.equal(detectCognitiveLoadQuestion('What is your order ID number?'), true);
+    assert.equal(detectCognitiveLoadQuestion('Could you spell your full address please?'), true);
+    assert.equal(detectCognitiveLoadQuestion('कृपया अपना खाता नंबर बताइए'), true);
+    assert.equal(detectCognitiveLoadQuestion('Hello, how can I help you today?'), false);
+    assert.equal(detectCognitiveLoadQuestion('Would you like a morning or afternoon slot?'), false);
+  });
+
+  test('dynamically expands VAD silence grace for cognitive questions', () => {
+    const base = TURN_END_PROFILES.balanced;
+    const dynamic = dynamicTurnEndProfileFor(base, 'Can you read me the 16-digit card number?');
+    assert.equal(dynamic.dynamicExpanded, true);
+    assert.ok(dynamic.unfinishedGraceMs >= 1500, 'unfinishedGraceMs should be at least 1500ms');
+    assert.ok(dynamic.graceMs >= 800, 'graceMs should be at least 800ms');
+  });
+
+  test('preserves tight baseline timing on regular conversational turns', () => {
+    const base = TURN_END_PROFILES.fast;
+    const standard = dynamicTurnEndProfileFor(base, 'Sure, let me help you with that.');
+    assert.equal(standard.dynamicExpanded, undefined);
+    assert.equal(standard.endpointingMs, 200);
+    assert.equal(standard.graceMs, 200);
+    assert.equal(standard.unfinishedGraceMs, 650);
   });
 });

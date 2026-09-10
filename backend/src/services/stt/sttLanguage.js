@@ -128,3 +128,86 @@ export function toSarvamLanguage(value) {
 
 /** Exported for tests — the canonical table itself. */
 export const STT_LANGUAGES = LANGUAGES;
+
+/**
+ * Detects if the caller has switched language mid-call (e.g. Hindi, Hinglish, Spanish, French).
+ *
+ * @param {string} transcript - Speech-to-text transcript chunk
+ * @param {string} currentLanguage - Current configured or active language
+ * @returns {{ detected: boolean, language?: string, code?: string, provider?: string }}
+ */
+export function detectLanguageShift(transcript, currentLanguage = 'english') {
+  if (!transcript || typeof transcript !== 'string') return { detected: false };
+  const text = transcript.trim();
+  if (!text) return { detected: false };
+
+  const normCurrent = String(currentLanguage).toLowerCase().trim();
+
+  // 1. Devanagari script presence -> Hindi / Marathi
+  if (/[\u0900-\u097F]/.test(text)) {
+    if (normCurrent !== 'hindi' && normCurrent !== 'hi' && normCurrent !== 'hi-in') {
+      return { detected: true, language: 'hindi', code: 'hi-IN', provider: 'sarvam' };
+    }
+  }
+
+  // 2. Tamil script -> Tamil
+  if (/[\u0B80-\u0BFF]/.test(text)) {
+    if (normCurrent !== 'tamil' && normCurrent !== 'ta' && normCurrent !== 'ta-in') {
+      return { detected: true, language: 'tamil', code: 'ta-IN', provider: 'sarvam' };
+    }
+  }
+
+  // 3. Telugu script -> Telugu
+  if (/[\u0C00-\u0C7F]/.test(text)) {
+    if (normCurrent !== 'telugu' && normCurrent !== 'te' && normCurrent !== 'te-in') {
+      return { detected: true, language: 'telugu', code: 'te-IN', provider: 'sarvam' };
+    }
+  }
+
+  // 4. Hinglish / Romanized Hindi keywords (requires 2+ matches or distinct Hindi markers)
+  const distinctHinglish = /\b(?:namaste|dhanyawad|shukriya|theek hai|kripya|bataiye|mujhe|humko|kaise ho|kya hal hai)\b/i;
+  const commonHinglish = /\b(?:kya|hai|hain|karo|karna|mera|meri|mere|nahi|nahin|suno|bolo|achha|bhai|yaar|aap|kaun|kahan|kab|kyun|lekin|aur|par|kitna|kitne)\b/gi;
+  
+  if (distinctHinglish.test(text) || (text.match(commonHinglish) || []).length >= 2) {
+    if (normCurrent !== 'hindi' && normCurrent !== 'hi' && normCurrent !== 'hi-in' && normCurrent !== 'multi') {
+      return { detected: true, language: 'hindi', code: 'hi-IN', provider: 'sarvam' };
+    }
+  }
+
+  // 5. Spanish keywords
+  const spanishDistinct = /\b(?:hola|gracias|por favor|buenos dias|buenas tardes|buenas noches|donde esta|como estas|necesito|ayuda|adios)\b/i;
+  if (spanishDistinct.test(text) && normCurrent !== 'spanish' && normCurrent !== 'es') {
+    return { detected: true, language: 'spanish', code: 'es', provider: 'deepgram' };
+  }
+
+  // 6. French keywords
+  const frenchDistinct = /\b(?:bonjour|merci|s'il vous plait|sil vous plait|bonsoir|comment allez-vous|au revoir|aidez-moi)\b/i;
+  if (frenchDistinct.test(text) && normCurrent !== 'french' && normCurrent !== 'fr') {
+    return { detected: true, language: 'french', code: 'fr', provider: 'deepgram' };
+  }
+
+  return { detected: false };
+}
+
+/**
+ * Resolves the voice profile (STT code, preferred STT provider, directive) when language is hot-swapped mid-call.
+ *
+ * @param {string} detectedLanguage
+ * @param {object} [agent]
+ * @returns {{ language: string, sttProvider: string, sttCode: string, systemPromptDirective: string }}
+ */
+export function resolveSwappedVoiceProfile(detectedLanguage, agent = {}) {
+  const normLang = String(detectedLanguage || 'english').toLowerCase().trim();
+  const entry = LANGUAGES[normLang] || { deepgram: 'en', sarvam: 'en-IN' };
+
+  const preferredProvider = entry.sarvam && entry.sarvam !== 'unknown' ? 'sarvam' : 'deepgram';
+  const sttCode = preferredProvider === 'sarvam' ? entry.sarvam : (entry.deepgram || 'en');
+
+  return {
+    language: normLang,
+    sttProvider: preferredProvider,
+    sttCode,
+    systemPromptDirective: `[Language Note: The caller switched to ${normLang}. Respond naturally and fluently in ${normLang}.]`,
+  };
+}
+
