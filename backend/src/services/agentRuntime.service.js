@@ -2038,7 +2038,7 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
   // merely-late token is not. It is also clear of Groq, whose measured first
   // SPOKEN token is ~560ms (see groq.service.js) — there the hedge should never
   // fire at all, which is the point of moving to it.
-  const LLM_FIRST_TOKEN_TIMEOUT_MS = Number(process.env.VOICE_LLM_FIRST_TOKEN_TIMEOUT_MS) || 2500;
+  const LLM_FIRST_TOKEN_TIMEOUT_MS = Number(process.env.VOICE_LLM_FIRST_TOKEN_TIMEOUT_MS) || 2000;
   const LLM_SPIKE_TIMEOUT_MS = Number(process.env.VOICE_LLM_SPIKE_TIMEOUT_MS) || 4000;
   // A stream that STOPS mid-reply, and a TTS socket that never says it is done.
   // Neither had any bound, and on the phone bridge a turn that never resolves
