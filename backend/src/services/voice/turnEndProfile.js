@@ -44,10 +44,10 @@ export const TURN_END_PROFILES = {
     description:
       'Replies as soon as the caller pauses. Best for short answers — yes/no, '
       + 'menu choices, confirmations. Can cut off a caller who thinks mid-sentence.',
-    endpointingMs: 250,
-    graceMs: 250,
-    unfinishedGraceMs: 800,
-    finishedGraceMs: 80,
+    endpointingMs: 200,
+    graceMs: 200,
+    unfinishedGraceMs: 650,
+    finishedGraceMs: 60,
   },
   balanced: {
     id: 'balanced',
@@ -55,10 +55,10 @@ export const TURN_END_PROFILES = {
     description:
       'Waits long enough for a natural mid-sentence pause before answering. '
       + 'The default, and the right choice for most conversations.',
-    endpointingMs: 300,
-    graceMs: 400,
-    unfinishedGraceMs: 1100,
-    finishedGraceMs: 150,
+    endpointingMs: 250,
+    graceMs: 300,
+    unfinishedGraceMs: 900,
+    finishedGraceMs: 120,
   },
   patient: {
     id: 'patient',
@@ -66,10 +66,10 @@ export const TURN_END_PROFILES = {
     description:
       'Gives the caller room to hesitate, spell a name, or read out a number '
       + 'without being interrupted. Slower to answer.',
-    endpointingMs: 400,
-    graceMs: 700,
-    unfinishedGraceMs: 1600,
-    finishedGraceMs: 300,
+    endpointingMs: 350,
+    graceMs: 600,
+    unfinishedGraceMs: 1500,
+    finishedGraceMs: 250,
   },
 };
 

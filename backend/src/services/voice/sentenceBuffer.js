@@ -16,36 +16,94 @@
 // Sentence terminators: ASCII, Hindi danda / double danda, and newline.
 const TERMINATORS = '.!?…।॥\n';
 
+// Natural conjunction split points for lookahead token matching
+const CONJUNCTION_LOOKAHEAD = /[,;]?\s+(?:and|but|so|because|however|although|or|yet|aur|lekin|kyunki)\s+/i;
+
 /**
- * Take every complete sentence currently in `buf`.
- *
- * Cuts at the LAST terminator in the buffer (so several finished sentences are
- * released together rather than one per call). If the buffer grows past
- * `maxLen` with no terminator in sight — a long clause, or a model that just
- * doesn't punctuate — it releases at the last word break instead, so audio
- * still starts promptly. Never cuts mid-word.
- *
- * `minLen` guards the other end. "…" is a terminator, so a reply that opens
- * with a hesitation ("Hmm… so, that's usually Friday.") would otherwise release
- * "Hmm…" as its own generation the moment the first delta landed. A five-
- * character request gives the model no prosodic context at all, and the result
- * is an opener that is audibly flatter and louder than the sentence it
- * introduces — the exact seam the naturalness work is trying to remove. Below
- * `minLen` the text simply waits for the next delta; nothing is ever dropped,
- * because end-of-stream flushes the tail unconditionally.
+ * The "First Text Chunk" Hack:
+ * Extract the first 3 to 4 words from a fresh LLM stream as soon as they form,
+ * allowing streaming TTS (Cartesia, ElevenLabs Flash, Fish Audio) to begin synthesizing
+ * audio immediately without waiting for a full sentence or punctuation terminator.
  *
  * @param {string} buf - accumulated text
- * @param {{ maxLen?: number, minLen?: number }} [opts] - word-break release
- *   threshold, and the shortest chunk worth synthesizing on its own
+ * @param {{ minWords?: number, maxWords?: number, minChars?: number }} [opts]
+ * @returns {{ chunk: string, rest: string }}
+ */
+export function takeFirstSpeechChunk(buf, { minWords = 3, maxWords = 4, minChars = 14 } = {}) {
+  if (!buf) return { chunk: '', rest: '' };
+
+  const trimmed = buf.trimStart();
+  if (trimmed.length < minChars) return { chunk: '', rest: buf };
+
+  const words = trimmed.match(/\S+/g) || [];
+  if (words.length < minWords) return { chunk: '', rest: buf };
+
+  // If there's already an early sentence terminator, let normal sentence parsing handle it
+  for (let i = 0; i < Math.min(trimmed.length, 30); i++) {
+    if (TERMINATORS.includes(trimmed[i])) {
+      return { chunk: '', rest: buf };
+    }
+  }
+
+  // Count words up to target count
+  const targetWordCount = Math.min(words.length, maxWords);
+  let wordCount = 0;
+  let cut = -1;
+  for (let i = 0; i < trimmed.length; i++) {
+    if (trimmed[i] === ' ' && (i > 0 && trimmed[i - 1] !== ' ')) {
+      wordCount++;
+      if (wordCount >= targetWordCount) {
+        cut = i;
+        break;
+      }
+    }
+  }
+
+  if (cut > 0 && trimmed.slice(0, cut).trim().length >= minChars) {
+    const chunk = trimmed.slice(0, cut).trim();
+    const rest = trimmed.slice(cut).trimStart();
+    return { chunk, rest };
+  }
+
+  return { chunk: '', rest: buf };
+}
+
+/**
+ * Take complete sentences or natural conjunction clauses currently in `buf`.
+ *
+ * Cuts at the LAST terminator in the buffer. If no terminator is found:
+ * 1. Checks for conjunction boundaries (e.g. ", and", " but", " so") after
+ *    `conjunctionMinChars` to emit clauses without waiting for end-of-sentence.
+ * 2. If the buffer grows past `maxLen`, releases at the last word break.
+ *
+ * @param {string} buf - accumulated text
+ * @param {{ maxLen?: number, minLen?: number, conjunctionSplit?: boolean, conjunctionMinChars?: number }} [opts]
  * @returns {{ chunk: string, rest: string }} `chunk` is '' when nothing is ready
  */
-export function takeCompleteSentences(buf, { maxLen = 160, minLen = 12 } = {}) {
+export function takeCompleteSentences(buf, {
+  maxLen = 160,
+  minLen = 12,
+  conjunctionSplit = true,
+  conjunctionMinChars = 35,
+} = {}) {
   if (!buf) return { chunk: '', rest: '' };
 
   let cut = -1;
   for (let i = buf.length - 1; i >= 0; i--) {
     if (TERMINATORS.includes(buf[i])) { cut = i; break; }
   }
+
+  // Lookahead token matching: if buffer has accumulated sufficient tokens and hits a conjunction,
+  // split at the conjunction boundary to release the early clause to TTS.
+  if (cut < 0 && conjunctionSplit && buf.length >= conjunctionMinChars) {
+    const searchSlice = buf.slice(conjunctionMinChars - 10);
+    const match = searchSlice.match(CONJUNCTION_LOOKAHEAD);
+    if (match && match.index !== undefined) {
+      const matchPos = (conjunctionMinChars - 10) + match.index;
+      cut = matchPos;
+    }
+  }
+
   if (cut < 0 && buf.length > maxLen) cut = buf.lastIndexOf(' ');
   if (cut < 0) return { chunk: '', rest: buf };
 

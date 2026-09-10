@@ -57,7 +57,7 @@ describe('turnEndProfileFor', () => {
     const fast = turnEndProfileFor({ turnEndSensitivity: 'fast' });
     assert.deepEqual(
       { e: fast.endpointingMs, g: fast.graceMs, u: fast.unfinishedGraceMs },
-      { e: 250, g: 250, u: 800 },
+      { e: 200, g: 200, u: 650 },
     );
   });
 
@@ -94,7 +94,7 @@ describe('turnEndProfileFor', () => {
   test('the returned profile is a copy, so a caller cannot corrupt the table', () => {
     const p = turnEndProfileFor({ turnEndSensitivity: 'patient' });
     p.graceMs = 99999;
-    assert.equal(TURN_END_PROFILES.patient.graceMs, 700);
+    assert.equal(TURN_END_PROFILES.patient.graceMs, 600);
   });
 
   test('every profile carries a finished tier shorter than its ordinary window', () => {
