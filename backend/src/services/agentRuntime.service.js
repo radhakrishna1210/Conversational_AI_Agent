@@ -305,6 +305,8 @@ export async function getAgentKbText(workspaceId, agentId) {
  * that — and only that — stays behind the toggle.
  */
 const HUMAN_SPEECH_RULES = `- Talk the way people talk, not the way they write: contractions always ("I'll", "that's", "we've"), short sentences, and it's fine to open with "And", "But" or "So".
+- Be ultra-concise: speak in under 15-20 words per response whenever possible. Keep answers short, punchy, and conversational.
+- Never use markdown formatting, bold/italics, bullet points, or numbered lists — every character you write is spoken directly over telephony.
 - Vary how you open. Do not begin consecutive replies with the same word, and never open every reply with the caller's name or with "Certainly".
 - React before you answer, the way a person does — a brief "Alright", "Got it", "Sure" or "Right" costs nothing and is most of what makes speech sound human.
 - Never narrate or use stage directions. No "*pauses*", no "(thinking)", no emoji — every character you write is spoken aloud.`;
@@ -992,12 +994,16 @@ async function _prepareConverse(workspaceId, agentId, messages, { voiceMode = fa
     supportsChatHistory: Boolean(llm.supportsChatHistory),
     transfer,
   });
-  // Brevity in voice mode is enforced by the prompt, not the token cap —
-  // Gemini 2.5's internal "thinking" tokens count against maxTokens, so a
-  // tight cap truncates replies mid-sentence. Thinking is disabled for ALL
-  // conversation turns (chat AND voice): a persona chat grounded in a KB
-  // doesn't need a reasoning pass, and it costs ~2-3s per reply.
-  const options = { systemPrompt, chatHistory, maxTokens: voiceMode ? 320 : 2000, thinkingBudget: 0 };
+  // Voice token budget: lean output tokens for sub-100ms TTFT.
+  // Thinking is disabled for ALL conversation turns (chat AND voice): a persona
+  // chat grounded in a KB doesn't need a reasoning pass, and it costs ~2-3s per reply.
+  const defaultVoiceMaxTokens = Number(process.env.VOICE_MAX_TOKENS) || 75;
+  const options = {
+    systemPrompt,
+    chatHistory,
+    maxTokens: voiceMode ? defaultVoiceMaxTokens : 2000,
+    thinkingBudget: 0,
+  };
   const config = { model, temperature: DEFAULT_TEMPERATURE };
   return { agent, message, llm, provider, model, config, options, voiceMode, ragMs };
 }
@@ -2131,10 +2137,11 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
     }
     if (first && !first.done) {
       llmTtftMs = Math.round(performance.now() - llmStartedAt);
-      // First sentence = earliest terminator that ends a ≥25-char prefix AND is
+      // First sentence = earliest terminator that ends a ≥20-char prefix AND is
       // followed by whitespace (never end-of-buffer: "3." mid-number must not
       // cut). Includes the Hindi danda for Devanagari replies.
       const boundary = /[.!?…।॥]["')\]]?\s/g;
+      const conjunctionBoundary = /[,;]?\s+(?:and|but|so|because|however|although|or|yet|aur|lekin|kyunki)\s+/i;
       let splitIdx = -1;
       let firstSegment = null; // in-flight synthesis of sentence 1
       const filter = createReplyTextFilter(replyFilterOpts);
@@ -2148,7 +2155,14 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
           boundary.lastIndex = 0;
           let m;
           while ((m = boundary.exec(reply)) !== null) {
-            if (m.index + m[0].length >= 25) { splitIdx = m.index + m[0].length; break; }
+            if (m.index + m[0].length >= 20) { splitIdx = m.index + m[0].length; break; }
+          }
+          // Conjunction lookahead splitting: split early at natural conjunctions if buffer accumulates sufficient tokens
+          if (splitIdx < 0 && process.env.VOICE_CONJUNCTION_SPLIT !== 'false' && reply.length >= 35) {
+            const conjMatch = reply.slice(18).match(conjunctionBoundary);
+            if (conjMatch && conjMatch.index !== undefined) {
+              splitIdx = 18 + conjMatch.index + 1;
+            }
           }
           if (splitIdx > 0) firstSegment = streamTtsForText(reply.slice(0, splitIdx));
         }
