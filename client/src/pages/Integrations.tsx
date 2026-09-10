@@ -45,6 +45,7 @@ const PROVIDERS: ProviderMeta[] = [
     dashboardUrl: 'https://calendar.google.com',
     connectFields: [
       { name: 'integrationName', label: 'Integration Name', placeholder: 'My Google Calendar Integration', type: 'text' },
+      { name: 'accessToken', label: 'OAuth Access Token', placeholder: 'ya29.a0A...', type: 'password', help: 'Only needed if OAuth redirect is unavailable. Get from Google OAuth Playground.', optional: true },
       { name: 'description', label: 'Description', placeholder: 'Manage Google Calendar events during AI calls.', type: 'textarea', optional: true },
     ],
     docsUrl: 'https://omnidim.io/docs/guides/google-calendar',
@@ -59,6 +60,7 @@ const PROVIDERS: ProviderMeta[] = [
     dashboardUrl: 'https://meet.google.com',
     connectFields: [
       { name: 'integrationName', label: 'Integration Name', placeholder: 'My Google Meet Integration', type: 'text' },
+      { name: 'accessToken', label: 'OAuth Access Token', placeholder: 'ya29.a0A...', type: 'password', help: 'Only needed if OAuth redirect is unavailable.', optional: true },
       { name: 'description', label: 'Description', placeholder: 'Automatically create Google Meet links.', type: 'textarea', optional: true },
     ],
     docsUrl: 'https://omnidim.io/docs/guides/google-meet',
@@ -73,6 +75,7 @@ const PROVIDERS: ProviderMeta[] = [
     dashboardUrl: 'https://docs.google.com/spreadsheets',
     connectFields: [
       { name: 'integrationName', label: 'Integration Name', placeholder: 'My Google Sheets Integration', type: 'text' },
+      { name: 'accessToken', label: 'OAuth Access Token', placeholder: 'ya29.a0A...', type: 'password', help: 'Only needed if OAuth redirect is unavailable.', optional: true },
       { name: 'sheetUrl', label: 'Google Sheet URL (Optional)', placeholder: 'https://docs.google.com/spreadsheets/d/...', type: 'url', help: 'Provide a specific sheet URL to optimize agent performance.', optional: true },
       { name: 'description', label: 'Description', placeholder: 'Log call data to Google Sheets in real time.', type: 'textarea', optional: true },
     ],
