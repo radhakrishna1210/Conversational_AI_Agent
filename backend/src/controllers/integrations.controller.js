@@ -99,6 +99,108 @@ export const createGoogleSpreadsheet = async (req, res) => {
   }
 };
 
+// GET /workspaces/:workspaceId/integrations/google_sheets/spreadsheets/:spreadsheetId
+export const getGoogleSpreadsheetMetadata = async (req, res) => {
+  try {
+    const { getSpreadsheetMetadata } = await import('../services/googleSheets.service.js');
+    const spreadsheet = await getSpreadsheetMetadata(req.params.workspaceId, req.params.spreadsheetId);
+    res.json({ spreadsheet });
+  } catch (err) {
+    res.status(err.statusCode || 502).json({ error: err.message || 'Could not fetch spreadsheet metadata' });
+  }
+};
+
+// GET /workspaces/:workspaceId/integrations/google_sheets/spreadsheets/:spreadsheetId/values?range=Sheet1!A1:D10
+export const readGoogleSheetRange = async (req, res) => {
+  try {
+    const { readRange } = await import('../services/googleSheets.service.js');
+    const result = await readRange(req.params.workspaceId, req.params.spreadsheetId, req.query.range);
+    res.json(result);
+  } catch (err) {
+    res.status(err.statusCode || 502).json({ error: err.message || 'Could not read the sheet range' });
+  }
+};
+
+// GET /workspaces/:workspaceId/integrations/google_calendar/events?calendarId=&timeMin=&timeMax=&maxResults=&query=
+export const listGoogleCalendarEvents = async (req, res) => {
+  try {
+    const { listEvents } = await import('../services/googleCalendar.service.js');
+    const { calendarId, timeMin, timeMax, maxResults, query } = req.query;
+    const result = await listEvents(req.params.workspaceId, {
+      calendarId,
+      timeMin,
+      timeMax,
+      maxResults: maxResults ? Number(maxResults) : undefined,
+      query,
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(err.statusCode || 502).json({ error: err.message || 'Could not list calendar events' });
+  }
+};
+
+// GET /workspaces/:workspaceId/integrations/google_calendar/events/:eventId?calendarId=
+export const getGoogleCalendarEvent = async (req, res) => {
+  try {
+    const { getEvent } = await import('../services/googleCalendar.service.js');
+    const event = await getEvent(req.params.workspaceId, req.params.eventId, { calendarId: req.query.calendarId });
+    res.json({ event });
+  } catch (err) {
+    res.status(err.statusCode || 502).json({ error: err.message || 'Could not fetch the calendar event' });
+  }
+};
+
+// PATCH /workspaces/:workspaceId/integrations/google_calendar/events/:eventId { calendarId?, start?, end?, ... }
+export const updateGoogleCalendarEvent = async (req, res) => {
+  try {
+    const { updateEvent } = await import('../services/googleCalendar.service.js');
+    const { calendarId, ...patch } = req.body ?? {};
+    const event = await updateEvent(req.params.workspaceId, req.params.eventId, patch, { calendarId });
+    res.json({ event });
+  } catch (err) {
+    res.status(err.statusCode || 502).json({ error: err.message || 'Could not update the calendar event' });
+  }
+};
+
+// DELETE /workspaces/:workspaceId/integrations/google_calendar/events/:eventId?calendarId=&sendUpdates=
+export const deleteGoogleCalendarEvent = async (req, res) => {
+  try {
+    const { deleteEvent } = await import('../services/googleCalendar.service.js');
+    const result = await deleteEvent(req.params.workspaceId, req.params.eventId, {
+      calendarId: req.query.calendarId,
+      sendUpdates: req.query.sendUpdates,
+    });
+    res.json(result);
+  } catch (err) {
+    res.status(err.statusCode || 502).json({ error: err.message || 'Could not delete the calendar event' });
+  }
+};
+
+// POST /workspaces/:workspaceId/integrations/google_calendar/availability { calendarIds?, timeMin, timeMax, timeZone? }
+export const checkGoogleCalendarAvailability = async (req, res) => {
+  try {
+    const { checkAvailability } = await import('../services/googleCalendar.service.js');
+    const { calendars, isFree } = await checkAvailability(req.params.workspaceId, req.body ?? {});
+    res.json({
+      calendars,
+      isFree: Object.fromEntries(Object.keys(calendars).map((calendarId) => [calendarId, isFree(calendarId)])),
+    });
+  } catch (err) {
+    res.status(err.statusCode || 502).json({ error: err.message || 'Could not check calendar availability' });
+  }
+};
+
+// POST /workspaces/:workspaceId/integrations/google_meet/events { start, end?, durationMin?, summary?, ... }
+export const createGoogleMeetEvent = async (req, res) => {
+  try {
+    const { createMeetEvent } = await import('../services/googleMeet.service.js');
+    const event = await createMeetEvent(req.params.workspaceId, req.body ?? {});
+    res.status(201).json({ event });
+  } catch (err) {
+    res.status(err.statusCode || 502).json({ error: err.message || 'Could not create the Meet event' });
+  }
+};
+
 export const events = async (req, res) => {
   const { registerIntegrationClient } = await import('../lib/integrationEvents.js');
   registerIntegrationClient(req.params.workspaceId, res);

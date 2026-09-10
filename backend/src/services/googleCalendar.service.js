@@ -1,6 +1,8 @@
 // backend/src/services/googleCalendar.service.js
 /**
- * Google Calendar delivery for Post-Call results.
+ * Google Calendar delivery for Post-Call results, plus a small CRUD surface
+ * (list/get/update/delete/availability) for verifying and using the
+ * integration beyond the one-shot post-call create.
  *
  * Uses the workspace's connected `google_calendar` integration to create an
  * event on the user's calendar from the appointment date/time that Post-Call
@@ -8,12 +10,15 @@
  *
  * The OAuth grant carries the `calendar` scope (see constants/integrations.js),
  * so writing events needs no additional consent.
+ *
+ * Token/refresh plumbing lives in googleAuth.service.js, shared with
+ * googleSheets.service.js and googleMeet.service.js — see that file for the
+ * per-workspace credential override and reactive refresh-and-retry logic.
  */
 
-import prisma from '../config/prisma.js';
-import { env } from '../config/env.js';
-import { encryptToken, decryptToken } from '../lib/encryption.js';
+import crypto from 'node:crypto';
 import logger from '../lib/logger.js';
+import { googleFetch, googleRequest, getValidAccessToken as getValidGoogleToken } from './googleAuth.service.js';
 
 const CALENDAR_API = 'https://www.googleapis.com/calendar/v3';
 const DEFAULT_CALENDAR_ID = 'primary';
@@ -33,84 +38,15 @@ const DEFAULT_DURATION_MIN = 30;
  */
 const DEFAULT_TIMEZONE = process.env.APPOINTMENT_TIMEZONE || 'Asia/Kolkata';
 
-/** Access tokens live ~1h; refresh a little early to avoid edge-of-expiry races. */
-const EXPIRY_SKEW_MS = 60_000;
-
-const notConnected = () =>
-  Object.assign(new Error('Google Calendar is not connected for this workspace — connect it on the Integrations page.'), { statusCode: 400 });
-
 /**
  * Return a usable access token for the workspace's Google Calendar integration,
- * transparently refreshing an expired one. Mirrors the Google Sheets service so
- * long-lived agents keep working past the ~1h access-token lifetime.
+ * transparently refreshing an expired one. Bare-string return kept for
+ * backward compatibility with any existing caller — new code should prefer
+ * calling googleFetch/googleRequest directly, which resolve their own token
+ * per call (and can therefore retry after a refresh).
  */
-export async function getValidAccessToken(workspaceId) {
-  const integration = await prisma.integration.findUnique({
-    where: { workspaceId_provider: { workspaceId, provider: 'google_calendar' } },
-    include: { token: true },
-  });
-  if (!integration?.token || integration.token.revokedAt) throw notConnected();
-
-  const { token } = integration;
-  const stillValid = !token.expiresAt || token.expiresAt.getTime() - EXPIRY_SKEW_MS > Date.now();
-  if (stillValid) {
-    try { return decryptToken(token.accessTokenCipher); } catch { throw notConnected(); }
-  }
-
-  let refreshToken = null;
-  try { refreshToken = token.refreshTokenCipher ? decryptToken(token.refreshTokenCipher) : null; } catch { /* treat as absent */ }
-  if (!refreshToken) {
-    throw Object.assign(
-      new Error('Google Calendar access expired and no refresh token is stored — reconnect the integration.'),
-      { statusCode: 401 },
-    );
-  }
-
-  const res = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: refreshToken,
-      client_id: env.GOOGLE_CLIENT_ID ?? '',
-      client_secret: env.GOOGLE_CLIENT_SECRET ?? '',
-    }).toString(),
-    signal: AbortSignal.timeout(10_000),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data.access_token) {
-    const detail = data.error_description || data.error || `HTTP ${res.status}`;
-    throw Object.assign(
-      new Error(`Could not refresh Google Calendar access (${detail}) — reconnect the integration.`),
-      { statusCode: 401 },
-    );
-  }
-
-  await prisma.integrationToken.update({
-    where: { integrationId: integration.id },
-    data: {
-      accessTokenCipher: encryptToken(data.access_token),
-      // Google omits refresh_token on refresh responses; keep the existing one.
-      ...(data.refresh_token ? { refreshTokenCipher: encryptToken(data.refresh_token) } : {}),
-      expiresAt: data.expires_in ? new Date(Date.now() + Number(data.expires_in) * 1000) : null,
-    },
-  });
-  logger.info({ workspaceId }, 'Google Calendar access token refreshed');
-  return data.access_token;
-}
-
-const googleFetch = async (url, token, init = {}) => {
-  const res = await fetch(url, {
-    ...init,
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(init.headers ?? {}) },
-    signal: AbortSignal.timeout(15_000),
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(body?.error?.message || `Google Calendar API ${res.status}`);
-  }
-  return body;
-};
+export const getValidAccessToken = (workspaceId) =>
+  getValidGoogleToken(workspaceId, 'google_calendar').then((r) => r.accessToken);
 
 // "2026-08-05T15:00:00" / "2026-08-05 15:00" / "2026-08-05" — no zone attached.
 const NAIVE_DATETIME_RE = /^(\d{4})-(\d{2})-(\d{2})(?:[T ](\d{2}):(\d{2})(?::(\d{2}))?)?$/;
@@ -342,8 +278,23 @@ export function wallToInstant(wall, timeZone) {
  *
  * Back-to-back slots do NOT clash: Google's timeMin/timeMax bounds are
  * exclusive on the far edge, so an event ending exactly at `start` is excluded.
+ *
+ * Exported so googleMeet.service.js can run the same double-booking guard
+ * against its own (google_meet-connected) calendar.
+ *
+ * @param {string} workspaceId
+ * @param {string} calendarId
+ * @param {Date} startInstant
+ * @param {Date} endInstant
+ * @param {{ excludeEventId?: string, provider?: string }} [opts]
+ *   excludeEventId — leave out this event id from the clash list, so
+ *   rescheduling an event never reports it as conflicting with its own
+ *   current slot. provider — which Google integration's token to check
+ *   against; defaults to 'google_calendar', but googleMeet.service.js passes
+ *   'google_meet' since that's a separate connection (its own OAuth consent,
+ *   possibly a different Google account entirely) with its own calendar.
  */
-async function findConflicts(token, calendarId, startInstant, endInstant) {
+export async function findConflicts(workspaceId, calendarId, startInstant, endInstant, { excludeEventId, provider = 'google_calendar' } = {}) {
   const params = new URLSearchParams({
     timeMin: startInstant.toISOString(),
     timeMax: endInstant.toISOString(),
@@ -352,18 +303,19 @@ async function findConflicts(token, calendarId, startInstant, endInstant) {
     maxResults: '50',
   });
   const data = await googleFetch(
+    workspaceId, provider,
     `${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}/events?${params}`,
-    token,
     { method: 'GET' },
   );
-  return (data.items || []).filter((e) => e.status !== 'cancelled' && e.start?.dateTime);
+  return (data.items || []).filter((e) =>
+    e.status !== 'cancelled' && e.start?.dateTime && (!excludeEventId || e.id !== excludeEventId));
 }
 
 // Calendar timezones change rarely; one lookup per calendar per process is
 // plenty, and this must never add latency or a failure mode to a booking.
 const calendarTzCache = new Map();
 
-function warnOnCalendarTimezoneMismatch(workspaceId, token, calendarId, bookedTz) {
+function warnOnCalendarTimezoneMismatch(workspaceId, calendarId, bookedTz) {
   if (calendarTzCache.has(calendarId)) {
     const tz = calendarTzCache.get(calendarId);
     if (tz && tz !== bookedTz) {
@@ -376,21 +328,17 @@ function warnOnCalendarTimezoneMismatch(workspaceId, token, calendarId, bookedTz
     }
     return;
   }
-  fetch(`${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}`, {
-    headers: { Authorization: `Bearer ${token}` },
-    signal: AbortSignal.timeout(8000),
-  })
-    .then((r) => (r.ok ? r.json() : null))
+  googleFetch(workspaceId, 'google_calendar', `${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}`, { method: 'GET' })
     .then((d) => {
       if (!d?.timeZone) return;
       calendarTzCache.set(calendarId, d.timeZone);
-      warnOnCalendarTimezoneMismatch(workspaceId, token, calendarId, bookedTz);
+      warnOnCalendarTimezoneMismatch(workspaceId, calendarId, bookedTz);
     })
     .catch(() => { /* diagnostics only — never affect a booking */ });
 }
 
 /** Add minutes to a naive wall-clock string, staying on the wall clock. */
-function addMinutesToWall(wall, minutes) {
+export function addMinutesToWall(wall, minutes) {
   const [datePart, timePart] = wall.split('T');
   const [y, mo, d] = datePart.split('-').map(Number);
   const [h, mi, s] = timePart.split(':').map(Number);
@@ -414,10 +362,12 @@ function addMinutesToWall(wall, minutes) {
  * @param {string[]} [event.attendees]       – attendee email addresses
  * @param {string} [event.timeZone='UTC']    – IANA timezone for the event
  * @param {string} [event.calendarId=primary]
+ * @param {boolean} [event.createMeetLink=true] – attach a Google Meet video
+ *   link to the event. On by default: a booked appointment with no way to
+ *   actually join it is rarely what anyone wants. Set false to skip it (e.g.
+ *   an in-person appointment).
  */
 export async function createEvent(workspaceId, event = {}) {
-  const token = await getValidAccessToken(workspaceId);
-
   const start = parseAppointmentDate(event.start);
   const durationMin = Number(event.durationMin) > 0 ? Number(event.durationMin) : DEFAULT_DURATION_MIN;
   const end = event.end ? parseAppointmentDate(event.end) : null;
@@ -441,12 +391,25 @@ export async function createEvent(workspaceId, event = {}) {
         .map((email) => ({ email }))
     : [];
 
+  const wantsMeetLink = event.createMeetLink !== false;
+
   const body = {
     summary: (event.summary && String(event.summary).slice(0, 1024)) || 'Appointment',
     ...(event.description ? { description: String(event.description).slice(0, 8192) } : {}),
     start: { dateTime: startWall, timeZone },
     end: { dateTime: endWall, timeZone },
     ...(attendees.length ? { attendees } : {}),
+    // conferenceDataVersion=1 on the request (below) is what makes Google
+    // honour this — Google silently drops conferenceData without it. There
+    // is no separate "Meet API": a Meet link is just this field on a
+    // Calendar event, created under the SAME google_calendar connection —
+    // no extra OAuth consent needed beyond the `calendar` scope already
+    // granted.
+    ...(wantsMeetLink ? {
+      conferenceData: {
+        createRequest: { requestId: crypto.randomUUID(), conferenceSolutionKey: { type: 'hangoutsMeet' } },
+      },
+    } : {}),
   };
 
   // ── Double-booking guard ───────────────────────────────────────────────────
@@ -458,7 +421,7 @@ export async function createEvent(workspaceId, event = {}) {
   if (event.allowDoubleBooking !== true) {
     const startInstant = wallToInstant(startWall, timeZone);
     const endInstant = wallToInstant(endWall, timeZone);
-    const clashes = await findConflicts(token, calendarId, startInstant, endInstant);
+    const clashes = await findConflicts(workspaceId, calendarId, startInstant, endInstant);
     if (clashes.length) {
       const c = clashes[0];
       const when = new Date(c.start.dateTime).toLocaleString('en-GB', {
@@ -475,22 +438,277 @@ export async function createEvent(workspaceId, event = {}) {
     }
   }
 
-  const data = await googleFetch(
-    `${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}/events`,
-    token,
-    { method: 'POST', body: JSON.stringify(body) },
-  );
+  const createUrl = `${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}/events`
+    + (wantsMeetLink ? '?conferenceDataVersion=1' : '');
+  const data = await googleFetch(workspaceId, 'google_calendar', createUrl, {
+    method: 'POST', body: JSON.stringify(body),
+  });
 
   logger.info({ workspaceId, eventId: data.id, calendarId }, 'Created Google Calendar event for post-call delivery');
   // The instant is correct, but if the calendar RENDERS in a different zone the
   // owner sees a different clock time and reasonably concludes the booking is
   // broken (a 10:00 Asia/Kolkata appointment shows as 04:30 on a UTC calendar).
   // Nothing here can fix that — it is the calendar's own setting — so say so.
-  warnOnCalendarTimezoneMismatch(workspaceId, token, calendarId, timeZone);
+  warnOnCalendarTimezoneMismatch(workspaceId, calendarId, timeZone);
+
+  let meetLink = wantsMeetLink ? extractMeetLink(data) : null;
+  // Conference creation can be asynchronous — the immediate response may still
+  // carry conferenceData.createRequest.status.statusCode === 'pending' with no
+  // entryPoints yet. One short poll gives Google a moment to finish; if it's
+  // still pending we return null rather than block or fail a booking that
+  // already succeeded over a not-yet-ready Meet link.
+  if (wantsMeetLink && !meetLink && data.conferenceData?.createRequest?.status?.statusCode === 'pending') {
+    await new Promise((resolve) => setTimeout(resolve, 1500));
+    try {
+      const refreshed = await googleFetch(
+        workspaceId, 'google_calendar',
+        `${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(data.id)}`,
+        { method: 'GET' },
+      );
+      meetLink = extractMeetLink(refreshed);
+    } catch (err) {
+      logger.warn({ workspaceId, eventId: data.id, err: err.message }, 'Could not re-check pending Google Meet link status');
+    }
+    if (!meetLink) {
+      logger.warn({ workspaceId, eventId: data.id }, 'Google Meet link is still pending after one retry — returning the event without it');
+    }
+  }
+
   return {
     id: data.id,
     htmlLink: data.htmlLink,
     start: data.start?.dateTime ?? body.start.dateTime,
     end: data.end?.dateTime ?? body.end.dateTime,
+    hangoutLink: data.hangoutLink ?? null,
+    meetLink,
+  };
+}
+
+/** Pull the actual video-join URL out of a Calendar event's conferenceData. */
+export function extractMeetLink(data) {
+  const videoEntry = data?.conferenceData?.entryPoints?.find((e) => e.entryPointType === 'video');
+  return videoEntry?.uri ?? data?.hangoutLink ?? null;
+}
+
+/**
+ * Read a single event.
+ *
+ * @param {string} workspaceId
+ * @param {string} eventId
+ * @param {{ calendarId?: string }} [opts]
+ */
+export async function getEvent(workspaceId, eventId, { calendarId = DEFAULT_CALENDAR_ID } = {}) {
+  const { res, data } = await googleRequest(
+    workspaceId, 'google_calendar',
+    `${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    { method: 'GET' },
+  );
+  if (res.status === 404) {
+    throw Object.assign(new Error('Event not found or already deleted'), { statusCode: 404 });
+  }
+  if (!res.ok) throw new Error(data?.error?.message || `Google Calendar API ${res.status}`);
+  // Google keeps a deleted event fetchable by id for a while afterward (for
+  // sync protocols), returning it with status:'cancelled' on a 200 rather
+  // than a 404 — confirmed live: a GET right after a successful DELETE
+  // returned the full event body, just cancelled. Treat that the same as
+  // "not found", matching listEvents' own status!=='cancelled' filtering,
+  // rather than handing back a stale object the caller has to know to check.
+  if (data?.status === 'cancelled') {
+    throw Object.assign(new Error('Event not found or already deleted'), { statusCode: 404 });
+  }
+  return data;
+}
+
+/**
+ * List upcoming events on a calendar.
+ *
+ * @param {string} workspaceId
+ * @param {{ calendarId?: string, timeMin?: string|Date, timeMax?: string|Date,
+ *           maxResults?: number, query?: string }} [opts] timeMin defaults to
+ *   now — this lists UPCOMING events, matching the common "what's on the
+ *   calendar next" use case rather than a full history dump.
+ */
+export async function listEvents(workspaceId, {
+  calendarId = DEFAULT_CALENDAR_ID, timeMin, timeMax, maxResults = 50, query,
+} = {}) {
+  const params = new URLSearchParams({
+    singleEvents: 'true', // expand recurring series into real occurrences, same as findConflicts
+    orderBy: 'startTime',
+    maxResults: String(Math.min(Math.max(Number(maxResults) || 50, 1), 250)),
+    timeMin: (timeMin ? new Date(timeMin) : new Date()).toISOString(),
+  });
+  if (timeMax) params.set('timeMax', new Date(timeMax).toISOString());
+  if (query) params.set('q', String(query));
+
+  const data = await googleFetch(
+    workspaceId, 'google_calendar',
+    `${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}/events?${params}`,
+    { method: 'GET' },
+  );
+  const items = (data.items ?? []).filter((e) => e.status !== 'cancelled');
+  return { items, nextPageToken: data.nextPageToken ?? null };
+}
+
+/**
+ * Partially update an event — reschedule, rename, change attendees, etc.
+ * Only the fields present in `patch` are sent, so leaving `start`/`end`
+ * unset keeps the event's current time untouched.
+ *
+ * @param {string} workspaceId
+ * @param {string} eventId
+ * @param {object} [patch]
+ * @param {string|Date} [patch.start]
+ * @param {string|Date} [patch.end]
+ * @param {number} [patch.durationMin]  used to derive `end` when only `start`
+ *   and no explicit `end` are given
+ * @param {string} [patch.timeZone]
+ * @param {string} [patch.summary]
+ * @param {string} [patch.description]
+ * @param {string[]} [patch.attendees]
+ * @param {boolean} [patch.allowDoubleBooking=false]
+ * @param {{ calendarId?: string }} [opts]
+ */
+export async function updateEvent(workspaceId, eventId, patch = {}, { calendarId = DEFAULT_CALENDAR_ID } = {}) {
+  const body = {};
+  if (patch.summary !== undefined) body.summary = String(patch.summary).slice(0, 1024);
+  if (patch.description !== undefined) body.description = String(patch.description).slice(0, 8192);
+  if (Array.isArray(patch.attendees)) {
+    body.attendees = patch.attendees
+      .map((e) => String(e).trim())
+      .filter((e) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e))
+      .map((email) => ({ email }));
+  }
+
+  if (patch.start !== undefined) {
+    const start = parseAppointmentDate(patch.start);
+    const timeZone = start.hasZone ? 'UTC' : (patch.timeZone || DEFAULT_TIMEZONE);
+    const startWall = start.hasZone ? start.date.toISOString().slice(0, 19) : start.wall;
+    body.start = { dateTime: startWall, timeZone };
+  }
+  if (patch.end !== undefined) {
+    const end = parseAppointmentDate(patch.end);
+    const timeZone = end.hasZone ? 'UTC' : (patch.timeZone || DEFAULT_TIMEZONE);
+    const endWall = end.hasZone ? end.date.toISOString().slice(0, 19) : end.wall;
+    body.end = { dateTime: endWall, timeZone };
+  } else if (body.start && patch.durationMin) {
+    const durationMin = Number(patch.durationMin) > 0 ? Number(patch.durationMin) : DEFAULT_DURATION_MIN;
+    body.end = { dateTime: addMinutesToWall(body.start.dateTime, durationMin), timeZone: body.start.timeZone };
+  }
+
+  // Only guard against double-booking when the slot itself is actually
+  // moving — a rename or attendee change touches neither start nor end.
+  if (body.start && body.end && patch.allowDoubleBooking !== true) {
+    const startInstant = wallToInstant(body.start.dateTime, body.start.timeZone);
+    const endInstant = wallToInstant(body.end.dateTime, body.end.timeZone);
+    const clashes = await findConflicts(workspaceId, calendarId, startInstant, endInstant, { excludeEventId: eventId });
+    if (clashes.length) {
+      const c = clashes[0];
+      const when = new Date(c.start.dateTime).toLocaleString('en-GB', {
+        timeZone: body.start.timeZone, day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true,
+      });
+      const err = new Error(
+        `That slot is already booked: "${c.summary || 'existing appointment'}" at ${when}`
+        + `${clashes.length > 1 ? ` (and ${clashes.length - 1} more)` : ''}. `
+        + 'The event was NOT rescheduled — offer the caller another time.',
+      );
+      err.statusCode = 409;
+      err.conflicts = clashes.map((x) => ({ id: x.id, summary: x.summary, start: x.start.dateTime }));
+      throw err;
+    }
+  }
+
+  const data = await googleFetch(
+    workspaceId, 'google_calendar',
+    `${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`,
+    { method: 'PATCH', body: JSON.stringify(body) },
+  );
+  logger.info({ workspaceId, eventId, calendarId }, 'Updated Google Calendar event');
+  return {
+    id: data.id,
+    htmlLink: data.htmlLink,
+    start: data.start?.dateTime ?? data.start?.date,
+    end: data.end?.dateTime ?? data.end?.date,
+  };
+}
+
+/**
+ * Delete (cancel) an event.
+ *
+ * @param {string} workspaceId
+ * @param {string} eventId
+ * @param {{ calendarId?: string, sendUpdates?: 'all'|'externalOnly'|'none' }} [opts]
+ *   sendUpdates defaults to 'none' so a post-call/automated action never
+ *   silently emails attendees a cancellation notice unless opted in.
+ */
+export async function deleteEvent(workspaceId, eventId, { calendarId = DEFAULT_CALENDAR_ID, sendUpdates = 'none' } = {}) {
+  const params = new URLSearchParams({ sendUpdates });
+  const { res, data } = await googleRequest(
+    workspaceId, 'google_calendar',
+    `${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}?${params}`,
+    { method: 'DELETE' },
+  );
+  if (res.status === 204) {
+    logger.info({ workspaceId, eventId, calendarId }, 'Deleted Google Calendar event');
+    return { deleted: true, id: eventId };
+  }
+  // Google answers an already-deleted event with 410 Gone, not 404 — the
+  // caller's intent ("this event should not exist") is already satisfied,
+  // so treat it as success rather than an error to surface.
+  if (res.status === 410) {
+    return { deleted: true, id: eventId, alreadyDeleted: true };
+  }
+  if (!res.ok) throw new Error(data?.error?.message || `Google Calendar API ${res.status}`);
+  return { deleted: true, id: eventId };
+}
+
+/**
+ * Standalone availability check — independent of attempting a booking.
+ *
+ * Deliberately DOES use Google's freeBusy endpoint, unlike createEvent's
+ * double-booking guard (findConflicts), which avoids it because freeBusy
+ * can't distinguish an all-day marker from a real conflict. That distinction
+ * only matters when deciding whether to REFUSE a specific booking; a general
+ * "is this calendar free in this window" query correctly wants an all-day
+ * event to count as busy too.
+ *
+ * @param {string} workspaceId
+ * @param {object} opts
+ * @param {string[]} [opts.calendarIds=[primary]]
+ * @param {string|Date} opts.timeMin
+ * @param {string|Date} opts.timeMax
+ * @param {string} [opts.timeZone] used only when timeMin/timeMax are naive
+ *   wall-clock strings with no zone of their own
+ * @returns {Promise<{ calendars: object, isFree: (calendarId?: string) => boolean }>}
+ */
+export async function checkAvailability(workspaceId, {
+  calendarIds = [DEFAULT_CALENDAR_ID], timeMin, timeMax, timeZone = DEFAULT_TIMEZONE,
+} = {}) {
+  if (!timeMin || !timeMax) {
+    throw Object.assign(new Error('checkAvailability requires both timeMin and timeMax'), { statusCode: 400 });
+  }
+  const toInstant = (value) => {
+    const parsed = parseAppointmentDate(value);
+    return parsed.hasZone ? parsed.date : wallToInstant(parsed.wall, timeZone);
+  };
+  const startInstant = toInstant(timeMin);
+  const endInstant = toInstant(timeMax);
+
+  const data = await googleFetch(workspaceId, 'google_calendar', `${CALENDAR_API}/freeBusy`, {
+    method: 'POST',
+    body: JSON.stringify({
+      timeMin: startInstant.toISOString(),
+      timeMax: endInstant.toISOString(),
+      timeZone,
+      items: calendarIds.map((id) => ({ id })),
+    }),
+  });
+
+  const calendars = data.calendars ?? {};
+  return {
+    calendars,
+    isFree: (calendarId = DEFAULT_CALENDAR_ID) => {
+      const entry = calendars[calendarId];
+      return Boolean(entry) && !entry.error && (entry.busy ?? []).length === 0;
+    },
   };
 }

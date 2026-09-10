@@ -4940,6 +4940,13 @@ export default function EditAgent() {
               mode: 'Post Call',
               description: 'Sync contacts, notes, tickets, and follow-up workflows automatically.',
               external: true
+            },
+            {
+              provider: 'zoho',
+              name: 'Zoho CRM',
+              mode: 'Post Call',
+              description: 'Push call transcripts, leads, and deals to your Zoho CRM.',
+              external: true
             }
           ];
 

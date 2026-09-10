@@ -15,6 +15,17 @@ router.get('/providers', ctrl.getProviders);
 // be shadowed by the single-segment route regardless).
 router.get('/google_sheets/spreadsheets', ctrl.listGoogleSpreadsheets);
 router.post('/google_sheets/spreadsheets', authorize('Member'), ctrl.createGoogleSpreadsheet);
+router.get('/google_sheets/spreadsheets/:spreadsheetId', ctrl.getGoogleSpreadsheetMetadata);
+router.get('/google_sheets/spreadsheets/:spreadsheetId/values', ctrl.readGoogleSheetRange);
+// Google Calendar CRUD + availability, and Google Meet event creation — an
+// internal verification/integration surface (no dedicated frontend yet),
+// same reasoning as the google_sheets/spreadsheets routes above.
+router.get('/google_calendar/events', ctrl.listGoogleCalendarEvents);
+router.get('/google_calendar/events/:eventId', ctrl.getGoogleCalendarEvent);
+router.patch('/google_calendar/events/:eventId', authorize('Member'), ctrl.updateGoogleCalendarEvent);
+router.delete('/google_calendar/events/:eventId', authorize('Member'), ctrl.deleteGoogleCalendarEvent);
+router.post('/google_calendar/availability', ctrl.checkGoogleCalendarAvailability);
+router.post('/google_meet/events', authorize('Member'), ctrl.createGoogleMeetEvent);
 router.get('/:provider', validate(integrationProviderParamSchema, 'params'), ctrl.getIntegration);
 router.post('/:provider/connect', validate(integrationProviderParamSchema, 'params'), validate(integrationConnectSchema), ctrl.connect);
 router.post('/:provider/connect-token', validate(integrationProviderParamSchema, 'params'), ctrl.connectWithToken);

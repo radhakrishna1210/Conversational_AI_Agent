@@ -6,7 +6,8 @@ import logger from '../lib/logger.js';
 import { sendMail, isMailerConfigured } from '../lib/mailer.js';
 import { assertPublicHttpUrl } from '../lib/safeUrl.js';
 import { appendCallRow } from '../services/googleSheets.service.js';
-import { createEvent, resolveAppointmentStart } from '../services/googleCalendar.service.js';
+import { createEvent, deleteEvent, resolveAppointmentStart } from '../services/googleCalendar.service.js';
+import { addLog } from '../services/integrations.service.js';
 import { getBinding } from '../services/whatsappTemplates.service.js';
 import { sendWhatsAppConfirmation, buildPositionalVariables } from '../services/whatsappPostCall.service.js';
 import { enqueueWhatsAppSend } from '../queues/whatsappPostCall.queue.js';
@@ -313,27 +314,53 @@ export const executePostCall = async (agentId, workspaceId, payload) => {
           );
         }
         const startValue = resolved.value;
+        // A Test press always resolves to the SAME synthetic slot (see
+        // samplePostCallValue below) — repeat presses would otherwise trip
+        // the double-booking guard against the previous test's own leftover
+        // event and fail with a false-negative "slot already booked", which
+        // is exactly what turned into the 502 this fix addresses. A test
+        // booking has no real caller to protect from a double-booked slot,
+        // so it never needs the guard regardless of the destination's own
+        // allowDoubleBooking setting.
+        const isTest = payload.callType === 'TEST';
         const out = await createEvent(workspaceId, {
           start: startValue,
           end: cfg.endVariable ? findVar(cfg.endVariable) : undefined,
           durationMin: cfg.durationMin,
           // Per-destination opt-out, for a resource that can take concurrent bookings.
-          allowDoubleBooking: cfg.allowDoubleBooking === true,
+          allowDoubleBooking: isTest || cfg.allowDoubleBooking === true,
           timeZone: cfg.timezone || cfg.timeZone,
           calendarId: cfg.calendarId,
           // Default title names the CALLER, not the agent. Every appointment
           // otherwise reads "Appointment — <agent>", so a day's calendar is a
           // column of identical titles that tells the clinic nothing.
-          summary: cfg.eventTitle
+          summary: (isTest ? '[Test] ' : '') + (cfg.eventTitle
             || (() => {
               const who = ['patient_name', 'customer_name', 'caller_name', 'name', 'full_name']
                 .map((k) => findVar(k)).find((v) => v && String(v).trim());
               return who ? `Appointment — ${String(who).trim()}` : `Appointment — ${agent.name}`;
-            })(),
+            })()),
           description: `Booked from call with ${agent.name}.\n\nExtracted information:\n${variableLines}\n\nSummary:\n${payload.summary ?? '(none)'}`,
           attendees: cfg.attendeeVariable ? [findVar(cfg.attendeeVariable)].filter(Boolean) : undefined,
         });
         results.push({ method: 'googlecalendar', target: out.htmlLink || out.id, ok: true, bookedFrom: resolved.from, ...out });
+        // Visible on the Integrations page, unlike the pino log line below —
+        // mirrors zoho.service.js's pushCallAsLead, which logs the same way on
+        // both success and failure. Without this, a booking success or
+        // failure had NO trace anywhere a user would look.
+        await addLog({
+          workspaceId, provider: 'google_calendar', event: 'event_created',
+          message: `Calendar event created (${out.id})`,
+          metadata: { callId: payload.callId, eventId: out.id, bookedFrom: resolved.from, meetLink: out.meetLink ?? null },
+        }).catch(() => {}); // logging must never break a delivery that already succeeded
+        // A Test press's job is proving the destination works, not leaving a
+        // permanent fake appointment on the user's real calendar — clean up
+        // immediately rather than accumulating one junk event per click.
+        if (isTest) {
+          await deleteEvent(workspaceId, out.id, { calendarId: cfg.calendarId }).catch((err) => {
+            logger.warn({ workspaceId, eventId: out.id, err: err.message }, 'Could not clean up test calendar event');
+          });
+        }
       } else if (method === 'whatsapp') {
         // A WhatsApp confirmation through the workspace's own ChatFlow account.
         //
@@ -422,12 +449,53 @@ export const executePostCall = async (agentId, workspaceId, payload) => {
         results.push({ method: method || 'unknown', ok: false, error: 'Unsupported or incomplete config' });
       }
     } catch (err) {
+      if (method === 'googlecalendar') {
+        // Same reasoning as the success-path addLog above: without this, a
+        // failed booking (bad date variable, double-booking conflict,
+        // disconnected token) left no trace anywhere but a pino log line.
+        await addLog({
+          workspaceId, provider: 'google_calendar', level: 'error', event: 'event_create_failed',
+          message: `Calendar event creation failed: ${err.message}`,
+          metadata: { callId: payload.callId },
+        }).catch(() => {}); // never let logging itself break delivery
+      }
       results.push({ method, target: cfg.url || cfg.email || cfg.spreadsheetId, ok: false, error: err.message });
     }
   }
   logger.info({ agentId, results }, 'Post-call delivery executed');
   return { executed: results.length, results };
 };
+
+/**
+ * Sample value for one extraction variable's Test-Post-Call run.
+ *
+ * A flat '(sample)' string used to be sent for every variable regardless of
+ * shape. That's harmless for webhook/email/sheets destinations (they just
+ * echo the string back), but Google Calendar/Meet destinations feed the
+ * date-shaped variable straight into parseAppointmentDate(), which correctly
+ * rejects '(sample)' as unparseable — so a Test press on a Calendar/Meet
+ * destination ALWAYS failed, reporting a false-negative 502 on an otherwise
+ * correctly configured destination (this is exactly what produced the
+ * "Calendar event creation failed" IntegrationLog entry from testing this
+ * session). Same date-ish-key heuristic resolveAppointmentStart() uses
+ * (googleCalendar.service.js) is applied here so a real, bookable sample
+ * value is generated for the variables that actually need one.
+ */
+function samplePostCallValue(key) {
+  const isDateish = /(date|time|when|slot)/i.test(key) && !/(birth|dob|age)/i.test(key);
+  if (!isDateish) return '(sample)';
+  // A bare "*_time" key (paired with a separate "*_date" key) needs just a
+  // clock time — combineDateAndTime() expects that shape, not a full ISO
+  // string, from the time half of a date+time pair.
+  if (/time/i.test(key) && !/date/i.test(key)) return '10:00 AM';
+  // Everything else (a combined datetime, or a bare "*_date" paired with the
+  // synthetic time above) gets a real near-future ISO datetime — tomorrow,
+  // not "today", so a test run can never itself land inside an already-
+  // elapsed slot.
+  const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+  tomorrow.setUTCHours(10, 0, 0, 0);
+  return tomorrow.toISOString().slice(0, 19);
+}
 
 // POST /workspaces/:workspaceId/agents/:agentId/post-call/test
 export const testPostCall = async (req, res) => {
@@ -442,7 +510,7 @@ export const testPostCall = async (req, res) => {
     variables = collectExtractionDefinitions(agent?.settings).map((d) => ({
       key: d.key,
       description: d.description,
-      value: '(sample)',
+      value: samplePostCallValue(d.key),
     }));
   } catch { /* a test without variables is still a valid connectivity check */ }
 

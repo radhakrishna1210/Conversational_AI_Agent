@@ -8,108 +8,52 @@
  *
  * The OAuth grant carries the `spreadsheets` (read/write) and `drive.readonly`
  * scopes, so appending needs no additional consent.
+ *
+ * Token/refresh plumbing lives in googleAuth.service.js, shared with
+ * googleCalendar.service.js and googleMeet.service.js.
  */
 
-import prisma from '../config/prisma.js';
-import { env } from '../config/env.js';
-import { encryptToken, decryptToken } from '../lib/encryption.js';
 import logger from '../lib/logger.js';
+import { googleFetch, googleRequest, getValidAccessToken as getValidGoogleToken } from './googleAuth.service.js';
 
 const DRIVE_API = 'https://www.googleapis.com/drive/v3';
 const SHEETS_API = 'https://sheets.googleapis.com/v4/spreadsheets';
 const DEFAULT_TAB = 'Call Log';
 
-/** Access tokens live ~1h; refresh a little early to avoid edge-of-expiry races. */
-const EXPIRY_SKEW_MS = 60_000;
-
-const notConnected = () =>
-  Object.assign(new Error('Google Sheets is not connected for this workspace — connect it on the Integrations page.'), { statusCode: 400 });
+/**
+ * Google answers a bad/inaccessible spreadsheet id with a 404 whose body is
+ * just "Requested entity was not found." — technically an error message, but
+ * not one that tells a caller what was actually wrong. Every function below
+ * that addresses one specific spreadsheet routes its 404 through this so the
+ * failure reads the same way Calendar's getEvent() does for a missing event.
+ */
+function assertSheetsOk(res, data) {
+  if (res.status === 404) {
+    throw Object.assign(new Error("Spreadsheet not found or you don't have access to it"), { statusCode: 404 });
+  }
+  if (!res.ok) throw new Error(data?.error?.message || `Google Sheets API ${res.status}`);
+}
 
 /**
  * Return a usable access token, transparently refreshing an expired one.
- * The stored access token is only ~1h valid, so long-lived agents would
- * otherwise start failing an hour after the integration was connected.
+ * Bare-string return kept for backward compatibility with any existing
+ * caller — the functions in this file now resolve their own token per call
+ * via googleFetch instead of calling this up front.
  */
-export async function getValidAccessToken(workspaceId) {
-  const integration = await prisma.integration.findUnique({
-    where: { workspaceId_provider: { workspaceId, provider: 'google_sheets' } },
-    include: { token: true },
-  });
-  if (!integration?.token || integration.token.revokedAt) throw notConnected();
-
-  const { token } = integration;
-  const stillValid = !token.expiresAt || token.expiresAt.getTime() - EXPIRY_SKEW_MS > Date.now();
-  if (stillValid) {
-    try { return decryptToken(token.accessTokenCipher); } catch { throw notConnected(); }
-  }
-
-  let refreshToken = null;
-  try { refreshToken = token.refreshTokenCipher ? decryptToken(token.refreshTokenCipher) : null; } catch { /* treat as absent */ }
-  if (!refreshToken) {
-    throw Object.assign(
-      new Error('Google Sheets access expired and no refresh token is stored — reconnect the integration.'),
-      { statusCode: 401 },
-    );
-  }
-
-  const res = await fetch('https://oauth2.googleapis.com/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'refresh_token',
-      refresh_token: refreshToken,
-      client_id: env.GOOGLE_CLIENT_ID ?? '',
-      client_secret: env.GOOGLE_CLIENT_SECRET ?? '',
-    }).toString(),
-    signal: AbortSignal.timeout(10_000),
-  });
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok || !data.access_token) {
-    const detail = data.error_description || data.error || `HTTP ${res.status}`;
-    throw Object.assign(
-      new Error(`Could not refresh Google Sheets access (${detail}) — reconnect the integration.`),
-      { statusCode: 401 },
-    );
-  }
-
-  await prisma.integrationToken.update({
-    where: { integrationId: integration.id },
-    data: {
-      accessTokenCipher: encryptToken(data.access_token),
-      // Google omits refresh_token on refresh responses; keep the existing one.
-      ...(data.refresh_token ? { refreshTokenCipher: encryptToken(data.refresh_token) } : {}),
-      expiresAt: data.expires_in ? new Date(Date.now() + Number(data.expires_in) * 1000) : null,
-    },
-  });
-  logger.info({ workspaceId }, 'Google Sheets access token refreshed');
-  return data.access_token;
-}
-
-const googleFetch = async (url, token, init = {}) => {
-  const res = await fetch(url, {
-    ...init,
-    headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', ...(init.headers ?? {}) },
-    signal: AbortSignal.timeout(15_000),
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    throw new Error(body?.error?.message || `Google API ${res.status}`);
-  }
-  return body;
-};
+export const getValidAccessToken = (workspaceId) =>
+  getValidGoogleToken(workspaceId, 'google_sheets').then((r) => r.accessToken);
 
 /**
  * List the user's spreadsheets for the Post-Call target dropdown.
  * Ordered most-recently-modified first so a sheet just created shows up top.
  */
 export async function listSpreadsheets(workspaceId, { limit = 100 } = {}) {
-  const token = await getValidAccessToken(workspaceId);
   const url = new URL(`${DRIVE_API}/files`);
   url.searchParams.set('q', "mimeType='application/vnd.google-apps.spreadsheet' and trashed=false");
   url.searchParams.set('fields', 'files(id,name,modifiedTime,webViewLink)');
   url.searchParams.set('orderBy', 'modifiedTime desc');
   url.searchParams.set('pageSize', String(Math.min(limit, 1000)));
-  const data = await googleFetch(url.toString(), token);
+  const data = await googleFetch(workspaceId, 'google_sheets', url.toString(), { method: 'GET' });
   return (data.files ?? []).map((f) => ({
     id: f.id,
     name: f.name,
@@ -127,8 +71,7 @@ export async function listSpreadsheets(workspaceId, { limit = 100 } = {}) {
  */
 export async function createSpreadsheet(workspaceId, title) {
   const name = String(title ?? '').trim().slice(0, 120) || 'Call Log';
-  const token = await getValidAccessToken(workspaceId);
-  const data = await googleFetch(SHEETS_API, token, {
+  const data = await googleFetch(workspaceId, 'google_sheets', SHEETS_API, {
     method: 'POST',
     body: JSON.stringify({
       properties: { title: name },
@@ -144,32 +87,95 @@ export async function createSpreadsheet(workspaceId, title) {
 }
 
 /** Tab titles present in a spreadsheet. */
-const getSheetTitles = async (token, spreadsheetId) => {
-  const data = await googleFetch(
+const getSheetTitles = async (workspaceId, spreadsheetId) => {
+  const { res, data } = await googleRequest(
+    workspaceId, 'google_sheets',
     `${SHEETS_API}/${encodeURIComponent(spreadsheetId)}?fields=sheets.properties.title`,
-    token,
+    { method: 'GET' },
   );
+  assertSheetsOk(res, data);
   return (data.sheets ?? []).map((s) => s.properties?.title).filter(Boolean);
 };
 
+/**
+ * Full metadata for one spreadsheet: its name, share URL, and every tab with
+ * its dimensions — the "what does this sheet look like" call a caller makes
+ * before deciding what range to read or which tab to write into.
+ *
+ * @param {string} workspaceId
+ * @param {string} spreadsheetId
+ * @returns {Promise<{id: string, name: string, url: string, tabs: Array<{
+ *   title: string, sheetId: number, rowCount: number, columnCount: number
+ * }>}>}
+ */
+export async function getSpreadsheetMetadata(workspaceId, spreadsheetId) {
+  const { res, data } = await googleRequest(
+    workspaceId, 'google_sheets',
+    `${SHEETS_API}/${encodeURIComponent(spreadsheetId)}?fields=spreadsheetId,properties.title,spreadsheetUrl,sheets.properties`,
+    { method: 'GET' },
+  );
+  assertSheetsOk(res, data);
+  return {
+    id: data.spreadsheetId,
+    name: data.properties?.title ?? null,
+    url: data.spreadsheetUrl ?? null,
+    tabs: (data.sheets ?? []).map((s) => ({
+      title: s.properties?.title ?? null,
+      sheetId: s.properties?.sheetId ?? null,
+      rowCount: s.properties?.gridProperties?.rowCount ?? null,
+      columnCount: s.properties?.gridProperties?.columnCount ?? null,
+    })),
+  };
+}
+
+/**
+ * Read raw values from an arbitrary range (e.g. "Call Log!A1:F50", or just a
+ * tab name for the whole sheet). General-purpose read, independent of the
+ * post-call append path below — for a caller that just wants to see what's
+ * in a sheet rather than write to it.
+ *
+ * @param {string} workspaceId
+ * @param {string} spreadsheetId
+ * @param {string} range A1 notation range or tab name
+ * @returns {Promise<{ range: string, values: any[][] }>} values is [] for an
+ *   empty range, never undefined — Google omits the field entirely rather
+ *   than returning an empty array for a range with no data in it.
+ */
+export async function readRange(workspaceId, spreadsheetId, range) {
+  if (!range || !String(range).trim()) {
+    throw Object.assign(new Error('A range is required (e.g. "Sheet1!A1:D10", or a tab name for the whole sheet)'), { statusCode: 400 });
+  }
+  const { res, data } = await googleRequest(
+    workspaceId, 'google_sheets',
+    `${SHEETS_API}/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(range)}`,
+    { method: 'GET' },
+  );
+  assertSheetsOk(res, data);
+  return { range: data.range ?? range, values: data.values ?? [] };
+}
+
 /** Create the target tab when the spreadsheet doesn't have it yet. */
-const createSheetTab = (token, spreadsheetId, title) =>
-  googleFetch(`${SHEETS_API}/${encodeURIComponent(spreadsheetId)}:batchUpdate`, token, {
+const createSheetTab = (workspaceId, spreadsheetId, title) =>
+  googleFetch(workspaceId, 'google_sheets', `${SHEETS_API}/${encodeURIComponent(spreadsheetId)}:batchUpdate`, {
     method: 'POST',
     body: JSON.stringify({ requests: [{ addSheet: { properties: { title } } }] }),
   });
 
 /** First row of the tab, used to detect/align an existing header. */
-const getHeaderRow = async (token, spreadsheetId, tab) => {
+const getHeaderRow = async (workspaceId, spreadsheetId, tab) => {
   const range = `${encodeURIComponent(`${tab}!1:1`)}`;
-  const data = await googleFetch(`${SHEETS_API}/${encodeURIComponent(spreadsheetId)}/values/${range}`, token);
+  const data = await googleFetch(
+    workspaceId, 'google_sheets',
+    `${SHEETS_API}/${encodeURIComponent(spreadsheetId)}/values/${range}`,
+    { method: 'GET' },
+  );
   return data.values?.[0] ?? [];
 };
 
-const writeHeaderRow = (token, spreadsheetId, tab, headers) =>
+const writeHeaderRow = (workspaceId, spreadsheetId, tab, headers) =>
   googleFetch(
+    workspaceId, 'google_sheets',
     `${SHEETS_API}/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(`${tab}!A1`)}?valueInputOption=RAW`,
-    token,
     { method: 'PUT', body: JSON.stringify({ values: [headers] }) },
   );
 
@@ -188,10 +194,14 @@ const columnLetter = (index) => {
  * 1-based sheet row number of the first data row whose `colIndex` cell equals
  * `value`, or null when no such row exists. Row 1 (the header) is skipped.
  */
-const findRowByColumnValue = async (token, spreadsheetId, tab, colIndex, value) => {
+const findRowByColumnValue = async (workspaceId, spreadsheetId, tab, colIndex, value) => {
   const col = columnLetter(colIndex);
   const range = encodeURIComponent(`${tab}!${col}:${col}`);
-  const data = await googleFetch(`${SHEETS_API}/${encodeURIComponent(spreadsheetId)}/values/${range}`, token);
+  const data = await googleFetch(
+    workspaceId, 'google_sheets',
+    `${SHEETS_API}/${encodeURIComponent(spreadsheetId)}/values/${range}`,
+    { method: 'GET' },
+  );
   const values = data.values ?? [];
   for (let i = 1; i < values.length; i++) {
     if ((values[i]?.[0] ?? '') === value) return i + 1; // 1-based row number
@@ -219,27 +229,26 @@ const findRowByColumnValue = async (token, spreadsheetId, tab, colIndex, value) 
  */
 export async function appendCallRow(workspaceId, spreadsheetId, record, tab = DEFAULT_TAB) {
   if (!spreadsheetId) throw Object.assign(new Error('No spreadsheet selected for Google Sheets delivery'), { statusCode: 400 });
-  const token = await getValidAccessToken(workspaceId);
 
-  const titles = await getSheetTitles(token, spreadsheetId);
+  const titles = await getSheetTitles(workspaceId, spreadsheetId);
   const targetTab = titles.includes(tab) ? tab : (titles.includes(DEFAULT_TAB) ? DEFAULT_TAB : null);
   const sheetTab = targetTab ?? tab;
-  if (!targetTab) await createSheetTab(token, spreadsheetId, sheetTab);
+  if (!targetTab) await createSheetTab(workspaceId, spreadsheetId, sheetTab);
 
   // Column order: metadata first, then one column per extracted variable.
   const cells = new Map();
   for (const [k, v] of Object.entries(record.metadata ?? {})) cells.set(k, v);
   for (const v of record.variables ?? []) cells.set(v.key, v.value);
 
-  let header = await getHeaderRow(token, spreadsheetId, sheetTab).catch(() => []);
+  let header = await getHeaderRow(workspaceId, spreadsheetId, sheetTab).catch(() => []);
   if (header.length === 0) {
     header = [...cells.keys()];
-    await writeHeaderRow(token, spreadsheetId, sheetTab, header);
+    await writeHeaderRow(workspaceId, spreadsheetId, sheetTab, header);
   } else {
     const missing = [...cells.keys()].filter((k) => !header.includes(k));
     if (missing.length) {
       header = [...header, ...missing];
-      await writeHeaderRow(token, spreadsheetId, sheetTab, header);
+      await writeHeaderRow(workspaceId, spreadsheetId, sheetTab, header);
     }
   }
 
@@ -256,12 +265,12 @@ export async function appendCallRow(workspaceId, spreadsheetId, record, tab = DE
   if (upsertCol && upsertVal !== undefined && upsertVal !== '') {
     const colIndex = header.indexOf(upsertCol);
     if (colIndex !== -1) {
-      const existingRow = await findRowByColumnValue(token, spreadsheetId, sheetTab, colIndex, toCell(upsertVal));
+      const existingRow = await findRowByColumnValue(workspaceId, spreadsheetId, sheetTab, colIndex, toCell(upsertVal));
       if (existingRow) {
         await googleFetch(
+          workspaceId, 'google_sheets',
           `${SHEETS_API}/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(`${sheetTab}!A${existingRow}`)}` +
             '?valueInputOption=USER_ENTERED',
-          token,
           { method: 'PUT', body: JSON.stringify({ values: [row] }) },
         );
         return { spreadsheetId, tab: sheetTab, columns: header.length, updated: true, row: existingRow };
@@ -270,9 +279,9 @@ export async function appendCallRow(workspaceId, spreadsheetId, record, tab = DE
   }
 
   await googleFetch(
+    workspaceId, 'google_sheets',
     `${SHEETS_API}/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(`${sheetTab}!A1`)}:append` +
       '?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS',
-    token,
     { method: 'POST', body: JSON.stringify({ values: [row] }) },
   );
 
