@@ -227,19 +227,19 @@ flowchart TD
 - [x] **Dynamic Language Swapping:** Detect mid-call language shifts and swap STT & TTS profiles within a single turn.
 
 ### 🔹 Phase 3: Acoustics, Media Pipeline & Telephony Edge
-- [ ] **Full-Duplex Dual-Stream Audio:** Continuous background listening for sub-50ms barge-in interruption.
-- [ ] **Acoustic Echo Cancellation (AEC) & Self-Hearing Filter:** Strict AEC and synthesized transcript matching to prevent loopbacks.
-- [ ] **RNNoise Filter & Automatic Gain Control (AGC):** Front-gate noise suppression and audio level normalization.
-- [ ] **Audio Packet Optimization:** Opus Forward Error Correction (FEC) and Packet Loss Concealment (PLC).
-- [ ] **Smart Answering Machine Detection (AMD):** Analyze initial 1.5s audio to handle voicemails vs human answers.
+- [x] **Full-Duplex Dual-Stream Audio:** Continuous background listening for sub-50ms barge-in interruption.
+- [x] **Acoustic Echo Cancellation (AEC) & Self-Hearing Filter:** Strict AEC and synthesized transcript matching to prevent loopbacks.
+- [x] **RNNoise Filter & Automatic Gain Control (AGC):** Front-gate noise suppression and audio level normalization.
+- [x] **Audio Packet Optimization:** Opus Forward Error Correction (FEC) and Packet Loss Concealment (PLC).
+- [x] **Smart Answering Machine Detection (AMD):** Analyze initial 1.5s audio to handle voicemails vs human answers.
 
 ### 🔹 Phase 4: Enterprise Scale, Concurrency & Governance
-- [ ] **High-Density Concurrency Core:** Media routing decoupling (Go/Rust workers).
-- [ ] **Sticky Session Load Balancing:** Traefik/Envoy session stickiness for live calls.
-- [ ] **Sliding Window Context Truncation:** Keep only the last 4–5 turns in LLM context + async 2-line memory summaries for older history.
-- [ ] **Deterministic State Machine:** Lock bot into rigid collection mode for credit cards / OTPs.
-- [ ] **Redis Call Resumption Cache:** 2-minute Caller-ID cache to seamlessly resume dropped phone calls.
-- [ ] **Multi-Tenant Cost Tracking & Fraud Kill-Switches:** Millisecond/token usage metering with auto-disconnect caps.
+- [x] **High-Density Concurrency Core:** Media routing decoupling (Go/Rust workers).
+- [x] **Sticky Session Load Balancing:** Traefik/Envoy session stickiness for live calls.
+- [x] **Sliding Window Context Truncation:** Keep only the last 4–5 turns in LLM context + async 2-line memory summaries for older history.
+- [x] **Deterministic State Machine:** Lock bot into rigid collection mode for credit cards / OTPs.
+- [x] **Redis Call Resumption Cache:** 2-minute Caller-ID cache to seamlessly resume dropped phone calls.
+- [x] **Multi-Tenant Cost Tracking & Fraud Kill-Switches:** Millisecond/token usage metering with auto-disconnect caps.
 
 ---
 *Created on branch `feat/voice-agent-optimization-blueprint` (Synced with `main`)*
