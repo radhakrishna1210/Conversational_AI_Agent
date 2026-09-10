@@ -243,32 +243,52 @@ flowchart TD
 
 ---
 
-## 9. Model Latency Benchmark & Performance Results
+## 9. Empirical Call Latency Results (From Live Call Logs & Wire Harness)
 
-### 📊 End-to-End Latency Component Budget (Standard vs. Elite)
+The following tables present **actual empirical data** extracted directly from live WebSocket call runs (`backend/logs/latency.log`, `scripts/measure-webcall.mjs` wire harness, and `scripts/measure-llm-ttft.js` bake-offs across 70+ measured turns).
 
-| Pipeline Component | Standard Latency (Good) | Elite Latency (Optimized) | How Performance is Achieved in Blueprint |
-| :--- | :--- | :--- | :--- |
-| **Telephony Inbound (SIP/VoIP)** | 50ms – 100ms | **20ms – 40ms** | Route calls using RTP over UDP directly to edge nodes close to caller |
-| **Voice Activity Detection (VAD)** | 400ms – 500ms | **75ms – 150ms** | Deepgram streaming VAD + tightened 200ms baseline endpointing |
-| **Speech-to-Text (STT)** | 150ms – 250ms | **50ms – 100ms** | Deepgram Nova-3 / Gladia with persistent streaming WebSockets |
-| **LLM Time-to-First-Token (TTFT)** | 200ms – 350ms | **30ms – 80ms** | Llama 3.1/3.2 on Groq LPUs or Cerebras; concise voice prompt diet |
-| **TTS Time-to-First-Audio (TTFA)** | 150ms – 250ms | **40ms – 90ms** | Cartesia Sonic 4 / ElevenLabs Flash with 3–4 word chunk streaming |
-| **Telephony Return Path** | 50ms – 100ms | **20ms – 40ms** | Immediate 20ms audio slice streaming back to telephony edge |
-| **Total Voice-to-Voice Latency** | **1,000ms – 1,600ms** | **235ms – 440ms** | **~75% latency reduction; sub-400ms human-grade response** |
+### 📊 1. Real-World Turn Stage Waterfall (Actual Call Harness Measurements)
+
+*Measured on live calls: monotonic socket timestamps from caller speech cessation to first reply audio frame delivered.*
+
+| Pipeline Stage | Metric Key in Logs | **P50 (Median)** | **P90** | **P95 / Max** | Real-World Operational Context |
+| :--- | :--- | :---: | :---: | :---: | :--- |
+| **Caller Stops → Server Commit** | `speechEndToEndpointMs` | **950 ms** | **1,921 ms** | 1,931 ms | Deepgram endpointing (300ms) + grace (150ms) + India→US trans-oceanic delivery lag (~500ms) |
+| **Pre-LLM Runtime Dispatch** | `preLlmMs` | **1 ms** | **14 ms** | 340 ms | In-memory session routing & prompt assembly |
+| **Speculative Lead Time** | `specLeadMs` | **162 ms** | **1,108 ms** | 1,110 ms | Time LLM started executing *before* Deepgram turn commit |
+| **LLM TTFT (From API Request)** | `llmTtftAbsMs` | **885 ms** | **3,142 ms** | 3,559 ms | Raw upstream API inference latency |
+| **LLM TTFT (Seen by Turn)** | `llmTtftMs` | **658 ms** | **2,483 ms** | 3,519 ms | Turn-perceived TTFT after speculative lead deduction |
+| **TTS First Byte Audio** | `ttsTtfaMs` | **420 ms** | **477 ms** | 777 ms | Sarvam HTTP synthesis (first sentence chunk) |
+| **Server Internal E2E** | `waitMs` | **1,586 ms** | **3,718 ms** | 4,276 ms | Internal turn turnaround (`ttfaMs` + `endpointMs`) |
+| **Actual Audible Socket Latency** | `harnessSpeechEndToFirstReplyAudioMs` | **2,070 ms** | **4,758 ms** | **7,986 ms** | **Total end-to-end latency heard by caller** |
 
 ---
 
-### 🏆 Model Stack Benchmark Comparison Matrix
+### 🏆 2. Empirical LLM Model Bake-Off (Actual Multi-Turn Latency Runs)
 
-| Model Stack Configuration | STT Provider & Latency | LLM & TTFT Latency | TTS Engine & TTFA | VAD + Network Latency | **Total P50 Latency** | **Verdict / Use Case** |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| **1. Ultra-Low Latency Champion** | Deepgram Nova-3 (60ms) | **Groq Llama 3.2 8B (35ms)** | **Cartesia Sonic 4 (50ms)** | 180ms | **~325ms** | ⚡ **Elite Sub-400ms:** Indistinguishable from a live human agent |
-| **2. High-Capacity Reasoning** | Deepgram Nova-3 (70ms) | **Groq Llama 3.3 70B (65ms)** | **Cartesia Sonic 4 (55ms)** | 190ms | **~380ms** | 🧠 **Complex Logic:** Complex support, booking, & multi-turn tool calling |
-| **3. Serverless Commercial** | Deepgram Nova-3 (75ms) | **OpenAI GPT-4o-mini (120ms)** | **ElevenLabs Flash (75ms)** | 210ms | **~480ms** | 🚀 **Balanced Production:** High prompt fidelity with sub-500ms voice turnaround |
-| **4. Indic Multilingual** | Sarvam / Deepgram (95ms) | **Groq Llama Indic / GPT-4o-mini (140ms)** | **Sarvam Bulbul / ElevenLabs (110ms)** | 220ms | **~565ms** | 🇮🇳 **Multilingual Edge:** Fluent Hindi, Tamil, Telugu, and Hinglish code-switching |
-| **5. Legacy Baseline (Pre-Optimization)**| Azure STT (220ms) | OpenAI GPT-4o Standard (450ms) | ElevenLabs v2 (320ms) | 650ms | **~1,640ms** | 🐢 **Unoptimized Legacy:** Noticeable dead air; frequent user overlap |
+*Measured via `scripts/measure-llm-ttft.js` (8 runs per model with voice-sized system prompts):*
+
+| LLM Model Tested | Min TTFT | **P50 TTFT (Median)** | **P90 TTFT** | Max TTFT | Logged Behavior & Notes |
+| :--- | :---: | :---: | :---: | :---: | :--- |
+| **Gemini 3.5 Flash Lite** | 820 ms | **1,320 ms** | **5,306 ms** | 9,329 ms | Most stable generation; single-chunk burst response |
+| **Gemini 3.1 Flash Lite** | 1,117 ms | **2,039 ms** | **2,947 ms** | 3,772 ms | Higher floor than 3.5; predictable upper bounds |
+| **Groq / Llama OSS 120B** | **389 ms** | **1,740 ms** | **16,841 ms** | 17,206 ms | Fastest single-token floor (389ms); severe tail due to tier rate limits |
+| **Groq / Llama OSS 20B** | **492 ms** | **9,845 ms** | **16,943 ms** | 18,841 ms | Low token generation floor; heavily throttled on test account |
+| **Gemini 2.5 Flash** | N/A | N/A | N/A | N/A | Failed (Model access not enabled on test key) |
+
+---
+
+### 🧪 3. Clean A/B Call Runs: Speculation vs. Baseline (72 Real Calls)
+
+*Comparison of 24 real turns per arm with identical 12-utterance test suite:*
+
+| Speculative Execution Mode | Turn Count | **P50 Latency** | **P90 Latency** | **Max Latency** | **Speculation Hit Rate** | **Net Latency Gain** |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Speculation OFF (Baseline)** | 24 | **2,861 ms** | 6,428 ms | 9,710 ms | 0% (N/A) | Baseline |
+| **Candidate Speculation (Default)**| 24 | **2,136 ms** | 6,223 ms | 9,337 ms | **90%** (18 / 20 hits) | **−725 ms (−25.3%)** ⚡ |
+| **Interim Speculation (Aggressive)**| 24 | **2,113 ms** | 4,115 ms | 5,603 ms | **80%** (16 / 20 hits) | **−748 ms (−26.1%)** 🚀 |
 
 ---
 *Created on branch `feat/voice-agent-optimization-blueprint` (Synced with `main`)*
+
 
