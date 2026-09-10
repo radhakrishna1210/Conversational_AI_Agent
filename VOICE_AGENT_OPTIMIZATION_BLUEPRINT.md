@@ -212,12 +212,12 @@ flowchart TD
 ```
 
 ### 🔹 Phase 1: Latency Slicing & Core Streaming Pipeline
-- [ ] **"First Text Chunk" Hack:** Send the first 3–4 words to TTS immediately for sub-100ms initial audio playback.
-- [ ] **Conjunction Lookahead Splitting:** Parse conjunctions (`and`, `but`, `so`, `because`, `aur`, `lekin`, `kyunki`) after 35 characters to release early clauses.
-- [ ] **Tighten VAD Silence Baseline:** Set baseline silence threshold to 200ms–250ms (shaving 100–150ms of dead air).
-- [ ] **Voice Prompt Diet:** Inject strict brevity rules (<15–20 words, no markdown/lists/unnecessary filler).
-- [ ] **Voice Token Caps:** Set `maxTokens: 50-75` for voice turns to guarantee lightning-fast TTFT.
-- [ ] **Persistent WebSockets:** Ensure long-lived connections across all STT/TTS streams.
+- [x] **"First Text Chunk" Hack:** Send the first 3–4 words to TTS immediately for sub-100ms initial audio playback.
+- [x] **Conjunction Lookahead Splitting:** Parse conjunctions (`and`, `but`, `so`, `because`, `aur`, `lekin`, `kyunki`) after 35 characters to release early clauses.
+- [x] **Tighten VAD Silence Baseline:** Set baseline silence threshold to 200ms–250ms (shaving 100–150ms of dead air).
+- [x] **Voice Prompt Diet:** Inject strict brevity rules (<15–20 words, no markdown/lists/unnecessary filler).
+- [x] **Voice Token Caps:** Set `maxTokens: 50-75` for voice turns to guarantee lightning-fast TTFT.
+- [x] **Persistent WebSockets:** Ensure long-lived connections across all STT/TTS streams.
 
 ### 🔹 Phase 2: Conversational Nuance & Tool Acceleration
 - [ ] **Dynamic VAD Thresholds:** Auto-expand silence timer to 1.5s for complex cognitive inputs (credit card numbers, policy IDs, addresses).
