@@ -29,26 +29,43 @@ const allowedLlmValues = async () => {
  */
 export const mapAgentModel = (label) => {
   if (!label || typeof label !== "string") return {};
-  const norm = label.trim().toLowerCase().replace(/\s+/g, "-");
+  const raw = label.trim().toLowerCase();
+  const norm = raw.replace(/\s+/g, "-");
 
   // Exact match against known model IDs first
   for (const [provider, models] of Object.entries(ALLOWED_MODELS)) {
+    if (models.includes(label.trim())) return { provider, model: label.trim() };
     if (models.includes(norm)) return { provider, model: norm };
+  }
+
+  // Sarvam Conversational
+  if (norm.includes("sarvam")) {
+    return { provider: "sarvam", model: "sarvam-105b-conversations" };
+  }
+
+  // Qwen (served via Groq)
+  if (norm.includes("qwen")) {
+    return { provider: "groq", model: norm.includes("3.8") ? "qwen/qwen3.8-27b" : "qwen/qwen3.6-27b" };
+  }
+
+  // Llama 3.1 8B Instant (Groq)
+  if (norm.includes("llama-3.1-8b") || (norm.includes("llama") && norm.includes("8b"))) {
+    return { provider: "groq", model: "llama-3.1-8b-instant" };
   }
 
   // Groq (LPU, ultra-low-latency) — selected explicitly as the agent's AI Model.
   // Checked before the generic "llama" rule since Groq serves Llama models.
   if (norm.includes("groq")) {
-    // See groq.service.js: the old llama-3.3-70b id was retired and now 404s.
+    if (norm.includes("qwen")) return { provider: "groq", model: "qwen/qwen3.6-27b" };
+    if (norm.includes("8b")) return { provider: "groq", model: "llama-3.1-8b-instant" };
     return { provider: "groq", model: process.env.GROQ_MODEL || "openai/gpt-oss-20b" };
   }
 
   // Heuristic mapping for label variants
   if (norm.includes("gemini")) {
-    // Non-lite stays on 2.5-flash: 3.5-flash measured ~12s to first token from
-    // this deployment (2026-08-19), which is worse than the model it would
-    // replace. Only the lite rung moved, and only because it had to — see
-    // GEMINI_MODEL_MAPPING for why 2.5-flash-lite no longer resolves at all.
+    if (norm.includes("3.1")) return { provider: "gemini", model: "gemini-3.1-flash" };
+    if (norm.includes("3.5-flash-lite") || norm.includes("3.5-lite")) return { provider: "gemini", model: "gemini-3.5-flash-lite" };
+    if (norm.includes("3.5")) return { provider: "gemini", model: "gemini-3.5-flash" };
     return { provider: "gemini", model: norm.includes("lite") ? "gemini-3.5-flash-lite" : "gemini-2.5-flash" };
   }
   if (norm.startsWith("azure")) {

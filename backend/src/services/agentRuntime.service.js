@@ -24,6 +24,7 @@ import { resolveAgentVoice, streamSynthesizeVoice } from './voice.service.js';
 import { createTokenTtsStream, supportsTokenStreaming, synthesisProviderName, supportsSsmlBreaks } from './voice/ttsStreamFactory.js';
 import { createReplyTextFilter, filterReplyText, stripSpeechMarkup } from './voice/disfluency.js';
 import { groqService } from './groq.service.js';
+import { sarvamLLMService } from './llm/sarvam.service.js';
 import { transcribeAudio } from './stt.service.js';
 import { isLikelySttHallucination, stripAgentEcho } from './stt/speechGate.js';
 // Circular-ish import: kbChunking.service.js imports invalidateKbCaches back
@@ -464,6 +465,7 @@ export function resolveLlmForAgent(agent, { lowLatency = false } = {}) {
     : p === 'gemini' ? Boolean(process.env.GEMINI_API_KEY)
     : p === 'azure' ? Boolean(process.env.AZURE_OPENAI_API_KEY)
     : p === 'groq' ? Boolean(process.env.GROQ_API_KEY)
+    : p === 'sarvam' ? Boolean(process.env.SARVAM_API_KEY)
     : true;
   if (!hasKey(provider)) {
     if (process.env.GEMINI_API_KEY) {
@@ -472,38 +474,25 @@ export function resolveLlmForAgent(agent, { lowLatency = false } = {}) {
     } else if (process.env.OPENAI_API_KEY) {
       provider = 'openai';
       model = 'gpt-4o-mini';
+    } else if (process.env.GROQ_API_KEY) {
+      provider = 'groq';
+      model = 'openai/gpt-oss-20b';
+    } else if (process.env.SARVAM_API_KEY) {
+      provider = 'sarvam';
+      model = 'sarvam-105b-conversations';
     }
   }
 
-  // Groq (ultra-low-latency LPU) — selected as the agent's AI Model. Its service
-  // is OpenAI-compatible but separate from getLLMProviderWithFallback. Chosen
-  // explicitly now (not an automatic override) so it shows in the model picker.
+  // Groq (ultra-low-latency LPU) — selected as the agent's AI Model.
   if (provider === 'groq') {
-    return { llm: groqService, provider: 'groq', model: process.env.GROQ_MODEL || model };
+    return { llm: groqService, provider: 'groq', model: model || process.env.GROQ_MODEL || 'openai/gpt-oss-20b' };
   }
 
-  // Live voice turns prioritize time-to-first-token. Flash Lite uses the same
-  // Gemini API contract and grounding prompt with substantially lower latency.
-  //
-  // WHICH Flash Lite is not a detail, and it is not a matter of picking the
-  // newest. Measured from this deployment against the live API on 2026-08-19,
-  // same agent, same 2.5k-token prompt, thinking off, 10 consecutive turns:
-  //
-  //   gemini-3.1-flash-lite   time-to-first-token  1.0s … 20.6s   (p50 ~5s)
-  //   gemini-3.5-flash-lite   time-to-first-token  1.0s …  1.2s   (p50 1.05s)
-  //   gemini-3.5-flash        time-to-first-token           ~12s
-  //   gemini-3.6-flash        time-to-first-token  4.2s … 18.3s
-  //
-  // The old choice was not slow on average so much as UNBOUNDED, and a voice
-  // call is judged on its worst turns: logs/latency.log shows the tail landing
-  // as 13-17s of dead air mid-conversation. Prompt size barely moved it (a
-  // 343-token prompt also produced an 8.9s first token), so this is capacity on
-  // Google's side, not something the prompt can be trimmed out of. The fix is
-  // to stop asking that endpoint.
-  //
-  // Overridable because the ranking above is a property of Google's serving
-  // fleet on a given day, not a law — re-measure with scripts/measure-llm-ttft.js
-  // before changing it, and set VOICE_LLM_MODEL rather than editing this line.
+  // Sarvam LLM
+  if (provider === 'sarvam') {
+    return { llm: sarvamLLMService, provider: 'sarvam', model: model || 'sarvam-105b-conversations' };
+  }
+
   if (lowLatency && provider === 'gemini') {
     model = process.env.VOICE_LLM_MODEL || 'gemini-3.5-flash-lite';
   }
