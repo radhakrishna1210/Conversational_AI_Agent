@@ -9,6 +9,7 @@ export const LLM_PROVIDERS = {
   GEMINI: "gemini",
   GROQ: "groq",
   SARVAM: "sarvam",
+  TOGETHER: "together",
   CUSTOM: "custom",
 };
 
@@ -51,6 +52,11 @@ export const ALLOWED_MODELS = {
     "sarvam-30b",
     "sarvam-2b",
   ],
+  together: [
+    "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo",
+    "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+    "Qwen/Qwen2.5-72B-Instruct-Turbo",
+  ],
   custom: ["llama-3.3-70b-versatile"],
 };
 
@@ -78,6 +84,11 @@ export const PROVIDER_CONFIGS = {
   },
   sarvam: {
     apiKeyEnv: "SARVAM_API_KEY",
+    timeout: 30000,
+    maxRetries: 3,
+  },
+  together: {
+    apiKeyEnv: "TOGETHER_API_KEY",
     timeout: 30000,
     maxRetries: 3,
   },

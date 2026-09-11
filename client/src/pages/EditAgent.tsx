@@ -1412,10 +1412,11 @@ export default function EditAgent() {
             const { holdPauseSec: hold } = agent as { holdPauseSec?: number | null };
             setHoldPauseSec(hold ? String(hold) : '');
           }
-          setAmbientSound((agent as any).ambientSound ?? 'None');
           {
             const { ambientMode: m, ambientSound: preset } = agent as { ambientMode?: string; ambientSound?: string };
-            setAmbientMode(m && ['off', 'manual', 'native'].includes(m) ? m : (preset && preset !== 'None' ? 'manual' : 'off'));
+            const resolvedMode = m && ['off', 'manual', 'native'].includes(m) ? m : (preset && preset !== 'None' ? 'manual' : 'off');
+            setAmbientMode(resolvedMode);
+            setAmbientSound(resolvedMode === 'off' ? 'None' : (preset ?? 'None'));
           }
           setInterruptibleEnabled(agent.interruptibleEnabled ?? true);
           setFlowItems((agent.flowItems as any) || getDefaultFlowItems(agent.name || ''));
@@ -1510,8 +1511,8 @@ export default function EditAgent() {
       ttsDelivery,
       // Empty is off. The API validates the range and says so on a bad value.
       holdPauseSec: holdPauseSec.trim() === '' ? null : Number(holdPauseSec),
-      ambientSound,
-      ambientMode,
+      ambientSound: (overrides.ambientMode ?? ambientMode) === 'off' ? 'None' : (overrides.ambientSound ?? ambientSound),
+      ambientMode: overrides.ambientMode ?? ambientMode,
       interruptibleEnabled,
       postCallConfigs: postCallConfigsForSave,
       kbUrls,
@@ -3135,7 +3136,7 @@ export default function EditAgent() {
         }
       // Opens with the greeting of the Incoming/Outgoing tab being viewed, so
       // both greetings can be heard before a number is pointed at this agent.
-      }, { ambientSound, direction: welcomeTab });
+      }, { ambientSound: ambientMode === 'off' ? 'None' : ambientSound, direction: welcomeTab });
     } catch (err: any) {
       setWebCallError(err?.name === 'NotAllowedError'
         ? 'Microphone access was denied. Allow the microphone and try again.'
@@ -3251,7 +3252,8 @@ export default function EditAgent() {
 
       // Ambient Sound (Call Configuration): layer a synthesized background bed
       // for the duration of the call, captured into the recording too.
-      const ambientStop = startAmbientSound(audioCtx, ambientSound, mixDest);
+      const effectiveAmbient = ambientMode === 'off' ? 'None' : ambientSound;
+      const ambientStop = startAmbientSound(audioCtx, effectiveAmbient, mixDest);
 
       // noiseFloor starts at 0 so the first listening ticks adapt straight to
       // the real room (FLOOR_DOWN converges in a few hundred ms); until then
@@ -5047,7 +5049,15 @@ export default function EditAgent() {
                               const nativeBlocked = opt.id === 'native' && responseProfile?.ambience && responseProfile.ambience.nativeAvailable === false;
                               const active = ambientMode === opt.id;
                               return (
-                                <div key={opt.id} onClick={() => { if (!nativeBlocked) setAmbientMode(opt.id); }}
+                                <div key={opt.id} onClick={() => {
+                                  if (!nativeBlocked) {
+                                    setAmbientMode(opt.id);
+                                    const nextSound = opt.id === 'off' ? 'None' : (ambientSound === 'None' ? 'Office' : ambientSound);
+                                    if (opt.id === 'off') setAmbientSound('None');
+                                    else if (ambientSound === 'None') setAmbientSound('Office');
+                                    handleSave({ ambientMode: opt.id, ambientSound: nextSound });
+                                  }
+                                }}
                                   title={nativeBlocked ? responseProfile.ambience.nativeReason : opt.hint}
                                   style={{ padding: '12px', background: active ? '#0a2e30' : 'var(--s1)', border: `1px solid ${active ? 'var(--cyan)' : 'var(--line-2)'}`, borderRadius: '8px', cursor: nativeBlocked ? 'not-allowed' : 'pointer', opacity: nativeBlocked ? 0.5 : 1, transition: 'all 0.2s' }}>
                                   <div style={{ color: active ? 'var(--cyan)' : 'var(--tx)', fontWeight: '700', fontSize: '13px' }}>{opt.label}</div>
@@ -5066,7 +5076,10 @@ export default function EditAgent() {
                             {AMBIENT_OPTIONS.filter(s => s !== 'None' && (ambientMode !== 'native' || ['Office', 'Call Center', 'Office Chatter', 'Call Center Chatter'].includes(s))).map(sound => (
                               <div 
                                 key={sound}
-                                onClick={() => setAmbientSound(sound)}
+                                onClick={() => {
+                                  setAmbientSound(sound);
+                                  handleSave({ ambientSound: sound, ambientMode: ambientMode === 'off' ? 'manual' : ambientMode });
+                                }}
                                 style={{
                                   padding: '14px', 
                                   background: ambientSound === sound ? '#0a2e30' : 'var(--s1)', 

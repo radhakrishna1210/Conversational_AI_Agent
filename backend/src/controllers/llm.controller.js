@@ -41,12 +41,19 @@ export const mapAgentModel = (label) => {
     if (models.includes(norm)) return { provider, model: norm };
   }
 
+  // Together AI models
+  if (norm.includes("together")) {
+    if (norm.includes("72b") || norm.includes("qwen")) return { provider: "together", model: "Qwen/Qwen2.5-72B-Instruct-Turbo" };
+    if (norm.includes("70b") || norm.includes("3.3")) return { provider: "together", model: "meta-llama/Llama-3.3-70B-Instruct-Turbo" };
+    return { provider: "together", model: "meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo" };
+  }
+
   // Sarvam Conversational
   if (norm.includes("sarvam")) {
     return { provider: "sarvam", model: "sarvam-105b-conversations" };
   }
 
-  // Qwen (served via Groq)
+  // Qwen (served via Groq by default if not together)
   if (norm.includes("qwen")) {
     return { provider: "groq", model: norm.includes("3.8") ? "qwen/qwen3.8-27b" : "qwen/qwen3.6-27b" };
   }
