@@ -64,27 +64,21 @@ export const MODEL_GROUPS = [
       { id: 'llm:openai:gpt-4.1-nano',     value: 'gpt-4.1-nano',      label: 'GPT-4.1 Nano',      provider: 'OpenAI', envKey: 'OPENAI_API_KEY' },
       { id: 'llm:openai:gpt-3.5-turbo',    value: 'gpt-3.5-turbo',     label: 'GPT-3.5 Turbo',     provider: 'OpenAI', envKey: 'OPENAI_API_KEY' },
       { id: 'llm:openai:gpt-5.1',          value: 'gpt-5.1',           label: 'GPT-5.1',           provider: 'OpenAI', envKey: 'OPENAI_API_KEY' },
+      { id: 'llm:gemini:3.1-flash',        value: 'gemini-3.1-flash',      label: 'Gemini 3.1 Flash',      provider: 'Google', envKey: 'GEMINI_API_KEY' },
+      { id: 'llm:gemini:3.5-flash',        value: 'gemini-3.5-flash',      label: 'Gemini 3.5 Flash',      provider: 'Google', envKey: 'GEMINI_API_KEY' },
+      { id: 'llm:gemini:3.5-flash-lite',   value: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash Lite', provider: 'Google', envKey: 'GEMINI_API_KEY' },
       { id: 'llm:gemini:2.5-flash',        value: 'gemini-2.5-flash',      label: 'Gemini 2.5 Flash',      provider: 'Google', envKey: 'GEMINI_API_KEY' },
       { id: 'llm:gemini:2.5-flash-lite',   value: 'gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash Lite', provider: 'Google', envKey: 'GEMINI_API_KEY' },
       { id: 'llm:azure:gpt-4o',            value: 'azure-gpt-4o',       label: 'Azure GPT-4o',       provider: 'Azure', envKey: 'AZURE_OPENAI_KEY' },
       { id: 'llm:azure:gpt-4o-mini',       value: 'azure-gpt-4o-mini',  label: 'Azure GPT-4o Mini',  provider: 'Azure', envKey: 'AZURE_OPENAI_KEY' },
       { id: 'llm:azure:gpt-4.1-mini',      value: 'azure-gpt-4.1-mini', label: 'Azure GPT-4.1 Mini', provider: 'Azure', envKey: 'AZURE_OPENAI_KEY' },
       { id: 'llm:azure:gpt-4.1-nano',      value: 'azure-gpt-4.1-nano', label: 'Azure GPT-4.1 Nano', provider: 'Azure', envKey: 'AZURE_OPENAI_KEY' },
-      // Groq's LPU endpoint — the low-latency choice for voice (measured first
-      // spoken token ~560-720ms, against ~1.7s p50 for Gemini flash-lite).
-      //
-      // `value` is FROZEN at the original string: mapAgentModel keys off it
-      // containing "groq", and every agent already on this option has it stored
-      // in its aiModel column. Renaming it would silently drop those agents back
-      // to the default provider.
-      //
-      // The LABEL no longer names Llama, because Groq retired
-      // llama-3.3-70b-versatile and the id 404s. What this option actually runs
-      // is GROQ_MODEL (default openai/gpt-oss-20b, see groq.service.js), so a
-      // label promising Llama sent people to a model they were not getting.
-      // Naming the vendor rather than the weights keeps it honest the next time
-      // the underlying id is retired.
+      // Groq models
+      { id: 'llm:groq:qwen-3.6-27b',       value: 'qwen/qwen3.6-27b',        label: 'Groq Qwen 3.6 27B',           provider: 'Groq',   envKey: 'GROQ_API_KEY' },
+      { id: 'llm:groq:llama-3.1-8b',       value: 'llama-3.1-8b-instant',    label: 'Groq Llama 3.1 8B Instant',  provider: 'Groq',   envKey: 'GROQ_API_KEY' },
       { id: 'llm:groq:llama-3.3-70b',      value: 'Groq Llama 3.3',          label: 'Groq (fastest — for voice)', provider: 'Groq',   envKey: 'GROQ_API_KEY' },
+      // Sarvam conversational
+      { id: 'llm:sarvam:conversational',   value: 'sarvam-105b-conversations', label: 'Sarvam Conversational (105B)', provider: 'Sarvam', envKey: 'SARVAM_API_KEY' },
       // The self-hosted/custom Llama endpoint. Separately switchable from the
       // Groq entry above because the two bill differently.
       { id: 'llm:custom:llama-3.3-70b',    value: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B (custom endpoint)', provider: 'Custom', envKey: 'CUSTOM_LLM_BASE_URL' },

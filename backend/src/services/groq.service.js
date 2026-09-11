@@ -70,33 +70,95 @@ class GroqService {
     return /gpt-oss/i.test(model) ? { reasoning_effort: 'low' } : {};
   }
 
+  _resolveModel(requestedModel) {
+    const raw = requestedModel || process.env.GROQ_MODEL || DEFAULT_MODEL;
+    // Map friendly names to actual Groq IDs
+    if (/qwen/i.test(raw)) {
+      if (raw.includes('3.8')) return 'qwen/qwen3.8-27b';
+      return 'qwen/qwen3.6-27b';
+    }
+    if (/llama-?3\.1-?8b/i.test(raw)) {
+      return 'llama-3.1-8b-instant';
+    }
+    if (/groq.*llama/i.test(raw)) {
+      return process.env.GROQ_MODEL || DEFAULT_MODEL;
+    }
+    return raw;
+  }
+
+  _maxTokens(model, requested) {
+    if (requested) return Math.min(requested, 1000);
+    // Qwen on free tier has strict OTPM limits (1000 tokens/min), keep token budget safe
+    if (/qwen/i.test(model)) return 800;
+    return 1000;
+  }
+
   /** Buffered generation — returns the full reply string (single-call path). */
   async generateResponse(message, config = {}, options = {}) {
     await this.initializeClient();
-    const model = config.model || process.env.GROQ_MODEL || DEFAULT_MODEL;
-    const res = await this.client.chat.completions.create({
-      model,
-      messages: this._messages(message, options),
-      temperature: config.temperature ?? 0.7,
-      max_tokens: options.maxTokens ?? 2000,
-      ...this._modelParams(model),
-    });
-    return res?.choices?.[0]?.message?.content || '';
+    let model = this._resolveModel(config.model);
+    const max_tokens = this._maxTokens(model, options.maxTokens);
+    try {
+      const res = await this.client.chat.completions.create({
+        model,
+        messages: this._messages(message, options),
+        temperature: config.temperature ?? 0.7,
+        max_tokens,
+        ...this._modelParams(model),
+      });
+      return res?.choices?.[0]?.message?.content || '';
+    } catch (err) {
+      const isUnavailable = err?.status === 404 || err?.message?.includes('does not exist');
+      const isTokensLimit = err?.code === 'rate_limit_exceeded' || err?.message?.includes('expected output tokens exceed');
+      if ((isUnavailable || isTokensLimit) && model !== DEFAULT_MODEL) {
+        logger.warn(`Groq model "${model}" issue (${err.message}), falling back to ${DEFAULT_MODEL}`);
+        model = DEFAULT_MODEL;
+        const res = await this.client.chat.completions.create({
+          model,
+          messages: this._messages(message, options),
+          temperature: config.temperature ?? 0.7,
+          max_tokens: Math.min(max_tokens, 800),
+          ...this._modelParams(model),
+        });
+        return res?.choices?.[0]?.message?.content || '';
+      }
+      throw err;
+    }
   }
 
   /** Streaming generation — yields reply text deltas (overlap path). */
   async *generateResponseStream(message, config = {}, options = {}) {
     await this.initializeClient();
-    const model = config.model || process.env.GROQ_MODEL || DEFAULT_MODEL;
-    const stream = await this.client.chat.completions.create({
-      model,
-      messages: this._messages(message, options),
-      temperature: config.temperature ?? 0.7,
-      max_tokens: options.maxTokens ?? 2000,
-      stream: true,
-      ...this._modelParams(model),
-    // Caller-owned cancellation (speculative turns): aborts the HTTP request.
-    }, options.signal ? { signal: options.signal } : undefined);
+    let model = this._resolveModel(config.model);
+    const max_tokens = this._maxTokens(model, options.maxTokens);
+    let stream;
+    try {
+      stream = await this.client.chat.completions.create({
+        model,
+        messages: this._messages(message, options),
+        temperature: config.temperature ?? 0.7,
+        max_tokens,
+        stream: true,
+        ...this._modelParams(model),
+      }, options.signal ? { signal: options.signal } : undefined);
+    } catch (err) {
+      const isUnavailable = err?.status === 404 || err?.message?.includes('does not exist');
+      const isTokensLimit = err?.code === 'rate_limit_exceeded' || err?.message?.includes('expected output tokens exceed');
+      if ((isUnavailable || isTokensLimit) && model !== DEFAULT_MODEL) {
+        logger.warn(`Groq model "${model}" stream issue (${err.message}), falling back to ${DEFAULT_MODEL}`);
+        model = DEFAULT_MODEL;
+        stream = await this.client.chat.completions.create({
+          model,
+          messages: this._messages(message, options),
+          temperature: config.temperature ?? 0.7,
+          max_tokens: Math.min(max_tokens, 800),
+          stream: true,
+          ...this._modelParams(model),
+        }, options.signal ? { signal: options.signal } : undefined);
+      } else {
+        throw err;
+      }
+    }
     for await (const chunk of stream) {
       const delta = chunk?.choices?.[0]?.delta?.content;
       if (delta) yield delta;

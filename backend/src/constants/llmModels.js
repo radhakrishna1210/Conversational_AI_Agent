@@ -7,6 +7,8 @@ export const LLM_PROVIDERS = {
   OPENAI: "openai",
   AZURE: "azure",
   GEMINI: "gemini",
+  GROQ: "groq",
+  SARVAM: "sarvam",
   CUSTOM: "custom",
 };
 
@@ -29,11 +31,25 @@ export const ALLOWED_MODELS = {
   // keep validating; GEMINI_MODEL_MAPPING remaps it onto 3.5-flash-lite at call
   // time, since Google now 404s the 2.5 lite endpoint.
   gemini: [
+    "gemini-3.1-flash",
+    "gemini-3.1-flash-lite",
     "gemini-3.5-flash-lite",
     "gemini-3.5-flash",
-    "gemini-3.1-flash-lite",
     "gemini-2.5-flash",
     "gemini-2.5-flash-lite",
+  ],
+  groq: [
+    "qwen/qwen3.6-27b",
+    "llama-3.1-8b-instant",
+    "Groq Llama 3.3",
+    "openai/gpt-oss-20b",
+    "openai/gpt-oss-120b",
+  ],
+  sarvam: [
+    "sarvam-105b-conversations",
+    "sarvam-105b",
+    "sarvam-30b",
+    "sarvam-2b",
   ],
   custom: ["llama-3.3-70b-versatile"],
 };
@@ -52,6 +68,16 @@ export const PROVIDER_CONFIGS = {
   },
   gemini: {
     apiKeyEnv: "GEMINI_API_KEY",
+    timeout: 30000,
+    maxRetries: 3,
+  },
+  groq: {
+    apiKeyEnv: "GROQ_API_KEY",
+    timeout: 30000,
+    maxRetries: 3,
+  },
+  sarvam: {
+    apiKeyEnv: "SARVAM_API_KEY",
     timeout: 30000,
     maxRetries: 3,
   },
