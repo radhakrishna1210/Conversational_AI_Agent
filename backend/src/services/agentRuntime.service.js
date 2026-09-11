@@ -28,7 +28,6 @@ import { createTokenTtsStream, supportsTokenStreaming, synthesisProviderName, su
 import { createReplyTextFilter, filterReplyText, stripSpeechMarkup } from './voice/disfluency.js';
 import { groqService } from './groq.service.js';
 import { sarvamLLMService } from './llm/sarvam.service.js';
-import { togetherLLMService } from './llm/together.service.js';
 import { transcribeAudio } from './stt.service.js';
 import { isLikelySttHallucination, stripAgentEcho } from './stt/speechGate.js';
 // Circular-ish import: kbChunking.service.js imports invalidateKbCaches back
@@ -494,7 +493,6 @@ export function resolveLlmForAgent(agent, { lowLatency = false, assigned } = {})
     : p === 'azure' ? Boolean(process.env.AZURE_OPENAI_API_KEY)
     : p === 'groq' ? Boolean(process.env.GROQ_API_KEY)
     : p === 'sarvam' ? Boolean(process.env.SARVAM_API_KEY)
-    : p === 'together' ? Boolean(process.env.TOGETHER_API_KEY)
     : true;
   if (!hasKey(provider)) {
     if (process.env.GEMINI_API_KEY) {
@@ -509,9 +507,6 @@ export function resolveLlmForAgent(agent, { lowLatency = false, assigned } = {})
     } else if (process.env.SARVAM_API_KEY) {
       provider = 'sarvam';
       model = 'sarvam-105b-conversations';
-    } else if (process.env.TOGETHER_API_KEY) {
-      provider = 'together';
-      model = 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo';
     }
   }
 
@@ -523,11 +518,6 @@ export function resolveLlmForAgent(agent, { lowLatency = false, assigned } = {})
   // Sarvam LLM
   if (provider === 'sarvam') {
     return { llm: sarvamLLMService, provider: 'sarvam', model: model || 'sarvam-105b-conversations' };
-  }
-
-  // Together AI LLM
-  if (provider === 'together') {
-    return { llm: togetherLLMService, provider: 'together', model: model || 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo' };
   }
 
   if (lowLatency && provider === 'gemini') {
