@@ -75,6 +75,7 @@ export const startAmbientSound = (
   preset: string,
   mixDest?: MediaStreamAudioDestinationNode | null,
 ): (() => void) | null => {
+  if (!preset || preset.toLowerCase() === 'none' || preset.toLowerCase() === 'off') return null;
   const files = bedFilesFor(preset);
   if (!files) return null; // 'None' or unknown → silence
 
