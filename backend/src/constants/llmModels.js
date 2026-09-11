@@ -40,7 +40,7 @@ export const ALLOWED_MODELS = {
   ],
   groq: [
     "qwen/qwen3.6-27b",
-    "llama-3.1-8b-instant",
+    "allam-2-7b",
     "Groq Llama 3.3",
     "openai/gpt-oss-20b",
     "openai/gpt-oss-120b",
