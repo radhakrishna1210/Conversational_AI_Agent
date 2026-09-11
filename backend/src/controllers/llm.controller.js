@@ -46,22 +46,21 @@ export const mapAgentModel = (label) => {
     return { provider: "sarvam", model: "sarvam-105b-conversations" };
   }
 
-  // Qwen (served via Groq by default if not together)
+  // Allam (Groq ultra-fast 99ms model)
+  if (norm.includes("allam")) {
+    return { provider: "groq", model: "allam-2-7b" };
+  }
+
+  // Qwen (served via Groq by default)
   if (norm.includes("qwen")) {
     return { provider: "groq", model: norm.includes("3.8") ? "qwen/qwen3.8-27b" : "qwen/qwen3.6-27b" };
   }
 
-  // Llama 3.1 8B Instant (Groq)
-  if (norm.includes("llama-3.1-8b") || (norm.includes("llama") && norm.includes("8b"))) {
-    return { provider: "groq", model: "llama-3.1-8b-instant" };
-  }
-
   // Groq (LPU, ultra-low-latency) — selected explicitly as the agent's AI Model.
-  // Checked before the generic "llama" rule since Groq serves Llama models.
   if (norm.includes("groq")) {
+    if (norm.includes("allam")) return { provider: "groq", model: "allam-2-7b" };
     if (norm.includes("qwen")) return { provider: "groq", model: "qwen/qwen3.6-27b" };
-    if (norm.includes("8b")) return { provider: "groq", model: "llama-3.1-8b-instant" };
-    return { provider: "groq", model: process.env.GROQ_MODEL || "openai/gpt-oss-20b" };
+    return { provider: "groq", model: process.env.GROQ_MODEL || "qwen/qwen3.6-27b" };
   }
 
   // Heuristic mapping for label variants

@@ -75,7 +75,7 @@ export const MODEL_GROUPS = [
       { id: 'llm:azure:gpt-4.1-nano',      value: 'azure-gpt-4.1-nano', label: 'Azure GPT-4.1 Nano', provider: 'Azure', envKey: 'AZURE_OPENAI_KEY' },
       // Groq models
       { id: 'llm:groq:qwen-3.6-27b',       value: 'qwen/qwen3.6-27b',        label: 'Groq Qwen 3.6 27B',           provider: 'Groq',   envKey: 'GROQ_API_KEY' },
-      { id: 'llm:groq:llama-3.1-8b',       value: 'llama-3.1-8b-instant',    label: 'Groq Llama 3.1 8B Instant',  provider: 'Groq',   envKey: 'GROQ_API_KEY' },
+      { id: 'llm:groq:allam-2-7b',         value: 'allam-2-7b',              label: 'Groq Allam 2 7B (Ultra Fast ~99ms)', provider: 'Groq', envKey: 'GROQ_API_KEY' },
       { id: 'llm:groq:llama-3.3-70b',      value: 'Groq Llama 3.3',          label: 'Groq (fastest — for voice)', provider: 'Groq',   envKey: 'GROQ_API_KEY' },
       // Sarvam conversational
       { id: 'llm:sarvam:conversational',   value: 'sarvam-105b-conversations', label: 'Sarvam Conversational (105B)', provider: 'Sarvam', envKey: 'SARVAM_API_KEY' },
