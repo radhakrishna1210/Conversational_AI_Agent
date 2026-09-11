@@ -76,10 +76,6 @@ export const MODEL_GROUPS = [
       { id: 'llm:groq:llama-3.3-70b',      value: 'Groq Llama 3.3',          label: 'Groq (fastest — for voice)', provider: 'Groq',   envKey: 'GROQ_API_KEY' },
       // Sarvam conversational
       { id: 'llm:sarvam:conversational',   value: 'sarvam-105b-conversations', label: 'Sarvam Conversational (105B)', provider: 'Sarvam', envKey: 'SARVAM_API_KEY' },
-      // Together AI
-      { id: 'llm:together:llama-3.1-8b',  value: 'meta-llama/Meta-Llama-3.1-8B-Instruct-Turbo', label: 'Together Llama 3.1 8B Turbo', provider: 'Together', envKey: 'TOGETHER_API_KEY' },
-      { id: 'llm:together:llama-3.3-70b', value: 'meta-llama/Llama-3.3-70B-Instruct-Turbo', label: 'Together Llama 3.3 70B Turbo', provider: 'Together', envKey: 'TOGETHER_API_KEY' },
-      { id: 'llm:together:qwen-2.5-72b',  value: 'Qwen/Qwen2.5-72B-Instruct-Turbo', label: 'Together Qwen 2.5 72B Turbo', provider: 'Together', envKey: 'TOGETHER_API_KEY' },
       // The self-hosted/custom Llama endpoint. Separately switchable from the
       // Groq entry above because the two bill differently.
       { id: 'llm:custom:llama-3.3-70b',    value: 'llama-3.3-70b-versatile', label: 'Llama 3.3 70B (custom endpoint)', provider: 'Custom', envKey: 'CUSTOM_LLM_BASE_URL' },

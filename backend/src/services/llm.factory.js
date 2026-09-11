@@ -10,13 +10,12 @@ import { azureService } from "./llm/azure.service.js";
 import { geminiService } from "./gemini.service.js";
 import { groqService } from "./groq.service.js";
 import { sarvamLLMService } from "./llm/sarvam.service.js";
-import { togetherLLMService } from "./llm/together.service.js";
 import CustomLLMService from "./llm/custom.service.js";
 import { mockLLMService } from "./llm/mock.service.js";
 
 /**
  * Factory function to get LLM provider instance
- * @param {string} provider - The provider type (openai, azure, gemini, groq, sarvam, together, custom)
+ * @param {string} provider - The provider type (openai, azure, gemini, groq, sarvam, custom)
  * @returns {Object} - Provider service instance
  * @throws {Error} - If provider is invalid
  */
@@ -39,9 +38,6 @@ export const getLLMProvider = (provider) => {
     case LLM_PROVIDERS.SARVAM:
       return sarvamLLMService;
 
-    case LLM_PROVIDERS.TOGETHER:
-      return togetherLLMService;
-
     case LLM_PROVIDERS.CUSTOM:
       return new CustomLLMService();
 
@@ -62,7 +58,7 @@ export const getLLMProvider = (provider) => {
  */
 export const getLLMProviderWithFallback = (primaryProvider) => {
   // If no API keys are configured at all, fallback to mock service immediately
-  if (!process.env.OPENAI_API_KEY && !process.env.GEMINI_API_KEY && !process.env.AZURE_OPENAI_API_KEY && !process.env.GROQ_API_KEY && !process.env.SARVAM_API_KEY && !process.env.TOGETHER_API_KEY) {
+  if (!process.env.OPENAI_API_KEY && !process.env.GEMINI_API_KEY && !process.env.AZURE_OPENAI_API_KEY && !process.env.GROQ_API_KEY && !process.env.SARVAM_API_KEY) {
     logger.info("No LLM API keys configured. Using Mock LLM Service.");
     return mockLLMService;
   }
@@ -82,15 +78,12 @@ export const getLLMProviderWithFallback = (primaryProvider) => {
     if (primaryProvider.toLowerCase() === LLM_PROVIDERS.SARVAM && !process.env.SARVAM_API_KEY) {
       throw new Error("Sarvam API key is missing");
     }
-    if (primaryProvider.toLowerCase() === LLM_PROVIDERS.TOGETHER && !process.env.TOGETHER_API_KEY) {
-      throw new Error("Together AI API key is missing");
-    }
     return provider;
   } catch (error) {
     logger.warn(
       `Failed to initialize or missing key for primary provider ${primaryProvider}, falling back: ${error.message}`
     );
-    // Fallback order: Gemini -> OpenAI -> Groq -> Sarvam -> Together -> Mock
+    // Fallback order: Gemini -> OpenAI -> Groq -> Sarvam -> Mock
     if (process.env.GEMINI_API_KEY) {
       return geminiService;
     }
@@ -102,9 +95,6 @@ export const getLLMProviderWithFallback = (primaryProvider) => {
     }
     if (process.env.SARVAM_API_KEY) {
       return sarvamLLMService;
-    }
-    if (process.env.TOGETHER_API_KEY) {
-      return togetherLLMService;
     }
     return mockLLMService;
   }

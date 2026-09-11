@@ -24,6 +24,10 @@ function authHeaders() {
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
+export function hasCredentials() {
+  return Boolean(process.env.CARTESIA_API_KEY);
+}
+
 /**
  * Fetch all available voices from Cartesia and return normalised VoiceDTOs.
  * @returns {Promise<import('../voice.dto.js').VoiceDTO[]>}
@@ -40,23 +44,34 @@ export async function getVoices() {
   return voices.map(fromCartesiaVoice);
 }
 
+function normalizeLang(lang) {
+  if (!lang || typeof lang !== 'string') return 'en';
+  const clean = lang.toLowerCase().trim();
+  const code = clean.split(/[-_]/)[0];
+  const supported = ['en', 'es', 'fr', 'de', 'ja', 'zh', 'pt', 'it', 'ko', 'nl', 'pl', 'ru', 'sv', 'tr', 'hi', 'ar'];
+  return supported.includes(code) ? code : 'en';
+}
+
 /**
  * Synthesise speech using Cartesia TTS and return an audio Buffer.
  * @param {string} voiceId – Cartesia voice id
  * @param {string} text    – Text to synthesise
+ * @param {object} [opts]  – Options including language
  * @returns {Promise<Buffer>}
  */
-export async function previewVoice(voiceId, text) {
+export async function previewVoice(voiceId, text, opts = {}) {
+  const modelId = process.env.CARTESIA_MODEL || 'sonic-preview';
+  const language = normalizeLang(opts.language);
   const res = await fetch(`${BASE_URL}/tts/bytes`, {
     method: 'POST',
     headers: authHeaders(),
     body: JSON.stringify({
-      model_id: 'sonic-english',
+      model_id: modelId,
       transcript: text,
       voice: { mode: 'id', id: voiceId },
+      language,
       output_format: {
         container: 'mp3',
-        encoding: 'pcm_f32le',
         sample_rate: 44100
       }
     }),
@@ -69,6 +84,43 @@ export async function previewVoice(voiceId, text) {
 
   const arrayBuffer = await res.arrayBuffer();
   return Buffer.from(arrayBuffer);
+}
+
+/**
+ * Stream speech using Cartesia TTS.
+ * @param {string} voiceId
+ * @param {string} text
+ * @param {object} [opts]
+ * @returns {Promise<{ body: ReadableStream, contentType: string }>}
+ */
+export async function streamVoice(voiceId, text, opts = {}) {
+  const modelId = process.env.CARTESIA_MODEL || 'sonic-preview';
+  const language = normalizeLang(opts.language);
+  const res = await fetch(`${BASE_URL}/tts/bytes`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: JSON.stringify({
+      model_id: modelId,
+      transcript: text,
+      voice: { mode: 'id', id: voiceId },
+      language,
+      output_format: {
+        container: 'mp3',
+        sample_rate: 44100
+      }
+    }),
+    signal: opts.signal,
+  });
+
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Cartesia TTS stream failed (${res.status}): ${body}`);
+  }
+
+  return {
+    body: res.body,
+    contentType: res.headers.get('content-type') || 'audio/mpeg',
+  };
 }
 
 /**

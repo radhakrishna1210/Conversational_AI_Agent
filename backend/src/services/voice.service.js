@@ -374,7 +374,8 @@ export const synthesizeVoiceToBuffer = async (voice, text, opts = {}) => {
     const langCode = meta.language_code || 'en-IN';
     audioBuffer = await sarvamProvider.previewVoice(providerVoiceId, text, langCode);
   } else if (providerName === 'Cartesia') {
-    audioBuffer = await cartesiaProvider.previewVoice(providerVoiceId, text);
+    const lang = opts.language || voice.language || meta.language || 'en';
+    audioBuffer = await cartesiaProvider.previewVoice(providerVoiceId, text, { ...opts, language: lang });
   } else if (providerName === 'FishAudio') {
     audioBuffer = await fishAudioProvider.previewVoice(providerVoiceId, text, opts);
   } else {
@@ -418,6 +419,12 @@ export const streamSynthesizeVoice = async (voice, text, opts = {}) => {
   // "stream" endpoint buffers server-side (ttfaMs ≈ totalMs in the logs).
   if (providerName === 'ElevenLabs') {
     const { body, contentType } = await elevenLabsProvider.streamVoice(providerVoiceId, text, opts);
+    return { stream: Readable.fromWeb(body), contentType };
+  }
+
+  if (providerName === 'Cartesia') {
+    const lang = opts.language || voice.language || meta.language || 'en';
+    const { body, contentType } = await cartesiaProvider.streamVoice(providerVoiceId, text, { ...opts, language: lang });
     return { stream: Readable.fromWeb(body), contentType };
   }
 
