@@ -64,6 +64,7 @@ const NAV: NavGroup[] = [
   {
     title: 'Telephony',
     items: [
+      { to: '/admin/numbers', label: 'Numbers & Carrier', icon: <PhoneCall size={16} /> },
     ],
   },
   {

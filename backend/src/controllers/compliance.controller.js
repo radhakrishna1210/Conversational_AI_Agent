@@ -10,7 +10,10 @@ import logger from '../lib/logger.js';
 import * as compliance from '../services/compliance/compliance.service.js';
 import * as carrier from '../services/plivo/compliance.service.js';
 import * as carrierNumbers from '../services/plivo/number.service.js';
+import * as numberRequests from '../services/plivo/numberRequest.service.js';
+import { setInboundAgent } from '../services/plivo/inbound.service.js';
 import { PlivoError } from '../services/plivo/client.js';
+import { ROLES } from '../constants/roles.js';
 
 const wsId = (req) => req.params.workspaceId;
 
@@ -216,11 +219,21 @@ export const getAvailableNumbers = async (req, res) => {
 
 // POST /workspaces/:workspaceId/compliance/numbers/rent  { phoneNumber }
 //
-// SUPER_ADMIN only, and deliberately so until phase D lands. This is the call
-// that spends real money against our parent account, and there is no wallet
-// debit behind it yet — a member-facing route here would let a client rent
-// numbers we pay for and they do not. See NUMBER_PURCHASE_MARKETPLACE.md §D.
+// Rents the number and debits the wallet for it (setup + the first month).
+//
+// Members reach this only when PLIVO_SELF_SERVE_RENT is on. The debit that
+// makes self-serve safe exists now, but the whole carrier path has never run
+// against a live Plivo account, and the failure mode of being wrong is money
+// spent on our parent account — so the default keeps a person in the loop, and
+// the client's pick becomes a request instead (postNumberRequest below). A
+// Superadmin can always rent, on their own behalf or a client's.
 export const postRentNumber = async (req, res) => {
+  if (!numberRequests.selfServeRentEnabled() && req.user?.role !== ROLES.SUPER_ADMIN) {
+    return res.status(403).json({
+      error: 'Numbers are allocated by our team. Request the one you want and we will set it up for you.',
+      code: 'SELF_SERVE_RENT_DISABLED',
+    });
+  }
   try {
     const result = await carrierNumbers.rentNumber(wsId(req), { phoneNumber: req.body?.phoneNumber });
     if (!result.ok) return fail(res, result, 409);
@@ -231,6 +244,52 @@ export const postRentNumber = async (req, res) => {
   } catch (err) {
     return failCarrier(res, err, 'rent that number');
   }
+};
+
+// GET /workspaces/:workspaceId/compliance/numbers/requests
+// The client's own requests, and whether they could skip the queue entirely.
+export const getNumberRequests = async (req, res) => {
+  try {
+    res.json({
+      selfServe: numberRequests.selfServeRentEnabled(),
+      requests: await numberRequests.listNumberRequests(wsId(req)),
+    });
+  } catch (err) {
+    logger.error({ err: err.message }, 'getNumberRequests failed');
+    res.status(500).json({ error: 'Could not load your number requests.' });
+  }
+};
+
+// POST /workspaces/:workspaceId/compliance/numbers/requests  { phoneNumber, note? }
+// Reserves nothing — Plivo has no hold — so the number can be gone by the time
+// an admin gets to it. That is said on the screen rather than papered over.
+export const postNumberRequest = async (req, res) => {
+  const result = await numberRequests.createNumberRequest(wsId(req), {
+    phoneNumber: req.body?.phoneNumber,
+    note: req.body?.note,
+    requestedBy: req.user?.email ?? req.user?.userId ?? null,
+  });
+  if (!result.ok) return fail(res, result, 409);
+  res.status(201).json({ request: result.request });
+};
+
+// DELETE /workspaces/:workspaceId/compliance/numbers/requests/:requestId
+export const deleteNumberRequest = async (req, res) => {
+  const result = await numberRequests.cancelNumberRequest(wsId(req), req.params.requestId);
+  if (!result.ok) return fail(res, result, 404);
+  res.json({ ok: true });
+};
+
+// PUT /workspaces/:workspaceId/compliance/numbers/:numberId/inbound-agent  { agentId }
+// Which agent answers calls TO this number. Null unroutes it, and callers then
+// hear "not in service" rather than silence.
+export const putInboundAgent = async (req, res) => {
+  const result = await setInboundAgent(wsId(req), {
+    numberId: req.params.numberId,
+    agentId: req.body?.agentId ?? null,
+  });
+  if (!result.ok) return fail(res, result, 404);
+  res.json(await compliance.getComplianceState(wsId(req)));
 };
 
 // DELETE /workspaces/:workspaceId/compliance/numbers/:numberId

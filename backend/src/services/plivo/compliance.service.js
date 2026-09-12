@@ -35,6 +35,7 @@ import {
 import { getOrCreateCompliance } from '../compliance/compliance.service.js';
 import { notifyWorkspace, NOTIFY_TYPE } from '../notify.service.js';
 import { plivoRequest, mainCredentials, PlivoError } from './client.js';
+import { syncCarrierAccess } from './lifecycle.service.js';
 
 const COUNTRY_ISO = 'IN';
 const USER_TYPE_BUSINESS = 'business';
@@ -573,10 +574,15 @@ export async function applyCarrierStatus(workspaceId, { plivoStatus, reason, com
 
   await prisma.workspaceCompliance.update({ where: { id: record.id }, data });
 
+  // Our gate is not enough on its own: a revoked application means the numbers
+  // linked to it are dialling against nothing, so the carrier is told to stop
+  // this workspace's traffic too. Best effort — see syncCarrierAccess.
+  const carrier = revoking ? await syncCarrierAccess(workspaceId, { enabled: false }) : null;
+
   const log = revoking ? logger.error : logger.info;
   log.call(
     logger,
-    { workspaceId, plivoStatus: normalized, mapped, suspended: Boolean(data.suspended) },
+    { workspaceId, plivoStatus: normalized, mapped, suspended: Boolean(data.suspended), carrier },
     'Applied Plivo compliance status',
   );
 

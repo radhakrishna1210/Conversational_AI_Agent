@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { whapi } from '../lib/whapi';
 import { RzCard, RzPill, RzSkeleton } from '@/components/rz';
+import NumberPicker from '@/components/NumberPicker';
 
 /**
  * Number verification — the KYC a business clears before it can be sold an
@@ -456,27 +457,35 @@ export default function NumberVerification() {
         {/* Once approved the form is history — nothing on it can be changed
             without refiling, so showing it invites edits that go nowhere. */}
         {status === 'APPROVED' ? (
-          <RzCard title="What you filed">
-            <dl style={{ margin: 0, display: 'grid', gridTemplateColumns: 'minmax(0,180px) 1fr', gap: '10px 18px', fontSize: 13.5 }}>
-              {[
-                ['Legal entity', record?.entityName],
-                ['Registration no.', record?.registrationNumber],
-                ['Call type', record?.useCase === 'PROMOTIONAL' ? 'Promotional' : 'Service & transactional'],
-                ['Contact email', record?.contactEmail],
-                ['Reference', record?.carrierApplicationRef],
-              ].map(([k, v]) => (
-                <div key={String(k)} style={{ display: 'contents' }}>
-                  <dt className="rz-sub" style={{ fontSize: 12.5 }}>{k}</dt>
-                  <dd style={{ margin: 0, fontFamily: k === 'Reference' ? 'var(--ff-m)' : undefined, wordBreak: 'break-word' }}>
-                    {v || '—'}
-                  </dd>
-                </div>
-              ))}
-            </dl>
-            <div style={{ marginTop: 18 }}>
-              <Link className="rz-btn rz-btn-primary" to="/phone_numbers">Go to phone numbers →</Link>
-            </div>
-          </RzCard>
+          /* Approval is the middle of this flow, not the end: the point of the
+             filing was to be allowed to buy a number, so the picker is what an
+             approved client sees first. What they filed goes underneath, for
+             reference. */
+          <div className="rz-stack">
+            {!record?.suspended && <NumberPicker onAllocated={() => void load()} />}
+
+            <RzCard title="What you filed">
+              <dl style={{ margin: 0, display: 'grid', gridTemplateColumns: 'minmax(0,180px) 1fr', gap: '10px 18px', fontSize: 13.5 }}>
+                {[
+                  ['Legal entity', record?.entityName],
+                  ['Registration no.', record?.registrationNumber],
+                  ['Call type', record?.useCase === 'PROMOTIONAL' ? 'Promotional' : 'Service & transactional'],
+                  ['Contact email', record?.contactEmail],
+                  ['Reference', record?.carrierApplicationRef],
+                ].map(([k, v]) => (
+                  <div key={String(k)} style={{ display: 'contents' }}>
+                    <dt className="rz-sub" style={{ fontSize: 12.5 }}>{k}</dt>
+                    <dd style={{ margin: 0, fontFamily: k === 'Reference' ? 'var(--ff-m)' : undefined, wordBreak: 'break-word' }}>
+                      {v || '—'}
+                    </dd>
+                  </div>
+                ))}
+              </dl>
+              <div style={{ marginTop: 18 }}>
+                <Link className="rz-btn rz-btn-secondary" to="/phone_numbers">Go to phone numbers →</Link>
+              </div>
+            </RzCard>
+          </div>
         ) : (
           <div className="rz-stack">
             {/* ── 1. Call type ──────────────────────────────────────── */}

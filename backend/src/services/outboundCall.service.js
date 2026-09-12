@@ -25,6 +25,7 @@ import logger from '../lib/logger.js';
 import { VOICE_NUMBER_STATUS } from '../constants/compliance.js';
 import { resolveProvider } from './telephony/index.js';
 import { acquireSlot } from './telephony/concurrency.js';
+import { resolveDialCredentials } from './telephony/dialCredentials.js';
 import { xmlSafe } from './telephony/provider.interface.js';
 import { isDeepgramConfigured } from './stt/deepgramStream.service.js';
 import { supportsTelephony } from './voice/telephonyAudio.js';
@@ -297,10 +298,13 @@ export async function resolveNumberRouting(fromNumber) {
   try {
     const row = await prisma.voiceNumber.findUnique({
       where: { phoneNumber: String(fromNumber) },
-      select: { provider: true, status: true },
+      select: { provider: true, status: true, subaccountId: true },
     });
     return {
       providerId: row?.provider || undefined,
+      // Which carrier subaccount holds this caller ID — the account the call is
+      // dialled AS. See telephony/dialCredentials.js.
+      subaccountId: row?.subaccountId || undefined,
       blocked: row?.status === VOICE_NUMBER_STATUS.SUSPENDED_NONPAYMENT
         ? `${fromNumber} is suspended because its monthly rental could not be taken from your wallet. Top up and it reactivates automatically — the number has not been given up.`
         : null,
@@ -357,6 +361,19 @@ export async function placeOutboundCall({
   const tw = provider.status(fromNumber);
   if (!tw.ready) return { ok: false, mode: 'none', error: tw.error, status: 503 };
 
+  // A number rented into this workspace's carrier subaccount is dialled AS that
+  // subaccount, so the usage attributes to this client and the per-client kill
+  // switch actually stops their calls. See telephony/dialCredentials.js.
+  const credentials = await resolveDialCredentials(provider, tw, {
+    workspaceId,
+    subaccountId: routing.subaccountId,
+  });
+  if (!credentials.ready) {
+    return {
+      ok: false, mode: 'none', error: credentials.error, status: credentials.status ?? 503, code: credentials.code,
+    };
+  }
+
   const from = fromNumber || provider.defaultFrom();
   const { mode, engine, reason } = await resolveCallMode(agent);
   // Both engine families now reach the same media-stream URL; server.js picks
@@ -411,6 +428,12 @@ export async function placeOutboundCall({
         type: 'PHONE_CALL',
         status: 'INITIATED',
         phoneNumber: String(toNumber).slice(0, 32),
+        // Which carrier carried this leg, and from which caller ID. Recorded at
+        // creation rather than after the dial so a call that fails at the
+        // carrier still says who it was going out through — that row is
+        // otherwise indistinguishable from a web call that never had a carrier.
+        provider: provider.id,
+        fromNumber: from ? String(from).slice(0, 32) : null,
       },
     }).catch((e) => { logger.warn(`Could not pre-create phone call log: ${e.message}`); return null; });
     logId = created?.id ?? null;
@@ -468,7 +491,7 @@ export async function placeOutboundCall({
 
   try {
     const result = await provider.placeCall({
-      credentials: tw,
+      credentials,
       to: toNumber,
       from,
       document,
@@ -521,6 +544,16 @@ export async function placeOutboundCall({
     // NOT released here: the greeting is still being spoken when this returns.
     // The stale sweep in concurrency.js is the backstop if a release is missed.
     acquireSlot({ workspaceId, callLogId: logId });
+
+    // The carrier's id for this leg, which is how its own usage records find
+    // this row again during reconciliation. On Plivo this is the request_uuid;
+    // the real CallUUID replaces it when the hangup callback lands.
+    if (logId && result.callId) {
+      await prisma.agentCallLog.update({
+        where: { id: logId },
+        data: { providerCallId: String(result.callId) },
+      }).catch((e) => logger.warn(`Could not record the carrier call id for ${logId}: ${e.message}`));
+    }
 
     // Nothing else will update a greeting-only log — the media bridge finalizes
     // the streamed ones.

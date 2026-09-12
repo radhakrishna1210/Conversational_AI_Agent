@@ -99,6 +99,7 @@ model Workspace {
   paymentOrders       PaymentOrder[]
   subscription        Subscription?
   notifications       Notification[]
+  numberRequests      NumberRequest[]
   oauthSessions       OAuthSession[]
   plivoSubaccount     PlivoSubaccount?
   syncJobs            SyncJob[]
@@ -566,8 +567,19 @@ model AgentCallLog {
   // reportable instead of guessed.
   actualCostMicroUsd Int?
 
+  // ── Carrier identity ───────────────────────────────────────────────────────
+  // Which carrier placed a PHONE_CALL leg, from which caller ID, and the
+  // carrier's own id for it (Twilio CallSid; for Plivo the request_uuid at
+  // dial time, replaced by the real CallUUID when the hangup callback lands).
+  // Reconciliation matches carrier call records on providerCallId. Null for web
+  // calls and for anything dialled before these columns existed.
+  provider           String?
+  providerCallId     String?
+  fromNumber         String?
+
   @@index([workspaceId, agentId, startedAt])
   @@index([billingStatus, endedAt])
+  @@index([providerCallId])
 }
 
 model Integration {
@@ -1243,16 +1255,72 @@ model PlivoSubaccount {
   id           String   @id @default(cuid())
   workspaceId  String   @unique
   authId       String   @unique
-  // Plivo returns the subaccount auth_token EXACTLY ONCE, in the creation
-  // response, and it is never retrievable from the API again. Encrypted at rest
-  // because it authenticates real, billable spend against our parent account.
+  // Every dial for this workspace authenticates as the subaccount, so the token
+  // is kept locally rather than fetched per call. Plivo DOES return it again on
+  // GET /Subaccount/{id}/ (an earlier note here said otherwise), which is what
+  // makes relinking a lost row possible. Encrypted at rest because it
+  // authenticates real, billable spend against our parent account.
   authTokenEnc String
   name         String
   enabled      Boolean  @default(true)
+  // The Plivo application created UNDER this subaccount and attached to every
+  // number rented into it, so inbound calls reach our answer URL. Null for a
+  // subaccount provisioned before this existed; PLIVO_VOICE_APP_ID is the
+  // fallback then.
+  appId        String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+}
+
+// A client asking for a specific number while self-serve renting is off
+// (PLIVO_SELF_SERVE_RENT). Nothing is reserved at the carrier — Plivo has no
+// hold — so the number can be gone by the time an admin fulfils it; fulfilling
+// runs the same rentNumber() a self-serve purchase would, wallet debit included.
+model NumberRequest {
+  id            String    @id @default(cuid())
+  workspaceId   String
+  phoneNumber   String
+  // PENDING | FULFILLED | DECLINED | CANCELLED
+  status        String    @default("PENDING")
+  note          String?
+  requestedBy   String?
+  resolvedBy    String?
+  resolvedAt    DateTime?
+  // Why it was declined, or the last error an attempt to fulfil it hit.
+  resolution    String?
+  voiceNumberId String?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([status, createdAt])
+  @@index([workspaceId, status])
+}
+
+// One pass of carrier usage (Plivo call records) against our own AgentCallLog
+// and BroadcastRecipient rows. Discrepancies are flagged for review and never
+// corrected automatically — a wallet is not adjusted from carrier data.
+model CarrierReconciliationRun {
+  id            String    @id @default(cuid())
+  provider      String    @default("PLIVO")
+  // manual | schedule
+  trigger       String    @default("manual")
+  windowStart   DateTime
+  windowEnd     DateTime
+  // RUNNING | COMPLETED | FAILED
+  status        String    @default("RUNNING")
+  summary       Json?
+  // Capped list; the summary's counts are the complete picture.
+  discrepancies Json?
+  error         String?
+  triggeredBy   String?
+  startedAt     DateTime  @default(now())
+  finishedAt    DateTime?
+
+  @@index([provider, startedAt])
 }
 
 model VoiceNumber {
@@ -1296,6 +1364,11 @@ model VoiceNumber {
   // Rolling reputation guard. A number's answer rate collapsing is the earliest
   // signal that carriers have started filtering it.
   dailyDialCap        Int       @default(200)
+  // The agent that answers a call placed TO this number. A carrier's answer
+  // callback for an inbound call carries no workspace or agent of ours, so this
+  // row is the only way the call finds one. A plain column rather than a
+  // relation: deleting an agent must leave the number unrouted, not cascade.
+  inboundAgentId      String?
   createdAt           DateTime  @default(now())
   updatedAt           DateTime  @updatedAt
 
