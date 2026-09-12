@@ -123,9 +123,12 @@ POST /v1/Account/{MAIN_AUTH_ID}/Subaccount/
 → 201 { "auth_id": "SA...", "auth_token": "...", "message": "created" }
 ```
 
-> **`auth_token` is returned exactly once, in this 201.** It is never retrievable
-> again from the API. Persist it encrypted in the same write, or the subaccount is
-> orphaned and must be recreated.
+> **CORRECTED 2026-09-12.** This previously said the `auth_token` is returned
+> exactly once and is never retrievable again. It is not so: `GET
+> /v1/Account/{main}/Subaccount/{sub}/` returns `auth_token` too, and so does the
+> list endpoint. That is what makes `relinkSubaccount()` possible — a subaccount
+> whose row was lost is recoverable rather than orphaned. Still persist it
+> encrypted in the same write; the recovery path is a repair, not a plan.
 
 `enabled` defaults to `false` — pass it explicitly.
 
@@ -271,11 +274,24 @@ Two options. Choose deliberately.
 
 **A. Main credentials, subaccount's number as `From`.** Simplest; one credential
 set. But usage attributes to the parent account and we lose the per-subaccount
-reporting that was half the reason for subaccounts.
+reporting that was half the reason for subaccounts. Whether Plivo even permits
+it is undocumented.
 
-**B. Subaccount credentials (recommended).** Look up the workspace's subaccount
+**B. Subaccount credentials.** Look up the workspace's subaccount
 `auth_id`/`auth_token`, authenticate as the subaccount, dial. Usage attributes
 correctly and the `enabled=false` kill switch actually bites.
+
+> **B is what is built (2026-09-12).** `telephony/dialCredentials.js` decides per
+> call: a Plivo caller ID whose `VoiceNumber.subaccountId` names a subaccount is
+> dialled AS that subaccount, and anything preventing that — no row, a token that
+> will not decrypt, a subaccount that is not this workspace's, a disabled one —
+> refuses the call rather than falling back to main credentials. Falling back is
+> the one outcome that must not happen: it bills the client's traffic to the
+> parent account and silently defeats the isolation. A number with no
+> `subaccountId` (PLIVO_FROM_NUMBER, a number recorded by hand) still goes out on
+> main credentials, which is correct — the main account really does hold those.
+>
+> **This changes webhook validation too.** See §5a.
 
 Either way, `placeOutboundCall()` in `services/outboundCall.service.js` currently
 reads `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` from `process.env` directly and
@@ -298,6 +314,48 @@ than accepting it inline, so the greeting-only path needs a real HTTP endpoint
 rather than a string. The media-stream handler needs a Plivo sibling —
 `ws/plivoMediaRealtime.handler.js` — because the frame envelope differs even
 though the codec does not.
+
+---
+
+## 5a. Webhook signatures once calls go out as subaccounts
+
+Plivo signs every callback **twice**, over the same nonce and the same signing
+string:
+
+| Header | Signed with |
+|---|---|
+| `X-Plivo-Signature-V3` | the auth token of the account **the request belongs to** — a *subaccount's* token for a call placed as that subaccount, or delivered to a number it holds |
+| `X-Plivo-Signature-Ma-V3` | always the **main** account's auth token |
+
+Validating only `V3` against the main token — which is what this codebase did —
+works exactly until §5's option B is switched on, and then rejects **every**
+call as forged, with the symptom "the callee hears silence" and nothing in the
+log pointing at signing.
+
+`verifyCallbackSignature()` in `plivo/client.js` accepts either, in this order:
+`Ma-V3` against the main token, then `V3` against the main token, then `V3`
+against the owning subaccount's token. The main-token checks come first because
+they need no lookup, and this runs on the answer webhook while the callee is
+already on the line. The subaccount is found from the `workspaceId` on the query
+string (outbound) or from the number that was called (inbound) — neither lookup
+grants anything by itself, since the request still has to verify against the
+token it leads to.
+
+The **compliance** callback is main-account only: applications are filed on the
+main account, so it keeps its own single-token check.
+
+---
+
+## 5b. Inbound calls
+
+Every number in a subaccount rings through that subaccount's one application, so
+its answer URL cannot name a workspace or an agent the way an outbound dial's
+can. The called number is the only identity an inbound call carries:
+`VoiceNumber.inboundAgentId` is what it resolves to
+(`plivo/inbound.service.js`). A number with no agent, or one suspended or
+released, answers with a spoken "not in service" and hangs up — a 200, not an
+error, because nothing is broken and a carrier-side failure would read in
+Plivo's logs as a fault worth chasing.
 
 ---
 
@@ -554,33 +612,63 @@ Two deliberate gaps for a later phase:
 ```bash
 PLIVO_AUTH_ID=                    # main account
 PLIVO_AUTH_TOKEN=
-PLIVO_VOICE_APP_ID=               # default app for rented numbers
+PLIVO_VOICE_APP_ID=               # FALLBACK app; each subaccount now gets its own
 PLIVO_ANSWER_URL=                 # https://<backend>/api/v1/plivo/answer
 PLIVO_WEBHOOK_URL=                # compliance status callbacks
-PLIVO_SUBACCOUNT_TOKEN_KEY=       # encryption key for authTokenEnc
+PLIVO_SKIP_SIGNATURE_CHECK=       # 'true' only to diagnose a signing mismatch
+PLIVO_SELF_SERVE_RENT=            # 'true' lets clients rent without an admin
+PLIVO_RECONCILIATION_ENABLED=     # 'false' stops the daily usage sweep
+ENCRYPTION_KEY=                   # encrypts PlivoSubaccount.authTokenEnc
 TELEPHONY_PROVIDER_DEFAULT=TWILIO # flip to PLIVO per-workspace first
 TRUECALLER_API_KEY=               # or reseller equivalent
 TRUECALLER_PARTNER_ID=
 ```
 
-`config/env.js` currently declares no Plivo keys at all — this integration is
-greenfield. Keep `TELEPHONY_PROVIDER_DEFAULT` at `TWILIO` and route individual
-workspaces to Plivo by `VoiceNumber.provider`, so the migration is per-tenant and
-reversible rather than a flag day.
+Keep `TELEPHONY_PROVIDER_DEFAULT` at `TWILIO` and route individual workspaces to
+Plivo by `VoiceNumber.provider`, so the migration is per-tenant and reversible
+rather than a flag day.
+
+**`PLIVO_SELF_SERVE_RENT` is off by default and should stay off until a rent has
+succeeded against the live account.** Renting debits the client's wallet before
+it asks the carrier for anything, so self-serve is safe in principle — but the
+whole carrier path is unverified, and being wrong spends *our* money. Off, a
+client's pick becomes a `NumberRequest` that an admin fulfils through the same
+`rentNumber()`, wallet debit included.
+
+**`ENCRYPTION_KEY` is load-bearing now.** Every Plivo dial decrypts a subaccount
+token with it. Changing it does not degrade gracefully, and deliberately so:
+every India call then refuses with `CARRIER_CREDENTIALS` rather than quietly
+dialling on the main account. `lib/encryption.js` falls back to a fixed dev key
+when it is unset — fine for a test box, not a production configuration.
 
 ---
 
 ## 10. Reconciliation
 
-Pull per-subaccount usage on a schedule and diff it against
-`AgentCallLog` settlement. Two failure modes this catches, both of which cost real
-money and neither of which is visible from our side alone:
+**Built 2026-09-12** — `plivo/reconciliation.service.js`, a daily sweep in
+`server.js`, and Admin → Numbers & Carrier → Reconciliation.
 
-- Calls Plivo billed that we never logged — bridge crashes after dispatch.
-- Calls we billed the client's wallet for that Plivo has no record of.
+Per subaccount (that is what attributes a record to a client), plus the main
+account. Four classes of finding:
 
-Alert on any drift beyond rounding. Do not auto-correct wallets from carrier data;
-flag for review.
+| | |
+|---|---|
+| `carrier_only` | Plivo billed a call we have no record of — a bridge that crashed after the dial |
+| `ours_only` | a billed Plivo leg of ours the carrier has no record of |
+| `duration_mismatch` | both sides saw the call and disagree by more than 90s |
+| `unbilled` | the carrier billed it and the client's wallet never was |
+
+Matching is on the carrier's call id first, then — for legs that never learned it
+— on the other party's number within three minutes of the start. Without that
+fallback every pre-existing leg reads as *two* findings for one conversation.
+
+**Nothing is auto-corrected.** A wallet is never adjusted from carrier data: the
+carrier's clock, currency and rounding are its own, and the right fix for a drift
+is usually in our code.
+
+Carrier limits that shape the window: 20 records per page, 30 days per search,
+90 days of retention. `windowProblem()` refuses a window that breaks any of them
+rather than silently returning fewer records.
 
 ---
 
@@ -639,7 +727,8 @@ rate card. Confirm the exact India streaming rate on the first invoice.
 | 4 | ✅ **Code done (2026-08-24).** Number search/rent into subaccount + carrier release. SUPER_ADMIN-gated pending the wallet debit. **Unverified against live Plivo.** | Phase 3 |
 | 5 | ✅ **Code done.** `plivo.provider.js`, answer/hangup endpoints, and BOTH bridges — bundled (`plivoMediaRealtime`) and modular (`plivoMediaModular`). **Unverified against a live call** | — |
 | 6 | `BrandProfile` + Truecaller enrolment | independent |
-| 7 | Usage reconciliation | Phase 4 |
+| 7 | ✅ **Code done (2026-09-12).** Usage reconciliation + daily sweep + admin view. **Unverified against live Plivo.** | Phase 4 |
+| 8 | ✅ **Code done (2026-09-12).** Subaccount dialling, dual-signature webhooks, kill switch wired to suspension, per-subaccount applications, relink/audit/offboard, inbound routing, client number picker, Admin → Numbers & Carrier. **Unverified against live Plivo.** See §13. | Phases 2–5 |
 
 Phase 6 is independent of everything else and is the phase that delivers the
 feature actually being asked for. If the display name is the priority, build it
@@ -648,9 +737,62 @@ Truecaller verification attaches to a phone number, not to a carrier account.
 
 ---
 
+## 13. Subaccount lifecycle as built (2026-09-12)
+
+Phase 2 created subaccounts and stopped. Everything that *manages* one after
+that — dialling as it, stopping it, recovering it, closing it — was written and
+never called. This phase connected it.
+
+### The gap that mattered
+
+`subaccountCredentials()`, `setSubaccountEnabled()` and `deleteSubaccount()` had
+no call sites at all. In practice that meant:
+
+- every Plivo call went out on **main-account credentials**, so per-client usage
+  reporting had nothing to report and the kill switch stopped nothing;
+- a workspace whose compliance application Plivo **revoked** kept dialling —
+  `applyCarrierStatus` set `suspended`, and `DLT_COMPLIANCE_MODE` defaults to
+  `warn`, which only logged;
+- a workspace deleted here left its subaccount and numbers **billing at Plivo**
+  forever, because the `PlivoSubaccount` row cascaded away locally and nothing
+  told the carrier.
+
+### What now happens
+
+| | |
+|---|---|
+| **Dialling** | `telephony/dialCredentials.js`, on both the conversational and broadcast paths. Credentials are cached for 10 minutes — a database round trip here is ~490ms of dead air before the phone rings. |
+| **Kill switch** | `lifecycle.syncCarrierAccess()`. Pulled by a carrier revoke, by an admin suspension, and restored by an admin reinstatement. Best-effort by design: our own gate is authoritative for every path we control, so a carrier outage is reported rather than allowed to undo the suspension. |
+| **Suspension in `warn` mode** | now refuses. `warn` exists so the DLT checklist can roll out without stopping traffic, not to wave through a workspace somebody deliberately stopped — the same reasoning that already applied to unpaid numbers. |
+| **Applications** | one per subaccount (`ensureSubaccountApplication`), created on first rent, `PLIVO_VOICE_APP_ID` as the fallback. Whether a subaccount's number may use its *parent's* application is undocumented; an application associated with the subaccount is the configuration Plivo does document. |
+| **Relink** | `relinkSubaccount()` fetches the token back from Plivo (see §4, step 1) for a subaccount whose row was lost. |
+| **Audit** | `auditSubaccounts()` — orphans at Plivo, rows with nothing behind them, and kill-switch drift. |
+| **Offboard** | `offboardWorkspace()` releases every number, then deletes the subaccount `cascade=true`, then suspends. Numbers the per-number release could not reach are recorded as released once the cascade has taken them. |
+
+### Money paths tightened
+
+`rentNumber()` created the subaccount **after** debiting the wallet and outside
+the try/catch that refunds — so a client whose subaccount creation failed was
+charged for a number that was never bought. Subaccount and application creation
+now sit inside that guard.
+
+### Still unverified
+
+Everything here. No live Plivo account has been dialled, no subaccount created,
+no application attached, no CDR read. `npm run plivo:check` is the read-only
+probe; the first real test is one outbound call from a rented number, which
+proves the credential path, the signature path and the answer URL at once.
+
+---
+
 ## Sources
 
 - [Create a Subaccount — Plivo API Reference](https://www.plivo.com/docs/account/api/subaccount/create-a-subaccount)
+- [Retrieve a Subaccount — Plivo](https://www.plivo.com/docs/account/api/subaccount/retrieve-a-subaccount) (returns `auth_token`)
+- [Update a Subaccount — Plivo](https://www.plivo.com/docs/account/api/subaccount/update-a-subaccount) (`name` required alongside `enabled`)
+- [Signature validation V3 — Plivo](https://www.plivo.com/docs/voice/concepts/signature-validation) (V3 vs Ma-V3)
+- [Retrieve details of all calls — Plivo](https://www.plivo.com/docs/voice/api/call/retrieve-all-calls) (CDR filters, 20/page, 30-day span, 90-day retention)
+- [Create an Application — Plivo](https://www.plivo.com/docs/account/api/application/create-an-application) (`subaccount` parameter)
 - [Subaccount API — Plivo](https://www.plivo.com/docs/account/api/subaccount)
 - [Update an Account Phone Number — Plivo](https://www.plivo.com/docs/numbers/api/account-phone-number/update-a-number)
 - [Compliance — Plivo](https://www.plivo.com/docs/numbers/compliance)

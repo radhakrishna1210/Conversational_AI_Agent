@@ -9,6 +9,7 @@ import prisma from './config/prisma.js';
 import logger from './lib/logger.js';
 import { renewDueSubscriptions } from './services/billing/subscription.service.js';
 import { renewDueNumbers } from './services/billing/numberBilling.service.js';
+import { runScheduledReconciliation } from './services/plivo/reconciliation.service.js';
 import { SSE_KEEPALIVE_INTERVAL_MS, SHUTDOWN_GRACE_PERIOD_MS } from './constants/limits.js';
 import { createCampaignWorker } from './workers/campaign.worker.js';
 import { createWhatsAppPostCallWorker } from './workers/whatsappPostCall.worker.js';
@@ -388,6 +389,29 @@ const runNumberRenewals = async () => {
 };
 const numberRenewalTimer = setInterval(runNumberRenewals, SUBSCRIPTION_RENEWAL_INTERVAL_MS);
 numberRenewalTimer.unref?.();
+
+// ── Carrier usage reconciliation ─────────────────────────────────────────────
+// Plivo's own call records against ours, once a day. Two things it catches cost
+// real money and neither is visible from our side alone: calls the carrier
+// billed that we never logged, and calls we billed a wallet for that the
+// carrier has no record of. It only flags them — a wallet is never adjusted
+// from carrier data.
+//
+// Rides the same hourly interval as the sweeps above; runScheduledReconciliation
+// keeps its own once-a-day gate and picks up where the last run ended, so an
+// extra tick or a restart costs one cheap query rather than a duplicate pass.
+const runReconciliationSweep = async () => {
+  try {
+    await runScheduledReconciliation();
+  } catch (err) {
+    logger.error({ err: err.message }, 'Carrier reconciliation sweep failed');
+  }
+};
+const reconciliationTimer = setInterval(runReconciliationSweep, SUBSCRIPTION_RENEWAL_INTERVAL_MS);
+reconciliationTimer.unref?.();
+// Well clear of both wallet sweeps: this one is read-heavy against the carrier
+// and there is no hurry about it.
+setTimeout(runReconciliationSweep, 5 * 60_000).unref?.();
 // Offset from the subscription sweep's catch-up so the two do not contend for
 // the same wallet rows the moment a deployment comes back up.
 setTimeout(runNumberRenewals, 60_000).unref?.();
@@ -405,6 +429,7 @@ const shutdown = async (signal) => {
     if (recordingRetention?.stop) recordingRetention.stop();
     clearInterval(renewalTimer);
     clearInterval(numberRenewalTimer);
+    clearInterval(reconciliationTimer);
     await prisma.$disconnect();
     logger.info('Shutdown complete');
     process.exit(0);

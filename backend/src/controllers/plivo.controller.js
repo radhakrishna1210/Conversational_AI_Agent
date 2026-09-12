@@ -14,19 +14,23 @@
 //                               stays INITIATED and its billing state PENDING
 //                               forever.
 //
-// Everything these endpoints need about the call — workspace, agent, call log,
-// mode — arrives on the query string, put there by plivo.provider.js#placeCall.
-// Plivo's stream `start` event has no equivalent of Twilio's customParameters,
-// so this is the only channel available.
+// Everything these endpoints need about an OUTBOUND call — workspace, agent,
+// call log, mode — arrives on the query string, put there by
+// plivo.provider.js#placeCall. Plivo's stream `start` event has no equivalent of
+// Twilio's customParameters, so this is the only channel available. An INBOUND
+// call carries none of it, and is routed from the number it rang instead — see
+// services/plivo/inbound.service.js.
 
 import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
 import { env } from '../config/env.js';
-import { validateV3Signature } from '../services/plivo/client.js';
+import { verifyCallbackSignature } from '../services/plivo/client.js';
 import {
   complianceCallbackUrl,
   handleComplianceCallback,
 } from '../services/plivo/compliance.service.js';
+import { subaccountCredentials } from '../services/plivo/subaccount.service.js';
+import { resolveInboundRoute } from '../services/plivo/inbound.service.js';
 import {
   plivoProvider,
   buildStreamXml,
@@ -60,6 +64,46 @@ const signedUrl = (req, suffix) => {
   return qs ? `${base}?${qs}` : base;
 };
 
+/** Plivo sends everything twice over: query on the URL, params in the body. */
+const field = (req, ...names) => {
+  for (const n of names) {
+    const v = req.body?.[n] ?? req.query?.[n];
+    if (v !== undefined && v !== '') return String(v);
+  }
+  return '';
+};
+
+/** The signature inputs every Plivo callback carries, read once. */
+const signatureInputs = (req, url) => ({
+  method: req.method === 'GET' ? 'GET' : 'POST',
+  url,
+  nonce: req.get('X-Plivo-Signature-V3-Nonce'),
+  signatureV3: req.get('X-Plivo-Signature-V3'),
+  signatureMaV3: req.get('X-Plivo-Signature-Ma-V3'),
+  params: req.method === 'GET' ? {} : (req.body || {}),
+});
+
+/**
+ * The subaccount token a call callback may be signed with.
+ *
+ * Only looked up once both main-account checks have failed, so a call placed
+ * with main credentials never pays for it. An outbound call names its workspace
+ * on the query string; an inbound one is found from the number it rang. Neither
+ * lookup grants anything by itself — the request still has to verify against
+ * the token it leads to, which a forger does not have.
+ */
+const callbackSubaccountToken = async (req) => {
+  try {
+    let workspaceId = field(req, 'workspaceId');
+    if (!workspaceId) workspaceId = (await resolveInboundRoute(field(req, 'To'))).workspaceId;
+    if (!workspaceId) return null;
+    return (await subaccountCredentials(workspaceId))?.authToken ?? null;
+  } catch (err) {
+    logger.warn(`Plivo callback: could not look up a subaccount token: ${err.message}`);
+    return null;
+  }
+};
+
 /**
  * Reject forged callbacks.
  *
@@ -69,35 +113,33 @@ const signedUrl = (req, suffix) => {
  * ("the callee hears silence") that points nowhere near the cause. When it
  * fails we log the exact string we signed, which is the only way to see the
  * mismatch without guessing.
+ *
+ * Either of Plivo's two signatures is accepted (see verifyCallbackSignature):
+ * the main-account one, or the per-account one — which, for a call placed as or
+ * to a number held by a subaccount, is signed with that subaccount's token.
  */
-const signatureOk = (req, suffix) => {
+const signatureOk = async (req, suffix) => {
   if (process.env.PLIVO_SKIP_SIGNATURE_CHECK === 'true') return true;
 
-  const authToken = process.env.PLIVO_AUTH_TOKEN;
-  if (!authToken) {
+  const mainToken = process.env.PLIVO_AUTH_TOKEN;
+  if (!mainToken) {
     logger.error('Plivo callback rejected: PLIVO_AUTH_TOKEN is not set, so nothing can be verified.');
     return false;
   }
 
-  const url = signedUrl(req, suffix);
-  const ok = validateV3Signature({
-    method: req.method === 'GET' ? 'GET' : 'POST',
-    url,
-    nonce: req.get('X-Plivo-Signature-V3-Nonce'),
-    signature: req.get('X-Plivo-Signature-V3'),
-    authToken,
-    params: req.method === 'GET' ? {} : (req.body || {}),
-  });
+  const check = signatureInputs(req, signedUrl(req, suffix));
+  if (verifyCallbackSignature({ ...check, mainToken })) return true;
 
-  if (!ok) {
-    logger.warn(
-      { url, hasNonce: Boolean(req.get('X-Plivo-Signature-V3-Nonce')) },
-      'Plivo callback signature did not validate. The URL logged here is the exact string that was '
-      + 'signed — compare it with what Plivo actually called. Set PLIVO_SKIP_SIGNATURE_CHECK=true '
-      + 'only to confirm that is the cause.',
-    );
-  }
-  return ok;
+  const subaccountToken = await callbackSubaccountToken(req);
+  if (subaccountToken && verifyCallbackSignature({ ...check, subaccountToken })) return true;
+
+  logger.warn(
+    { url: check.url, hasNonce: Boolean(check.nonce), hasMainSignature: Boolean(check.signatureMaV3) },
+    'Plivo callback signature did not validate. The URL logged here is the exact string that was '
+    + 'signed — compare it with what Plivo actually called. Set PLIVO_SKIP_SIGNATURE_CHECK=true '
+    + 'only to confirm that is the cause.',
+  );
+  return false;
 };
 
 /**
@@ -107,13 +149,14 @@ const signatureOk = (req, suffix) => {
  * Kept separate rather than parameterised because the two URLs come from
  * different settings that a deployment can configure independently
  * (PLIVO_ANSWER_URL vs PLIVO_WEBHOOK_URL) — deriving one from the other is
- * exactly the assumption that makes signature failures unexplainable.
+ * exactly the assumption that makes signature failures unexplainable. Only the
+ * main token applies: compliance applications are filed on the main account.
  */
 const complianceSignatureOk = (req) => {
   if (process.env.PLIVO_SKIP_SIGNATURE_CHECK === 'true') return true;
 
-  const authToken = process.env.PLIVO_AUTH_TOKEN;
-  if (!authToken) {
+  const mainToken = process.env.PLIVO_AUTH_TOKEN;
+  if (!mainToken) {
     logger.error('Plivo compliance callback rejected: PLIVO_AUTH_TOKEN is not set.');
     return false;
   }
@@ -127,14 +170,7 @@ const complianceSignatureOk = (req) => {
   const qs = new URLSearchParams(req.query || {}).toString();
   const url = qs ? `${base}?${qs}` : base;
 
-  const ok = validateV3Signature({
-    method: req.method === 'GET' ? 'GET' : 'POST',
-    url,
-    nonce: req.get('X-Plivo-Signature-V3-Nonce'),
-    signature: req.get('X-Plivo-Signature-V3'),
-    authToken,
-    params: req.method === 'GET' ? {} : (req.body || {}),
-  });
+  const ok = Boolean(verifyCallbackSignature({ ...signatureInputs(req, url), mainToken }));
 
   if (!ok) {
     logger.warn(
@@ -144,15 +180,6 @@ const complianceSignatureOk = (req) => {
     );
   }
   return ok;
-};
-
-/** Plivo sends everything twice over: query on the URL, params in the body. */
-const field = (req, ...names) => {
-  for (const n of names) {
-    const v = req.body?.[n] ?? req.query?.[n];
-    if (v !== undefined && v !== '') return String(v);
-  }
-  return '';
 };
 
 const xml = (res, body) => res.type('text/xml').send(body);
@@ -173,16 +200,30 @@ const failXml = (res, status, reason) => {
   );
 };
 
+/**
+ * What a caller hears on a number nobody has pointed at an agent.
+ *
+ * A 200, not an error: nothing is broken — the number is ours and unrouted, or
+ * suspended — and a carrier-side failure would read in Plivo's logs as a fault
+ * worth chasing. Hanging up explicitly stops the line sitting open, and billing.
+ */
+const notInServiceXml = () =>
+  '<?xml version="1.0" encoding="UTF-8"?>'
+  + '<Response>'
+  + '<Speak language="en-IN" voice="Polly.Aditi">The number you have called is not in service. Goodbye.</Speak>'
+  + '<Hangup/>'
+  + '</Response>';
+
 // ── POST /api/v1/plivo/answer ────────────────────────────────────────────────
 export async function answer(req, res) {
-  if (!signatureOk(req, '/answer')) {
+  if (!(await signatureOk(req, '/answer'))) {
     return res.status(403).type('text/xml').send(
       '<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>',
     );
   }
 
-  const workspaceId = field(req, 'workspaceId');
-  const agentId = field(req, 'agentId');
+  let workspaceId = field(req, 'workspaceId');
+  let agentId = field(req, 'agentId');
   const callLogId = field(req, 'callLogId') || null;
   const mode = field(req, 'mode') || 'conversation';
   const callUuid = field(req, 'CallUUID');
@@ -212,8 +253,23 @@ export async function answer(req, res) {
     return xml(res, buildPlayXml({ audioUrl, repeat: Number(field(req, 'repeat')) || 1 }));
   }
 
+  // ── inbound ──
+  //
+  // Every outbound call names its workspace and agent on the answer URL. A call
+  // somebody placed TO one of our numbers names neither — every number in a
+  // subaccount rings through the same application — so the number it rang is
+  // what says who answers.
   if (!workspaceId || !agentId) {
-    return failXml(res, 400, `answer called without workspaceId/agentId (CallUUID ${callUuid})`);
+    const route = await resolveInboundRoute(field(req, 'To'));
+    if (!route.ok) {
+      logger.warn(
+        { callUuid, to: field(req, 'To'), reason: route.reason },
+        'Plivo inbound call could not be routed to an agent',
+      );
+      return xml(res, notInServiceXml());
+    }
+    workspaceId = route.workspaceId;
+    agentId = route.agentId;
   }
 
   // loadAgent(), not a raw findFirst: Plivo fetches this endpoint AFTER the
@@ -319,7 +375,7 @@ export async function answer(req, res) {
 const ANSWERED_STATES = new Set(['completed']);
 
 export async function hangup(req, res) {
-  if (!signatureOk(req, '/hangup')) return res.status(403).json({ error: 'Invalid signature' });
+  if (!(await signatureOk(req, '/hangup'))) return res.status(403).json({ error: 'Invalid signature' });
 
   // Answer first, work after. A carrier webhook kept waiting on our database is
   // a carrier webhook that retries, and everything below is best effort.
@@ -362,6 +418,16 @@ export async function hangup(req, res) {
 
   const callLogId = field(req, 'callLogId') || null;
   if (!callLogId) return;
+
+  // The dial only ever learns Plivo's request_uuid; the CallUUID arrives here,
+  // and it is the id Plivo's own call records carry. Recorded whether or not the
+  // media bridge already closed this call out, because reconciliation matches on
+  // it. Not awaited — nothing below reads it.
+  const callUuid = field(req, 'CallUUID');
+  if (callUuid) {
+    prisma.agentCallLog.update({ where: { id: callLogId }, data: { providerCallId: callUuid } })
+      .catch((e) => logger.warn(`Plivo hangup could not record the CallUUID for ${callLogId}: ${e.message}`));
+  }
 
   const workspaceId = field(req, 'workspaceId');
   const agentId = field(req, 'agentId');

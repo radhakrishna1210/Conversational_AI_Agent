@@ -245,3 +245,33 @@ export function validateV3Signature({ method, url, nonce, signature, authToken, 
   // match on ANY of them is valid.
   return String(signature).split(',').some((s) => safeEqual(s.trim(), expected));
 }
+
+/**
+ * Validate a Plivo callback against both signatures it carries.
+ *
+ * Plivo signs every callback twice, over the same nonce and signing string:
+ *
+ *   X-Plivo-Signature-V3     with the token of the account the request belongs
+ *                            to — a SUBACCOUNT's token for a call placed as that
+ *                            subaccount, or to a number it holds.
+ *   X-Plivo-Signature-Ma-V3  always with the MAIN account's token.
+ *
+ * Checking only V3 against the main token — which is what this code did — works
+ * exactly until calls start going out as subaccounts, and then rejects every
+ * one of them as forged. The main-token checks run first because they need no
+ * lookup; the subaccount token is only worth fetching when both of those fail.
+ *
+ * @returns {'ma-v3'|'v3-main'|'v3-subaccount'|null} which check passed, or null
+ */
+export function verifyCallbackSignature({
+  method, url, nonce, params = {},
+  signatureV3, signatureMaV3, mainToken, subaccountToken,
+}) {
+  const base = { method, url, nonce, params };
+  if (mainToken && validateV3Signature({ ...base, signature: signatureMaV3, authToken: mainToken })) return 'ma-v3';
+  if (mainToken && validateV3Signature({ ...base, signature: signatureV3, authToken: mainToken })) return 'v3-main';
+  if (subaccountToken && validateV3Signature({ ...base, signature: signatureV3, authToken: subaccountToken })) {
+    return 'v3-subaccount';
+  }
+  return null;
+}

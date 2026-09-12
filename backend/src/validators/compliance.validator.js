@@ -80,3 +80,14 @@ export const headerStatusSchema = z.object({
   status: enumOf(HEADER_STATUS),
   rejectionReason: z.string().max(500).optional(),
 });
+
+/** Same shape as a rent, plus an optional note for whoever fulfils it. */
+export const numberRequestSchema = z.object({
+  phoneNumber: z.string().regex(/^\+91\d{10,}$/, 'Indian E.164 number, e.g. +911402345678'),
+  note: z.string().max(500).optional(),
+});
+
+/** Null clears the number's inbound agent. */
+export const inboundAgentSchema = z.object({
+  agentId: z.string().min(1).max(64).nullable(),
+});

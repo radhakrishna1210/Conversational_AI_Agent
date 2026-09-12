@@ -75,6 +75,7 @@ import AdminLayout from './components/AdminLayout';
 import AdminAuditLog from './pages/AdminAuditLog';
 import AdminCallLogs from './pages/AdminCallLogs';
 import AdminBilling from './pages/AdminBilling';
+import AdminTelephony from './pages/AdminTelephony';
 import {
   AdminUsersPage, AdminIssuesPage, AdminAppointmentsPage, AdminContactRequestsPage,
   AdminPricingPage, AdminWalletsPage, AdminModelsPage, AdminHealthPage,
@@ -326,6 +327,7 @@ function App() {
               <Route path="plans" element={<Navigate to="/admin/pricing" replace />} />
               <Route path="wallets" element={<AdminWalletsPage />} />
               <Route path="calls" element={<AdminCallLogs />} />
+              <Route path="numbers" element={<AdminTelephony />} />
               <Route path="issues" element={<AdminIssuesPage />} />
               <Route path="contact-requests" element={<AdminContactRequestsPage />} />
               <Route path="models" element={<AdminModelsPage />} />

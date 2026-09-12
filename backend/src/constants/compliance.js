@@ -191,6 +191,18 @@ export const TELEPHONY_PROVIDER = Object.freeze({
 });
 
 /**
+ * A client asking for a number while self-serve renting is off. Only PENDING
+ * moves: an admin fulfils it (which rents the number) or declines it, and the
+ * client may cancel their own.
+ */
+export const NUMBER_REQUEST_STATUS = Object.freeze({
+  PENDING: 'PENDING',
+  FULFILLED: 'FULFILLED',
+  DECLINED: 'DECLINED',
+  CANCELLED: 'CANCELLED',
+});
+
+/**
  * How hard the gate bites. Deliberately not a boolean.
  *
  * `enforce` blocks calls outright. Switching a live deployment straight to it

@@ -98,4 +98,48 @@ router.get('/health', authenticate, isAdmin, platform.adminHealth);
 router.get('/model-catalog', authenticate, isAdmin, modelCatalog.adminGetCatalog);
 router.put('/model-catalog', authenticate, isAdmin, modelCatalog.adminSetCatalog);
 
+// ─── Numbers & carrier ────────────────────────────────────────────────────────
+// The operator's side of the number business: carrier KYC review, the per-client
+// kill switch, renting and releasing numbers, the request queue, and usage
+// reconciliation. See controllers/adminTelephony.controller.js.
+//
+// Mounted under one prefix rather than scattered through this file because the
+// whole group shares a single screen and a single concern.
+import * as telephony from '../controllers/adminTelephony.controller.js';
+
+router.get('/telephony/overview', authenticate, isAdmin, telephony.getOverview);
+
+router.get('/telephony/workspaces', authenticate, isAdmin, telephony.listWorkspaces);
+router.post('/telephony/workspaces/:workspaceId/carrier-access', authenticate, isAdmin, telephony.postCarrierAccess);
+router.post('/telephony/workspaces/:workspaceId/suspension', authenticate, isAdmin, telephony.postSuspension);
+router.post('/telephony/workspaces/:workspaceId/review', authenticate, isAdmin, telephony.postReview);
+router.post('/telephony/workspaces/:workspaceId/relink', authenticate, isAdmin, telephony.postRelink);
+// Releases every number and closes the carrier account. Irreversible; the
+// controller demands the workspace id back as confirmation.
+router.post('/telephony/workspaces/:workspaceId/offboard', authenticate, isAdmin, telephony.postOffboard);
+
+// `/available` before `/:numberId` so the parameter route does not capture it.
+router.get('/telephony/numbers/available', authenticate, isAdmin, telephony.searchNumbers);
+router.get('/telephony/numbers', authenticate, isAdmin, telephony.listNumbers);
+router.post('/telephony/numbers/rent', authenticate, isAdmin, telephony.postRentNumber);
+router.patch('/telephony/numbers/:numberId', authenticate, isAdmin, telephony.patchNumber);
+router.delete('/telephony/numbers/:numberId', authenticate, isAdmin, telephony.deleteNumber);
+
+router.get('/telephony/requests', authenticate, isAdmin, telephony.listRequests);
+router.post('/telephony/requests/:requestId/fulfil', authenticate, isAdmin, telephony.postFulfilRequest);
+router.post('/telephony/requests/:requestId/decline', authenticate, isAdmin, telephony.postDeclineRequest);
+
+router.get('/telephony/audit', authenticate, isAdmin, telephony.getCarrierAudit);
+
+router.get('/telephony/reconciliation', authenticate, isAdmin, telephony.listReconciliationRuns);
+router.get('/telephony/reconciliation/:runId', authenticate, isAdmin, telephony.getReconciliationRun);
+router.post('/telephony/reconciliation', authenticate, isAdmin, telephony.postReconciliation);
+
+// The concurrency ceilings have been settable in code since the carrier gate
+// landed and reachable from nowhere. Subaccounts share the parent's pool at
+// Plivo, so the per-workspace ceiling is the only thing standing between one
+// client's campaign and everyone else's calls.
+router.get('/telephony/concurrency', authenticate, isAdmin, telephony.getConcurrency);
+router.put('/telephony/concurrency', authenticate, isAdmin, telephony.putConcurrency);
+
 export default router;

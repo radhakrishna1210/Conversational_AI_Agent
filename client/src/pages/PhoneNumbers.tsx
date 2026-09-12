@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { whapi } from '../lib/whapi';
 import { RzCard, RzEmpty, RzPill, RzSkeleton, RzStat } from '@/components/rz';
@@ -6,22 +6,27 @@ import { RzCard, RzEmpty, RzPill, RzSkeleton, RzStat } from '@/components/rz';
 /**
  * Phone numbers — the inventory view from Spandan Workspace.dc.html#numbers.
  *
- * This page used to be a static mock that always said "No phone numbers yet",
- * regardless of what the workspace actually owned. It now reads the same
- * `/caller-numbers` endpoint the caller picker uses, so what you see here is
- * what an outbound call can actually dial from.
+ * Two sources, deliberately joined here rather than in one endpoint:
+ *
+ *   /caller-numbers    what an outbound call can dial FROM. Twilio's live list
+ *                      plus the workspace's carrier numbers; it is the caller
+ *                      picker's own source, so this page cannot show a number
+ *                      the picker would not offer.
+ *   /compliance        what the workspace HOLDS on a carrier we manage — DLT
+ *                      header state, inbound routing, monthly price. A Twilio
+ *                      number has none of that, which is why it is a separate
+ *                      read rather than a wider one.
  */
 
-/**
- * `source` is open-ended on purpose: the backend returns the carrier id
- * lower-cased for anything routed through VoiceNumber ('plivo', 'piopiy'), and
- * new carriers must not need a client change to appear at all. Only 'own' —
- * a number the user verified rather than one the platform holds — is treated
- * specially.
- */
 interface NumberOpt {
   phoneNumber: string;
   label: string;
+  /**
+   * Open-ended on purpose: the backend returns the carrier id lower-cased for
+   * anything routed through VoiceNumber ('plivo', 'piopiy'), and new carriers
+   * must not need a client change to appear at all. Only 'own' — a number the
+   * user verified rather than one the platform holds — is treated specially.
+   */
   source: 'twilio' | 'own' | string;
 }
 
@@ -39,7 +44,43 @@ interface UnavailableNumber extends NumberOpt {
   actionLink?: string;
 }
 
-/** Badge text per source. Unknown carriers fall back to their own name. */
+type HeaderStatus = 'NOT_REGISTERED' | 'SUBMITTED' | 'REGISTERED' | 'REJECTED';
+
+interface CarrierNumber {
+  id: string;
+  phoneNumber: string;
+  provider: string;
+  series: string;
+  status: string;
+  headerStatus: HeaderStatus;
+  headerRejectionReason: string | null;
+  inboundAgentId: string | null;
+  clientMonthlyCents: number | null;
+  nextRenewalAt: string | null;
+}
+
+interface Agent { id: string; name: string }
+
+/** What each DLT header state means for whether calls actually connect. */
+const HEADER_VIEW: Record<HeaderStatus, { tone: 'ok' | 'warn' | 'err' | 'idle'; label: string; text: string }> = {
+  NOT_REGISTERED: {
+    tone: 'idle',
+    label: 'Header not registered',
+    text: 'Register this number as a header under your DLT Principal Entity on your operator\'s portal, then tell us here. Until it clears, calls from it are blocked — by us and by the network.',
+  },
+  SUBMITTED: {
+    tone: 'warn',
+    label: 'Header submitted',
+    text: 'Your operator is reviewing the header registration. Update this once they approve or reject it.',
+  },
+  REGISTERED: { tone: 'ok', label: 'Header registered', text: '' },
+  REJECTED: {
+    tone: 'err',
+    label: 'Header rejected',
+    text: 'Your operator rejected the header. Fix it on their portal and update this once it is approved.',
+  },
+};
+
 const sourceLabel = (source: string) => {
   if (source === 'own') return 'Verified';
   if (source === 'twilio') return 'Platform';
@@ -76,26 +117,68 @@ export default function PhoneNumbers() {
   const [owned, setOwned] = useState<NumberOpt[]>([]);
   const [verified, setVerified] = useState<NumberOpt[]>([]);
   const [unavailable, setUnavailable] = useState<UnavailableNumber[]>([]);
+  const [carrier, setCarrier] = useState<CarrierNumber[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
 
-  const load = () => {
+  const load = useCallback(() => {
     setLoading(true);
     setError(null);
-    whapi
+    // Each read stands alone: a workspace with no Twilio credentials must still
+    // see its carrier numbers, and a compliance table that has not been
+    // migrated must not blank the page.
+    const callerNumbers = whapi
       .get<{ owned: NumberOpt[]; verified: NumberOpt[]; unavailable?: UnavailableNumber[] }>('/caller-numbers')
       .then(r => {
         setOwned(r.owned ?? []);
         setVerified(r.verified ?? []);
         setUnavailable(r.unavailable ?? []);
       })
-      .catch(e => setError(e instanceof Error ? e.message : 'Failed to load numbers'))
-      .finally(() => setLoading(false));
+      .catch(e => setError(e instanceof Error ? e.message : 'Failed to load numbers'));
+
+    const compliance = whapi
+      .get<{ numbers?: CarrierNumber[] }>('/compliance')
+      .then(r => setCarrier((r.numbers ?? []).filter(n => n.status !== 'RELEASED')))
+      .catch(() => setCarrier([]));
+
+    const agentList = whapi.get<Agent[]>('/agents')
+      .then(r => setAgents(Array.isArray(r) ? r : []))
+      .catch(() => setAgents([]));
+
+    void Promise.allSettled([callerNumbers, compliance, agentList]).then(() => setLoading(false));
+  }, []);
+
+  useEffect(load, [load]);
+
+  const setHeader = async (numberId: string, status: HeaderStatus) => {
+    setBusy(numberId);
+    try {
+      await whapi.put(`/compliance/numbers/${numberId}/header`, { status });
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not update the header status.');
+    } finally {
+      setBusy(null);
+    }
   };
 
-  useEffect(load, []);
+  const setInboundAgent = async (numberId: string, agentId: string) => {
+    setBusy(numberId);
+    try {
+      await whapi.put(`/compliance/numbers/${numberId}/inbound-agent`, { agentId: agentId || null });
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not set the answering agent.');
+    } finally {
+      setBusy(null);
+    }
+  };
 
+  const carrierByNumber = new Map(carrier.map(c => [c.phoneNumber, c]));
   const all = [...owned, ...verified];
+  const needsHeader = carrier.filter(c => c.headerStatus !== 'REGISTERED').length;
 
   return (
     <div className="rz-page rz-page-pad rz-bleed">
@@ -115,8 +198,11 @@ export default function PhoneNumbers() {
           <RzStat label="TOTAL NUMBERS" value={loading ? '—' : all.length + unavailable.length} />
           <RzStat label="PLATFORM" value={loading ? '—' : owned.length} color="var(--cyan-fg)" />
           <RzStat label="VERIFIED OWN" value={loading ? '—' : verified.length} color="var(--lime)" />
-          {/* Only shown when there is something wrong — a permanent "0 suspended"
-              tile trains people to ignore the row it lives in. */}
+          {/* Both of these appear only when there is something wrong — a permanent
+              "0 suspended" tile trains people to ignore the row it lives in. */}
+          {!loading && needsHeader > 0 && (
+            <RzStat label="NEEDS DLT HEADER" value={needsHeader} color="var(--warn, #f59e0b)" />
+          )}
           {!loading && unavailable.length > 0 && (
             <RzStat label="SUSPENDED" value={unavailable.length} color="var(--err)" />
           )}
@@ -181,24 +267,102 @@ export default function PhoneNumbers() {
           </RzCard>
         ) : (
           <div className="rz-stack-sm">
-            {all.map(n => (
-              <div
-                key={n.phoneNumber}
-                className="rz-card"
-                style={{ padding: '16px 18px', borderRadius: 13, display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}
-              >
-                <span style={{ fontSize: 20 }} aria-hidden>{flagFor(n.phoneNumber)}</span>
-                <div style={{ flex: 1, minWidth: 160 }}>
-                  <div className="rz-title-lg" style={{ fontFamily: 'var(--ff-m)', letterSpacing: '-0.3px' }}>{n.phoneNumber}</div>
-                  <div className="rz-mono-xs">{regionFor(n.phoneNumber)} · voice</div>
+            {all.map(n => {
+              const c = carrierByNumber.get(n.phoneNumber);
+              const header = c ? HEADER_VIEW[c.headerStatus] : null;
+              return (
+                <div
+                  key={n.phoneNumber}
+                  className="rz-card"
+                  style={{ padding: '16px 18px', borderRadius: 13 }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 16, flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: 20 }} aria-hidden>{flagFor(n.phoneNumber)}</span>
+                    <div style={{ flex: 1, minWidth: 160 }}>
+                      <div className="rz-title-lg" style={{ fontFamily: 'var(--ff-m)', letterSpacing: '-0.3px' }}>{n.phoneNumber}</div>
+                      <div className="rz-mono-xs">
+                        {regionFor(n.phoneNumber)} · voice
+                        {c?.clientMonthlyCents ? ` · ₹${Math.round(c.clientMonthlyCents / 100).toLocaleString('en-IN')}/mo` : ''}
+                      </div>
+                    </div>
+                    {!c && (
+                      <div style={{ textAlign: 'right' }}>
+                        <div className="rz-sub" style={{ fontSize: 12.5 }}>{n.label || '—'}</div>
+                        <div className="rz-mono-xs">label</div>
+                      </div>
+                    )}
+                    {header && <RzPill tone={header.tone}>{header.label}</RzPill>}
+                    <RzPill tone={n.source === 'own' ? 'ok' : 'info'}>{sourceLabel(n.source)}</RzPill>
+                  </div>
+
+                  {/* Only numbers WE rent have a DLT header or an inbound route.
+                      A Twilio number has neither, so it keeps the plain row. */}
+                  {c && (
+                    <div style={{ marginTop: 14, borderTop: '1px solid var(--line)', paddingTop: 14, display: 'grid', gap: 14 }}>
+                      <div>
+                        <div className="rz-label" style={{ marginBottom: 6 }}>DLT HEADER</div>
+                        {header?.text && (
+                          <p className="rz-sub" style={{ fontSize: 12.5, margin: '0 0 9px', maxWidth: 620 }}>{header.text}</p>
+                        )}
+                        {c.headerStatus === 'REJECTED' && c.headerRejectionReason && (
+                          <p className="rz-field-error" style={{ margin: '0 0 9px' }}>{c.headerRejectionReason}</p>
+                        )}
+                        <div className="rz-cluster-sm" style={{ gap: 8, flexWrap: 'wrap' }}>
+                          {/* The client reports what their operator decided — we
+                              have no API into any DLT portal to check it. */}
+                          {c.headerStatus !== 'SUBMITTED' && c.headerStatus !== 'REGISTERED' && (
+                            <button
+                              className="rz-btn rz-btn-secondary rz-btn-sm"
+                              disabled={busy === c.id}
+                              onClick={() => void setHeader(c.id, 'SUBMITTED')}
+                            >
+                              I have submitted it
+                            </button>
+                          )}
+                          {c.headerStatus !== 'REGISTERED' && (
+                            <button
+                              className="rz-btn rz-btn-primary rz-btn-sm"
+                              disabled={busy === c.id}
+                              onClick={() => void setHeader(c.id, 'REGISTERED')}
+                            >
+                              It has been approved
+                            </button>
+                          )}
+                          {c.headerStatus === 'SUBMITTED' && (
+                            <button
+                              className="rz-btn rz-btn-ghost rz-btn-sm"
+                              disabled={busy === c.id}
+                              onClick={() => void setHeader(c.id, 'REJECTED')}
+                            >
+                              It was rejected
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div>
+                        <div className="rz-label" style={{ marginBottom: 6 }}>WHO ANSWERS CALLS TO THIS NUMBER</div>
+                        <div className="rz-cluster-sm" style={{ gap: 10, flexWrap: 'wrap' }}>
+                          <select
+                            className="rz-input"
+                            style={{ maxWidth: 260 }}
+                            value={c.inboundAgentId ?? ''}
+                            disabled={busy === c.id || agents.length === 0}
+                            onChange={e => void setInboundAgent(c.id, e.target.value)}
+                          >
+                            <option value="">Nobody — callers hear "not in service"</option>
+                            {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
+                          </select>
+                          {agents.length === 0 && (
+                            <Link className="rz-btn rz-btn-ghost rz-btn-sm" to="/dashboard">Create an agent first</Link>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div className="rz-sub" style={{ fontSize: 12.5 }}>{n.label || '—'}</div>
-                  <div className="rz-mono-xs">label</div>
-                </div>
-                <RzPill tone={n.source === 'own' ? 'ok' : 'info'}>{sourceLabel(n.source)}</RzPill>
-              </div>
-            ))}
+              );
+            })}
           </div>
         )}
 
@@ -230,7 +394,9 @@ export default function PhoneNumbers() {
                 </p>
               </div>
             </div>
-            <Link className="rz-btn rz-btn-primary rz-btn-block" to="/number_verification">Start verification →</Link>
+            <Link className="rz-btn rz-btn-primary rz-btn-block" to="/number_verification">
+              {carrier.length ? 'Get another number →' : 'Start verification →'}
+            </Link>
           </RzCard>
 
           <RzCard title="Bring your own">

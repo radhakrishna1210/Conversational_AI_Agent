@@ -174,7 +174,10 @@ export const env = {
   // ELEVENLABS_API_KEY / DEEPGRAM_API_KEY); listed here for documentation.
   PLIVO_AUTH_ID: optional('PLIVO_AUTH_ID', ''),
   PLIVO_AUTH_TOKEN: optional('PLIVO_AUTH_TOKEN', ''),
-  // Default Plivo voice application attached to rented numbers.
+  // Fallback Plivo voice application for rented numbers. Each workspace gets
+  // its own application under its own subaccount (subaccount.service.js#
+  // ensureSubaccountApplication); this covers a deployment with no public
+  // answer URL to point one at, and numbers rented before that existed.
   PLIVO_VOICE_APP_ID: optional('PLIVO_VOICE_APP_ID', ''),
   // Caller ID for calls routed to Plivo that have no VoiceNumber row of their
   // own. Must be a number this account (or subaccount) actually holds.
@@ -195,6 +198,19 @@ export const env = {
   // byte-for-byte what is registered with Plivo — the V3 signature is computed
   // over this exact string, so a trailing slash difference fails validation.
   PLIVO_WEBHOOK_URL: optional('PLIVO_WEBHOOK_URL', ''),
+  // May a client rent a number themselves, or does an admin fulfil the request?
+  //
+  // Renting debits the client's wallet before it asks the carrier for anything,
+  // so self-serve is safe in principle — but the whole carrier path is
+  // unverified against a live Plivo account, and being wrong spends OUR money.
+  // Off keeps a person in the loop: the client picks a number, that becomes a
+  // request, and Admin → Numbers & Carrier fulfils it through the same code.
+  // Read via process.env in plivo/numberRequest.service.js.
+  PLIVO_SELF_SERVE_RENT: optional('PLIVO_SELF_SERVE_RENT', ''),
+  // Set to 'false' to stop the daily carrier-usage reconciliation sweep. It is
+  // read-only against Plivo and never adjusts a wallet, so the reason to switch
+  // it off is API budget, not risk. See plivo/reconciliation.service.js.
+  PLIVO_RECONCILIATION_ENABLED: optional('PLIVO_RECONCILIATION_ENABLED', ''),
 
   // Sarvam AI LLM Configuration
   SARVAM_API_KEY: optional('SARVAM_API_KEY', ''),

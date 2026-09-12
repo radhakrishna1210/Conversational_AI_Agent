@@ -58,6 +58,19 @@ export const AUDIT_ACTIONS = Object.freeze({
   NUMBER_RESET: 'number.reset',
   NUMBER_DEACTIVATE: 'number.deactivate',
   NUMBER_DELETE: 'number.delete',
+  NUMBER_UPDATE: 'number.update',
+  NUMBER_REQUEST_DECLINE: 'number_request.decline',
+  // carrier — actions against Plivo itself, and the gates in front of it. These
+  // spend money, stop a client calling, or give a number back, and every one of
+  // them is something a customer will later ask us to explain.
+  CARRIER_ENABLE: 'carrier.enable',
+  CARRIER_DISABLE: 'carrier.disable',
+  CARRIER_RELINK: 'carrier.relink',
+  CARRIER_OFFBOARD: 'carrier.offboard',
+  COMPLIANCE_REVIEW: 'compliance.review',
+  WORKSPACE_SUSPEND: 'workspace.suspend',
+  WORKSPACE_UNSUSPEND: 'workspace.unsuspend',
+  CONCURRENCY_UPDATE: 'concurrency.update',
   // agent
   AGENT_DISABLE: 'agent.disable',
   AGENT_FLAG: 'agent.flag',

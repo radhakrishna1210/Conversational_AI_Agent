@@ -50,8 +50,9 @@ import {
   refundNumberPurchase,
 } from '../billing/numberBilling.service.js';
 import { getNumberRate } from '../billing/numberRate.js';
+import { resolveAnswerUrlBase } from '../telephony/plivo.provider.js';
 import { plivoRequest, mainCredentials, PlivoError } from './client.js';
-import { createSubaccount } from './subaccount.service.js';
+import { createSubaccount, ensureSubaccountApplication } from './subaccount.service.js';
 
 const COUNTRY_ISO = 'IN';
 
@@ -331,13 +332,17 @@ export async function rentNumber(workspaceId, { phoneNumber } = {}) {
   const chosenSeries = seriesForRentedNumber(e164, record.useCase);
   if (chosenSeries.error) return { ok: false, error: chosenSeries.error };
 
-  const appId = process.env.PLIVO_VOICE_APP_ID;
-  if (!appId) {
-    // Bought without an app, the number falls back to Plivo's
-    // `default_number_app` and never reaches our answer URL — inbound calls
-    // land nowhere, silently, on a number we are now paying for.
+  // Numbers answer on the subaccount's own application, created on first rent
+  // (ensureSubaccountApplication), with PLIVO_VOICE_APP_ID as the fallback for a
+  // server with no public answer URL to point one at. Refused before any money
+  // moves when neither can exist: bought without an app, the number falls back
+  // to Plivo's `default_number_app` and never reaches our answer URL — inbound
+  // calls land nowhere, silently, on a number we are now paying for.
+  const fallbackAppId = process.env.PLIVO_VOICE_APP_ID || null;
+  if (!fallbackAppId && !resolveAnswerUrlBase()) {
     throw new PlivoError(
-      'PLIVO_VOICE_APP_ID is not set. A number rented without a voice application cannot receive calls on this platform.',
+      'Neither PLIVO_VOICE_APP_ID nor a public answer URL (PLIVO_ANSWER_URL / PUBLIC_BACKEND_WS_URL) is set. '
+      + 'A number rented without a voice application cannot receive calls on this platform.',
       { status: 503 },
     );
   }
@@ -361,7 +366,32 @@ export async function rentNumber(workspaceId, { phoneNumber } = {}) {
   const charge = await chargeNumberPurchase(workspaceId, { phoneNumber: e164 });
   if (!charge.ok) return charge;
 
-  const subaccount = await createSubaccount(workspaceId, { entityName: record.entityName });
+  // Everything between the debit and the purchase refunds on failure: the
+  // client has paid, and nothing has been bought yet. (Subaccount creation used
+  // to sit outside this and kept the money when Plivo refused it.)
+  let subaccount;
+  let appId = fallbackAppId;
+  try {
+    subaccount = await createSubaccount(workspaceId, { entityName: record.entityName });
+    try {
+      appId = (await ensureSubaccountApplication(workspaceId)) || fallbackAppId;
+    } catch (err) {
+      if (!fallbackAppId) throw err;
+      logger.warn(
+        { workspaceId, err: err.message },
+        'Could not create the subaccount application — attaching PLIVO_VOICE_APP_ID instead',
+      );
+    }
+    if (!appId) {
+      throw new PlivoError(
+        'Could not create a voice application for this subaccount, and PLIVO_VOICE_APP_ID is not set.',
+        { status: 503 },
+      );
+    }
+  } catch (err) {
+    await refundNumberPurchase(workspaceId, { phoneNumber: e164, ...charge });
+    throw err;
+  }
 
   let bought;
   try {

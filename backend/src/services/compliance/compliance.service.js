@@ -135,8 +135,11 @@ export async function getComplianceState(workspaceId) {
     })),
     numbers: numbers.map((n) => ({
       id: n.id, phoneNumber: n.phoneNumber, provider: n.provider, series: n.series,
-      headerStatus: n.headerStatus, status: n.status, dailyDialCap: n.dailyDialCap,
-      assignedAt: n.assignedAt,
+      headerStatus: n.headerStatus, headerRejectionReason: n.headerRejectionReason,
+      status: n.status, dailyDialCap: n.dailyDialCap, assignedAt: n.assignedAt,
+      inboundAgentId: n.inboundAgentId ?? null,
+      // The client's own price and next charge — never the carrier's cost.
+      clientMonthlyCents: n.clientMonthlyCents, nextRenewalAt: n.nextRenewalAt,
     })),
     ...evaluation,
   };
@@ -216,6 +219,14 @@ export async function assertComplianceReady(workspaceId, { fromNumber } = {}) {
   const code = state.suspended ? 'COMPLIANCE_SUSPENDED' : 'COMPLIANCE_INCOMPLETE';
 
   if (mode === COMPLIANCE_MODE.WARN) {
+    // Suspension is not a checklist gap. It is a deliberate stop — the carrier
+    // revoking our approval, or the platform — and the reason it carries tells
+    // the client that calling has stopped. `warn` exists to roll the checklist
+    // out without stopping traffic, not to wave through a workspace someone
+    // chose to stop; so, like non-payment above, it refuses in `warn` too.
+    if (state.suspended) {
+      return { allowed: false, code, message: `${reason} Contact support to restore calling.` };
+    }
     logger.warn(
       { workspaceId, fromNumber, code, blocking: state.blocking.map((b) => b.key) },
       `DLT compliance would block this call (mode=warn): ${reason}`,

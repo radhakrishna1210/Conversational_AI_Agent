@@ -59,7 +59,7 @@ What we actually buy with a subaccount per workspace:
 |---|---|
 | **Reputation isolation** | Indian carriers score caller IDs on volume, pacing and complaint rate. Numbers grouped under one account get throttled together. One client's bad campaign must not poison another's numbers. This is the main reason. |
 | **Usage attribution** | Plivo reports per-subaccount usage — carrier-side ground truth to reconcile against `AgentCallLog` settlement, which is the only way to catch billing drift. |
-| **Blast radius / kill switch** | `enabled=false` stops one client's carrier traffic instantly, touching nobody else. Already wired to `WorkspaceCompliance.suspended`. |
+| **Blast radius / kill switch** | `enabled=false` stops one client's carrier traffic instantly, touching nobody else. **Wired to `WorkspaceCompliance.suspended` on 2026-09-12** — this line previously claimed it already was, and it was not: `setSubaccountEnabled()` had no call sites. See `PLIVO_INTEGRATION.md` §13. |
 | **Clean teardown** | `DELETE .../Subaccount/{id}/?cascade=true` releases their numbers instead of silently reassigning them to our parent account. |
 
 What it explicitly does **not** buy:
@@ -692,10 +692,15 @@ code; the rest are recorded honestly below.
 
 | # | Item | Why it is not code |
 |---|---|---|
-| 2 | Subaccounts share one concurrency pool | Needs a default per-workspace cap, inbound counting, and a Redis-backed registry. Real work, not a patch — see §1 and `DIALING_HYGIENE.md`. |
-| 4 | Phase E — client number picker | Search returns `pricing` and inventory; nothing renders it. Blocked on #3's answer: if purchase is console-only the whole UX changes. |
-| 5 | Phase F — usage reconciliation | Unstarted. |
-| 6 | Phase G — BrandProfile / Truecaller | Unstarted, independent. |
+| 6 | Phase G — BrandProfile / Truecaller | Unstarted, independent. Needs a commercial partner API, not a carrier one. |
+
+### Closed on 2026-09-12
+
+| # | Was | Now |
+|---|---|---|
+| 2 | Subaccounts share one concurrency pool | The per-workspace ceiling existed in `telephony/concurrency.js` and was reachable from nowhere. **Admin → Numbers & Carrier → Limits** sets it, and shows what is live against it. Still in-process, so it remains correct only while there is one dialer process — that is the tripwire recorded in that module. |
+| 4 | Phase E — client number picker | `components/NumberPicker.tsx`, on the verification page once the carrier approves. Renting is gated by `PLIVO_SELF_SERVE_RENT`; off (the default) a pick becomes a `NumberRequest` an admin fulfils. |
+| 5 | Phase F — usage reconciliation | `plivo/reconciliation.service.js`, a daily sweep, and an admin view. See `PLIVO_INTEGRATION.md` §10. |
 
 ### Two notes on the notification work
 

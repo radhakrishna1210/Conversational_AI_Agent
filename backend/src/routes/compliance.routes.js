@@ -7,6 +7,8 @@ import { ROLES } from '../constants/roles.js';
 import {
   assignNumberSchema,
   headerStatusSchema,
+  inboundAgentSchema,
+  numberRequestSchema,
   rentNumberSchema,
   saveTemplateSchema,
   setEntityDetailsSchema,
@@ -49,10 +51,17 @@ router.post('/carrier-application/refresh', authorize(ROLES.MEMBER), ctrl.refres
 // own step — they pick the number they want to live with.
 router.get('/numbers/available', ctrl.getAvailableNumbers);
 
-// Renting is SUPER_ADMIN until phase D puts a wallet debit behind it. This call
-// spends real money on our parent account; without the debit, a member-facing
-// route would let a client rent numbers we pay for and they do not.
-router.post('/numbers/rent', authorize(ROLES.SUPER_ADMIN), validate(rentNumberSchema), ctrl.postRentNumber);
+// Renting debits the wallet before it asks the carrier for anything, so a
+// member may reach it — but only where PLIVO_SELF_SERVE_RENT says so, which the
+// controller checks. Off (the default), a member's pick becomes a request below
+// and a Superadmin fulfils it through this same path.
+router.post('/numbers/rent', authorize(ROLES.MEMBER), validate(rentNumberSchema), ctrl.postRentNumber);
+
+// Asking for a number when self-serve renting is off. Nothing is reserved and
+// nothing is charged — this is a queue an admin works through.
+router.get('/numbers/requests', ctrl.getNumberRequests);
+router.post('/numbers/requests', authorize(ROLES.MEMBER), validate(numberRequestSchema), ctrl.postNumberRequest);
+router.delete('/numbers/requests/:requestId', authorize(ROLES.MEMBER), ctrl.deleteNumberRequest);
 
 // Records a number rented by hand elsewhere. Kept alongside /rent because the
 // carrier's console remains the fallback whenever the API path is unavailable.
@@ -62,5 +71,9 @@ router.delete('/numbers/:numberId', authorize(ROLES.SUPER_ADMIN), ctrl.deleteNum
 // Header registration happens in the client's DLT portal, so the client reports
 // its outcome.
 router.put('/numbers/:numberId/header', authorize(ROLES.MEMBER), validate(headerStatusSchema), ctrl.putHeaderStatus);
+
+// Which agent answers calls TO this number. The client's own choice: it is
+// their agent and their number.
+router.put('/numbers/:numberId/inbound-agent', authorize(ROLES.MEMBER), validate(inboundAgentSchema), ctrl.putInboundAgent);
 
 export default router;

@@ -14,7 +14,8 @@
 import logger from '../../lib/logger.js';
 import { resolveProvider } from '../telephony/index.js';
 import { acquireSlot } from '../telephony/concurrency.js';
-import { resolveProviderIdForNumber } from '../outboundCall.service.js';
+import { resolveDialCredentials } from '../telephony/dialCredentials.js';
+import { resolveNumberRouting, resolveProviderIdForNumber } from '../outboundCall.service.js';
 import { publicHttpBase } from '../../lib/publicUrl.js';
 import { publicAudioUrl } from './broadcastRecording.service.js';
 import { signToken } from './signedToken.js';
@@ -96,16 +97,27 @@ export async function broadcastReadiness(fromNumber) {
 export async function placeBroadcastCall({
   recording, recipientId, toNumber, fromNumber, repeat = 1, workspaceId = null,
 }) {
-  const provider = resolveProvider(await resolveProviderIdForNumber(fromNumber));
+  const routing = await resolveNumberRouting(fromNumber);
+  const provider = resolveProvider(routing.providerId);
 
   if (provider.supportsBroadcast === false || typeof provider.buildBroadcastDoc !== 'function') {
     return { ok: false, provider: provider.id, status: 400,
       error: `${provider.label} cannot place one-way broadcast calls.` };
   }
 
-  const credentials = provider.status(fromNumber);
+  const status = provider.status(fromNumber);
+  if (!status.ready) {
+    return { ok: false, provider: provider.id, status: 503, error: status.error };
+  }
+
+  // Dialled as the carrier subaccount that holds the caller ID, exactly like a
+  // conversational leg — see telephony/dialCredentials.js.
+  const credentials = await resolveDialCredentials(provider, status, {
+    workspaceId,
+    subaccountId: routing.subaccountId,
+  });
   if (!credentials.ready) {
-    return { ok: false, provider: provider.id, status: 503, error: credentials.error };
+    return { ok: false, provider: provider.id, status: credentials.status ?? 503, error: credentials.error };
   }
 
   let document;
