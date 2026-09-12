@@ -61,6 +61,14 @@ interface CarrierNumber {
 
 interface Agent { id: string; name: string }
 
+interface NumberRequest {
+  id: string;
+  kind: 'RENT' | 'RELEASE';
+  phoneNumber: string;
+  status: 'PENDING' | 'FULFILLED' | 'DECLINED' | 'CANCELLED';
+  voiceNumberId: string | null;
+}
+
 /** What each DLT header state means for whether calls actually connect. */
 const HEADER_VIEW: Record<HeaderStatus, { tone: 'ok' | 'warn' | 'err' | 'idle'; label: string; text: string }> = {
   NOT_REGISTERED: {
@@ -119,6 +127,7 @@ export default function PhoneNumbers() {
   const [unavailable, setUnavailable] = useState<UnavailableNumber[]>([]);
   const [carrier, setCarrier] = useState<CarrierNumber[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [requests, setRequests] = useState<NumberRequest[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
@@ -147,7 +156,11 @@ export default function PhoneNumbers() {
       .then(r => setAgents(Array.isArray(r) ? r : []))
       .catch(() => setAgents([]));
 
-    void Promise.allSettled([callerNumbers, compliance, agentList]).then(() => setLoading(false));
+    const reqs = whapi.get<{ requests: NumberRequest[] }>('/compliance/numbers/requests')
+      .then(r => setRequests(r.requests ?? []))
+      .catch(() => setRequests([]));
+
+    void Promise.allSettled([callerNumbers, compliance, agentList, reqs]).then(() => setLoading(false));
   }, []);
 
   useEffect(load, [load]);
@@ -176,7 +189,37 @@ export default function PhoneNumbers() {
     }
   };
 
+  /**
+   * Ask for a number to be given back.
+   *
+   * Everything irreversible about this is said before the click, not after:
+   * the number never comes back, the DLT header goes with it, and billing
+   * continues until we actually action it. A client who assumes "requested"
+   * means "stopped charging" finds out on their next invoice.
+   */
+  const requestRelease = async (c: CarrierNumber) => {
+    const ok = window.confirm(
+      `Ask us to release ${c.phoneNumber}?\n\n`
+      + '• It stops being yours once we action this, and cannot be recovered — it is never reissued to anyone.\n'
+      + '• Your DLT header registration for it goes too. A replacement number means a fresh header application on your operator\'s portal.\n'
+      + '• It keeps working, and the monthly rental still applies, until we action the request.',
+    );
+    if (!ok) return;
+    setBusy(c.id);
+    try {
+      await whapi.post(`/compliance/numbers/${c.id}/release-request`, {});
+      load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not send that request.');
+    } finally {
+      setBusy(null);
+    }
+  };
+
   const carrierByNumber = new Map(carrier.map(c => [c.phoneNumber, c]));
+  const pendingRelease = new Set(
+    requests.filter(r => r.kind === 'RELEASE' && r.status === 'PENDING').map(r => r.voiceNumberId),
+  );
   const all = [...owned, ...verified];
   const needsHeader = carrier.filter(c => c.headerStatus !== 'REGISTERED').length;
 
@@ -357,6 +400,28 @@ export default function PhoneNumbers() {
                             <Link className="rz-btn rz-btn-ghost rz-btn-sm" to="/dashboard">Create an agent first</Link>
                           )}
                         </div>
+                      </div>
+
+                      {/* The way out of a recurring charge. Deliberately a
+                          request: releasing is irreversible and takes the DLT
+                          header with it, so a person reads it first. */}
+                      <div className="rz-between" style={{ gap: 12, flexWrap: 'wrap' }}>
+                        <span className="rz-sub" style={{ fontSize: 12 }}>
+                          {pendingRelease.has(c.id)
+                            ? 'Release requested — the number keeps working, and billing continues, until we action it.'
+                            : `Billed ${c.clientMonthlyCents ? `₹${Math.round(c.clientMonthlyCents / 100).toLocaleString('en-IN')}` : ''} monthly for as long as you keep it.`}
+                        </span>
+                        {pendingRelease.has(c.id) ? (
+                          <RzPill tone="warn">Release requested</RzPill>
+                        ) : (
+                          <button
+                            className="rz-btn rz-btn-ghost rz-btn-sm"
+                            disabled={busy === c.id}
+                            onClick={() => void requestRelease(c)}
+                          >
+                            {busy === c.id ? 'Sending…' : 'Give this number up'}
+                          </button>
+                        )}
                       </div>
                     </div>
                   )}

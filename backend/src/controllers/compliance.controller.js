@@ -273,6 +273,22 @@ export const postNumberRequest = async (req, res) => {
   res.status(201).json({ request: result.request });
 };
 
+// POST /workspaces/:workspaceId/compliance/numbers/:numberId/release-request
+//
+// Asking for a number to be given back. Deliberately a request rather than the
+// act: releasing destroys the DLT header registration the client spent days
+// getting on their operator's portal, and the number is never reissued. The
+// number keeps working — and keeps billing — until an admin actions it.
+export const postReleaseRequest = async (req, res) => {
+  const result = await numberRequests.createReleaseRequest(wsId(req), {
+    numberId: req.params.numberId,
+    note: req.body?.note,
+    requestedBy: req.user?.email ?? req.user?.userId ?? null,
+  });
+  if (!result.ok) return fail(res, result, 409);
+  res.status(201).json({ request: result.request });
+};
+
 // DELETE /workspaces/:workspaceId/compliance/numbers/requests/:requestId
 export const deleteNumberRequest = async (req, res) => {
   const result = await numberRequests.cancelNumberRequest(wsId(req), req.params.requestId);
