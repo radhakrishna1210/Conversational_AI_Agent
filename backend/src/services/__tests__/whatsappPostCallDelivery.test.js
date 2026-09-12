@@ -15,11 +15,21 @@
 
 import test, { describe, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import prisma from '../../config/prisma.js';
-import { encryptToken } from '../../lib/encryption.js';
-import { executePostCall } from '../../controllers/platform.controller.js';
-import { recordWhatsAppSendFailure, sendWhatsAppConfirmation } from '../whatsappPostCall.service.js';
-import { withCallFacts } from '../postCallExtraction.utils.js';
+
+// These run the inline send, which is what happens without Redis. With REDIS_URL
+// set, executePostCall hands the message to the BullMQ queue instead, so a shell
+// that happens to export one (with no Redis listening) failed every send test.
+// Cleared before the app modules load, because config/redis.js reads it on import.
+delete process.env.REDIS_URL;
+process.env.DATABASE_URL ??= 'postgresql://u:p@localhost:5432/test';
+process.env.JWT_ACCESS_SECRET ??= 'test-access-secret';
+process.env.JWT_REFRESH_SECRET ??= 'test-refresh-secret';
+
+const { default: prisma } = await import('../../config/prisma.js');
+const { encryptToken } = await import('../../lib/encryption.js');
+const { executePostCall } = await import('../../controllers/platform.controller.js');
+const { recordWhatsAppSendFailure, sendWhatsAppConfirmation } = await import('../whatsappPostCall.service.js');
+const { withCallFacts } = await import('../postCallExtraction.utils.js');
 
 // ── Stubbing ────────────────────────────────────────────────────────────────
 // Prisma model delegates are proxies, so node:test's mock.method cannot see
@@ -180,6 +190,32 @@ describe('executePostCall — a confirmation that is not sent is recorded on the
     assert.match(r.error, /filled in from the call itself/);
     assert.equal(chatflow.length, 0);
     assert.equal(db.created[0].status, 'FAILED');
+  });
+
+  test('the agent\'s OWN variable under a call-fact key, filled from the call, does not fire the trigger', async () => {
+    // The agent defines customer_phone itself, so it is not `builtin`; the customer
+    // never said a number, so the call record filled it in. That is every phone call.
+    world({ cfg: { ...WA_CFG, triggerVariable: 'customer_phone' } });
+    const variables = deliveredVariables({ customer_name: 'Krishna', customer_phone: null });
+    const trigger = variables.find((v) => v.key === 'customer_phone');
+    assert.equal(trigger.builtin, undefined, 'precondition: the agent defined it');
+    assert.equal(trigger.source, 'call', 'precondition: filled from the call record');
+
+    const out = await executePostCall('agent_1', 'ws_1', payloadFor(variables));
+
+    const r = whatsappResult(out);
+    assert.equal(r.ok, true);
+    assert.equal(r.skipped, true);
+    assert.equal(chatflow.length, 0, 'no confirmation for a booking nobody made');
+    assert.equal(db.created.length, 0, 'quiet, like any call that captured nothing');
+  });
+
+  test('…but when the customer did say a number into that variable, it counts', async () => {
+    world({ cfg: { ...WA_CFG, triggerVariable: 'customer_phone' } });
+    const variables = deliveredVariables({ customer_name: 'Krishna', customer_phone: '98111 22233' });
+    const out = await executePostCall('agent_1', 'ws_1', payloadFor(variables));
+    assert.equal(whatsappResult(out).ok, true, whatsappResult(out).error);
+    assert.equal(chatflow.length, 1);
   });
 
   test('a call that booked nothing is skipped QUIETLY — no failure row for an ordinary enquiry', async () => {

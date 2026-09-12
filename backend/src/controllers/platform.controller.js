@@ -371,11 +371,17 @@ export const executePostCall = async (agentId, workspaceId, payload) => {
         // The trigger exists to mean "the booking happened". A built-in call fact
         // is filled on every phone call regardless, so as a trigger it is the same
         // mistake as having none — every enquiry gets a booking confirmation.
-        if (findVar(triggerKey)?.builtin) {
+        const triggerVar = findVar(triggerKey);
+        if (triggerVar?.builtin) {
           await refuse(`"${triggerKey}" is filled in from the call itself, so it would send on every phone call. Choose a value that is only captured when the booking actually happened.`);
           continue;
         }
-        const triggerValue = findVar(triggerKey)?.value;
+        // An agent that defines its own variable under a call-fact key (its own
+        // `customer_phone`, say) keeps it — no `builtin` — but when the customer
+        // never said one, withCallFacts fills it from the call record. That value
+        // is the call, not the customer, so it does not count as captured:
+        // otherwise every phone call would fire the confirmation.
+        const triggerValue = triggerVar?.source === 'call' ? null : triggerVar?.value;
         if (triggerValue == null || String(triggerValue).trim() === '') {
           results.push({ method: 'whatsapp', ok: true, skipped: true, reason: `Nothing was captured for "${triggerKey}" on this call` });
           continue;
