@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { Fragment, useCallback, useEffect, useState } from 'react';
 import { adminFetch, qs } from '@/lib/adminApi';
 import {
   PhoneCall, AlertTriangle, RefreshCw, Search, ShieldOff, ShieldCheck,
@@ -366,8 +366,11 @@ function WorkspacesTab({ onChanged }: { onChanged: () => void }) {
                 const isOpen = open === row.workspaceId;
                 const working = Boolean(busy?.endsWith(row.workspaceId));
                 return (
-                  <>
-                    <tr key={row.workspaceId}>
+                  // Keyed on the Fragment, not the rows inside it: a row that
+                  // expands renders two <tr>s, and React wants the key on the
+                  // single element this map returns.
+                  <Fragment key={row.workspaceId}>
+                    <tr>
                       <td style={td}>
                         <div style={{ fontWeight: 600 }}>{row.workspaceName ?? '(no name)'}</div>
                         <div style={{ ...mono, color: 'var(--tx-3)' }}>{row.entityName ?? row.workspaceId}</div>
@@ -426,7 +429,7 @@ function WorkspacesTab({ onChanged }: { onChanged: () => void }) {
                     </tr>
 
                     {isOpen && (
-                      <tr key={`${row.workspaceId}-actions`}>
+                      <tr>
                         <td style={{ ...td, background: 'var(--bg-2)' }} colSpan={5}>
                           {row.carrierRejectionReason && (
                             <p style={{ fontSize: 12.5, color: 'var(--err)', margin: '0 0 10px' }}>
@@ -479,7 +482,7 @@ function WorkspacesTab({ onChanged }: { onChanged: () => void }) {
                         </td>
                       </tr>
                     )}
-                  </>
+                  </Fragment>
                 );
               })}
             </tbody>

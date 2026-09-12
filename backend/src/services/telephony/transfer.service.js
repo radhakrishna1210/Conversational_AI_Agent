@@ -275,8 +275,26 @@ export function failureLineFor(outcome, { targetLabel = 'a team member', lang = 
 const TWILIO_API = 'https://api.twilio.com/2010-04-01';
 const PLIVO_API = 'https://api.plivo.com/v1';
 
+/**
+ * Plivo credentials for a carrier request about ONE live call.
+ *
+ * A call placed as a subaccount is owned by that subaccount, and
+ * `/v1/Account/{MAIN}/Call/{uuid}/` does not find it — the main account cannot
+ * read or redirect another account's call. So a transfer has to be asked for
+ * with the same credentials that placed the call. `credentials` is passed in by
+ * the media bridge (which knows the workspace); the env fallback covers a call
+ * on the main account, which is every Twilio call and any Plivo number with no
+ * subaccount of its own.
+ */
+const plivoAuth = (credentials) => {
+  const authId = credentials?.authId || process.env.PLIVO_AUTH_ID;
+  const authToken = credentials?.authToken || process.env.PLIVO_AUTH_TOKEN;
+  if (!authId || !authToken) return null;
+  return { authId, authToken };
+};
+
 /** Look up the live call's numbers so the <Dial> can present a legitimate caller id. */
-export async function lookupCallNumbers(carrierId, carrierCallId, { fetchImpl = fetch } = {}) {
+export async function lookupCallNumbers(carrierId, carrierCallId, { fetchImpl = fetch, credentials = null } = {}) {
   const id = String(carrierId).toUpperCase();
   try {
     if (id === 'TWILIO') {
@@ -290,8 +308,9 @@ export async function lookupCallNumbers(carrierId, carrierCallId, { fetchImpl = 
       return { from: j.from ?? null, to: j.to ?? null, direction: j.direction ?? null };
     }
     if (id === 'PLIVO') {
-      const aid = process.env.PLIVO_AUTH_ID; const tok = process.env.PLIVO_AUTH_TOKEN;
-      if (!aid || !tok) return null;
+      const auth = plivoAuth(credentials);
+      if (!auth) return null;
+      const { authId: aid, authToken: tok } = auth;
       const r = await fetchImpl(`${PLIVO_API}/Account/${aid}/Call/${encodeURIComponent(carrierCallId)}/`, {
         headers: { Authorization: `Basic ${Buffer.from(`${aid}:${tok}`).toString('base64')}` },
       });
@@ -317,9 +336,15 @@ export async function lookupCallNumbers(carrierId, carrierCallId, { fetchImpl = 
  * @param {object} p.config          resolveTransferConfig()
  * @param {string|null} [p.callerId] number to present; looked up when absent
  * @param {typeof fetch} [p.fetchImpl]
+ * @param {{authId: string, authToken: string}|null} [p.credentials] the account
+ *   that PLACED this call — a subaccount's, when the caller ID is one it holds.
+ *   Falls back to the main account. See plivoAuth().
  * @returns {Promise<{ ok: boolean, error?: string, unsupported?: boolean, httpStatus?: number, document?: string }>}
  */
-export async function transferLiveCall({ carrierId, carrierCallId, callLogId, workspaceId, agentId, config, callerId = null, fetchImpl = fetch }) {
+export async function transferLiveCall({
+  carrierId, carrierCallId, callLogId, workspaceId, agentId, config,
+  callerId = null, fetchImpl = fetch, credentials = null,
+}) {
   const id = String(carrierId || '').toUpperCase();
   if (!config?.enabled) return { ok: false, error: 'no transfer number configured' };
   if (!carrierCallId) return { ok: false, error: 'the carrier call id is unknown, so the live call cannot be redirected' };
@@ -330,7 +355,7 @@ export async function transferLiveCall({ carrierId, carrierCallId, callLogId, wo
 
   let cid = e164(callerId);
   if (!cid) {
-    const nums = await lookupCallNumbers(id, carrierCallId, { fetchImpl });
+    const nums = await lookupCallNumbers(id, carrierCallId, { fetchImpl, credentials });
     // Present OUR number: the one the caller dialled (inbound) or dialled from (outbound).
     const ours = nums?.direction && /outbound/i.test(nums.direction) ? nums?.from : nums?.to;
     cid = e164(ours) || e164(process.env[id === 'TWILIO' ? 'TWILIO_FROM_NUMBER' : 'PLIVO_FROM_NUMBER']) || null;
@@ -356,8 +381,9 @@ export async function transferLiveCall({ carrierId, carrierCallId, callLogId, wo
       return { ok: true, document };
     }
     // PLIVO: the transfer API points the A-leg at a URL that serves the <Dial> XML.
-    const aid = process.env.PLIVO_AUTH_ID; const tok = process.env.PLIVO_AUTH_TOKEN;
-    if (!aid || !tok) return { ok: false, error: 'Plivo credentials are not configured' };
+    const auth = plivoAuth(credentials);
+    if (!auth) return { ok: false, error: 'Plivo credentials are not configured' };
+    const { authId: aid, authToken: tok } = auth;
     const xmlUrlStr = transferCallbackUrl({ carrierId: id, callLogId, workspaceId, agentId, kind: 'xml' });
     const r = await fetchImpl(`${PLIVO_API}/Account/${aid}/Call/${encodeURIComponent(carrierCallId)}/`, {
       method: 'POST',
