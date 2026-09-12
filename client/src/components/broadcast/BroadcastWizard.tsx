@@ -285,8 +285,14 @@ export default function BroadcastWizard({
                       <input type="checkbox" checked={selectedFrom.includes(n.phoneNumber)}
                         onChange={() => setSelectedFrom((prev) => toggle(prev, n.phoneNumber))}
                         style={{ accentColor: 'var(--cyan)' }} />
-                      <span style={{ flex: 1, color: 'var(--tx)' }}>{n.label || n.phoneNumber}</span>
-                      <span className="rz-mono" style={{ fontSize: '11.5px', color: 'var(--tx-3)' }}>{n.source}</span>
+                      {/* The NUMBER is the identity here — this list is picked
+                          from by dialling behaviour, and it previously showed
+                          `label`, which for a carrier number was the word
+                          "PLIVO" for every row. */}
+                      <span className="rz-mono" style={{ flex: 1, color: 'var(--tx)' }}>{n.phoneNumber}</span>
+                      <span style={{ fontSize: '11.5px', color: 'var(--tx-3)' }}>
+                        {n.source === 'own' ? 'verified' : n.source === 'twilio' ? 'platform' : 'yours'}
+                      </span>
                     </label>
                   ))}
                 </div>

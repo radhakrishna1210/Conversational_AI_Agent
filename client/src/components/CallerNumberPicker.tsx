@@ -82,7 +82,14 @@ export default function CallerNumberPicker({ value, onChange }: { value: string;
         <select value={value} onChange={(e) => onChange(e.target.value)}
           style={{ width: '100%', padding: '10px 12px', background: 'var(--bg-secondary)', border: '1px solid var(--line)', borderRadius: 8, color: 'var(--tx)', fontSize: 13 }}>
           <option value="">Default platform number</option>
-          {owned.map((n) => <option key={n.phoneNumber} value={n.phoneNumber}>{n.phoneNumber} — {n.label} (platform)</option>)}
+          {/* A number rented to THIS workspace is theirs; only a shared Twilio
+              number is "the platform's". Saying "platform" for both left a
+              client unable to tell which number was the one they pay for. */}
+          {owned.map((n) => (
+            <option key={n.phoneNumber} value={n.phoneNumber}>
+              {n.phoneNumber} — {n.label} {n.source === 'twilio' ? '(platform)' : '(yours)'}
+            </option>
+          ))}
           {verified.map((n) => <option key={n.phoneNumber} value={n.phoneNumber}>{n.phoneNumber} — {n.label} (your number ✓)</option>)}
         </select>
       )}

@@ -660,6 +660,7 @@ interface RequestRow {
   id: string;
   workspaceId: string;
   phoneNumber: string;
+  kind: 'RENT' | 'RELEASE';
   status: string;
   note: string | null;
   resolution: string | null;
@@ -683,6 +684,22 @@ function RequestsTab({ onChanged }: { onChanged: () => void }) {
   const { busy, error, notice, run } = useAction(() => { load(); onChanged(); });
 
   const fulfil = (row: RequestRow) => {
+    if (row.kind === 'RELEASE') {
+      // Irreversible, and it is the CLIENT who loses something they cannot get
+      // back, so confirm against the number itself rather than an OK button.
+      const typed = window.prompt(
+        `Release ${row.phoneNumber} back to the carrier for ${row.workspace?.name ?? row.workspaceId}?\n\n`
+        + 'It is never reissued to anyone, and their DLT header registration goes with it. '
+        + 'Monthly billing stops.\n\nType the number to confirm:',
+      );
+      if (typed !== row.phoneNumber) return;
+      void run(
+        row.id,
+        () => adminFetch(`/telephony/requests/${row.id}/fulfil`, { method: 'POST', body: '{}' }),
+        'Released. The client has been notified.',
+      );
+      return;
+    }
     const alt = window.prompt(
       `Rent a number for ${row.workspace?.name ?? row.workspaceId} and debit their wallet.\n\n`
       + 'Leave as-is to take the number they asked for, or type a different one if it has gone:',
@@ -736,7 +753,15 @@ function RequestsTab({ onChanged }: { onChanged: () => void }) {
           {rows.map(row => (
             <div key={row.id} style={{ ...card, display: 'flex', gap: 14, alignItems: 'flex-start', flexWrap: 'wrap' }}>
               <div style={{ flex: 1, minWidth: 220 }}>
-                <div style={{ ...mono, fontSize: 14, fontWeight: 600 }}>{row.phoneNumber}</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <span style={{ ...mono, fontSize: 14, fontWeight: 600 }}>{row.phoneNumber}</span>
+                  {/* Which way this request goes. Allocating and releasing look
+                      identical in a queue otherwise, and one of them is
+                      irreversible. */}
+                  <Pill tone={row.kind === 'RELEASE' ? 'err' : 'info'}>
+                    {row.kind === 'RELEASE' ? 'give up' : 'allocate'}
+                  </Pill>
+                </div>
                 <div style={{ fontSize: 12.5, color: 'var(--tx-2)', marginTop: 2 }}>
                   {row.workspace?.name ?? row.workspaceId}
                   {row.requestedBy ? ` · ${row.requestedBy}` : ''} · {when(row.createdAt)}
@@ -752,8 +777,14 @@ function RequestsTab({ onChanged }: { onChanged: () => void }) {
               </div>
               {row.status === 'PENDING' ? (
                 <div style={{ display: 'flex', gap: 8 }}>
-                  <button style={btn('primary')} disabled={busy === row.id} onClick={() => fulfil(row)}>
-                    {busy === row.id ? 'Renting…' : 'Allocate'}
+                  <button
+                    style={btn(row.kind === 'RELEASE' ? 'danger' : 'primary')}
+                    disabled={busy === row.id}
+                    onClick={() => fulfil(row)}
+                  >
+                    {busy === row.id
+                      ? (row.kind === 'RELEASE' ? 'Releasing…' : 'Renting…')
+                      : (row.kind === 'RELEASE' ? 'Release' : 'Allocate')}
                   </button>
                   <button style={btn()} disabled={busy === row.id} onClick={() => decline(row)}>Decline</button>
                 </div>

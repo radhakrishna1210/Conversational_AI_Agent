@@ -52,7 +52,12 @@ const assignedCarrierNumbers = async (workspaceId) => {
     });
     return rows.map((r) => ({
       phoneNumber: r.phoneNumber,
-      label: r.provider,
+      // "Your number", not the carrier's name. This IS the client's own number —
+      // rented to them, billed to them, registered under their DLT header — and
+      // labelling it "PLIVO" told them the one thing about it that is none of
+      // their business. The broadcast picker renders `label` as the option's
+      // title, so that label was the entire visible name of the number there.
+      label: 'Your number',
       source: r.provider.toLowerCase(),
     }));
   } catch (e) {
@@ -84,7 +89,7 @@ const unavailableCarrierNumbers = async (workspaceId) => {
     });
     return rows.map((r) => ({
       phoneNumber: r.phoneNumber,
-      label: r.provider,
+      label: 'Your number',
       source: r.provider.toLowerCase(),
       reason: 'Suspended — the monthly rental is unpaid. Top up and it reactivates automatically.',
       actionText: 'Top up wallet',

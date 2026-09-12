@@ -203,6 +203,19 @@ export const NUMBER_REQUEST_STATUS = Object.freeze({
 });
 
 /**
+ * Which way a request goes.
+ *
+ * RELEASE exists because releasing is deliberately NOT a client action — it
+ * destroys the DLT header registration the client spent days getting, and the
+ * number is never reissued — but without a way to ask, the only exit from a
+ * recurring ₹/month charge was a support email.
+ */
+export const NUMBER_REQUEST_KIND = Object.freeze({
+  RENT: 'RENT',
+  RELEASE: 'RELEASE',
+});
+
+/**
  * How hard the gate bites. Deliberately not a boolean.
  *
  * `enforce` blocks calls outright. Switching a live deployment straight to it

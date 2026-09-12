@@ -76,4 +76,10 @@ router.put('/numbers/:numberId/header', authorize(ROLES.MEMBER), validate(header
 // their agent and their number.
 router.put('/numbers/:numberId/inbound-agent', authorize(ROLES.MEMBER), validate(inboundAgentSchema), ctrl.putInboundAgent);
 
+// Asking for a number to be given back. A request, not the act — releasing
+// destroys the client's DLT header registration and the number is never
+// reissued — but without this the only way to stop a monthly charge was to
+// email support.
+router.post('/numbers/:numberId/release-request', authorize(ROLES.MEMBER), ctrl.postReleaseRequest);
+
 export default router;

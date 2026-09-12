@@ -1282,6 +1282,11 @@ model NumberRequest {
   id            String    @id @default(cuid())
   workspaceId   String
   phoneNumber   String
+  // RENT | RELEASE. Releasing stays a platform action because it destroys the
+  // client's DLT header registration, which they cannot recover — but a client
+  // must be able to ASK, or the only way to stop paying for a number is a
+  // support email.
+  kind          String    @default("RENT")
   // PENDING | FULFILLED | DECLINED | CANCELLED
   status        String    @default("PENDING")
   note          String?
@@ -1298,6 +1303,7 @@ model NumberRequest {
 
   @@index([status, createdAt])
   @@index([workspaceId, status])
+  @@index([kind, status, createdAt])
 }
 
 // One pass of carrier usage (Plivo call records) against our own AgentCallLog
