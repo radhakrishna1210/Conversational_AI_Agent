@@ -7,6 +7,7 @@ import { sendMail, isMailerConfigured } from '../lib/mailer.js';
 import { assertPublicHttpUrl } from '../lib/safeUrl.js';
 import { appendCallRow } from '../services/googleSheets.service.js';
 import { createEvent, deleteEvent, resolveAppointmentStart } from '../services/googleCalendar.service.js';
+import { upsertContact, logCallEngagement } from '../services/hubspot.service.js';
 import { addLog } from '../services/integrations.service.js';
 import { getBinding } from '../services/whatsappTemplates.service.js';
 import { sendWhatsAppConfirmation, buildPositionalVariables } from '../services/whatsappPostCall.service.js';
@@ -361,6 +362,40 @@ export const executePostCall = async (agentId, workspaceId, payload) => {
             logger.warn({ workspaceId, eventId: out.id, err: err.message }, 'Could not clean up test calendar event');
           });
         }
+      } else if (method === 'hubspot') {
+        // Sync the caller as a HubSpot contact, then log the call on their
+        // timeline. Contact + Call engagement only for this pass — no Deal
+        // creation. Which extracted variable holds the email is configured
+        // per-destination, same as googlecalendar's dateVariable above.
+        const findVar = (key) => variables.find((v) => String(v.key).toLowerCase() === String(key ?? '').toLowerCase())?.value;
+        const email = cfg.emailVariable ? findVar(cfg.emailVariable) : undefined;
+        if (!email) {
+          throw new Error(
+            'No email address to sync to HubSpot: could not find one among the extracted variables. '
+            + `Set this destination's email variable to one of: ${variables.map((v) => v.key).join(', ') || '(none extracted)'}.`,
+          );
+        }
+        const contact = await upsertContact(workspaceId, {
+          email,
+          phone: cfg.phoneVariable ? findVar(cfg.phoneVariable) : undefined,
+          firstname: cfg.firstNameVariable ? findVar(cfg.firstNameVariable) : undefined,
+          lastname: cfg.lastNameVariable ? findVar(cfg.lastNameVariable) : undefined,
+        });
+        await logCallEngagement(workspaceId, contact.id, {
+          summary: `Call with ${agent.name}.\n\nExtracted information:\n${variableLines}\n\nSummary:\n${payload.summary ?? '(none)'}`,
+          callOutcome: payload.outcome,
+          timestamp: payload.endedAt,
+          direction: payload.direction,
+        });
+        results.push({ method: 'hubspot', target: email, ok: true, contactId: contact.id });
+        // Same visibility reasoning as googlecalendar's addLog above — mirrors
+        // it on both success and failure so a sync problem shows up on the
+        // Integrations page instead of only a pino log line.
+        await addLog({
+          workspaceId, provider: 'hubspot', event: 'hubspot_contact_synced',
+          message: `HubSpot contact synced (${contact.id})`,
+          metadata: { callId: payload.callId, contactId: contact.id, email },
+        }).catch(() => {});
       } else if (method === 'whatsapp') {
         // A WhatsApp confirmation through the workspace's own ChatFlow account.
         //
@@ -458,6 +493,13 @@ export const executePostCall = async (agentId, workspaceId, payload) => {
           message: `Calendar event creation failed: ${err.message}`,
           metadata: { callId: payload.callId },
         }).catch(() => {}); // never let logging itself break delivery
+      }
+      if (method === 'hubspot') {
+        await addLog({
+          workspaceId, provider: 'hubspot', level: 'error', event: 'hubspot_contact_sync_failed',
+          message: `HubSpot contact sync failed: ${err.message}`,
+          metadata: { callId: payload.callId },
+        }).catch(() => {});
       }
       results.push({ method, target: cfg.url || cfg.email || cfg.spreadsheetId, ok: false, error: err.message });
     }
