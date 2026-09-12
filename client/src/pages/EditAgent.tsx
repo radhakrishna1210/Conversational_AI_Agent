@@ -181,6 +181,14 @@ interface PostCallConfig {
   dateVariable?: string;
   /** event length in minutes when only a start time is extracted (default 30) */
   durationMin?: number;
+  /** extracted-variable key holding the contact's email — deliveryMethod === 'HubSpot', required */
+  emailVariable?: string;
+  /** extracted-variable key holding the contact's phone — deliveryMethod === 'HubSpot', optional */
+  phoneVariable?: string;
+  /** extracted-variable key holding the contact's first name — deliveryMethod === 'HubSpot', optional */
+  firstNameVariable?: string;
+  /** extracted-variable key holding the contact's last name — deliveryMethod === 'HubSpot', optional */
+  lastNameVariable?: string;
   /** WhatsAppTemplateBinding.id — the Meta-approved template this sends */
   whatsappBindingId?: string;
   /** which preset that binding came from, so the UI can show its wording */
@@ -1342,6 +1350,7 @@ export default function EditAgent() {
     if (config.deliveryMethod === 'Email' && !config.email) return 'Enter an email address first';
     if (config.deliveryMethod === 'Google Sheets' && !config.spreadsheetId) return 'Select a target spreadsheet first';
     if (config.deliveryMethod === 'Google Calendar' && !config.dateVariable) return 'Choose which extracted variable holds the appointment date/time first';
+    if (config.deliveryMethod === 'HubSpot' && !config.emailVariable) return 'Choose which extracted variable holds the contact\'s email first';
     return null;
   };
 
@@ -5187,7 +5196,7 @@ export default function EditAgent() {
                       value={config.deliveryMethod}
                       onChange={(e) => {
                         const deliveryMethod = e.target.value;
-                        updatePostCallConfigAndSave(config.id, { deliveryMethod, url: '', email: '', spreadsheetId: '', spreadsheetName: '', dateVariable: '', whatsappBindingId: '', presetId: '', variableMapping: [], triggerVariable: '', recipientVariable: '' });
+                        updatePostCallConfigAndSave(config.id, { deliveryMethod, url: '', email: '', spreadsheetId: '', spreadsheetName: '', dateVariable: '', whatsappBindingId: '', presetId: '', variableMapping: [], triggerVariable: '', recipientVariable: '', emailVariable: '', phoneVariable: '', firstNameVariable: '', lastNameVariable: '' });
                         if (deliveryMethod === 'Google Sheets' && spreadsheets.length === 0) loadSpreadsheets();
                         if (deliveryMethod === 'WhatsApp') loadWhatsappTemplates();
                       }}
@@ -5208,6 +5217,7 @@ export default function EditAgent() {
                       <option value="Email">Email</option>
                       <option value="Google Sheets">Google Sheets</option>
                       <option value="Google Calendar">Google Calendar</option>
+                      <option value="HubSpot">HubSpot</option>
                       <option value="CRM" disabled>CRM (coming soon)</option>
                       <option value="Slack" disabled>Slack (coming soon)</option>
                       <option value="WhatsApp">WhatsApp</option>
@@ -5322,6 +5332,113 @@ export default function EditAgent() {
                             boxSizing: 'border-box'
                           }}
                         />
+                      </div>
+                    )}
+
+                    {/* HubSpot — upserts the caller as a contact, then logs the
+                        call as an engagement on their timeline. Only the email
+                        variable is required (HubSpot contacts are keyed on
+                        email); phone/first/last name are optional enrichment,
+                        same variable-key pattern as Google Calendar's date
+                        variable above. */}
+                    {config.deliveryMethod === 'HubSpot' && (
+                      <div style={{ marginTop: '14px' }}>
+                        <div style={{ fontSize: '13px', color: 'var(--tx-2)', marginBottom: '8px' }}>Email variable <span style={{ color: 'var(--err)' }}>*</span></div>
+                        <select
+                          value={config.emailVariable || ''}
+                          onChange={(e) => updatePostCallConfigAndSave(config.id, { emailVariable: e.target.value })}
+                          style={{
+                            width: '400px',
+                            height: '42px',
+                            padding: '0 16px',
+                            background: 'var(--bg-secondary)',
+                            border: '1px solid var(--line-2)',
+                            borderRadius: '9px',
+                            color: config.emailVariable ? 'var(--tx)' : 'var(--tx-2)',
+                            fontSize: '14px',
+                            outline: 'none',
+                            boxSizing: 'border-box'
+                          }}
+                        >
+                          <option value="">Select an extracted variable</option>
+                          {config.extractedVariables.map((v) => (
+                            <option key={v.id} value={v.key}>{v.key}</option>
+                          ))}
+                        </select>
+                        <div style={{ fontSize: '12px', color: '#808080', marginTop: '6px', maxWidth: '400px' }}>
+                          The caller is upserted as a HubSpot contact keyed on this variable's value, then the call is
+                          logged on their timeline. Make sure the variable's description tells the agent to capture an
+                          email address.
+                        </div>
+
+                        <div style={{ fontSize: '13px', color: 'var(--tx-2)', margin: '14px 0 8px' }}>Phone variable</div>
+                        <select
+                          value={config.phoneVariable || ''}
+                          onChange={(e) => updatePostCallConfigAndSave(config.id, { phoneVariable: e.target.value })}
+                          style={{
+                            width: '400px',
+                            height: '42px',
+                            padding: '0 16px',
+                            background: 'var(--bg-secondary)',
+                            border: '1px solid var(--line-2)',
+                            borderRadius: '9px',
+                            color: config.phoneVariable ? 'var(--tx)' : 'var(--tx-2)',
+                            fontSize: '14px',
+                            outline: 'none',
+                            boxSizing: 'border-box'
+                          }}
+                        >
+                          <option value="">(optional) Select an extracted variable</option>
+                          {config.extractedVariables.map((v) => (
+                            <option key={v.id} value={v.key}>{v.key}</option>
+                          ))}
+                        </select>
+
+                        <div style={{ fontSize: '13px', color: 'var(--tx-2)', margin: '14px 0 8px' }}>First name variable</div>
+                        <select
+                          value={config.firstNameVariable || ''}
+                          onChange={(e) => updatePostCallConfigAndSave(config.id, { firstNameVariable: e.target.value })}
+                          style={{
+                            width: '400px',
+                            height: '42px',
+                            padding: '0 16px',
+                            background: 'var(--bg-secondary)',
+                            border: '1px solid var(--line-2)',
+                            borderRadius: '9px',
+                            color: config.firstNameVariable ? 'var(--tx)' : 'var(--tx-2)',
+                            fontSize: '14px',
+                            outline: 'none',
+                            boxSizing: 'border-box'
+                          }}
+                        >
+                          <option value="">(optional) Select an extracted variable</option>
+                          {config.extractedVariables.map((v) => (
+                            <option key={v.id} value={v.key}>{v.key}</option>
+                          ))}
+                        </select>
+
+                        <div style={{ fontSize: '13px', color: 'var(--tx-2)', margin: '14px 0 8px' }}>Last name variable</div>
+                        <select
+                          value={config.lastNameVariable || ''}
+                          onChange={(e) => updatePostCallConfigAndSave(config.id, { lastNameVariable: e.target.value })}
+                          style={{
+                            width: '400px',
+                            height: '42px',
+                            padding: '0 16px',
+                            background: 'var(--bg-secondary)',
+                            border: '1px solid var(--line-2)',
+                            borderRadius: '9px',
+                            color: config.lastNameVariable ? 'var(--tx)' : 'var(--tx-2)',
+                            fontSize: '14px',
+                            outline: 'none',
+                            boxSizing: 'border-box'
+                          }}
+                        >
+                          <option value="">(optional) Select an extracted variable</option>
+                          {config.extractedVariables.map((v) => (
+                            <option key={v.id} value={v.key}>{v.key}</option>
+                          ))}
+                        </select>
                       </div>
                     )}
 
