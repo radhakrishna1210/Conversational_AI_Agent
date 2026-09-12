@@ -70,3 +70,6 @@ Spandan_flagship_selection/
 # Binary assets the build never touches; kept out so clones stay small.
 deck/
 PITCH_DECK_PROMPT.md
+
+# HubSpot config file
+hubspot.config.yml

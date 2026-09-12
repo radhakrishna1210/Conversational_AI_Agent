@@ -125,7 +125,7 @@ const PROVIDERS: ProviderMeta[] = [
     docsUrl: 'https://omnidim.io/docs/guides/salesforce-integration',
   },
   {
-    key: 'hubspot', name: 'HubSpot', category: 'Post Call', tab: 'calendar', connectType: 'apikey',
+    key: 'hubspot', name: 'HubSpot', category: 'Post Call', tab: 'calendar', connectType: 'oauth',
     logo: '🔶', accent: '#FF7A59', tint: 'rgba(255,122,89,0.12)',
     description: 'Sync contacts, notes, and follow-up workflows post-call.',
     modalDescription: 'Connect HubSpot to automatically create contacts, log call notes, and trigger workflows.',
@@ -133,7 +133,7 @@ const PROVIDERS: ProviderMeta[] = [
     dashboardUrl: 'https://app.hubspot.com',
     connectFields: [
       { name: 'integrationName', label: 'Integration Name', placeholder: 'My HubSpot Integration', type: 'text' },
-      { name: 'accessToken', label: 'Private App Access Token', placeholder: 'pat-na1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', type: 'password', help: 'HubSpot → Settings → Integrations → Private Apps → Create app → copy token' },
+      { name: 'accessToken', label: 'Private App Access Token', placeholder: 'pat-na1-xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx', type: 'password', help: 'Only needed if OAuth is unavailable. Get from HubSpot → Settings → Integrations → Private Apps → Create app → copy token', optional: true },
       { name: 'description', label: 'Description', placeholder: 'Sync contacts and deals from AI call outcomes.', type: 'textarea', optional: true },
     ],
     docsUrl: 'https://www.omnidim.io/docs/guides/hubspot-integration',
@@ -436,7 +436,7 @@ function ConnectModal({ provider, oauthAvailable, onClose, onConnected }: {
                 disabled={saving}
                 style={{ padding: '14px', borderRadius: '11px', border: 'none', background: provider.accent, color: '#fff', fontFamily: 'var(--ff-d)', fontSize: '15px', fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}
               >
-                {saving ? <><Loader2 size={16} className="animate-spin" /> Redirecting…</> : <>Sign in with Google</>}
+                {saving ? <><Loader2 size={16} className="animate-spin" /> Redirecting…</> : <>Sign in with {provider.name}</>}
               </button>
               <button onClick={() => setShowManual(true)} style={{ background: 'transparent', border: 'none', color: 'var(--tx-2)', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline' }}>
                 Or enter access token manually

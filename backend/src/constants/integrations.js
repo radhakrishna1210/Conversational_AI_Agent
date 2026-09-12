@@ -119,11 +119,27 @@ export const INTEGRATION_PROVIDERS = {
     key: 'hubspot',
     name: 'HubSpot',
     category: 'Post Call',
-    connectType: 'apikey',
+    connectType: 'oauth',
+    // OAuth is now the primary connect path (mirrors the Google retrofit);
+    // the Private App token in connectFields below stays as the manual
+    // fallback for when OAuth app credentials aren't configured on this
+    // server yet — connectWithCredentials's 'hubspot' branch already
+    // verifies it exactly as before, unchanged.
+    oauth: {
+      authorizationUrl: 'https://app.hubspot.com/oauth/authorize',
+      tokenUrl: 'https://api.hubapi.com/oauth/v1/token',
+      // NEEDS VERIFICATION against the scopes actually configured on the
+      // HubSpot developer app — an exact-string mismatch here fails the
+      // authorization redirect with invalid_scope before the user even
+      // sees a consent screen.
+      scope: ['crm.objects.contacts.read', 'crm.objects.contacts.write'],
+      clientIdEnv: 'HUBSPOT_CLIENT_ID',
+      clientSecretEnv: 'HUBSPOT_CLIENT_SECRET',
+      redirectUriEnv: 'HUBSPOT_REDIRECT_URI',
+    },
     connectFields: [
       { name: 'accessToken', label: 'Private App Access Token', placeholder: 'pat-na1-...', type: 'password', help: 'Get from HubSpot → Settings → Integrations → Private Apps' },
     ],
-    oauth: null,
     apiBaseUrl: 'https://api.hubapi.com',
     syncEndpoint: '/crm/v3/objects/contacts?limit=10&properties=email,firstname,lastname',
     verifyUrl: 'https://api.hubapi.com/crm/v3/objects/contacts?limit=1',

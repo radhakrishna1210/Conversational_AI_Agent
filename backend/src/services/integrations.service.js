@@ -110,7 +110,7 @@ const serialize = (i) => ({
   logs: (i.logs ?? []).map((l) => ({ id: l.id, level: l.level, event: l.event, message: l.message, status: l.status, metadata: safeJson(l.metadata, {}), createdAt: l.createdAt })),
 });
 
-const addLog = async ({ workspaceId, provider, integrationId = null, level = 'info', event, message, status = null, metadata = {} }) => {
+export const addLog = async ({ workspaceId, provider, integrationId = null, level = 'info', event, message, status = null, metadata = {} }) => {
   try {
     const log = await prisma.integrationLog.create({
       data: { workspaceId, provider, integrationId, level, event, message, status, metadata: jsonStr(metadata) },
@@ -654,6 +654,35 @@ export const completeOAuthCallback = async (providerKey, code, state, callbackUr
         await prisma.integration.update({
           where: { id: connected.id },
           data: { accountLabel: data.email ?? data.name },
+        });
+      }
+    } catch { /* non-fatal */ }
+  }
+
+  if (p.key === 'hubspot') {
+    // The v1 path-based token endpoint (GET /oauth/v1/access-tokens/{token})
+    // is HubSpot's legacy API — their own changelog documents v3 introspect
+    // as its replacement, with a sunset timeline for v1 promised for Q1
+    // 2026. Confirmed against HubSpot's own OAuth v3 guide (2026-09-11):
+    // POST, form-encoded, needs client_id/client_secret (unlike the v1
+    // GET), returns hub_domain/hub_id/user. Non-fatal either way — a
+    // failure here just leaves accountLabel as the provider name.
+    try {
+      const res = await fetch('https://api.hubapi.com/oauth/v3/token/introspect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({
+          client_id: clientId(p) ?? '',
+          client_secret: clientSecret(p) ?? '',
+          token_type_hint: 'access_token',
+          access_token: tokenPayload.access_token,
+        }).toString(),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (data.hub_domain || data.user) {
+        await prisma.integration.update({
+          where: { id: connected.id },
+          data: { accountLabel: data.hub_domain ?? data.user },
         });
       }
     } catch { /* non-fatal */ }
