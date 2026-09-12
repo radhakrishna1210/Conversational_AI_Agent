@@ -54,7 +54,8 @@ export function handleTwilioMediaUpgrade(ws, { workspaceId, agentId, direction =
   /** Both legs, mixed to one WAV at hangup. See callRecordingTap.js. */
   const recording = createRecordingTap({ label: 'realtime phone call', startedAt });
 
-  const cleanup = (status) => {
+  /** `refused`: turned away by the wallet gate — closed out as 0 seconds served. */
+  const cleanup = (status, { refused = false } = {}) => {
     // First: a leaked 20ms interval would outlive the call permanently.
     // stop() is idempotent because cleanup() is reachable more than once.
     pump?.stop();
@@ -62,7 +63,7 @@ export function handleTwilioMediaUpgrade(ws, { workspaceId, agentId, direction =
     budget?.stop();
     session?.close();
     recording.save(callLogId);
-    if (status) finalizeCallLog(callLogId, status, { transcript, startedAt });
+    if (status) finalizeCallLog(callLogId, status, { transcript, startedAt, ...(refused ? { durationSec: 0 } : {}) });
   };
 
   ws.on('message', async (raw) => {
@@ -108,8 +109,11 @@ export function handleTwilioMediaUpgrade(ws, { workspaceId, agentId, direction =
               { workspaceId, agentId, callLogId, code: gate.code },
               `Realtime phone call refused: ${gate.code}`,
             );
-            // Nothing was served, so the ~0s duration settles as free.
-            cleanup('FAILED');
+            // Nothing was served — closed out as 0s explicitly. This comment used
+            // to say "the ~0s duration settles as free", but the clock ran from
+            // socket open through the gate's own round trips, and any duration
+            // above zero bills a full increment. See callFinalizer.
+            cleanup('FAILED', { refused: true });
             ws.close();
             return;
           }

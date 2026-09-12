@@ -70,14 +70,15 @@ export function handlePlivoMediaUpgrade(ws, { workspaceId, agentId, callLogId = 
   /** Both legs, mixed to one WAV at hangup. See callRecordingTap.js. */
   const recording = createRecordingTap({ label: 'Plivo phone call', startedAt });
 
-  const cleanup = (status) => {
+  /** `refused`: turned away by the wallet gate — closed out as 0 seconds served. */
+  const cleanup = (status, { refused = false } = {}) => {
     // First: a leaked 20ms interval would outlive the call permanently.
     pump?.stop();
     pump = null;
     budget?.stop();
     session?.close();
     recording.save(callLogId);
-    if (status) finalizeCallLog(callLogId, status, { transcript, startedAt });
+    if (status) finalizeCallLog(callLogId, status, { transcript, startedAt, ...(refused ? { durationSec: 0 } : {}) });
   };
 
   /**
@@ -144,7 +145,9 @@ export function handlePlivoMediaUpgrade(ws, { workspaceId, agentId, callLogId = 
               { workspaceId, agentId, callLogId, code: gate.code },
               `Plivo phone call refused: ${gate.code}`,
             );
-            cleanup('FAILED');
+            // Zero seconds served — not the second or two the gate itself took,
+            // which settleCall would bill as a full increment. See callFinalizer.
+            cleanup('FAILED', { refused: true });
             ws.close();
             return;
           }

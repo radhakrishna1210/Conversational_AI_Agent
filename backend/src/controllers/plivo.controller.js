@@ -30,7 +30,7 @@ import {
   handleComplianceCallback,
 } from '../services/plivo/compliance.service.js';
 import { subaccountCredentials } from '../services/plivo/subaccount.service.js';
-import { resolveInboundRoute } from '../services/plivo/inbound.service.js';
+import { resolveInboundRoute, inboundCallLogId, openInboundCallLog } from '../services/plivo/inbound.service.js';
 import {
   plivoProvider,
   buildStreamXml,
@@ -259,7 +259,8 @@ export async function answer(req, res) {
   // somebody placed TO one of our numbers names neither — every number in a
   // subaccount rings through the same application — so the number it rang is
   // what says who answers.
-  if (!workspaceId || !agentId) {
+  const routedInbound = !workspaceId || !agentId;
+  if (routedInbound) {
     const route = await resolveInboundRoute(field(req, 'To'));
     if (!route.ok) {
       logger.warn(
@@ -363,10 +364,45 @@ export async function answer(req, res) {
     direction: conversationDirection,
     engine,
   }));
-  if (callLogId) streamUrlObj.searchParams.set('callLogId', callLogId);
+  // ── An inbound call gets its call log here ───────────────────────────────
+  //
+  // The dialler pre-creates an outbound call's row and names it on this URL. An
+  // inbound call had no row at all — so no transcript, no charge and no post-call
+  // delivery; see openInboundCallLog. This endpoint is the first moment we know
+  // the call exists.
+  //
+  // NOT AWAITED, on purpose. Everything on this endpoint is silence on a line the
+  // caller is already holding, and an insert is a Supabase round trip (490-1400ms
+  // measured from this box — see the loadAgent note above). The id is derived
+  // from the CallUUID, so it can go on the stream URL before the row exists: the
+  // bridge only writes to it once media starts, and closes it out at hangup, by
+  // which time the insert has long landed. A retried fetch of this URL derives
+  // the same id and the insert is a no-op.
+  let streamCallLogId = callLogId;
+  if (!streamCallLogId && routedInbound) {
+    streamCallLogId = inboundCallLogId(callUuid);
+    if (streamCallLogId) {
+      openInboundCallLog({ workspaceId, agentId, callUuid, from: field(req, 'From'), to: field(req, 'To') })
+        .catch((err) => logger.error(
+          { workspaceId, agentId, callUuid, err: err.message },
+          'Plivo inbound call could not open its call log — it will not be recorded or billed',
+        ));
+    } else {
+      // Never refuse the caller over bookkeeping: the call goes ahead exactly as
+      // every inbound call did before this, and the gap is at least visible.
+      logger.error(
+        { workspaceId, agentId, to: field(req, 'To') },
+        'Plivo inbound call arrived with no usable CallUUID — it will not be recorded or billed',
+      );
+    }
+  }
+  if (streamCallLogId) streamUrlObj.searchParams.set('callLogId', streamCallLogId);
   const streamUrl = streamUrlObj.toString();
 
-  logger.info({ workspaceId, agentId, callUuid, callLogId }, 'Plivo answered a conversational call');
+  logger.info(
+    { workspaceId, agentId, callUuid, callLogId: streamCallLogId, direction: conversationDirection },
+    'Plivo answered a conversational call',
+  );
   return xml(res, buildStreamXml({ streamUrl }));
 }
 
@@ -375,6 +411,13 @@ export async function answer(req, res) {
 // Plivo's vocabulary for how a call ended. Only a call that was actually
 // answered has a Duration worth settling.
 const ANSWERED_STATES = new Set(['completed']);
+
+/**
+ * How long a hangup waits for an inbound call's row when it is not there yet.
+ * Comfortably above one Supabase write from this box (490-1400ms measured).
+ * Exported for tests, which do not want to sit through it.
+ */
+export const hangupTiming = { INBOUND_INSERT_GRACE_MS: 3000 };
 
 export async function hangup(req, res) {
   if (!(await signatureOk(req, '/hangup'))) return res.status(403).json({ error: 'Invalid signature' });
@@ -418,29 +461,48 @@ export async function hangup(req, res) {
     return;
   }
 
-  const callLogId = field(req, 'callLogId') || null;
+  // An outbound call names its call log on this URL, put there by the dialler.
+  // An inbound call cannot: its hangup URL belongs to the subaccount's shared
+  // application, not to the call. But its row was keyed on the CallUUID when
+  // answer() opened it, so the same derivation finds it again — and a call that
+  // was never routed (a number with no agent) simply has no row, and stops here.
+  const callUuid = field(req, 'CallUUID');
+  const namedCallLogId = field(req, 'callLogId') || null;
+  const callLogId = namedCallLogId || inboundCallLogId(callUuid);
   if (!callLogId) return;
 
   // The dial only ever learns Plivo's request_uuid; the CallUUID arrives here,
   // and it is the id Plivo's own call records carry. Recorded whether or not the
   // media bridge already closed this call out, because reconciliation matches on
-  // it. Not awaited — nothing below reads it.
-  const callUuid = field(req, 'CallUUID');
-  if (callUuid) {
+  // it. Not awaited — nothing below reads it. Outbound only: an inbound row was
+  // created with its CallUUID, and a derived id may name no row at all.
+  if (callUuid && namedCallLogId) {
     prisma.agentCallLog.update({ where: { id: callLogId }, data: { providerCallId: callUuid } })
       .catch((e) => logger.warn(`Plivo hangup could not record the CallUUID for ${callLogId}: ${e.message}`));
   }
 
-  const workspaceId = field(req, 'workspaceId');
-  const agentId = field(req, 'agentId');
   const hangupCause = field(req, 'HangupCauseName', 'hangup_cause_name');
   const duration = seconds;
 
   try {
-    const log = await prisma.agentCallLog.findUnique({
+    const findLog = () => prisma.agentCallLog.findUnique({
       where: { id: callLogId },
-      select: { status: true },
+      // workspaceId and agentId come from the ROW, not the query string: an
+      // inbound call's hangup URL carries neither, and finalizing with empty ids
+      // would bill the call but silently skip extraction and post-call delivery
+      // (both look the row up scoped by workspace and agent).
+      select: { status: true, workspaceId: true, agentId: true },
     });
+    let log = await findLog();
+    // answer() does not await an inbound call's insert (it would be dead air on
+    // a live line), so a caller who hangs up within a second or two of pickup can
+    // beat the row here — and a row nothing ever closes sits INITIATED forever.
+    // One short wait covers it. Plivo already has its 200; this is after the
+    // response. A call that was never routed has no row and simply stops.
+    if (!log && !namedCallLogId) {
+      await new Promise((resolve) => { setTimeout(resolve, hangupTiming.INBOUND_INSERT_GRACE_MS).unref?.(); });
+      log = await findLog();
+    }
     // The media bridge already closed this out on socket close. Re-finalizing
     // would duplicate the Sheets row / webhook / email for one call — the exact
     // thing callFinalizer's once-only guard exists to prevent, except that guard
@@ -449,8 +511,8 @@ export async function hangup(req, res) {
 
     const answered = ANSWERED_STATES.has(callState) && duration > 0;
     const finalize = createCallFinalizer({
-      workspaceId,
-      agentId,
+      workspaceId: log.workspaceId,
+      agentId: log.agentId,
       label: 'Plivo phone call',
     });
     await finalize(callLogId, answered ? 'COMPLETED' : 'FAILED', {

@@ -245,11 +245,15 @@ export default function CallLogs() {
                       <div className="rz-h3">{selected.assistant}</div>
                       <RzPill tone={statusTone(selected.status)}>{selected.outcome || selected.status}</RzPill>
                     </div>
-                    {/* No caller ID is recorded against a call yet, so there is
-                        no "from" to show — naming the channel is more useful
-                        than printing an empty arrow. */}
+                    {/* Names the channel and the customer's number. Inbound calls
+                        were once never logged, so this said "Outbound" for every
+                        phone call; a withheld caller has no number to show. */}
                     <div className="rz-mono" style={{ marginTop: 4 }}>
-                      {selected.direction === 'WEB' ? 'Browser call' : `Outbound → ${selected.to ?? '—'}`} ·{' '}
+                      {selected.direction === 'WEB'
+                        ? 'Browser call'
+                        : selected.direction === 'INBOUND'
+                          ? `Inbound ← ${selected.from ?? 'withheld number'}`
+                          : `Outbound → ${selected.to ?? '—'}`} ·{' '}
                       {selected.startedAt ? format(parseISO(selected.startedAt), 'MMM dd, yyyy · HH:mm') : '—'}
                     </div>
                   </div>

@@ -55,12 +55,18 @@ export async function extractWhenLlmHasHeadroom(workspaceId, agentId, callLogId,
  * @param {string} p.agentId
  * @param {string} p.label       names the bridge in log lines, e.g. 'Plivo phone call'
  * @returns {(callLogId: string|null, status: string, ctx: {transcript: Array,
- *            startedAt: number}) => Promise<void>}  safe to call repeatedly
+ *            startedAt: number, durationSec?: number}) => Promise<void>}  safe to call repeatedly
  */
 export function createCallFinalizer({ workspaceId, agentId, label }) {
   let finalized = false;
 
-  return async function finalizeCallLog(callLogId, status, { transcript = [], startedAt }) {
+  // `durationSec`, when given, is what was actually SERVED, and replaces the
+  // wall-clock time since `startedAt`. It exists for the wallet refusal: that
+  // check runs after the socket opens and after its own database round trips,
+  // so the elapsed time is a second or more — and settleCall bills any duration
+  // above zero as a full increment. A call refused for an empty wallet was being
+  // charged for being refused. The bridges pass 0 there; nothing else passes it.
+  return async function finalizeCallLog(callLogId, status, { transcript = [], startedAt, durationSec = null }) {
     if (!callLogId || finalized) return;
     finalized = true;
 
@@ -76,7 +82,9 @@ export function createCallFinalizer({ workspaceId, agentId, label }) {
         data: {
           status,
           transcript: JSON.stringify(transcript.slice(-200)),
-          durationSec: Math.round((Date.now() - startedAt) / 1000),
+          durationSec: Number.isFinite(durationSec)
+            ? Math.max(0, Math.round(durationSec))
+            : Math.round((Date.now() - startedAt) / 1000),
           endedAt: new Date(),
         },
       });

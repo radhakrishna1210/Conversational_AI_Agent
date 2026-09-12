@@ -12,15 +12,18 @@ import prisma from '../config/prisma.js';
 // source now. Three fields the old code selected simply do not exist in it, and
 // they are handled honestly rather than faked:
 //
-//   direction  → derived from `type`. There is no inbound calling yet; every
-//                phone call is one we placed.
+//   direction  → stored on the row since inbound Plivo calls began to be
+//                logged (migration 20260913000000_call_direction). WEB for
+//                browser calls. See directionOf.
 //   sentiment  → never scored. Returned as null, and the UI already renders
 //                "Not scored" for that.
 //   outcome    → not stored separately; derived from status where a label helps.
 //
-// `fromNumber` is also absent (see DIALING_HYGIENE_PLAN.md §12.1 — the same gap
-// blocks per-caller-ID health scoring). Until it is added, the caller side of a
-// call is unknown and is reported as such instead of guessed.
+// The two numbers on a phone call are `phoneNumber` (always the customer) and
+// `fromNumber` (always our own number), in both directions — so which one is
+// "from" depends on who dialled. See partiesOf. `fromNumber` is null on rows
+// dialled before the column existed; that side is then reported as unknown
+// rather than guessed.
 
 // ─── Date helpers ────────────────────────────────────────────────────────────
 
@@ -84,8 +87,27 @@ const baseWhere = (workspaceId, start, end, agentId) => ({
   ...(agentId && agentId !== 'all' ? { agentId } : {}),
 });
 
-/** PHONE_CALL is always one we placed; WEB_CALL is the browser widget. */
-const directionOf = (type) => (type === 'WEB_CALL' ? 'WEB' : 'OUTBOUND');
+/**
+ * WEB for the browser widget; for a phone call, the direction stored on it.
+ *
+ * This used to be `type === 'WEB_CALL' ? 'WEB' : 'OUTBOUND'`, on the stated
+ * grounds that nothing answered an incoming call — true until rented numbers
+ * took inbound calls, which were then served but never logged. A phone row with
+ * no direction predates the column and was dialled by us; the migration
+ * backfills those, so the fallback only covers a row written mid-deploy.
+ */
+export const directionOf = (call) => {
+  if (call?.type === 'WEB_CALL') return 'WEB';
+  return call?.direction === 'INBOUND' ? 'INBOUND' : 'OUTBOUND';
+};
+
+/** Who rang whom. The customer is phoneNumber and we are fromNumber, either way. */
+export const partiesOf = (call) => {
+  const direction = directionOf(call);
+  if (direction === 'INBOUND') return { from: call.phoneNumber ?? null, to: call.fromNumber ?? null };
+  if (direction === 'OUTBOUND') return { from: call.fromNumber ?? null, to: call.phoneNumber ?? null };
+  return { from: null, to: call.phoneNumber ?? null };
+};
 
 /** Billing is in paise on a rupee rate card. Report rupees. */
 const rupees = (billedCents) => Number(((billedCents || 0) / 100).toFixed(2));
@@ -143,7 +165,7 @@ export const getCallOverview = async (workspaceId, range = '7d', assistantId = n
   const [calls, agentsCount] = await prisma.$transaction([
     prisma.agentCallLog.findMany({
       where,
-      select: { durationSec: true, status: true, type: true, billedCents: true },
+      select: { durationSec: true, status: true, type: true, direction: true, billedCents: true },
     }),
     prisma.agent.count({ where: { workspaceId } }),
   ]);
@@ -153,7 +175,8 @@ export const getCallOverview = async (workspaceId, range = '7d', assistantId = n
   const avgDuration    = totalCalls > 0 ? totalDuration / totalCalls : 0;
   const completedCalls = calls.filter((c) => c.status === 'COMPLETED').length;
   const failedCalls    = calls.filter((c) => c.status === 'FAILED').length;
-  const phoneCalls     = calls.filter((c) => c.type === 'PHONE_CALL').length;
+  const inboundCalls   = calls.filter((c) => directionOf(c) === 'INBOUND').length;
+  const outboundCalls  = calls.filter((c) => directionOf(c) === 'OUTBOUND').length;
   const webCalls       = calls.filter((c) => c.type === 'WEB_CALL').length;
 
   // Trend vs the previous period of equal length.
@@ -174,10 +197,10 @@ export const getCallOverview = async (workspaceId, range = '7d', assistantId = n
     totalAssistants:    agentsCount,
     completedCalls,
     failedCalls,
-    // Zero is the truth, not a gap in the data: nothing in this product answers
-    // an incoming call yet. Phone calls are all outbound; web calls are neither.
-    inboundCalls:  0,
-    outboundCalls: phoneCalls,
+    // Web calls are neither. This was hardcoded `inboundCalls: 0` while rented
+    // numbers were quietly answering inbound calls nobody logged.
+    inboundCalls,
+    outboundCalls,
     webCalls,
     totalCost: rupees(calls.reduce((s, c) => s + (c.billedCents || 0), 0)),
     successRate: totalCalls > 0 ? Number(((completedCalls / totalCalls) * 100).toFixed(1)) : 0,
@@ -190,7 +213,7 @@ export const getCallTimeSeries = async (workspaceId, metric = 'volume', range = 
 
   const calls = await prisma.agentCallLog.findMany({
     where: baseWhere(workspaceId, start, end, assistantId),
-    select: { startedAt: true, durationSec: true, status: true, type: true, billedCents: true },
+    select: { startedAt: true, durationSec: true, status: true, type: true, direction: true, billedCents: true },
     orderBy: { startedAt: 'asc' },
   });
 
@@ -210,7 +233,9 @@ export const getCallTimeSeries = async (workspaceId, metric = 'volume', range = 
     if (metric === 'volume')   entry.value += 1;
     if (metric === 'duration') entry.value += call.durationSec || 0;
     if (metric === 'cost')     entry.value += rupees(call.billedCents);
-    if (call.type   === 'PHONE_CALL') entry.outbound  += 1;
+    const direction = directionOf(call);
+    if (direction === 'INBOUND')  entry.inbound  += 1;
+    if (direction === 'OUTBOUND') entry.outbound += 1;
     if (call.status === 'COMPLETED')  entry.completed += 1;
     if (call.status === 'FAILED')     entry.failed    += 1;
   });
@@ -340,11 +365,8 @@ export const getCallLogs = async (workspaceId, options = {}) => {
       id:                call.id,
       assistant:         names.get(call.agentId) || 'Unknown agent',
       assistantId:       call.agentId,
-      // No caller ID is recorded against a call yet, so there is nothing
-      // truthful to put here.
-      from:              null,
-      to:                call.phoneNumber,
-      direction:         directionOf(call.type),
+      ...partiesOf(call),
+      direction:         directionOf(call),
       type:              call.type,
       status:            call.status.toLowerCase(),
       duration:          call.durationSec,

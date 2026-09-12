@@ -573,9 +573,18 @@ model AgentCallLog {
   // dial time, replaced by the real CallUUID when the hangup callback lands).
   // Reconciliation matches carrier call records on providerCallId. Null for web
   // calls and for anything dialled before these columns existed.
+  //
+  // In BOTH directions `phoneNumber` is the customer and `fromNumber` is our
+  // own number on the call — so on an inbound call `fromNumber` is the rented
+  // number they rang, not literally the From leg. Post-call delivery reads
+  // phoneNumber as "the customer's number" and must not have to know which way
+  // the call went.
   provider           String?
   providerCallId     String?
   fromNumber         String?
+  // INBOUND | OUTBOUND for a PHONE_CALL; null for web calls and chats. Inbound
+  // Plivo calls get a row keyed on their CallUUID (see inboundCallLogId).
+  direction          String?
 
   @@index([workspaceId, agentId, startedAt])
   @@index([billingStatus, endedAt])

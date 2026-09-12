@@ -1594,7 +1594,13 @@ export function runModularMediaBridge(ws, {
     logger.info({ callLogId, target: avail.config.number, carrierCallId }, `${carrier.label}: live call redirected to the human`);
   };
 
-  const cleanup = (status) => {
+  /**
+   * @param {string|null} status
+   * @param {{ refused?: boolean }} [opts] `refused`: the wallet gate turned the
+   *   call away before anything was served, so it is closed out as 0 seconds
+   *   rather than as the time the refusal took (see callFinalizer).
+   */
+  const cleanup = (status, { refused = false } = {}) => {
     closed = true;
     abortTurn = true;
     speculator.abort();
@@ -1627,7 +1633,7 @@ export function runModularMediaBridge(ws, {
       logger.info({ callLogId }, `${carrier.label}: media socket closed for the handover — call log left open`);
       return;
     }
-    if (status) finalizeCallLog(callLogId, status, { transcript, startedAt });
+    if (status) finalizeCallLog(callLogId, status, { transcript, startedAt, ...(refused ? { durationSec: 0 } : {}) });
   };
 
   ws.on('message', async (raw) => {
@@ -1750,10 +1756,15 @@ export function runModularMediaBridge(ws, {
               role: 'system',
               content: `This call was refused before it started (${gate.code}): ${gate.message || ''}`.trim(),
             });
-            // FAILED, not COMPLETED: nothing was served. Duration is ~0, so
-            // settlement skips it as a zero-duration call and the caller is not
-            // charged for a call that never happened.
-            cleanup('FAILED');
+            // FAILED, not COMPLETED: nothing was served. And closed out as ZERO
+            // seconds, explicitly: this comment used to say the duration was
+            // "~0, so settlement skips it", but the clock started when the socket
+            // opened and this check sits behind its own database round trips, so
+            // it was a second or more — and any duration above zero bills a full
+            // increment. The workspace was charged for being refused. It matters
+            // more now that inbound calls have call logs: an empty wallet would
+            // otherwise be charged once for every customer who rang in.
+            cleanup('FAILED', { refused: true });
             ws.close();
             return;
           }

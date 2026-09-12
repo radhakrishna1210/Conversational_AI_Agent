@@ -124,14 +124,15 @@ export function handlePiopiyMediaUpgrade(ws, { workspaceId, agentId, sampleRate,
 
   const finalizeCallLog = createCallFinalizer({ workspaceId, agentId, label: 'PIOPIY phone call' });
 
-  const cleanup = (status) => {
+  /** `refused`: turned away by the wallet gate — closed out as 0 seconds served. */
+  const cleanup = (status, { refused = false } = {}) => {
     // First: a leaked interval would outlive the call permanently. stop() is
     // idempotent because cleanup() is reachable from both `close` and `error`.
     pacer?.stop();
     pacer = null;
     budget?.stop();
     session?.close();
-    if (status) finalizeCallLog(callLogId, status, { transcript, startedAt });
+    if (status) finalizeCallLog(callLogId, status, { transcript, startedAt, ...(refused ? { durationSec: 0 } : {}) });
   };
 
   /**
@@ -175,7 +176,8 @@ export function handlePiopiyMediaUpgrade(ws, { workspaceId, agentId, sampleRate,
         { workspaceId, agentId, callLogId, code: gate.code },
         `PIOPIY phone call refused: ${gate.code}`,
       );
-      cleanup('FAILED');
+      // Zero seconds served, not the time the gate took. See callFinalizer.
+      cleanup('FAILED', { refused: true });
       ws.close();
       return;
     }

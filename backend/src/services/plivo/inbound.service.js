@@ -50,6 +50,93 @@ export async function resolveInboundRoute(calledNumber) {
   return { ok: true, ...base, agentId: row.inboundAgentId };
 }
 
+/** Prisma's unique-constraint violation. */
+const isUniqueViolation = (err) => err?.code === 'P2002';
+
+/**
+ * Plivo CallUUIDs are hyphenated UUIDs. Anything else is refused rather than
+ * embedded in an id: call log ids end up in BullMQ job ids, where ':' is Redis's
+ * key separator and '__' is the job-id joiner (whatsappPostCall.queue.js).
+ */
+const CALL_UUID_RE = /^[A-Za-z0-9-]{8,64}$/;
+
+/**
+ * The call log id for an inbound Plivo call — derived from its CallUUID, not
+ * generated.
+ *
+ * That derivation is the whole idempotency story, and it needs no lookup and no
+ * new index:
+ *
+ *   - Plivo re-fetches the answer URL when a response is slow or fails, and every
+ *     fetch is the same call. A generated id would open a second call log for it,
+ *     and bill the customer twice.
+ *   - The hangup callback for an inbound call carries no callLogId — the
+ *     application's URL is shared by every number in the subaccount, so it cannot
+ *     name one — but it does carry the CallUUID, so it can find the row again.
+ *
+ * @returns {string|null} null when the request carries no usable CallUUID
+ */
+export function inboundCallLogId(callUuid) {
+  const uuid = String(callUuid ?? '').trim();
+  return CALL_UUID_RE.test(uuid) ? `plivo-in-${uuid}` : null;
+}
+
+/**
+ * Open the call log for a call placed TO one of our numbers.
+ *
+ * BEFORE THIS EXISTED an inbound call had no row at all. Only the dialler created
+ * one, the answer handler handed the bridge `callLogId: null`, and callFinalizer
+ * returns before settleCall() when there is no id — so every inbound minute was
+ * served free, with no transcript, no extracted variables and no post-call
+ * delivery. The wallet gate already ran at pickup (the media bridges check
+ * balance with concurrency:false); the charge simply had nowhere to land.
+ *
+ * Shaped like the dialler's row so every consumer reads it the same way:
+ * `phoneNumber` is the customer and `fromNumber` is our number, in both
+ * directions. Created INITIATED, as the dialler's is; the bridge moves it to
+ * IN_PROGRESS when media starts, and callFinalizer — or the hangup callback, if
+ * media never opened — closes it and bills it.
+ *
+ * Safe to call again for the same call: a repeat returns the existing id.
+ *
+ * @param {object} p
+ * @param {string} p.workspaceId
+ * @param {string} p.agentId
+ * @param {string} p.callUuid   Plivo's CallUUID
+ * @param {string} [p.from]     the caller, as Plivo sends it
+ * @param {string} [p.to]       the number they rang, as Plivo sends it
+ * @returns {Promise<{ id: string, created: boolean } | null>} null when there is
+ *   no CallUUID to key the row on
+ */
+export async function openInboundCallLog({ workspaceId, agentId, callUuid, from, to }) {
+  const id = inboundCallLogId(callUuid);
+  if (!id) return null;
+
+  try {
+    await prisma.agentCallLog.create({
+      data: {
+        id,
+        workspaceId,
+        agentId,
+        type: 'PHONE_CALL',
+        status: 'INITIATED',
+        direction: 'INBOUND',
+        // A withheld or SIP caller has no number; null, not a string of stray
+        // digits that post-call delivery would try to message.
+        phoneNumber: e164FromCarrier(from) || null,
+        fromNumber: e164FromCarrier(to) || null,
+        provider: 'PLIVO',
+        providerCallId: String(callUuid).trim(),
+      },
+    });
+    return { id, created: true };
+  } catch (err) {
+    // The same call arriving again. The row is already there; reuse it.
+    if (isUniqueViolation(err)) return { id, created: false };
+    throw err;
+  }
+}
+
 /** Set, or clear with a null agentId, the agent that answers a number. */
 export async function setInboundAgent(workspaceId, { numberId, agentId = null }) {
   const number = await prisma.voiceNumber.findFirst({ where: { id: numberId, workspaceId } });

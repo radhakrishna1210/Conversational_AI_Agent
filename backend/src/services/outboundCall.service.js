@@ -483,6 +483,9 @@ export async function placeOutboundCall({
         agentId: agent.id,
         type: 'PHONE_CALL',
         status: 'INITIATED',
+        // Inbound Plivo calls now have rows too (openInboundCallLog), so this is
+        // no longer implied by the row existing.
+        direction: 'OUTBOUND',
         phoneNumber: String(toNumber).slice(0, 32),
         // Which carrier carried this leg, and from which caller ID. Recorded at
         // creation rather than after the dial so a call that fails at the
