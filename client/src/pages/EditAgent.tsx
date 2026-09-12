@@ -368,6 +368,16 @@ const OUTBOUND_PHRASING_RE = new RegExp(
   'i',
 );
 
+/**
+ * Does this greeting announce that the AGENT is calling? "for calling" is taken
+ * out first: it is thanks, and "Thank you for calling to Sunrise Clinic" (common
+ * Indian English) otherwise matched `calling to` and was flagged as outbound
+ * wording on the Incoming tab. Not a regex lookbehind — Safari before 16.4 throws
+ * on one, and this pattern is built when the page loads. Mirrors
+ * readsAsOtherDirection() in agentRuntime.service.js.
+ */
+const announcesCall = (text: string) => OUTBOUND_PHRASING_RE.test(text.replace(/\bfor\s+calling\b/gi, 'for thanks'));
+
 
 const MicIcon = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--lime)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -4360,7 +4370,7 @@ export default function EditAgent() {
                     if (!v.trim()) return null;                      // empty is a choice, not a fault
                     if (isOffLanguage(v)) return 'language';
                     if (dir === 'OUTBOUND' && thanksForCalling(v)) return 'direction';
-                    if (dir === 'INBOUND' && OUTBOUND_PHRASING_RE.test(v)) return 'direction';
+                    if (dir === 'INBOUND' && announcesCall(v)) return 'direction';
                     return null;
                   };
                   return (
@@ -4416,7 +4426,7 @@ export default function EditAgent() {
                   },
                 ]).filter(({ dir }) => dir === welcomeTab).map(({ dir, label, value, set, hint, placeholder }) => {
                   const thanksMismatch = dir === 'OUTBOUND' && thanksForCalling(value);
-                  const callingMismatch = dir === 'INBOUND' && OUTBOUND_PHRASING_RE.test(value);
+                  const callingMismatch = dir === 'INBOUND' && announcesCall(value);
                   const offLanguage = isOffLanguage(value);
                   return (
                     <div key={dir} style={{ marginBottom: '16px' }}>

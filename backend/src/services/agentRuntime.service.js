@@ -555,7 +555,14 @@ const OUTBOUND_PHRASING_RE = new RegExp([
 export function readsAsOtherDirection(text, callDirection) {
   const s = String(text || '');
   if (callDirection === 'OUTBOUND') return THANKS_FOR_CALLING_RE.test(s) || THANKS_FOR_CALLING_INDIC_RE.test(s);
-  if (callDirection === 'INBOUND') return OUTBOUND_PHRASING_RE.test(s);
+  // "for calling" is thanks, not an announcement: "Thank you for calling to
+  // Sunrise Clinic" and "thanks for calling from your registered number" are
+  // ordinary INBOUND greetings (the first is common Indian English), yet
+  // `calling to/from` matched them and swapped a working greeting for the
+  // neutral one. Removed before testing rather than with a regex lookbehind, so
+  // this and the editor's copy stay identical (older Safari cannot parse
+  // lookbehind, and the editor builds its pattern on page load).
+  if (callDirection === 'INBOUND') return OUTBOUND_PHRASING_RE.test(s.replace(/\bfor\s+calling\b/gi, 'for thanks'));
   return false;
 }
 

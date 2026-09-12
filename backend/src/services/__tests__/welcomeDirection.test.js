@@ -70,6 +70,18 @@ describe('an inbound call never opens with the outbound pitch', () => {
     assert.equal(out.source, 'neutral');
   });
 
+  test('"Thank you for calling to Sunrise Clinic" is thanks, not an announcement — the older greeting stays', () => {
+    // Common Indian English. `calling to` alone used to classify it as outbound
+    // wording and replace a greeting that was right for inbound callers.
+    const greeting = 'Thank you for calling to Sunrise Clinic, how may I help you?';
+    const agent = agentRow({ welcomeMessage: greeting });
+    assert.deepEqual(resolveWelcome(agent, JSON.parse(agent.settings), 'INBOUND'), { text: greeting, source: 'legacy' });
+    assert.equal(readsAsOtherDirection('Thanks for calling from your registered number.', 'INBOUND'), false);
+    // …while an actual announcement is still caught, with or without "for" nearby.
+    assert.equal(readsAsOtherDirection('Hi, this is Anjali calling from Sunrise Hospital.', 'INBOUND'), true);
+    assert.equal(readsAsOtherDirection('Thanks for your time. I am calling from Sunrise Hospital.', 'INBOUND'), true);
+  });
+
   test('the Marathi "कॉल करत आहे" counts as announcing a call', () => {
     assert.equal(readsAsOtherDirection('नमस्कार, मी सनराइज़ हॉस्पिटलमधून कॉल करत आहे', 'INBOUND'), true);
   });
