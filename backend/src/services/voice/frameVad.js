@@ -62,34 +62,50 @@ export function createFrameVad({ now = () => performance.now(), absoluteMinRms =
     return Math.sqrt(acc / n);
   };
 
+  /**
+   * The decision itself, on an already-computed RMS.
+   *
+   * Split out from push() for the phone bridge, which takes an RMS off every
+   * inbound frame anyway (for barge-in and the noise floor) and holds its
+   * samples as an Int16Array rather than a Buffer. Making it re-walk 160
+   * samples through rmsOf() — per frame, per call, on a 2-vCPU box — to
+   * recompute a number it already has would be pure waste, and converting the
+   * Int16Array to a Buffer just to satisfy the signature invites the kind of
+   * byteOffset bug telephonyAudio.js already documents.
+   *
+   * @param {number} rms 0..1, i.e. int16 RMS divided by 32768
+   */
+  const pushRms = (rms) => {
+    const t = now();
+    frames += 1;
+    const voiced = rms > absoluteMinRms && rms > floor * floorRatio;
+    if (voiced) {
+      voicedFrames += 1;
+      voicedRun += 1;
+      if (voicedRun >= ONSET_FRAMES) {
+        if (!speaking) { speaking = true; speechStartedAt = t; }
+        lastVoicedAt = t;
+      }
+    } else {
+      voicedRun = 0;
+      // Only quiet frames teach the floor, and mostly downward: a floor
+      // that chased speech upward would eventually call speech "noise".
+      floor = rms < floor ? floor + (rms - floor) * FLOOR_DOWN : floor + (rms - floor) * FLOOR_UP;
+      if (floor < absoluteMinRms / 4) floor = absoluteMinRms / 4;
+      if (speaking && lastVoicedAt != null && t - lastVoicedAt > 0) speaking = false;
+    }
+    return { rms, voiced, speaking, floor };
+  };
+
   return {
     /**
      * Feed one inbound frame. Returns what was decided for it.
      * @param {Buffer} buf PCM16LE mono
      * @returns {{ rms: number, voiced: boolean, speaking: boolean, floor: number }}
      */
-    push(buf) {
-      const rms = rmsOf(buf);
-      const t = now();
-      frames += 1;
-      const voiced = rms > absoluteMinRms && rms > floor * floorRatio;
-      if (voiced) {
-        voicedFrames += 1;
-        voicedRun += 1;
-        if (voicedRun >= ONSET_FRAMES) {
-          if (!speaking) { speaking = true; speechStartedAt = t; }
-          lastVoicedAt = t;
-        }
-      } else {
-        voicedRun = 0;
-        // Only quiet frames teach the floor, and mostly downward: a floor
-        // that chased speech upward would eventually call speech "noise".
-        floor = rms < floor ? floor + (rms - floor) * FLOOR_DOWN : floor + (rms - floor) * FLOOR_UP;
-        if (floor < absoluteMinRms / 4) floor = absoluteMinRms / 4;
-        if (speaking && lastVoicedAt != null && t - lastVoicedAt > 0) speaking = false;
-      }
-      return { rms, voiced, speaking, floor };
-    },
+    push(buf) { return pushRms(rmsOf(buf)); },
+    /** Same decision, for a caller that already has the frame's RMS. */
+    pushRms,
     /** ms since the last voiced frame, or null if nothing voiced yet this turn. */
     silenceMs() { return lastVoicedAt == null ? null : now() - lastVoicedAt; },
     /** Has any speech been heard this turn? */

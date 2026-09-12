@@ -95,6 +95,7 @@ import {
   greetingSynthesisOpts,
 } from '../services/voice/greetingAudio.js';
 import { turnEndProfileFor } from '../services/voice/turnEndProfile.js';
+import { createFrameVad } from '../services/voice/frameVad.js';
 import { createPlayoutWindow } from '../services/voice/playoutWindow.js';
 import { createEchoCanceller } from '../services/voice/echoCanceller.js';
 import { createUlawPacer } from '../services/voice/ulawPacer.js';
@@ -313,6 +314,28 @@ export function runModularMediaBridge(ws, {
   // services/voice/speculativeTurn.js). Rebuilt once the agent's settings are
   // known; a no-op stands in until then so the hooks below stay unconditional.
   let speculator = createSpeculator({ mode: 'off', start: () => { throw new Error('unused'); } });
+  /**
+   * The bridge's own view of when the CALLER stopped making sound.
+   *
+   * Deepgram's speech_final is the only end-of-speech signal this transport had,
+   * and it trails the caller's last voiced frame by ~1.2-1.4s (measured on the
+   * web path, scripts/measure-webcall.mjs — the recogniser's decode/transport
+   * lag, which nothing here can shorten). The web handler has had this detector
+   * since it was written; the phone bridge never did, so every phone turn armed
+   * its speculative LLM request a full second later than the same agent's web
+   * turn and could only hide `graceMs` of the model's first token — 400ms, and
+   * just 150ms on a sentence that reads as finished.
+   *
+   * Nothing about the TURN BOUNDARY changes here. This only decides who notices
+   * the silence first; Deepgram still commits the turn, still runs the tiered
+   * grace window, and a speculation whose text does not match the committed
+   * transcript is discarded exactly as before. See speculativeTurn.js's rules.
+   */
+  const callerVad = createFrameVad();
+  /** One speculation per silence — re-armed when the caller speaks again. */
+  let localSilenceSpeculated = false;
+  /** The profile's endpointing window, cached by openDeepgram. */
+  let localEndpointMs = null;
   const startedAt = Date.now();
 
   // Turn state
@@ -1030,6 +1053,12 @@ export function runModularMediaBridge(ws, {
       // loaded, so the profile here is the caller's agent, not a default.
       ...(() => {
         const profile = turnEndProfileFor(settings);
+        // Cached here, and ONLY here, so the local detector waits exactly as
+        // long as the recogniser was told to. Reading the profile per inbound
+        // frame would rebuild this object 50x/second/call, and letting the two
+        // drift apart is how a "fast" agent ends up speculating on a window it
+        // was never configured for.
+        localEndpointMs = profile.endpointingMs;
         return {
           endpointingMs: profile.endpointingMs,
           endpointGraceMs: profile.graceMs,
@@ -1163,6 +1192,11 @@ export function runModularMediaBridge(ws, {
     if (dg && dg.isAlive) dgTurnSeq = dg.beginTurn();
     else openDeepgram();
     speculator.beginTurn();
+    // New listening segment. resetTurn() forgets the previous turn's speech but
+    // KEEPS the learned noise floor, which is a property of the line rather
+    // than of the turn and costs ~500ms of frames to relearn.
+    callerVad.resetTurn();
+    localSilenceSpeculated = false;
 
     // ── How long this bridge was deaf, which nothing measured ────────────
     //
@@ -1992,6 +2026,32 @@ export function runModularMediaBridge(ws, {
         } catch { /* session died; next attempt recreates */ }
 
         const rms = pcmRms(pcm);
+
+        // ── Did the caller just stop talking? ───────────────────────────────
+        //
+        // Fed the SAME echo-cancelled samples everything else below sees, and
+        // the RMS already computed for barge-in rather than a second pass over
+        // the frame. pcmRms is on the int16 scale; frameVad thinks in 0..1.
+        //
+        // Gated exactly like the Deepgram hooks in openDeepgram: while we are
+        // audible the inbound leg is our own reply (or over-talk, which
+        // harvestOverlap owns), and neither is a question worth pre-answering.
+        const voicedNow = callerVad.pushRms(rms / 32768).voiced;
+        if (voicedNow) localSilenceSpeculated = false;
+        if (!playout.isSpeaking() && !turnRunning && !localSilenceSpeculated
+          && localEndpointMs != null && callerVad.heardSpeech()
+          && callerVad.silenceMs() >= localEndpointMs) {
+          // Speculate only. The turn boundary stays Deepgram's to call, so a
+          // caller who is only drawing breath is protected by the tiered grace
+          // window exactly as before — this just stops the model starting a
+          // second late. A guess that does not match the committed transcript
+          // is discarded by take(), so the worst case is one wasted request.
+          const soFar = dg?.turnTextSoFar();
+          if (soFar) {
+            localSilenceSpeculated = true;
+            speculator.onCandidate(soFar);
+          }
+        }
 
         // Capture only while the caller is the one who could be talking: not
         // during our own playout (that is echo, not the caller) and not while a

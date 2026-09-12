@@ -68,4 +68,49 @@ describe('createFrameVad', () => {
     assert.equal(vad.heardSpeech(), false);
     assert.equal(vad.noiseFloor(), floor);
   });
+
+  // The phone bridge drives the detector through pushRms(), because it already
+  // took an RMS off the frame for barge-in and holds its samples as an
+  // Int16Array. If the two entry points could disagree, a phone call would
+  // endpoint differently from a web call on identical audio — the exact
+  // divergence wiring the detector into the bridge was meant to remove.
+  test('pushRms decides identically to push, frame for frame', () => {
+    const rmsOf = (buf) => {
+      let acc = 0;
+      const n = buf.length >> 1;
+      for (let i = 0; i < buf.length - 1; i += 2) {
+        const v = buf.readInt16LE(i) / 32768;
+        acc += v * v;
+      }
+      return Math.sqrt(acc / n);
+    };
+
+    const cA = clock();
+    const cB = clock();
+    const viaBuf = createFrameVad({ now: cA.now });
+    const viaRms = createFrameVad({ now: cB.now });
+
+    // A realistic turn: room tone, speech, then the pause we speculate on.
+    const script = [
+      ...Array.from({ length: 30 }, (_, i) => [0.015, i]),
+      ...Array.from({ length: 20 }, (_, i) => [0.25, 100 + i]),
+      ...Array.from({ length: 25 }, (_, i) => [0.015, 300 + i]),
+    ];
+
+    for (const [amp, seed] of script) {
+      const f = frame(amp, seed);
+      const a = viaBuf.push(f);
+      const b = viaRms.pushRms(rmsOf(f));
+      assert.equal(b.voiced, a.voiced);
+      assert.equal(b.speaking, a.speaking);
+      assert.equal(b.floor, a.floor);
+      cA.tick(); cB.tick();
+    }
+
+    assert.equal(viaRms.heardSpeech(), viaBuf.heardSpeech());
+    assert.equal(viaRms.silenceMs(), viaBuf.silenceMs());
+    assert.equal(viaRms.lastVoicedAt(), viaBuf.lastVoicedAt());
+    // And the pause is long enough that the bridge would have speculated.
+    assert.ok(viaRms.silenceMs() >= 300, 'a 500ms pause clears the balanced endpointing window');
+  });
 });

@@ -151,7 +151,27 @@ decode, no added per-frame cost of consequence — `frameVad` is ~2 µs/frame
 
 What is missing is the ~12 lines that read `silenceMs()` and call the speculator.
 
-### Sketch
+### Shipped, 12 Sep 2026
+
+Implemented as described below. `frameVad` gained a `pushRms()` entry point so
+the bridge feeds it the RMS it already computes for barge-in rather than walking
+the same 160 samples twice, and so nothing has to convert the bridge's
+`Int16Array` into a `Buffer` to satisfy `push()`'s signature. `push(buf)` now
+delegates to it, so the web path is unchanged by construction.
+
+The endpointing window is cached in `openDeepgram`, next to — and from — the
+same `turnEndProfileFor(settings)` call that configures the recogniser, so the
+local detector and Deepgram cannot be told different numbers. `armNextTurn`
+resets the detector alongside `speculator.beginTurn()`, keeping the learned
+noise floor (a property of the line, not the turn, and ~500ms of frames to
+relearn).
+
+*Test: `pushRms` decides identically to `push`, frame for frame, across a
+room-tone → speech → pause script — because if the two entry points could
+disagree, a phone call would endpoint differently from a web call on identical
+audio, which is the divergence this whole change exists to remove.*
+
+### Sketch (as implemented)
 
 ```js
 // modularMediaBridge.js — with the other voice imports
@@ -275,14 +295,68 @@ correct as written.
 
 ---
 
+## 5b. The configuration half — why it was fast once and is not now
+
+§1–§4 explain why the **phone** is slower than the **browser**. They do not
+explain why the whole pipeline was faster when telephony was first integrated
+and is slower now. That is a separate regression, it is in configuration, and it
+hits both channels equally.
+
+**The knowledge-base prompt budget was raised 8×.** `agentRuntime.service.js:261-263`:
+
+```js
+const KB_PER_FILE_CHARS = Number(process.env.KB_PER_FILE_CHARS || 48_000);
+const KB_TOTAL_CHARS    = Number(process.env.KB_TOTAL_CHARS    || 96_000);
+const KB_VOICE_CHARS    = Number(process.env.KB_VOICE_CHARS    || 48_000);
+```
+
+The comment above them records that these **were 6,000 / 24,000**, raised
+because a 140 KB knowledge base was contributing 4% of itself and the agent was
+answering "I don't have that information" about documented facts. The cost of
+the cure is written down two hundred lines later, at `:888`: **prompt size
+drives TTFT hard on this pipeline — measured, 12k chars → 1399 ms, 48k chars →
+3738 ms.**
+
+Nothing set them, so every voice turn pasted up to 48,000 chars. An agent with
+no KB pays nothing, which is exactly why this was invisible at integration time
+and appeared later, with no commit that looks like a latency change. Implicit
+caching absorbs it from turn 2, so the symptom is *the first reply of a call is
+slow* — and on a short test call that is most of the impression.
+
+Also found, and now fixed in `.env.vps.example`:
+
+* **ElevenLabs was pinned to its slowest tier** on the deployed box —
+  `eleven_multilingual_v2`, which is *also* the code's fallback
+  (`elevenlabs.provider.js:22`), while the dev box has run `eleven_turbo_v2_5`
+  all along. A web call measured locally was being compared against a phone call
+  synthesized by a slower model. Now `eleven_turbo_v2_5` +
+  `ELEVENLABS_STREAMING_LATENCY=3`.
+* **`DEEPGRAM_ENDPOINTING_MS` / `DEEPGRAM_UNFINISHED_GRACE_MS` were dead config.**
+  `turnEndProfile.js:106` returns before the env overrides apply for any agent
+  that picked a response speed in the editor — and both were set to exactly the
+  Balanced values such an agent would get anyway. They read like live tuning
+  knobs and did nothing. Commented out, with the profile numbers written next to
+  them instead.
+* **A `-free` Fish model id disables token streaming entirely**
+  (`fishaudio.provider.js:57`), dropping every Fish voice onto per-sentence HTTP
+  with nothing in the logs naming it. The dev box carries `s2.1-pro-free` and the
+  template says `<COPY_FROM_LOCAL>`, so this was one copy-paste away. Warned
+  against in place.
+
+**`.env.vps.example` is a template, not the running config.** PM2 starts the API
+with `--env-file=.env`, a symlink to `${APP_ROOT}/shared/.env`. Editing the
+template changes nothing until those values are put into the live file.
+
 ## 6. Do these in this order
 
 1. **Take the measurement above.** One phone turn and one web turn on the same
    agent, from the Mumbai box, not a tunnel. Everything below is arithmetic until
    this exists — the same caveat round 1 ended on, and it is still the honest
    statement.
-2. **Wire `frameVad` into the phone bridge** (§3). ~12 lines, provider-agnostic,
+2. **Wire `frameVad` into the phone bridge** (§3) — **DONE**. Provider-agnostic,
    cannot regress correctness. *Expected: 500–750 ms off every phone turn.*
+2b. **Put §5b's values into the VPS's live `shared/.env`** — the KB budget first;
+   it is the larger number and it is not phone-specific.
 3. **Re-measure.** Confirm `specLeadMs` moved and `specWasted` did not explode.
 4. **Then reconsider the deaf window** (§4A) with real numbers, now that the AEC
    makes listening-through-speech viable.
