@@ -144,6 +144,13 @@ export async function placeBroadcastCall({
         ringTimeoutSec: RING_TIMEOUT_SEC,
         // Twilio's completed-call webhook.
         statusCallbackUrl: twilioStatusCallbackUrl(recipientId),
+        // Load-bearing for a call dialled AS a subaccount: Plivo then signs the
+        // answer and hangup callbacks with that SUBACCOUNT's token, and the only
+        // way the webhook can find the token to verify against is the workspace
+        // on the query string. Without it every broadcast from a rented Indian
+        // number is refused as forged and the callee hears nothing at all — the
+        // callee's own number is on `To`, which identifies nobody.
+        workspaceId,
         // Plivo has no per-call parameters of our choosing, so its identity
         // rides on the answer/hangup query string.
         query: { broadcastRecipientId: recipientId },

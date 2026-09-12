@@ -60,6 +60,7 @@ import { createSpeculator, speculationModeFor } from '../services/voice/speculat
 import {
   transferAvailability, transferLiveCall, registerPendingTransfer, failureLineFor,
 } from '../services/telephony/transfer.service.js';
+import { subaccountCredentials } from '../services/plivo/subaccount.service.js';
 import { resolveAgentVoice, streamSynthesizeVoice } from '../services/voice.service.js';
 import {
   DeepgramStreamSession,
@@ -1515,9 +1516,21 @@ export function runModularMediaBridge(ws, {
       return dir === 'OUTBOUND' ? carrierNumbers?.from : carrierNumbers?.to;
     })();
     await updateTransfer(row, { status: 'DIALING', dialedAt: new Date() });
+    // The account that PLACED this call has to be the one that redirects it: a
+    // call dialled as a subaccount is owned by that subaccount, and the main
+    // account cannot see it at all — `/Account/{MAIN}/Call/{uuid}/` 404s, so the
+    // transfer would fail for exactly the Indian calls that use subaccounts.
+    // Null (no subaccount, or the lookup failed) falls back to the main account,
+    // which is right for every Twilio call and any Plivo number we hold directly.
+    const carrierCreds = carrier.id === 'PLIVO'
+      ? await subaccountCredentials(workspaceId).catch((e) => {
+        logger.warn({ callLogId, err: e.message }, 'transfer: could not read subaccount credentials');
+        return null;
+      })
+      : null;
     const result = await transferLiveCall({
       carrierId: carrier.id, carrierCallId, callLogId, workspaceId, agentId,
-      config: avail.config, callerId: ourNumber ?? null,
+      config: avail.config, callerId: ourNumber ?? null, credentials: carrierCreds,
     });
     if (!result.ok) {
       logger.warn({ callLogId, error: result.error }, `${carrier.label}: transfer redirect refused`);

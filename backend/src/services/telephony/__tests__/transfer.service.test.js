@@ -210,6 +210,56 @@ describe('transferLiveCall', () => {
     assert.ok(r.document.includes('callerId="+912212345678"'));
   });
 
+  test('Plivo: a call placed as a subaccount is redirected AS that subaccount', async () => {
+    // A call belongs to the account that placed it. Asking
+    // /Account/{MAIN}/Call/{uuid}/ to redirect a subaccount's call 404s — the
+    // main account cannot see it — so a transfer would fail for exactly the
+    // Indian calls that use subaccounts, which is all of them.
+    process.env.PLIVO_AUTH_ID = 'MAxxx'; process.env.PLIVO_AUTH_TOKEN = 'main-tok';
+    const { f, calls } = fakeFetch([{ ok: true, status: 202, body: '{}' }]);
+    const r = await transferLiveCall({
+      ...base, carrierId: 'PLIVO', carrierCallId: 'uuid-2', callerId: '+912212345678',
+      credentials: { authId: 'SAsub', authToken: 'sub-tok' }, fetchImpl: f,
+    });
+    assert.equal(r.ok, true, r.error);
+    assert.ok(calls[0].url.endsWith('/Account/SAsub/Call/uuid-2/'), calls[0].url);
+    assert.equal(
+      calls[0].init.headers.Authorization,
+      `Basic ${Buffer.from('SAsub:sub-tok').toString('base64')}`,
+    );
+  });
+
+  test('Plivo: the caller-id lookup uses the same account as the redirect', async () => {
+    // Same 404 applies to the GET that finds our own number for the <Dial>.
+    process.env.PLIVO_AUTH_ID = 'MAxxx'; process.env.PLIVO_AUTH_TOKEN = 'main-tok';
+    const { f, calls } = fakeFetch([
+      { ok: true, status: 200, body: JSON.stringify({ from_number: '+912212345678', to_number: '+919000000000', call_direction: 'outbound' }) },
+      { ok: true, status: 202, body: '{}' },
+    ]);
+    const r = await transferLiveCall({
+      ...base, carrierId: 'PLIVO', carrierCallId: 'uuid-3',
+      credentials: { authId: 'SAsub', authToken: 'sub-tok' }, fetchImpl: f,
+    });
+    assert.equal(r.ok, true, r.error);
+    assert.equal(calls.length, 2);
+    assert.ok(calls[0].url.endsWith('/Account/SAsub/Call/uuid-3/'), 'lookup on the subaccount');
+    assert.ok(calls[1].url.endsWith('/Account/SAsub/Call/uuid-3/'), 'redirect on the subaccount');
+    assert.ok(r.document.includes('callerId="+912212345678"'), 'outbound: present the number we dialled from');
+  });
+
+  test('Plivo: no subaccount falls back to the main account', async () => {
+    // Every Twilio call, and any Plivo number the main account holds directly
+    // (PLIVO_FROM_NUMBER, a number recorded by hand).
+    process.env.PLIVO_AUTH_ID = 'MAxxx'; process.env.PLIVO_AUTH_TOKEN = 'main-tok';
+    const { f, calls } = fakeFetch([{ ok: true, status: 202, body: '{}' }]);
+    const r = await transferLiveCall({
+      ...base, carrierId: 'PLIVO', carrierCallId: 'uuid-4', callerId: '+912212345678',
+      credentials: null, fetchImpl: f,
+    });
+    assert.equal(r.ok, true, r.error);
+    assert.ok(calls[0].url.endsWith('/Account/MAxxx/Call/uuid-4/'));
+  });
+
   test('a network failure is an honest failure', async () => {
     process.env.TWILIO_ACCOUNT_SID = 'ACxxx'; process.env.TWILIO_AUTH_TOKEN = 'tok';
     const f = async () => { throw new Error('ECONNRESET'); };
