@@ -8,7 +8,9 @@ import { assertPublicHttpUrl } from '../lib/safeUrl.js';
 import { appendCallRow } from '../services/googleSheets.service.js';
 import { createEvent, resolveAppointmentStart } from '../services/googleCalendar.service.js';
 import { getBinding } from '../services/whatsappTemplates.service.js';
-import { sendWhatsAppConfirmation, buildPositionalVariables } from '../services/whatsappPostCall.service.js';
+import {
+  sendWhatsAppConfirmation, buildPositionalVariables, resolveRecipient, recordWhatsAppSendFailure,
+} from '../services/whatsappPostCall.service.js';
 import { enqueueWhatsAppSend } from '../queues/whatsappPostCall.queue.js';
 import { getWalletRate, setWalletRate, WALLET_RATE_PLAN } from '../services/billing/walletRate.js';
 import { listBuckets, createBucket, updateBucket, deleteBucket } from '../services/billing/pricingBuckets.js';
@@ -290,7 +292,11 @@ export const executePostCall = async (agentId, workspaceId, payload) => {
               'Duration (s)': payload.durationSec ?? '',
               'Phone number': payload.phoneNumber ?? '',
             },
-            variables,
+            // Built-in call facts are left out: the sheet already records the
+            // number, duration and time in the columns above, and passing them
+            // would append five duplicate columns to every existing customer
+            // sheet on its next call. A variable the agent DEFINES keeps its column.
+            variables: variables.filter((v) => !v?.builtin),
             upsertColumn: payload.callId ? 'Call ID' : undefined,
           },
           cfg.spreadsheetTab || undefined,
@@ -346,9 +352,27 @@ export const executePostCall = async (agentId, workspaceId, payload) => {
         // never happened is what earns Meta quality complaints.
         const findVar = (key) => variables.find((v) => String(v.key).toLowerCase() === String(key ?? '').toLowerCase());
 
+        // A refusal is recorded against the call as well as returned, so Recent
+        // Calls shows WHY no confirmation went out (recordWhatsAppSendFailure).
+        // Only for a real call: "Test delivery" has no call to attach it to, and
+        // already shows its result in the editor.
+        const refuse = async (error, extra = {}) => {
+          results.push({ method: 'whatsapp', ok: false, ...extra, error });
+          if (payload.callId) {
+            await recordWhatsAppSendFailure(workspaceId, { callLogId: payload.callId, postCallConfigId: cfg.id, reason: error });
+          }
+        };
+
         const triggerKey = String(cfg.triggerVariable ?? '').trim();
         if (!triggerKey) {
-          results.push({ method: 'whatsapp', ok: false, error: 'No trigger variable is set, so this message would fire on every call. Choose the variable that means the booking happened.' });
+          await refuse('No trigger variable is set, so this message would fire on every call. Choose the variable that means the booking happened.');
+          continue;
+        }
+        // The trigger exists to mean "the booking happened". A built-in call fact
+        // is filled on every phone call regardless, so as a trigger it is the same
+        // mistake as having none — every enquiry gets a booking confirmation.
+        if (findVar(triggerKey)?.builtin) {
+          await refuse(`"${triggerKey}" is filled in from the call itself, so it would send on every phone call. Choose a value that is only captured when the booking actually happened.`);
           continue;
         }
         const triggerValue = findVar(triggerKey)?.value;
@@ -359,7 +383,7 @@ export const executePostCall = async (agentId, workspaceId, payload) => {
 
         const binding = await getBinding(workspaceId, cfg.whatsappBindingId);
         if (!binding) {
-          results.push({ method: 'whatsapp', ok: false, error: 'No WhatsApp template is linked to this destination' });
+          await refuse('No WhatsApp template is linked to this destination');
           continue;
         }
         // ChatFlow's public send path does not check approval before forwarding to
@@ -367,26 +391,35 @@ export const executePostCall = async (agentId, workspaceId, payload) => {
         // back as an opaque Graph API error. Check it here, and treat it as
         // permanent-for-now: a Meta review runs for days, so retrying is pointless.
         if (binding.status !== 'APPROVED') {
-          results.push({
-            method: 'whatsapp',
-            ok: false,
-            permanent: true,
-            error: binding.status === 'REJECTED'
+          await refuse(
+            binding.status === 'REJECTED'
               ? `Meta rejected this template${binding.rejectedReason ? `: ${binding.rejectedReason}` : ''}`
               : 'Template is still awaiting Meta approval, so nothing was sent',
-          });
+            { permanent: true },
+          );
           continue;
         }
 
         const built = buildPositionalVariables(cfg.variableMapping, findVar);
         if (!built.ok) {
-          results.push({ method: 'whatsapp', ok: false, error: `Nothing was captured for ${built.missing.join(', ')}` });
+          await refuse(`Nothing was captured for ${built.missing.join(', ')}`);
           continue;
         }
 
-        // A phone call carries the caller's number; a web call has none, which is
-        // what recipientVariable is for — the agent can collect one on the web.
-        const recipient = cfg.recipientVariable ? findVar(cfg.recipientVariable)?.value : payload.phoneNumber;
+        // Resolved BEFORE queueing. This used to hand `to: undefined` to the
+        // queue and report `queued: true`; the worker then threw the job away as
+        // unrecoverable, leaving no row and no visible error — a confirmation
+        // that silently never existed. See resolveRecipient for the fallback.
+        const recipientPick = resolveRecipient({
+          recipientVariable: cfg.recipientVariable,
+          findVar,
+          callPhoneNumber: payload.phoneNumber,
+        });
+        if (!recipientPick.to) {
+          await refuse(recipientPick.reason, { permanent: true });
+          continue;
+        }
+        const recipient = recipientPick.to;
         const sendArgs = {
           to: recipient,
           templateName: binding.chatflowName,
@@ -406,13 +439,16 @@ export const executePostCall = async (agentId, workspaceId, payload) => {
         // null without it — send inline in that case rather than reporting a
         // message queued that nothing will ever pick up.
         const job = await enqueueWhatsAppSend({ workspaceId, ...sendArgs });
+        // recipientSource says whether the number came from what the customer
+        // said ('variable') or from the call itself ('call').
         if (job) {
-          results.push({ method: 'whatsapp', target: String(recipient ?? ''), ok: true, queued: true });
+          results.push({ method: 'whatsapp', target: recipient, recipientSource: recipientPick.source, ok: true, queued: true });
         } else {
           const sent = await sendWhatsAppConfirmation(workspaceId, sendArgs);
           results.push({
             method: 'whatsapp',
-            target: sent.duplicate ? 'already sent' : String(recipient ?? ''),
+            target: sent.duplicate ? 'already sent' : recipient,
+            recipientSource: recipientPick.source,
             ok: true,
             duplicate: sent.duplicate === true,
             messageId: sent.messageId ?? null,
@@ -438,12 +474,18 @@ export const testPostCall = async (req, res) => {
   let variables = [];
   try {
     const agent = await prisma.agent.findFirst({ where: { id: agentId, workspaceId } });
-    const { collectExtractionDefinitions } = await import('../services/postCallExtraction.utils.js');
+    const { collectExtractionDefinitions, CALL_FACT_VARIABLES } = await import('../services/postCallExtraction.utils.js');
     variables = collectExtractionDefinitions(agent?.settings).map((d) => ({
       key: d.key,
       description: d.description,
       value: '(sample)',
     }));
+    // The built-in call facts too, shaped as a real call delivers them, so a
+    // WhatsApp placeholder mapped to one tests as filled rather than missing.
+    const defined = new Set(variables.map((v) => String(v.key).toLowerCase()));
+    for (const f of CALL_FACT_VARIABLES) {
+      if (!defined.has(f.key)) variables.push({ key: f.key, description: f.description, value: '(sample)', source: 'call', builtin: true });
+    }
   } catch { /* a test without variables is still a valid connectivity check */ }
 
   const out = await executePostCall(agentId, workspaceId, {

@@ -323,6 +323,22 @@ const createDefaultPostCallConfig = (): PostCallConfig => ({
   ]
 });
 
+/**
+ * Values filled in from the call itself after every call — never asked of the
+ * model, so they need no entry in the capture list. Mirrors CALL_FACT_VARIABLES
+ * in backend/src/services/postCallExtraction.utils.js; keep the keys in step.
+ *
+ * `example` is what a WhatsApp template shows Meta's reviewer for a placeholder
+ * mapped to one of these, so it has to look like the real thing.
+ */
+const CALL_FACT_VARIABLES: { key: string; description: string; example: string }[] = [
+  { key: 'customer_phone', description: "The customer's number on this call", example: '919876543210' },
+  { key: 'business_phone', description: 'Your number on this call', example: '918045678901' },
+  { key: 'call_started_at', description: 'When the call connected', example: '2026-09-13T15:30:00' },
+  { key: 'call_ended_at', description: 'When the call ended', example: '2026-09-13T15:34:12' },
+  { key: 'call_duration_sec', description: 'Call length in seconds', example: '252' },
+];
+
 // An inbound-style "thank you for calling" opener — wrong for an OUTBOUND agent,
 // which dials the customer itself. Used to warn when the welcome message and the
 // call direction disagree. Kept in sync with the backend guard in
@@ -719,16 +735,21 @@ export default function EditAgent() {
   };
 
   /** Append the next {{n}} bound to a variable the agent actually captures. */
+  // Built-in call facts that no captured variable already shadows by name, so a
+  // picker never lists the same key twice.
+  const unshadowedCallFacts = CALL_FACT_VARIABLES.filter((f) => !extractedVariables.some((v) => v.key === f.key));
+
   const insertDraftVariable = (configId: string, variableKey: string) => {
     const d = draftFor(configId);
     const next = d.placeholders.reduce((max, p) => Math.max(max, p.index), 0) + 1;
     const meta = extractedVariables.find((v) => v.key === variableKey);
+    const fact = CALL_FACT_VARIABLES.find((v) => v.key === variableKey);
     patchDraft(configId, {
       bodyText: `${d.bodyText}{{${next}}}`,
       placeholders: [...d.placeholders, {
         index: next,
-        label: meta?.description || variableKey,
-        example: meta?.description || 'Sample',
+        label: meta?.description || fact?.description || variableKey,
+        example: fact?.example || meta?.description || 'Sample',
         variableKey,
       }],
     });
@@ -862,6 +883,10 @@ export default function EditAgent() {
         description: string;
         value: unknown;
         evidence?: string | null;
+        /** 'call' when the value came from the call record, not the model. */
+        source?: 'call';
+        /** A built-in call fact, not a variable this agent defines. */
+        builtin?: boolean;
       }[];
       skippedReason?: string;
     };
@@ -5617,6 +5642,25 @@ export default function EditAgent() {
               >
                 + Add Variable
               </button>
+
+              {/* Read-only: these are filled from the call record, so adding one
+                  to the list above would only ask the model for a value the call
+                  already has. If a variable above uses the same name, what the
+                  customer SAID wins and the call fills it in when they said nothing. */}
+              <div style={{ marginTop: '18px', padding: '14px 16px', background: 'var(--s1)', border: '1px solid var(--s2)', borderRadius: '11px' }}>
+                <div style={{ fontSize: '13px', color: 'var(--tx-2)', fontWeight: 600, marginBottom: '4px' }}>Filled in from the call automatically</div>
+                <div style={{ fontSize: '12.5px', color: 'var(--tx-3)', marginBottom: '10px', lineHeight: 1.45 }}>
+                  No need to add these — every destination and WhatsApp placeholder can use them.
+                  The agent never has to ask for the customer's number.
+                </div>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                  {CALL_FACT_VARIABLES.map((f) => (
+                    <span key={f.key} title={f.description} style={{ padding: '4px 9px', borderRadius: '7px', border: '1px solid var(--line-2)', fontFamily: 'monospace', fontSize: '12px', color: 'var(--cyan-fg)' }}>
+                      {f.key}
+                    </span>
+                  ))}
+                </div>
+              </div>
             </div>
 
             {postCallConfigs.map((config, configIndex) => (
@@ -5984,9 +6028,16 @@ export default function EditAgent() {
                                                   }}
                                                 >
                                                   <option value="">Select a captured value</option>
-                                                  {extractedVariables.map((v) => (
-                                                    <option key={v.id} value={v.key}>{v.key}</option>
-                                                  ))}
+                                                  <optgroup label="Captured on the call">
+                                                    {extractedVariables.map((v) => (
+                                                      <option key={v.id} value={v.key}>{v.key}</option>
+                                                    ))}
+                                                  </optgroup>
+                                                  <optgroup label="From the call itself">
+                                                    {unshadowedCallFacts.map((f) => (
+                                                      <option key={f.key} value={f.key}>{f.key}</option>
+                                                    ))}
+                                                  </optgroup>
                                                 </select>
                                               </div>
                                             ))}
@@ -6115,14 +6166,18 @@ export default function EditAgent() {
                                         </div>
                                       )}
                                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '8px', width: '520px' }}>
-                                        {extractedVariables.filter((v) => v.key).map((v) => (
+                                        {[
+                                          ...extractedVariables.filter((v) => v.key).map((v) => ({ id: v.id, key: v.key, fromCall: false })),
+                                          ...unshadowedCallFacts.map((f) => ({ id: `call:${f.key}`, key: f.key, fromCall: true })),
+                                        ].map((v) => (
                                           <button
                                             key={v.id}
                                             type="button"
                                             onClick={() => insertDraftVariable(config.id, v.key)}
+                                            title={v.fromCall ? 'Filled in from the call itself' : undefined}
                                             style={{
                                               padding: '5px 10px', borderRadius: '7px', background: 'transparent',
-                                              border: '1px dashed var(--line-2)', color: 'var(--tx-2)',
+                                              border: `1px ${v.fromCall ? 'dotted' : 'dashed'} var(--line-2)`, color: 'var(--tx-2)',
                                               fontSize: '12px', cursor: 'pointer', fontFamily: 'monospace',
                                             }}
                                           >
@@ -6162,9 +6217,16 @@ export default function EditAgent() {
                                               }}
                                             >
                                               <option value="">Select a captured value</option>
-                                              {extractedVariables.map((v) => (
-                                                <option key={v.id} value={v.key}>{v.key}</option>
-                                              ))}
+                                              <optgroup label="Captured on the call">
+                                                {extractedVariables.map((v) => (
+                                                  <option key={v.id} value={v.key}>{v.key}</option>
+                                                ))}
+                                              </optgroup>
+                                              <optgroup label="From the call itself">
+                                                {unshadowedCallFacts.map((f) => (
+                                                  <option key={f.key} value={f.key}>{f.key}</option>
+                                                ))}
+                                              </optgroup>
                                             </select>
                                             <input
                                               type="text"
@@ -6248,13 +6310,17 @@ export default function EditAgent() {
                                   outline: 'none', boxSizing: 'border-box',
                                 }}
                               >
-                                <option value="">The number the caller phoned from</option>
+                                {/* Not "the number the caller phoned from": on an outbound
+                                    call WE are the caller, and this is the number we dialled. */}
+                                <option value="">The customer&apos;s number on this call</option>
                                 {extractedVariables.map((v) => (
                                   <option key={v.id} value={v.key}>{v.key}</option>
                                 ))}
                               </select>
                               <div style={{ fontSize: '12px', color: '#808080', marginTop: '6px', maxWidth: '520px' }}>
-                                Web calls have no caller number. Choose a captured value here if the agent collects one.
+                                Pick a captured value if the customer might give a different number. When it comes back
+                                empty, the message goes to the customer&apos;s number on the call instead. Web calls have
+                                no number of their own, so they need a captured one.
                               </div>
                             </>
                           )}
@@ -6878,6 +6944,9 @@ export default function EditAgent() {
                                               : JSON.stringify(variable.value)}
                                         </div>
                                       </div>
+                                      {variable.source === 'call' && variable.value != null && (
+                                        <div style={{ marginTop: '6px', fontSize: '11px', color: '#718087' }}>From the call itself</div>
+                                      )}
                                       {variable.evidence && (
                                         <div style={{ marginTop: '6px', fontSize: '11px', color: '#718087' }}>Evidence: “{variable.evidence}”</div>
                                       )}

@@ -26,6 +26,17 @@ const CHATFLOW_TIMEOUT_MS = 15_000;
 const isUniqueViolation = (err) => err?.code === 'P2002';
 
 /**
+ * Every status meaning the message already reached Meta.
+ *
+ * Not just SENT: ChatFlow's status webhook moves a row on to DELIVERED and READ
+ * (chatflowWebhook.service.js), and the duplicate guard below used to check for
+ * SENT alone — so replaying a call whose confirmation had already been READ put
+ * a second copy on the customer's phone. FAILED is deliberately absent: a
+ * message Meta could not deliver is exactly one a retry should attempt again.
+ */
+const REACHED_META = ['SENT', 'DELIVERED', 'READ'];
+
+/**
  * Digits only, no '+', spaces or dashes.
  *
  * ChatFlow normalises this too, but a number that is empty or obviously not a
@@ -35,6 +46,78 @@ const isUniqueViolation = (err) => err?.code === 'P2002';
 export function normalizeRecipient(raw) {
   const digits = String(raw ?? '').replace(/[^\d]/g, '');
   return digits.length >= 8 ? digits : null;
+}
+
+/**
+ * Who a post-call confirmation goes to.
+ *
+ * "Send to" names a captured variable for the case where the customer gives a
+ * DIFFERENT number during the call — or a web call, which carries no number of
+ * its own. It used to be all or nothing: once a variable was named, an empty
+ * value meant `to: undefined`, and the message went nowhere. That is exactly
+ * the call a customer answers with "use the number you called me on" — no
+ * digits, so extraction rightly records nothing, while the number itself was
+ * sitting on the call log the whole time.
+ *
+ * So the captured number wins when there is a usable one, and the customer's
+ * number on this call is the fallback. A captured value too garbled to be a
+ * number falls back too: the caller's own phone is a far better destination
+ * than no message at all.
+ *
+ * @param {object} p
+ * @param {string} [p.recipientVariable]  the config's "Send to" variable key
+ * @param {(key: string) => ({ value?: unknown }|undefined)} p.findVar
+ * @param {string} [p.callPhoneNumber]    the customer's number on this call
+ * @returns {{ to: string, source: 'variable'|'call' } | { to: null, reason: string }}
+ */
+export function resolveRecipient({ recipientVariable, findVar, callPhoneNumber }) {
+  const key = String(recipientVariable ?? '').trim();
+  if (key) {
+    const captured = normalizeRecipient(findVar(key)?.value);
+    if (captured) return { to: captured, source: 'variable' };
+  }
+  const onCall = normalizeRecipient(callPhoneNumber);
+  if (onCall) return { to: onCall, source: 'call' };
+  return {
+    to: null,
+    reason: key
+      ? `No phone number to send to: nothing usable was captured for "${key}", and this call has no customer number to fall back to`
+      : 'No phone number to send to: this call has no customer number. Web calls never do — choose a captured value under "Send to".',
+  };
+}
+
+/**
+ * Record a confirmation that was NOT sent, so the call's own history says why.
+ *
+ * Every refusal in the post-call WhatsApp branch used to leave nothing behind —
+ * the reason reached a log line and nowhere else, and the one path that went
+ * through the queue reported `queued: true` for a message the worker then threw
+ * away. From the product, a failed confirmation and a call that was never meant
+ * to send one looked identical. The Recent Calls panel already renders a FAILED
+ * row with its error; it just never received one.
+ *
+ * Never downgrades a message that did go out: a replayed delivery that fails a
+ * check (say the template was since paused) must not overwrite SENT.
+ *
+ * Never throws — this is bookkeeping for a failure already being handled.
+ */
+export async function recordWhatsAppSendFailure(workspaceId, { callLogId, postCallConfigId, reason, recipient = null }) {
+  if (!workspaceId || !callLogId || !postCallConfigId) return;
+  const lastError = String(reason ?? 'Not sent').slice(0, 500);
+  try {
+    await prisma.whatsAppPostCallSend.create({
+      data: { workspaceId, callLogId, postCallConfigId, status: 'FAILED', recipient, lastError },
+    });
+  } catch (err) {
+    if (!isUniqueViolation(err)) {
+      logger.warn({ callLogId, postCallConfigId, err: err.message }, 'Could not record WhatsApp send failure');
+      return;
+    }
+    await prisma.whatsAppPostCallSend.updateMany({
+      where: { callLogId, postCallConfigId, status: { notIn: REACHED_META } },
+      data: { status: 'FAILED', lastError, ...(recipient ? { recipient } : {}) },
+    }).catch((e) => logger.warn({ callLogId, postCallConfigId, err: e.message }, 'Could not record WhatsApp send failure'));
+  }
 }
 
 /**
@@ -85,7 +168,13 @@ export async function sendWhatsAppConfirmation(workspaceId, {
   postCallConfigId,
 }) {
   const recipient = normalizeRecipient(to);
-  if (!recipient) throw Object.assign(new Error('No usable recipient phone number for this call'), { statusCode: 400 });
+  if (!recipient) {
+    // executePostCall resolves the recipient before queueing, so reaching this
+    // means a caller skipped that. Leave the same trace it would have.
+    const reason = 'No usable recipient phone number for this call';
+    await recordWhatsAppSendFailure(workspaceId, { callLogId, postCallConfigId, reason });
+    throw Object.assign(new Error(reason), { statusCode: 400 });
+  }
   if (!callLogId || !postCallConfigId) throw new Error('callLogId and postCallConfigId are required to make the send idempotent');
 
   // ── Claim, before anything leaves the building ──────────────────────────────
@@ -101,7 +190,7 @@ export async function sendWhatsAppConfirmation(workspaceId, {
     });
     // Already delivered. This is a success for the caller's intent ("make sure
     // this confirmation went out"), not a failure — and above all, do not send again.
-    if (existing?.status === 'SENT') {
+    if (REACHED_META.includes(existing?.status)) {
       logger.info({ workspaceId, callLogId, postCallConfigId }, 'WhatsApp confirmation already sent — skipping duplicate');
       return { sent: false, duplicate: true, messageId: existing.chatflowMessageId ?? null };
     }
@@ -146,7 +235,9 @@ export async function sendWhatsAppConfirmation(workspaceId, {
   if (claim?.id) {
     await prisma.whatsAppPostCallSend.update({
       where: { id: claim.id },
-      data: { status: 'SENT', chatflowMessageId: messageId, sentAt: new Date(), lastError: null, attempts: { increment: 1 } },
+      // `recipient` too: a retry can reuse a row first written as a FAILED
+      // "no number" record, which has none.
+      data: { status: 'SENT', recipient, chatflowMessageId: messageId, sentAt: new Date(), lastError: null, attempts: { increment: 1 } },
     }).catch((err) => logger.warn({ err: err.message }, 'Could not record WhatsApp send'));
   }
 

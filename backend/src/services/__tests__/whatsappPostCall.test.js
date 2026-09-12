@@ -1,6 +1,6 @@
 import test, { describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildPositionalVariables, normalizeRecipient } from '../whatsappPostCall.service.js';
+import { buildPositionalVariables, normalizeRecipient, resolveRecipient } from '../whatsappPostCall.service.js';
 import { WHATSAPP_TEMPLATE_PRESETS, presetVariableCount } from '../../constants/whatsappTemplatePresets.js';
 import { deriveTemplateName, buildComponents } from '../whatsappTemplates.service.js';
 
@@ -79,6 +79,61 @@ describe('normalizeRecipient', () => {
     assert.equal(normalizeRecipient(undefined), null);
     assert.equal(normalizeRecipient('12345'), null);
     assert.equal(normalizeRecipient('not a number'), null);
+  });
+});
+
+describe('resolveRecipient', () => {
+  const find = (pairs) => finder(vars(pairs));
+
+  test('the exact call that failed: "use the number you called me on" still reaches the customer', () => {
+    // Outbound hotel booking. "Send to" names a phone variable; the customer
+    // answered without speaking digits, so extraction rightly returned null.
+    const out = resolveRecipient({
+      recipientVariable: 'customer_phone_number',
+      findVar: find({ customer_phone_number: null }),
+      callPhoneNumber: '+91 98765 43210',
+    });
+    assert.deepEqual(out, { to: '919876543210', source: 'call' });
+  });
+
+  test('a number the customer actually gave wins over the call', () => {
+    const out = resolveRecipient({
+      recipientVariable: 'customer_phone_number',
+      findVar: find({ customer_phone_number: '98111 22233' }),
+      callPhoneNumber: '+919876543210',
+    });
+    assert.deepEqual(out, { to: '9811122233', source: 'variable' });
+  });
+
+  test('a captured value that is not a usable number falls back rather than sending nowhere', () => {
+    const out = resolveRecipient({
+      recipientVariable: 'customer_phone_number',
+      findVar: find({ customer_phone_number: 'the one you called' }),
+      callPhoneNumber: '+919876543210',
+    });
+    assert.equal(out.source, 'call');
+    assert.equal(out.to, '919876543210');
+  });
+
+  test('with no "Send to" variable, the call\'s number is used', () => {
+    const out = resolveRecipient({ recipientVariable: '', findVar: find({}), callPhoneNumber: '+919876543210' });
+    assert.deepEqual(out, { to: '919876543210', source: 'call' });
+  });
+
+  test('a web call with nothing captured has no recipient, and says which variable came back empty', () => {
+    const out = resolveRecipient({
+      recipientVariable: 'customer_phone_number',
+      findVar: find({ customer_phone_number: null }),
+      callPhoneNumber: '',
+    });
+    assert.equal(out.to, null);
+    assert.match(out.reason, /customer_phone_number/);
+  });
+
+  test('a web call with no "Send to" variable points the operator at the fix', () => {
+    const out = resolveRecipient({ recipientVariable: undefined, findVar: find({}), callPhoneNumber: undefined });
+    assert.equal(out.to, null);
+    assert.match(out.reason, /Send to/);
   });
 });
 

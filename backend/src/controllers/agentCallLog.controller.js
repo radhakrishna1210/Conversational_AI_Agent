@@ -20,7 +20,8 @@ import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
 import { settleCall, assertCanStartCall } from '../services/billing/settlement.service.js';
 import { env } from '../config/env.js';
-import { extractAndStoreCallVariables } from '../services/postCallExtraction.service.js';
+import { extractAndStoreCallVariables, appointmentTimeZone } from '../services/postCallExtraction.service.js';
+import { withCallFacts } from '../services/postCallExtraction.utils.js';
 import { recordingFilename } from '../services/callRecordingStore.js';
 
 const RECORDINGS_DIR = path.resolve(env.UPLOAD_DIR || 'uploads', 'call-recordings');
@@ -102,7 +103,14 @@ export const deliverPostCall = async (workspaceId, agentId, row) => {
       outcome: row.status === 'COMPLETED' ? 'Completed' : row.status === 'FAILED' ? 'Failed' : row.status,
       durationSec: row.durationSec,
       phoneNumber: row.phoneNumber ?? '',
-      variables: Array.isArray(extracted.variables) ? extracted.variables : [],
+      // Merged again here, not only at extraction: a row extracted before call
+      // facts existed, or whose extraction never ran, still delivers them, and
+      // the merge is idempotent (see withCallFacts).
+      variables: withCallFacts(
+        Array.isArray(extracted.variables) ? extracted.variables : [],
+        row,
+        { timeZone: appointmentTimeZone() },
+      ),
       transcript: transcript.map((m) => `${m.role === 'user' ? 'Customer' : 'Agent'}: ${m.content}`).join('\n'),
       endedAt: (row.endedAt ?? new Date()).toISOString(),
     });

@@ -24,9 +24,20 @@ const processSend = async (job) => {
     return out;
   } catch (err) {
     const status = err?.statusCode;
-    if (status && status >= 400 && status < 500 && status !== 429) {
-      throw new UnrecoverableError(err.message);
-    }
+    const permanent = Boolean(status && status >= 400 && status < 500 && status !== 429);
+    // Logged here because nothing else would: BullMQ records the failure on the
+    // job in Redis and says nothing, so a permanent refusal used to vanish
+    // without a line in any log. The send service has already written the
+    // reason onto the call's WhatsApp row where it could.
+    logger.warn({
+      workspaceId,
+      callLogId: rest.callLogId,
+      postCallConfigId: rest.postCallConfigId,
+      attempt: job.attemptsMade + 1,
+      permanent,
+      err: err?.message,
+    }, permanent ? 'WhatsApp confirmation refused — not retrying' : 'WhatsApp confirmation failed — will retry');
+    if (permanent) throw new UnrecoverableError(err.message);
     throw err;
   }
 };

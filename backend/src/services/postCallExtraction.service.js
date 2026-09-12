@@ -3,25 +3,41 @@ import logger from '../lib/logger.js';
 import { resolveLlmForAgent } from './agentRuntime.service.js';
 import {
   collectExtractionDefinitions,
+  formatLocalIso,
   materializeExtraction,
   parseExtractionResponse,
   transcriptToExtractionText,
+  withCallFacts,
 } from './postCallExtraction.utils.js';
 
 const safeJson = (value, fallback) => {
   try { return JSON.parse(value); } catch { return fallback; }
 };
 
-const storeResult = (callId, status, data, error = null) =>
-  prisma.agentCallLog.update({
-    where: { id: callId },
+/** The zone relative dates resolve in, and call facts are written in. */
+export const appointmentTimeZone = () => process.env.APPOINTMENT_TIMEZONE || 'Asia/Kolkata';
+
+/**
+ * Persist a result — with the call facts merged in on EVERY outcome.
+ *
+ * Including SKIPPED and FAILED on purpose: the customer's number and the call's
+ * length do not depend on the model, so a call whose extraction failed (or that
+ * had no variables configured at all) still reports them. Returns what it
+ * stored, so the caller hands back the same shape it wrote.
+ */
+const storeResult = async (call, status, data, error = null) => {
+  const stored = { ...data, variables: withCallFacts(data.variables, call, { timeZone: appointmentTimeZone() }) };
+  await prisma.agentCallLog.update({
+    where: { id: call.id },
     data: {
       extractionStatus: status,
-      extractedData: JSON.stringify(data),
+      extractedData: JSON.stringify(stored),
       extractionError: error,
       extractedAt: status === 'COMPLETED' || status === 'SKIPPED' ? new Date() : null,
     },
   });
+  return stored;
+};
 
 /**
  * Extract configured Post-Call variables from a stored call transcript.
@@ -56,14 +72,10 @@ export async function extractAndStoreCallVariables(workspaceId, agentId, callId,
   };
 
   if (definitions.length === 0) {
-    const data = { ...base, skippedReason: 'No complete extracted-variable definitions are enabled' };
-    await storeResult(call.id, 'SKIPPED', data);
-    return data;
+    return storeResult(call, 'SKIPPED', { ...base, skippedReason: 'No complete extracted-variable definitions are enabled' });
   }
   if (!transcript || !/^Customer:/m.test(transcript)) {
-    const data = { ...base, skippedReason: 'The conversation contains no customer messages' };
-    await storeResult(call.id, 'SKIPPED', data);
-    return data;
+    return storeResult(call, 'SKIPPED', { ...base, skippedReason: 'The conversation contains no customer messages' });
   }
 
   await prisma.agentCallLog.update({
@@ -83,11 +95,8 @@ export async function extractAndStoreCallVariables(workspaceId, agentId, callId,
     // early for late-evening callers. Google Calendar books the extracted wall
     // clock in this same zone (see googleCalendar.service.js), so the two must
     // agree or the booking is off by the offset.
-    const apptTz = process.env.APPOINTMENT_TIMEZONE || 'Asia/Kolkata';
-    const callDateContext = new Intl.DateTimeFormat('sv-SE', {
-      timeZone: apptTz, year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false,
-    }).format(new Date(callDate)).replace(' ', 'T');
+    const apptTz = appointmentTimeZone();
+    const callDateContext = formatLocalIso(callDate, apptTz);
     const prompt = `The conversation took place on ${callDateContext} (local time, timezone ${apptTz}). Resolve any relative dates or times against this moment, and express the result in that same local timezone.
 
 Variable definitions:
@@ -119,20 +128,19 @@ Return valid JSON only. Do not add markdown or unknown keys.`,
     );
     const parsed = parseExtractionResponse(raw);
     const variables = materializeExtraction(definitions, parsed);
-    const data = {
+    const stored = await storeResult(call, 'COMPLETED', {
       variables,
       provider,
       model,
       extractedAt: new Date().toISOString(),
-    };
-    await storeResult(call.id, 'COMPLETED', data);
+    });
     logger.info({ workspaceId, agentId, callId, variableCount: variables.length }, 'Post-call variables extracted');
-    return data;
+    return stored;
   } catch (err) {
     const message = err instanceof Error ? err.message.slice(0, 1000) : 'Variable extraction failed';
-    await storeResult(call.id, 'FAILED', base, message);
+    const stored = await storeResult(call, 'FAILED', base, message);
     logger.warn({ workspaceId, agentId, callId, err: message }, 'Post-call variable extraction failed');
-    return { ...base, error: message };
+    return { ...stored, error: message };
   }
 }
 
