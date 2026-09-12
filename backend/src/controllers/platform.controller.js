@@ -524,6 +524,10 @@ export const executePostCall = async (agentId, workspaceId, payload) => {
  * value is generated for the variables that actually need one.
  */
 function samplePostCallValue(key) {
+  // HubSpot's contact upsert validates email format server-side, so the
+  // generic '(sample)' placeholder gets rejected outright — same failure
+  // mode the date-shaped branch below was added to fix for Calendar/Meet.
+  if (/email/i.test(key)) return 'test@example.com';
   const isDateish = /(date|time|when|slot)/i.test(key) && !/(birth|dob|age)/i.test(key);
   if (!isDateish) return '(sample)';
   // A bare "*_time" key (paired with a separate "*_date" key) needs just a
