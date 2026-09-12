@@ -22,6 +22,25 @@ import { buildAgentSystemPrompt } from '../agentRuntime.service.js';
  * @typedef {'g711_ulaw'|'pcm16'} XaiAudioFormat
  */
 
+/**
+ * The client event that makes the agent open the call with `text`, verbatim.
+ * Exported for tests: the shape is xAI's, and getting it wrong is silent.
+ *
+ * @param {string} text
+ * @param {{ interruptible?: boolean }} [opts]
+ */
+export function buildGreetingItem(text, { interruptible = true } = {}) {
+  return {
+    type: 'conversation.item.create',
+    item: {
+      type: 'force_message',
+      role: 'assistant',
+      interruptible: Boolean(interruptible),
+      content: [{ type: 'output_text', text }],
+    },
+  };
+}
+
 export class XaiRealtimeSession extends EventEmitter {
   /**
    * @param {object} opts
@@ -29,12 +48,15 @@ export class XaiRealtimeSession extends EventEmitter {
    * @param {string} opts.kbText - grounding text (same source as the modular pipeline)
    * @param {XaiAudioFormat} opts.audioFormat - 'g711_ulaw' for Twilio telephony (no
    *   transcoding needed), 'pcm16' for browser Web Call
+   * @param {string|null} [opts.welcome] - the greeting for THIS call's direction,
+   *   from renderWelcome(). Spoken verbatim when the session opens.
    */
-  constructor({ agent, kbText, audioFormat }) {
+  constructor({ agent, kbText, audioFormat, welcome = null }) {
     super();
     this.agent = agent;
     this.kbText = kbText;
     this.audioFormat = audioFormat;
+    this.welcome = typeof welcome === 'string' && welcome.trim() ? welcome.trim() : null;
     this.ws = null;
     this.ready = false;
     this._closed = false;
@@ -72,7 +94,9 @@ export class XaiRealtimeSession extends EventEmitter {
     });
 
     this.ws.on('open', () => {
-      const instructions = buildAgentSystemPrompt(this.agent, this.kbText, { voiceMode: true });
+      // spokenWelcome: the prompt's "welcome already delivered — do not greet
+      // again" rule must name the greeting this session actually speaks below.
+      const instructions = buildAgentSystemPrompt(this.agent, this.kbText, { voiceMode: true, spokenWelcome: this.welcome });
       this._send({
         type: 'session.update',
         session: {
@@ -92,6 +116,22 @@ export class XaiRealtimeSession extends EventEmitter {
           },
         },
       });
+      // ── Speak the greeting ────────────────────────────────────────────────
+      //
+      // THIS SESSION NEVER GREETED ANYONE. It sent instructions and waited, while
+      // those same instructions told the model "Welcome message already delivered
+      // at call start … do not greet or re-introduce yourself". So an xAI call
+      // opened on silence, and when the callee said "hello?" the agent answered
+      // without ever saying who was calling or why.
+      //
+      // `force_message` is xAI's documented item for exactly this — a scripted
+      // assistant utterance delivered verbatim, which is itself the turn, so no
+      // response.create follows. Interruptible per the agent's own setting, the
+      // same switch the modular bridge honours for its greeting.
+      // https://docs.x.ai/developers/model-capabilities/audio/voice-agent
+      if (this.welcome) {
+        this._send(buildGreetingItem(this.welcome, { interruptible: this.agent?.interruptibleEnabled !== false }));
+      }
       this.ready = true;
       this.emit('ready');
     });

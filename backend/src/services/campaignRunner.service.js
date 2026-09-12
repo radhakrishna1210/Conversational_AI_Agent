@@ -17,6 +17,16 @@ import { assertCanStartCall } from './billing/settlement.service.js';
 import { assertRotationCompliant } from './compliance/compliance.service.js';
 import { placeOutboundCall, resolveCallMode, telephonyStatusForNumber } from './outboundCall.service.js';
 
+/** The agent's configured closing line, from settings (where the editor saves it). Exported for tests. */
+export const closingLineOf = (agent) => {
+  try {
+    const settings = typeof agent?.settings === 'string' ? JSON.parse(agent.settings || '{}') : (agent?.settings || {});
+    return typeof settings?.endCallMessage === 'string' ? settings.endCallMessage.trim() : '';
+  } catch {
+    return '';
+  }
+};
+
 // Campaigns being dispatched by THIS process. Guards against the same campaign
 // being run twice concurrently (queue retry + in-process start, say), which
 // would double-dial every recipient.
@@ -264,7 +274,10 @@ export async function runCampaign(campaignId, workspaceId) {
           agent,
           toNumber: recipient.phoneNumber,
           fromNumber: from,
-          closingLine: mode === 'conversation' ? '' : (agent.endCallMessage || ''),
+          // endCallMessage lives in settings JSON, not on the row — this read
+          // `agent.endCallMessage`, which is always undefined, so every
+          // greeting-only campaign call hung up with no closing line at all.
+          closingLine: mode === 'conversation' ? '' : (closingLineOf(agent) || ''),
         });
 
         await prisma.campaignRecipient.update({

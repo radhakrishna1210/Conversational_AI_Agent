@@ -45,9 +45,12 @@ class XaiCallSocketService {
   // caller spoke.
   private ambientStop: (() => void) | null = null;
 
-  private wsUrl(workspaceId: string, agentId: string): string {
+  private wsUrl(workspaceId: string, agentId: string, direction?: 'INBOUND' | 'OUTBOUND'): string {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    return `${proto}//${window.location.host}/api/v1/workspaces/${workspaceId}/agents/${agentId}/xai-call`;
+    // `direction` picks which greeting the engine opens with (server.js reads it
+    // off the URL, the same way the phone bridges do).
+    const qs = direction ? `?direction=${direction.toLowerCase()}` : '';
+    return `${proto}//${window.location.host}/api/v1/workspaces/${workspaceId}/agents/${agentId}/xai-call${qs}`;
   }
 
   /** Opens the mic + socket and starts streaming. Resolves once the server confirms `ready`. */
@@ -56,7 +59,7 @@ class XaiCallSocketService {
     agentId: string,
     token: string,
     onEvent: (e: XaiCallEvent) => void,
-    opts?: { ambientSound?: string },
+    opts?: { ambientSound?: string; direction?: 'INBOUND' | 'OUTBOUND' },
   ): Promise<void> {
     // echoCancellation keeps the mic from re-capturing the agent's own voice
     // from the speakers — essential for barge-in, or the agent interrupts itself.
@@ -86,7 +89,7 @@ class XaiCallSocketService {
     this.ambientStop = startAmbientSound(this.playbackContext, opts?.ambientSound ?? 'None');
 
     return new Promise<void>((resolve, reject) => {
-      const socket = new WebSocket(this.wsUrl(workspaceId, agentId));
+      const socket = new WebSocket(this.wsUrl(workspaceId, agentId, opts?.direction));
       socket.binaryType = 'arraybuffer';
       this.socket = socket;
 

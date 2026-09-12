@@ -51,6 +51,17 @@ function toIsoLangCode(value) {
   return LANG_NAME_TO_ISO[name];
 }
 
+/**
+ * The first message this session speaks: the rendered greeting for the call's
+ * direction, else the legacy column (a caller that did not pass one), else none
+ * — in which case the shell agent's own dashboard greeting applies. Exported for
+ * tests; also what the prompt names as already delivered.
+ */
+export function firstMessageFor(welcome, agent) {
+  const rendered = typeof welcome === 'string' ? welcome.trim() : '';
+  return rendered || String(agent?.welcomeMessage || '').trim() || null;
+}
+
 export class ElevenLabsRealtimeSession extends EventEmitter {
   /**
    * @param {object} opts
@@ -59,10 +70,12 @@ export class ElevenLabsRealtimeSession extends EventEmitter {
    * @param {'g711_ulaw'|'pcm16'} opts.audioFormat - 'g711_ulaw' for Twilio (ulaw_8000,
    *   passthrough, no transcoding), 'pcm16' for browser Web Call
    */
-  constructor({ agent, kbText, audioFormat }) {
+  constructor({ agent, kbText, audioFormat, welcome = null }) {
     super();
     this.agent = agent;
     this.kbText = kbText;
+    // The greeting for THIS call's direction, from renderWelcome().
+    this.welcome = typeof welcome === 'string' && welcome.trim() ? welcome.trim() : null;
     // NOTE: unlike xAI, ElevenLabs' input/output audio format is set on the
     // shell Agent itself in the dashboard (not reliably client-overridable
     // across plans), so `audioFormat` is accepted for interface parity with
@@ -144,7 +157,10 @@ export class ElevenLabsRealtimeSession extends EventEmitter {
     });
 
     this.ws.on('open', () => {
-      const instructions = buildAgentSystemPrompt(this.agent, this.kbText, { voiceMode: true });
+      // Named in the prompt as the greeting already delivered — the same text
+      // sent as first_message below, not the configured direction's greeting.
+      const firstMessage = firstMessageFor(this.welcome, this.agent);
+      const instructions = buildAgentSystemPrompt(this.agent, this.kbText, { voiceMode: true, spokenWelcome: firstMessage });
       const languages = (() => {
         try { return JSON.parse(this.agent.languages || '[]'); } catch { return []; }
       })();
@@ -158,7 +174,12 @@ export class ElevenLabsRealtimeSession extends EventEmitter {
         conversation_config_override: {
           agent: {
             prompt: { prompt: instructions },
-            ...(this.agent.welcomeMessage ? { first_message: this.agent.welcomeMessage } : {}),
+            // Was `agent.welcomeMessage` — the raw legacy column, whatever the
+            // call's direction, with no placeholder stripping and no direction
+            // fixes, and ignoring the Incoming/Outgoing tabs entirely. An empty
+            // one sent no override, so the caller heard whatever greeting the
+            // shared ElevenLabs shell agent had in its dashboard.
+            ...(firstMessage ? { first_message: firstMessage } : {}),
             ...(langCode ? { language: langCode } : {}),
           },
           // Only sent for an ElevenLabs voice; requires the tts.voice_id

@@ -329,6 +329,17 @@ const createDefaultPostCallConfig = (): PostCallConfig => ({
 // agentRuntime.service.js (THANKS_FOR_CALLING_RE / stripInboundThanks).
 const THANKS_FOR_CALLING_RE = /\bthank(?:s|\s*you)?\b[^.!?]*\bfor\s+calling\b/i;
 
+// The same thanks in Hindi and Marathi ("कॉल करने के लिए धन्यवाद", "कॉल
+// केल्याबद्दल धन्यवाद"). The Incoming check below has always covered Hindi; the
+// Outgoing one was English-only, so the Incoming placeholder's own Hindi thanks
+// pasted into the Outgoing box raised no warning. Mirrors
+// THANKS_FOR_CALLING_INDIC_RE in agentRuntime.service.js.
+const THANKS_FOR_CALLING_INDIC_RE = /(?:कॉल|फ़ोन|फोन|संपर्क)\s*(?:करने\s*के\s*लिए|केल्याबद्दल)\s*(?:धन्यवाद|शुक्रिया|आभार)/;
+const thanksForCalling = (text: string) => THANKS_FOR_CALLING_RE.test(text) || THANKS_FOR_CALLING_INDIC_RE.test(text);
+
+/** The longest greeting the editor accepts — the counter under each box. */
+const WELCOME_MAX_CHARS = 600;
+
 // The mirror of the above: outbound phrasing sitting in the INCOMING greeting.
 //
 // "I'm calling to ask..." is exactly right when the agent placed the call and
@@ -351,6 +362,8 @@ const OUTBOUND_PHRASING_RE = new RegExp(
     String.raw`\b(?:i\s*['\u2019]?m|i\s+am|this\s+is\s+\w+)\s+calling\b`,
     String.raw`\bcalling\s+(?:from|you|to)\b`,
     String.raw`(?:कॉल|फ़ोन|फोन)\s*कर\s*रह[ीा]\s*हू[ँं]`,
+    // Marathi "कॉल करत आहे" — the same first-person "I am calling".
+    String.raw`(?:कॉल|फ़ोन|फोन)\s*करत\s*आहे`,
   ].join('|'),
   'i',
 );
@@ -400,6 +413,12 @@ export default function EditAgent() {
   // agent is FOR. One at a time, behind its own tabs, keeps the two controls
   // from looking like one control.
   const [welcomeTab, setWelcomeTab] = useState<'INBOUND' | 'OUTBOUND'>('INBOUND');
+  // What a call going the viewed tab's way opens with, resolved by the server
+  // from the SAVED agent — shown under an empty greeting box. `source` says
+  // whether that is the tab's own text, the older single greeting, or neutral.
+  const [emptyTabPreview, setEmptyTabPreview] = useState<{ dir: 'INBOUND' | 'OUTBOUND'; welcome: string; source: string } | null>(null);
+  // Bumped after each explicit save, so the preview re-reads what was stored.
+  const [welcomeSavedTick, setWelcomeSavedTick] = useState(0);
   const [maxDuration, setMaxDuration] = useState(30);
   const [silenceTimeout, setSilenceTimeout] = useState(5);
   const [interruptibleEnabled, setInterruptibleEnabled] = useState(true);
@@ -1069,20 +1088,27 @@ export default function EditAgent() {
   const [webCallLatency, setWebCallLatency] = useState<{ sttMs: number; llmMs: number } | null>(null);
   // Prefetched on page load: rendered welcome + its TTS audio, so the call
   // starts speaking instantly instead of synthesizing at call time.
-  const welcomeAudioRef = useRef<{ welcome: string; audioBase64: string; contentType: string } | null>(null);
+  // `direction` is part of it: the Incoming and Outgoing greetings are different
+  // sentences, and a prefetch for one must never be spoken on a test of the other.
+  const welcomeAudioRef = useRef<{ welcome: string; direction: 'INBOUND' | 'OUTBOUND'; audioBase64: string; contentType: string } | null>(null);
   // Bumped whenever the voice/welcome changes so an in-flight prefetch from
   // the previous configuration can't land in the ref after it's stale.
   const welcomePrefetchSeq = useRef(0);
+  // The tab being viewed, for callbacks created in an earlier render (the
+  // page-load effect that runs this prefetch has [agentId] as its only dep).
+  const welcomeTabRef = useRef<'INBOUND' | 'OUTBOUND'>('INBOUND');
+  welcomeTabRef.current = welcomeTab;
   const prefetchWelcomeAudio = async () => {
     const seq = ++welcomePrefetchSeq.current;
+    const direction = welcomeTabRef.current;
     try {
-      const rw = await whapi.get<{ welcome: string }>(`/agents/${agentId}/welcome`);
+      const rw = await whapi.get<{ welcome: string }>(`/agents/${agentId}/welcome?direction=${direction.toLowerCase()}`);
       if (!rw?.welcome) return;
       const audio = await whapi.post<{ audioBase64: string; contentType: string }>(
         `/agents/${agentId}/speak`, { text: rw.welcome }
       );
       if (audio?.audioBase64 && seq === welcomePrefetchSeq.current) {
-        welcomeAudioRef.current = { welcome: rw.welcome, audioBase64: audio.audioBase64, contentType: audio.contentType };
+        welcomeAudioRef.current = { welcome: rw.welcome, direction, audioBase64: audio.audioBase64, contentType: audio.contentType };
       }
     } catch { /* prefetch is best-effort; call start falls back to fetching */ }
   };
@@ -1443,6 +1469,7 @@ export default function EditAgent() {
       if (!silent) {
         welcomeAudioRef.current = null;
         prefetchWelcomeAudio();
+        setWelcomeSavedTick((n) => n + 1);
       }
     } catch (err) {
       console.error('Failed to save to backend', err);
@@ -1517,6 +1544,12 @@ export default function EditAgent() {
     Boolean(primaryScript) && text.trim().length > 0 && !primaryScript!.test(text);
 
   const [translating, setTranslating] = useState<'INBOUND' | 'OUTBOUND' | null>(null);
+  // The greeting text as of the latest render, read when a translation RETURNS
+  // (the function's own closure still holds the text it started from).
+  const welcomeTextRef = useRef({ INBOUND: welcomeInbound, OUTBOUND: welcomeOutbound });
+  welcomeTextRef.current = { INBOUND: welcomeInbound, OUTBOUND: welcomeOutbound };
+  // Per direction: only the most recently STARTED translation may land.
+  const translateSeq = useRef({ INBOUND: 0, OUTBOUND: 0 });
 
   /**
    * Translate one greeting into the agent's primary language, in place.
@@ -1529,16 +1562,22 @@ export default function EditAgent() {
    * The result lands in the textarea rather than being saved, so the operator
    * reads it first. Nothing here touches a live call.
    */
-  const translateWelcome = async (dir: 'INBOUND' | 'OUTBOUND') => {
-    const text = dir === 'OUTBOUND' ? welcomeOutbound : welcomeInbound;
-    if (!text.trim() || !primaryLanguage || translating) return;
+  const translateWelcome = async (dir: 'INBOUND' | 'OUTBOUND', targetLanguage: string = primaryLanguage) => {
+    const text = welcomeTextRef.current[dir];
+    if (!text.trim() || !targetLanguage) return;
+    // No early return while another translation runs. That guard read
+    // `translating` from the render this function was created in, so it was
+    // stale: a language changed again mid-translation SKIPPED the new one while
+    // the old run finished into the old language. Now a newer request simply
+    // supersedes the older one for this direction.
+    const seq = ++translateSeq.current[dir];
     setTranslating(dir);
     try {
       const response = await whapi.post<{ message: string }>('/llm/generate', {
         agentId,
         message: text,
         systemPrompt:
-          `Translate the following call greeting into ${primaryLanguage}, in its native script. ` +
+          `Translate the following call greeting into ${targetLanguage}, in its native script. ` +
           'It is spoken aloud by a text-to-speech voice, so write it the way a person would say it. ' +
           'Translate EXACTLY: do not add, remove, reorder or soften anything, keep every question ' +
           'and every clause, and keep proper nouns (people, companies, places) as they are. ' +
@@ -1547,12 +1586,21 @@ export default function EditAgent() {
       });
       const out = (response.message || '').trim().replace(/^["']|["']$/g, '');
       if (!out) return;
+      // Superseded by a newer translation of this greeting: that one lands.
+      if (seq !== translateSeq.current[dir]) return;
+      // The operator typed while this was in flight. Their words win; replacing
+      // them with a translation of what the box USED to say would silently
+      // throw their edit away.
+      if (welcomeTextRef.current[dir] !== text) {
+        toast('Translation discarded — the greeting changed while it was being translated.');
+        return;
+      }
       if (dir === 'OUTBOUND') setWelcomeOutbound(out); else setWelcomeInbound(out);
     } catch {
       // Non-fatal by design: a failed translation leaves the operator's own text
       // in the box, which is a greeting that works — just not in their language.
     } finally {
-      setTranslating(null);
+      if (seq === translateSeq.current[dir]) setTranslating(null);
     }
   };
 
@@ -1567,13 +1615,27 @@ export default function EditAgent() {
    * in flight would let the second overwrite the first field's spinner state.
    */
   const translateOffLanguageWelcomes = async () => {
-    if (isOffLanguage(welcomeInbound)) await translateWelcome('INBOUND');
-    if (isOffLanguage(welcomeOutbound)) await translateWelcome('OUTBOUND');
+    // The language this run was started for, passed down explicitly: the second
+    // translation awaits the first, and by then the selection may have changed.
+    const target = primaryLanguage;
+    if (isOffLanguage(welcomeInbound)) await translateWelcome('INBOUND', target);
+    if (isOffLanguage(welcomeOutbound)) await translateWelcome('OUTBOUND', target);
   };
 
   // Set once the agent has hydrated, so loading an agent whose greeting is
   // already off-language does not rewrite it behind the operator's back on
   // sight. Only a DELIBERATE change of language triggers a translation.
+  // A plain GET, no synthesis, so it is cheap to re-run on every tab switch.
+  useEffect(() => {
+    if (!agentId || isLoading) return;
+    const dir = welcomeTab;
+    let live = true;
+    whapi.get<{ welcome: string; source?: string }>(`/agents/${agentId}/welcome?direction=${dir.toLowerCase()}`)
+      .then((r) => { if (live && r?.welcome) setEmptyTabPreview({ dir, welcome: r.welcome, source: r.source || 'legacy' }); })
+      .catch(() => { /* the empty-box note falls back to its generic sentence */ });
+    return () => { live = false; };
+  }, [agentId, isLoading, welcomeTab, welcomeSavedTick]);
+
   const languageActedOn = useRef<string | null>(null);
   useEffect(() => {
     if (languageActedOn.current === null || languageActedOn.current === primaryLanguage) return;
@@ -1625,7 +1687,12 @@ export default function EditAgent() {
     try {
       const agentData = {
         name: agentName,
+        // callDirection goes WITH welcomeMessage: that column mirrors the
+        // greeting for the agent's direction (activeWelcome), and saving the
+        // mirror without the direction it was computed for left the two
+        // disagreeing whenever the direction toggle had been flipped but not saved.
         welcomeMessage: activeWelcome,
+        callDirection,
         welcomeInbound, welcomeOutbound,
         aiModel, voice, transcription,
         languages: selectedLanguages, flowItems, maxDuration, silenceTimeout,
@@ -1682,6 +1749,9 @@ export default function EditAgent() {
   // mutates postCallConfigs, so one debounced effect persists them all — a
   // refresh can no longer discard a configuration the user just set up.
   const postCallHydrated = useRef(false);
+  // Read when the debounce FIRES, not when the effect was scheduled.
+  const postCallConfigsForSaveRef = useRef(postCallConfigsForSave);
+  postCallConfigsForSaveRef.current = postCallConfigsForSave;
   useEffect(() => {
     if (isLoading || !agentId) return;
     // The first value after load came FROM the server; saving it back would be
@@ -1690,7 +1760,20 @@ export default function EditAgent() {
       postCallHydrated.current = true;
       return;
     }
-    const timer = setTimeout(() => { handleSave({ postCallConfigs: postCallConfigsForSave }, { silent: true }); }, 900);
+    // ONLY the post-call configs. This used to call handleSave(), which sends the
+    // whole agent — from the render this effect was scheduled in. That closure
+    // was stale (the effect only re-runs when postCallConfigs changes), so a
+    // greeting edited and explicitly saved less than 900ms after a post-call
+    // toggle was overwritten with the old text when the timer fired. The server
+    // merges settings keys, so a partial body leaves every other field as stored.
+    const timer = setTimeout(async () => {
+      try {
+        await whapi.put(`/agents/${agentId}`, { postCallConfigs: postCallConfigsForSaveRef.current });
+      } catch (err) {
+        console.error('Post-call auto-save failed', err);
+        toast.error(err instanceof Error ? `Save failed: ${err.message}` : 'Save failed — changes were NOT stored.');
+      }
+    }, 900);
     return () => clearTimeout(timer);
   }, [postCallConfigs, isLoading, agentId]);
 
@@ -2900,7 +2983,9 @@ export default function EditAgent() {
           if (call.active) setWebCallError(event.message);
           if (call.active) handleEndWebCall();
         }
-      }, { ambientSound });
+      // Opens with the greeting of the Incoming/Outgoing tab being viewed, so
+      // both greetings can be heard before a number is pointed at this agent.
+      }, { ambientSound, direction: welcomeTab });
     } catch (err: any) {
       setWebCallError(err?.name === 'NotAllowedError'
         ? 'Microphone access was denied. Allow the microphone and try again.'
@@ -2943,11 +3028,20 @@ export default function EditAgent() {
       // have been made with a previously configured voice, which made the
       // welcome and the replies speak in different voices. The page-load
       // prefetch warmed the server's TTS cache, so this is normally instant.
-      let welcome = welcomeAudioRef.current?.welcome ?? activeWelcome;
+      // Tests the greeting of the tab being VIEWED. This used to fetch /welcome
+      // with no direction, so the browser only ever spoke the agent's configured
+      // side: the other tab's greeting could not be heard before a real call
+      // used it, and an inbound agent's web test and its (always outbound) phone
+      // test opened with different greetings. The fallback text is likewise the
+      // viewed tab's, never the other direction's mirror.
+      const testDirection = welcomeTab;
+      const prefetched = welcomeAudioRef.current?.direction === testDirection ? welcomeAudioRef.current.welcome : null;
+      let welcome = prefetched
+        ?? ((testDirection === 'OUTBOUND' ? welcomeOutbound : welcomeInbound).trim() || activeWelcome);
       const welcomeSpeech: { current: { audioBase64: string; contentType: string } | null } = { current: null };
       const welcomeFetch = (async () => {
         try {
-          const rw = await whapi.get<{ welcome: string }>(`/agents/${agentId}/welcome`);
+          const rw = await whapi.get<{ welcome: string }>(`/agents/${agentId}/welcome?direction=${testDirection.toLowerCase()}`);
           if (rw?.welcome) welcome = rw.welcome;
           const w = await whapi.post<{ audioBase64: string; contentType: string; voiceUsed?: string }>(
             `/agents/${agentId}/speak`, { text: welcome }
@@ -4265,7 +4359,7 @@ export default function EditAgent() {
                     const v = dir === 'OUTBOUND' ? welcomeOutbound : welcomeInbound;
                     if (!v.trim()) return null;                      // empty is a choice, not a fault
                     if (isOffLanguage(v)) return 'language';
-                    if (dir === 'OUTBOUND' && THANKS_FOR_CALLING_RE.test(v)) return 'direction';
+                    if (dir === 'OUTBOUND' && thanksForCalling(v)) return 'direction';
                     if (dir === 'INBOUND' && OUTBOUND_PHRASING_RE.test(v)) return 'direction';
                     return null;
                   };
@@ -4321,7 +4415,7 @@ export default function EditAgent() {
                     placeholder: 'e.g. नमस्ते, मैं सनराइज़ हॉस्पिटल से अंजलि बोल रही हूँ…',
                   },
                 ]).filter(({ dir }) => dir === welcomeTab).map(({ dir, label, value, set, hint, placeholder }) => {
-                  const thanksMismatch = dir === 'OUTBOUND' && THANKS_FOR_CALLING_RE.test(value);
+                  const thanksMismatch = dir === 'OUTBOUND' && thanksForCalling(value);
                   const callingMismatch = dir === 'INBOUND' && OUTBOUND_PHRASING_RE.test(value);
                   const offLanguage = isOffLanguage(value);
                   return (
@@ -4335,6 +4429,9 @@ export default function EditAgent() {
                       <textarea
                         value={value}
                         onChange={(e) => set(e.target.value)}
+                        // The counter below always said /600, but nothing held
+                        // anyone to it: a pasted essay saved and was spoken.
+                        maxLength={WELCOME_MAX_CHARS}
                         style={{
                           width: '100%',
                           minHeight: '104px',
@@ -4375,7 +4472,7 @@ export default function EditAgent() {
                             {translating === dir ? 'Translating…' : `Translate to ${primaryLanguage}`}
                           </button>
                         ) : <span />}
-                        <span style={{ fontSize: '11px', color: 'var(--tx-3)' }}>{value.length}/600</span>
+                        <span style={{ fontSize: '11px', color: value.length >= WELCOME_MAX_CHARS ? '#ffb74d' : 'var(--tx-3)' }}>{value.length}/{WELCOME_MAX_CHARS}</span>
                       </div>
                       {offLanguage && (
                         <div style={{ display: 'flex', gap: '8px', marginTop: '8px', padding: '10px 12px', background: '#0a2436', border: '1px solid #17567a', borderRadius: '8px', fontSize: '12px', color: '#7fd3ff', lineHeight: 1.45 }}>
@@ -4383,11 +4480,36 @@ export default function EditAgent() {
                           <span>This agent speaks <b>{primaryLanguage}</b>, but this greeting is not written in {primaryLanguage}'s script. It is spoken aloud exactly as typed, so a {primaryLanguage} voice would read these characters instead of the words. Translate it, or rewrite it in {primaryLanguage}.</span>
                         </div>
                       )}
-                      {!value.trim() && (
-                        <div style={{ marginTop: '8px', padding: '9px 12px', background: 'var(--s1)', border: '1px dashed var(--line)', borderRadius: '8px', fontSize: '11.5px', color: 'var(--tx-3)', lineHeight: 1.45 }}>
-                          Empty on purpose — this agent's greeting was written for the other direction, and copying it here would announce the wrong thing. Until you write one, these calls open with the other tab's greeting.
-                        </div>
-                      )}
+                      {!value.trim() && (() => {
+                        // What these calls ACTUALLY open with while this box is
+                        // empty, as the server resolves it from the saved agent.
+                        // The old note said "these calls open with the other tab's
+                        // greeting" — which, for an agent built for outbound, meant
+                        // inbound callers hearing its outbound pitch. They now hear
+                        // a neutral greeting instead, and this shows it.
+                        const who = dir === 'OUTBOUND' ? 'calls your agent places' : 'calls that come in';
+                        const preview = emptyTabPreview?.dir === dir ? emptyTabPreview : null;
+                        const box = { marginTop: '8px', padding: '9px 12px', background: 'var(--s1)', border: '1px dashed var(--line)', borderRadius: '8px', fontSize: '11.5px', color: 'var(--tx-3)', lineHeight: 1.45 } as const;
+                        if (!preview) {
+                          return <div style={box}>Nothing written for {who} yet — until you write one, they open with a neutral greeting.</div>;
+                        }
+                        if (preview.source === 'authored') {
+                          return <div style={box}>Not saved yet — until you save, {who} still open with: <i>“{preview.welcome}”</i></div>;
+                        }
+                        return (
+                          <div style={box}>
+                            Nothing written for {who} yet, so they open with {preview.source === 'neutral' ? 'this neutral greeting' : "this agent's older greeting"}:
+                            <div style={{ margin: '6px 0', color: 'var(--tx-2)', fontStyle: 'italic' }}>“{preview.welcome}”</div>
+                            <button
+                              type="button"
+                              onClick={() => set(preview.welcome)}
+                              style={{ background: 'transparent', color: 'var(--cyan-fg)', border: '1px solid var(--line)', borderRadius: '6px', padding: '4px 10px', fontSize: '11px', fontWeight: 700, cursor: 'pointer' }}
+                            >
+                              Use this as a starting point
+                            </button>
+                          </div>
+                        );
+                      })()}
                       {callingMismatch && (
                         <div style={{ display: 'flex', gap: '8px', marginTop: '8px', padding: '10px 12px', background: '#2a1a0a', border: '1px solid #5a3a12', borderRadius: '8px', fontSize: '12px', color: '#ffb74d', lineHeight: 1.45 }}>
                           <span aria-hidden>⚠️</span>

@@ -24,7 +24,7 @@ import { handlePlivoMediaUpgrade } from './ws/plivoMediaRealtime.handler.js';
 import { handlePiopiyMediaUpgrade } from './ws/piopiyMediaRealtime.handler.js';
 import { handlePlivoMediaModularUpgrade } from './ws/plivoMediaModular.handler.js';
 import { SAMPLE_RATES, DEFAULT_SAMPLE_RATE } from './services/telephony/piopiy.provider.js';
-import { isBundledEngine } from './services/outboundCall.service.js';
+import { isBundledEngine, warmAllInboundGreetings } from './services/outboundCall.service.js';
 import { loadAgent } from './services/agentRuntime.service.js';
 import { resumeStuckKbJobs } from './services/kbChunking.service.js';
 import { startRecordingRetention } from './services/recordingRetention.service.js';
@@ -200,12 +200,13 @@ httpServer.on('upgrade', (req, socket, head) => {
   // a stream-mode call identifies itself, and `direction` is read below.
   const { pathname } = url;
 
-  // Which way this call went, set by the dialler when it built the stream URL
-  // (telephony providers' mediaStreamUrl). ABSENT MEANS UNKNOWN, not inbound:
-  // an inbound webhook builds the same URL with no flag, and so does any older
-  // in-flight call, and both must keep the agent's configured behaviour rather
-  // than be told they are inbound. Only used to pick the greeting — see
-  // getRenderedWelcome().
+  // Which way this call went. The dialler sets it when it builds a stream URL
+  // (telephony providers' mediaStreamUrl), Plivo's answer handler sets INBOUND
+  // for a call to a rented number, and the editor's test call sets the tab
+  // being viewed. ABSENT MEANS UNKNOWN, not inbound — an older in-flight URL
+  // must keep the agent's configured behaviour. Picks the greeting (see
+  // renderWelcome) and is now passed to EVERY bridge, bundled engines included:
+  // they used to be handed no direction at all.
   const rawDirection = String(url.searchParams.get('direction') || '').toUpperCase();
   const callDirection = rawDirection === 'OUTBOUND' || rawDirection === 'INBOUND' ? rawDirection : null;
 
@@ -220,7 +221,7 @@ httpServer.on('upgrade', (req, socket, head) => {
   const webCallMatch = pathname.match(WEB_CALL_UPGRADE_PATH);
   if (webCallMatch) {
     webCallWss.handleUpgrade(req, socket, head, (ws) => {
-      handleWebCallUpgrade(ws, { workspaceId: webCallMatch[1], agentId: webCallMatch[2] });
+      handleWebCallUpgrade(ws, { workspaceId: webCallMatch[1], agentId: webCallMatch[2], direction: callDirection });
     });
     return;
   }
@@ -254,7 +255,7 @@ httpServer.on('upgrade', (req, socket, head) => {
     // the carrier's first frame — cannot happen until we are ready to listen.
     resolveBundledEngine(workspaceId, agentId, declaredEngine).then((bundled) => {
       twilioMediaWss.handleUpgrade(req, socket, head, (ws) => {
-        if (bundled) handleTwilioMediaUpgrade(ws, { workspaceId, agentId });
+        if (bundled) handleTwilioMediaUpgrade(ws, { workspaceId, agentId, direction: callDirection });
         else handleTwilioMediaModularUpgrade(ws, { workspaceId, agentId, direction: callDirection });
       });
     });
@@ -284,7 +285,7 @@ httpServer.on('upgrade', (req, socket, head) => {
     // value both ends already agreed on.
     resolveBundledEngine(workspaceId, agentId, declaredEngine).then((bundled) => {
       plivoMediaWss.handleUpgrade(req, socket, head, (ws) => {
-        if (bundled) handlePlivoMediaUpgrade(ws, { workspaceId, agentId, callLogId });
+        if (bundled) handlePlivoMediaUpgrade(ws, { workspaceId, agentId, callLogId, direction: callDirection });
         else handlePlivoMediaModularUpgrade(ws, { workspaceId, agentId, callLogId, direction: callDirection, transferOutcome });
       });
     });
@@ -313,6 +314,7 @@ httpServer.on('upgrade', (req, socket, head) => {
         agentId,
         sampleRate,
         callLogId: url.searchParams.get('callLogId'),
+        direction: callDirection,
       });
     });
     return;
@@ -323,6 +325,11 @@ httpServer.on('upgrade', (req, socket, head) => {
 
 const server = httpServer.listen(env.PORT, () => {
   logger.info(`Server running on http://localhost:${env.PORT} [${env.NODE_ENV}]`);
+  // The greeting-audio cache is in memory, so every deploy empties it and the
+  // first caller to each rented number waits on a live TTS round trip. Refill
+  // it in the background once the server is taking traffic. Delayed so it does
+  // not compete with boot; unref'd so it never holds the process open.
+  setTimeout(() => { warmAllInboundGreetings(); }, 15_000).unref();
 });
 
 // SSE keepalive heartbeat

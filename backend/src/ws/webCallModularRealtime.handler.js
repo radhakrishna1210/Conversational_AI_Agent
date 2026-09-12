@@ -189,6 +189,18 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
   // is an older build that does not send it yet — the server then waits for
   // 'end-turn' exactly as before, so an unpatched client keeps working.
   let segmentHistory;
+  // The greeting the BROWSER spoke. This transport never speaks one itself: the
+  // page fetches /welcome, plays it, and seeds the call history with it as the
+  // first assistant turn — so that is where it is read from. Kept once found:
+  // history is trimmed on long calls and the opening turn is the first to go.
+  // Named in the system prompt instead of the configured direction's greeting,
+  // which is a different string whenever the page tests the other direction.
+  let spokenWelcome = null;
+  const noteSpokenWelcome = (history) => {
+    if (spokenWelcome || !Array.isArray(history)) return;
+    const first = history.find((m) => m?.role === 'assistant' && typeof m.content === 'string' && m.content.trim());
+    if (first) spokenWelcome = first.content.trim();
+  };
   // How much talk time the wallet actually paid for. Armed once the gate passes.
   let budget = null;
   // The Recent Calls row for this call. The BROWSER creates it (this transport
@@ -243,7 +255,7 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
     mode: speculationModeFor(agentSettings),
     label: 'web speculation',
     history: () => (Array.isArray(segmentHistory) ? segmentHistory : []),
-    start: (messages, { signal }) => converseStream(workspaceId, agentId, messages, { voiceMode: true, signal, transfer: transferOpts }),
+    start: (messages, { signal }) => converseStream(workspaceId, agentId, messages, { voiceMode: true, signal, transfer: transferOpts, spokenWelcome }),
   });
 
   // Cleared when the auth FRAME arrives — see AUTH_TIMEOUT_MS.
@@ -372,6 +384,7 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
   };
 
   const runTurn = async (history, endpointMs = null) => {
+    noteSpokenWelcome(history);
     // Marks "the caller is judged done speaking" (client sent end-turn) — the same
     // reference point modularMediaBridge.js uses for its preLlmMs, so the two
     // channels are directly comparable in logs/latency.log.
@@ -549,6 +562,7 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
           // A browser call has no phone leg to hand over, so the model is told
           // to be honest and offer a callback; the request is still recorded.
           transfer: transferOpts,
+          spokenWelcome,
           shouldAbort: () => bargeRequested,
           onEvent: (e) => {
             if (bargeRequested && e.type !== 'done') return; // caller cut in; drop reply audio
@@ -878,6 +892,7 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
         // have carried, available a whole turn earlier. Left undefined by older
         // clients, which keeps them on the wait-for-'end-turn' path.
         segmentHistory = Array.isArray(msg.history) ? msg.history : undefined;
+        noteSpokenWelcome(segmentHistory);
         // A new listening segment: anything speculated for the previous one is
         // dead, and this one starts with nothing in flight.
         speculator.beginTurn();

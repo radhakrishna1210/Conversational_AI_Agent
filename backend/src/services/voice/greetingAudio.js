@@ -66,8 +66,8 @@ const textHash = (text) => createHash('sha1').update(String(text)).digest('hex')
  * @param {string} text    the exact greeting that will be spoken
  * @param {{pace?: number, audioFormat?: string|null, sampleRate?: number|null}} opts
  */
-const keyFor = (voice, text, { pace = null, audioFormat = null, sampleRate = null } = {}) =>
-  `${voice?.id}|${audioFormat || 'default'}|${sampleRate || 'default'}|${pace || 'default'}|${textHash(text)}`;
+const keyFor = (voice, text, { pace = null, audioFormat = null, sampleRate = null, ambienceTag = null } = {}) =>
+  `${voice?.id}|${audioFormat || 'default'}|${sampleRate || 'default'}|${pace || 'default'}|${ambienceTag || 'none'}|${textHash(text)}`;
 
 /**
  * What to ask TTS for, given a bridge's resolved telephony format.
@@ -89,8 +89,11 @@ export function greetingSynthesisOpts(ttsFormat, settings = {}) {
     // implies 8kHz, and passing a rate there would key two identical clips
     // differently depending on which caller filled the field in.
     sampleRate: ttsFormat?.kind === 'pcm' && ttsFormat.rate ? ttsFormat.rate : null,
-    // Mode A ambience rides on every synthesis request, the greeting included;
-    // it is part of the cache key by construction (the opts are hashed).
+    // Mode A ambience rides on every synthesis request, the greeting included.
+    // It is in the cache key (keyFor) and passed to synthesis by both the warm
+    // below and the bridge. This comment used to claim "the opts are hashed" —
+    // they were not, and neither path sent the tag, so a native-ambience agent's
+    // greeting was the one line of the call with no ambience.
     ambienceTag: ambienceTagFor(settings),
   };
 }
@@ -166,6 +169,7 @@ export async function warmGreetingAudio(voice, text, opts = {}) {
         ...(opts.pace ? { pace: opts.pace } : {}),
         ...(opts.audioFormat ? { audioFormat: opts.audioFormat } : {}),
         ...(opts.sampleRate ? { sampleRate: opts.sampleRate } : {}),
+        ...(opts.ambienceTag ? { ambienceTag: opts.ambienceTag } : {}),
       });
       const chunks = [];
       for await (const c of stream) chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c));

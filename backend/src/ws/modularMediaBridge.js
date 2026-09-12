@@ -55,7 +55,7 @@
 
 import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
-import { voiceTurnStream, getRenderedWelcome, warmVoiceTurn, loadAgent, converseStream } from '../services/agentRuntime.service.js';
+import { voiceTurnStream, getRenderedWelcome, warmVoiceTurn, loadAgent, converseStream, neutralGreeting } from '../services/agentRuntime.service.js';
 import { createSpeculator, speculationModeFor } from '../services/voice/speculativeTurn.js';
 import {
   transferAvailability, transferLiveCall, registerPendingTransfer, failureLineFor,
@@ -314,6 +314,8 @@ export function runModularMediaBridge(ws, {
   // services/voice/speculativeTurn.js). Rebuilt once the agent's settings are
   // known; a no-op stands in until then so the hooks below stay unconditional.
   let speculator = createSpeculator({ mode: 'off', start: () => { throw new Error('unused'); } });
+  /** The greeting this call opened with — named in the system prompt. See welcomePending. */
+  let spokenWelcome = null;
   /**
    * The bridge's own view of when the CALLER stopped making sound.
    *
@@ -649,9 +651,13 @@ export function runModularMediaBridge(ws, {
         // how the cached greeting and the streamed one drift apart in format.
         await pumpAudio((async function* one() { yield cached.buf; })(), cached.contentType, isUlaw);
       } else {
+        // A miss streams live rather than awaiting a warm still in flight: the
+        // warm resolves only once the WHOLE greeting is synthesized, while a
+        // stream starts playing at first byte. Joining it would be slower.
         const { stream, contentType } = await streamSynthesizeVoice(voice, text, {
           fast: true,
           pace: synthOpts.pace,
+          ...(synthOpts.ambienceTag ? { ambienceTag: synthOpts.ambienceTag } : {}),
           ...ttsFormatOpts(),
         });
         const collected = [];
@@ -872,6 +878,7 @@ export function runModularMediaBridge(ws, {
           speculation,
           extraLatency: dgTimeline,
           transfer: transferOpts(),
+          spokenWelcome,
           // Ask TTS for the carrier's own format — see ttsFormatOpts().
           ...ttsFormatOpts(),
           shouldAbort: () => abortTurn || closed,
@@ -1706,7 +1713,11 @@ export function runModularMediaBridge(ws, {
             history: () => history.slice(),
             // Same prompt as the committed turn will use (transfer protocol
             // included), or the speculative reply would not match.
-            start: (messages, { signal }) => converseStream(workspaceId, agentId, messages, { voiceMode: true, signal, transfer: transferOpts() }),
+            // spokenWelcome is read when the request starts, not captured now,
+            // so it names the greeting once rendered (a few ms after `start`).
+            // A speculation racing ahead of that falls back to the configured
+            // direction's greeting, as every call did before.
+            start: (messages, { signal }) => converseStream(workspaceId, agentId, messages, { voiceMode: true, signal, transfer: transferOpts(), spokenWelcome }),
           });
 
           // ── Wallet gate ───────────────────────────────────────────────────
@@ -1753,26 +1764,27 @@ export function runModularMediaBridge(ws, {
 
           // Started BEFORE the voice lookup rather than after it, so the two
           // overlap. The RENDERED welcome, not the raw field: getRenderedWelcome
-          // is what the web call speaks (the client fetches
-          // /agents/:id/welcome), and it is where the agent's configured
-          // language is applied — "a welcome stored in English must be spoken in
-          // Hindi when Hindi is the selected language". It also strips
-          // [placeholders], de-robotifies greetings that call themselves an AI,
-          // and fixes an agent that thanks the caller "for calling" on a call WE
-          // dialled — which is what `direction` is for: the agent's stored
-          // callDirection describes what it is FOR, not what is happening on
-          // this leg, and campaigns routinely dial out through agents saved as
-          // INBOUND or saved with no direction at all. Reading
-          // agent.welcomeMessage directly here meant the phone call opened in
-          // English while the web call opened in Hindi, from the same Assistant
-          // Details — the phone is a transport for this agent, not a different
-          // agent.
+          // picks this direction's greeting (the Incoming or Outgoing tab), falls
+          // back to the legacy field only where that text suits this direction
+          // and otherwise to the neutral greeting, strips [placeholders], and
+          // rewrites a legacy "thank you for calling" on a call WE dialled. That
+          // is what `direction` is for: the agent's stored callDirection
+          // describes what it is FOR, not what is happening on this leg.
           //
-          // Cached on the agent row by content hash, so this is not an LLM round
-          // trip per call. Never allowed to fail the call: an un-rendered
+          // No LLM and no database beyond the cached agent row, so it is
+          // effectively instant. Never allowed to fail the call: a neutral
           // greeting is far better than dead air on answer.
+          //
+          // Whatever it resolves to is also `spokenWelcome` — the greeting the
+          // system prompt tells the model it already said. That rule used to
+          // name the greeting for the agent's CONFIGURED direction, so on every
+          // cross-direction call the model was told it had said something else.
           const welcomePending = getRenderedWelcome(workspaceId, agentId, { direction })
-            .then((r) => r?.welcome || '')
+            .then((r) => {
+              const text = r?.welcome || '';
+              if (text) spokenWelcome = text;
+              return text;
+            })
             .catch((e) => {
               logger.warn(`Welcome rendering failed, using the raw message: ${e.message}`);
               return '';
@@ -1938,9 +1950,12 @@ export function runModularMediaBridge(ws, {
             await speakLine(line);
             logger.info({ callLogId, outcome }, `${carrier.label}: resumed after a failed handover`);
           } else {
+            // Only reached empty if rendering threw. The neutral greeting for
+            // this direction — not the raw legacy column, which is the other
+            // direction's pitch on an agent built for outbound calling.
             const greeting = (await welcomePending)
-              || agent.welcomeMessage
-              || `Hello, this is ${agent.name}.`;
+              || neutralGreeting(agent, settings, (direction || settings.callDirection) === 'OUTBOUND' ? 'OUTBOUND' : 'INBOUND');
+            spokenWelcome = greeting;
             await speakLine(greeting);
           }
           // The one number that says how long the callee heard nothing. Measured

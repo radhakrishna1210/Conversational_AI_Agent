@@ -33,7 +33,7 @@ import {
   telephonyFormatForVoice,
   synthesisProviderForVoice,
 } from './voice/telephonyVoice.js';
-import { getRenderedWelcome } from './agentRuntime.service.js';
+import { getRenderedWelcome, neutralGreeting, loadAgent } from './agentRuntime.service.js';
 import { resolveAgentVoice } from './voice.service.js';
 import { warmGreetingAudio, greetingSynthesisOpts } from './voice/greetingAudio.js';
 
@@ -57,36 +57,32 @@ const parseSettings = (agent) => {
 };
 
 /**
- * Get this agent's greeting rendered AND synthesized before the callee answers.
+ * Get this agent's greeting synthesized before anyone is listening for it.
  *
- * Two separate costs the modular phone bridge otherwise pays as dead air, both
- * on the answer path where the caller is listening to silence:
- *
- *   1. getRenderedWelcome() — an LLM rewrite the first time an agent is used
- *      (translation, [placeholder] filling, un-robotifying). Memoized per agent
- *      afterwards, but the FIRST call of a campaign eats it.
- *   2. the TTS round trip for those one or two sentences, on EVERY call.
- *
- * Ringing lasts seconds and has nobody waiting on it, so both belong here.
+ * The one cost left on the answer path is the TTS round trip for those one or
+ * two sentences — measured p50 581ms, p90 1450ms of silence the caller hears.
+ * The audio cache (services/voice/greetingAudio.js) removes it for every call
+ * after the first; this makes the first one a hit too.
  *
  * Deliberately best-effort in every direction: it resolves the same greeting
- * text the bridge will (`rendered || welcomeMessage || "Hello, this is …"`) and
- * the same synthesis options (greetingSynthesisOpts), but if any of that
- * diverges the bridge simply misses the cache and streams the greeting exactly
- * as it does today. A miss costs what today costs; it can never be wrong.
+ * text the bridge will (getRenderedWelcome, for the same direction) and the
+ * same synthesis options (greetingSynthesisOpts), but if any of that diverges
+ * the bridge simply misses the cache and streams the greeting exactly as it
+ * does without a warm. A miss costs what no warm costs; it can never be wrong.
  *
  * Only for the modular route — a bundled engine speaks its own greeting inside
  * the vendor's realtime session and never calls our TTS at all.
+ *
+ * @param {'OUTBOUND'|'INBOUND'} [direction] must match the bridge's: the two
+ *   directions are different sentences, so warming the wrong one warms an entry
+ *   nothing reads.
  */
-async function warmPhoneGreeting(workspaceId, agent) {
+async function warmPhoneGreeting(workspaceId, agent, direction = 'OUTBOUND') {
   const settings = parseSettings(agent);
 
-  // OUTBOUND, matching the stream URL this dial is building. The bridge keys
-  // its welcome render by direction too, so warming the wrong one warms an
-  // entry nothing reads.
-  let text = agent.welcomeMessage || `Hello, this is ${agent.name}.`;
+  let text = neutralGreeting(agent, settings, direction);
   try {
-    const rendered = await getRenderedWelcome(workspaceId, agent.id, { direction: 'OUTBOUND' });
+    const rendered = await getRenderedWelcome(workspaceId, agent.id, { direction });
     if (rendered?.welcome) text = rendered.welcome;
   } catch (e) {
     logger.warn(`Greeting pre-render failed (the call will render it on answer): ${e.message}`);
@@ -106,6 +102,66 @@ async function warmPhoneGreeting(workspaceId, agent) {
   if (!ttsFormat) return;
 
   await warmGreetingAudio(voice, text, greetingSynthesisOpts(ttsFormat, settings));
+}
+
+/**
+ * Warm the INBOUND greeting of an agent that answers a rented number.
+ *
+ * An outbound greeting is warmed while the phone rings. An inbound call has no
+ * ringing we control — Plivo connects the caller and fetches the answer URL in
+ * the same moment — so warming then would only race the bridge's own live
+ * synthesis. And the audio cache is per process, so every deploy emptied it:
+ * the first caller of the day to each number paid the full TTS round trip in
+ * silence. So warm at the points that come BEFORE a call: when an agent is put
+ * on a number, when an agent that answers one is saved, and at startup.
+ *
+ * Never throws, never blocks its caller's response.
+ */
+export async function warmInboundGreeting(workspaceId, agentId) {
+  try {
+    const agent = await loadAgent(workspaceId, agentId);
+    if (!agent) return;
+    if (isBundledEngine(parseSettings(agent).voiceEngine)) return;
+    await warmPhoneGreeting(workspaceId, agent, 'INBOUND');
+  } catch (e) {
+    logger.warn(`Inbound greeting warm failed for agent ${agentId}: ${e.message}`);
+  }
+}
+
+/** warmInboundGreeting, for an agent only if some active number routes to it. */
+export async function warmInboundGreetingIfAnswering(workspaceId, agentId) {
+  try {
+    const answering = await prisma.voiceNumber.count({
+      where: { workspaceId, inboundAgentId: agentId, status: VOICE_NUMBER_STATUS.ACTIVE },
+    });
+    if (answering) await warmInboundGreeting(workspaceId, agentId);
+  } catch (e) {
+    logger.warn(`Inbound greeting warm check failed for agent ${agentId}: ${e.message}`);
+  }
+}
+
+/**
+ * Warm every inbound agent's greeting — called once at startup.
+ * One at a time: this is a background refill, and N parallel TTS requests at
+ * boot would compete with the first real calls for the same provider quota.
+ */
+export async function warmAllInboundGreetings() {
+  try {
+    const rows = await prisma.voiceNumber.findMany({
+      where: { status: VOICE_NUMBER_STATUS.ACTIVE, inboundAgentId: { not: null } },
+      select: { workspaceId: true, inboundAgentId: true },
+    });
+    const seen = new Set();
+    for (const r of rows) {
+      const key = `${r.workspaceId}:${r.inboundAgentId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      await warmInboundGreeting(r.workspaceId, r.inboundAgentId);
+    }
+    if (seen.size) logger.info({ agents: seen.size }, 'Warmed inbound greetings');
+  } catch (e) {
+    logger.warn(`Inbound greeting warm-up at startup failed: ${e.message}`);
+  }
 }
 
 /**
@@ -472,13 +528,13 @@ export async function placeOutboundCall({
     // delay or fail a dial. See services/voice/greetingAudio.js.
     if (!isBundledEngine(engine)) warmPhoneGreeting(workspaceId, agent).catch(() => {});
   } else {
-    // The rendered welcome, for the same reason the media bridge uses it: this
-    // is the agent's greeting in the agent's configured language, with
-    // [placeholders] stripped. A greeting-only campaign is the one call where
-    // the welcome is the ENTIRE conversation, so speaking the raw English field
-    // to a Hindi-configured agent's whole recipient list is the worst place for
-    // this divergence to survive. Cached by content hash on the agent row.
-    let welcomeText = agent.welcomeMessage || `Hello, this is a call from ${agent.name}.`;
+    // The rendered welcome, for the same reason the media bridge uses it: the
+    // Outgoing greeting, legacy text only where it suits an outbound call, with
+    // [placeholders] stripped. A greeting-only campaign is the one call where the
+    // welcome is the ENTIRE conversation, so the raw legacy field is the worst
+    // thing to fall back to here. Rendering reads a cached agent row and runs no
+    // model, so there is nothing to wait on.
+    let welcomeText = neutralGreeting(agent, parseSettings(agent), 'OUTBOUND');
     try {
       const rendered = await getRenderedWelcome(workspaceId, agent.id, { direction: 'OUTBOUND' });
       if (rendered?.welcome) welcomeText = rendered.welcome;

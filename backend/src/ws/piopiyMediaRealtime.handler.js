@@ -48,7 +48,7 @@
 
 import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
-import { getAgentKbText } from '../services/agentRuntime.service.js';
+import { getAgentKbText, renderWelcome } from '../services/agentRuntime.service.js';
 import { createRealtimeSession } from '../services/voice/realtimeEngine.factory.js';
 import { isModelAllowed } from '../services/platform/modelCatalog.js';
 import { createPcmStreamPacer } from '../services/voice/pcmStreamPacer.js';
@@ -111,7 +111,7 @@ export function readInboundAudio(raw, isBinary) {
  * @param {{workspaceId: string, agentId: string, sampleRate: number,
  *          callLogId: string|null}} params  parsed from the upgrade URL
  */
-export function handlePiopiyMediaUpgrade(ws, { workspaceId, agentId, sampleRate, callLogId }) {
+export function handlePiopiyMediaUpgrade(ws, { workspaceId, agentId, sampleRate, callLogId, direction = null }) {
   let session = null;
   let pacer = null;
   let started = false;
@@ -192,8 +192,9 @@ export function handlePiopiyMediaUpgrade(ws, { workspaceId, agentId, sampleRate,
     // caveat it always is: its output format is fixed on the dashboard agent
     // rather than per session, so an ElevenLabs agent used here must be
     // configured for PCM — a mismatch is audible as speed/pitch, not silence.
+    const { welcome } = renderWelcome(agent, { direction });
     session = createRealtimeSession(settings.voiceEngine, {
-      agent, kbText, audioFormat: 'pcm16',
+      agent, kbText, audioFormat: 'pcm16', welcome,
     });
 
     // The pacer is sized in the SOCKET's rate, because that is what it emits.

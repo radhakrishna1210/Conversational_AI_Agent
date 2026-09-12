@@ -22,7 +22,7 @@ import { settleCall } from '../services/billing/settlement.service.js';
 import { openCallBudget } from '../services/billing/callBudget.js';
 import { startHeartbeat } from './socketHeartbeat.js';
 import { verifyAccessToken } from '../lib/jwt.js';
-import { getAgentKbText } from '../services/agentRuntime.service.js';
+import { getAgentKbText, renderWelcome } from '../services/agentRuntime.service.js';
 import { createRealtimeSession } from '../services/voice/realtimeEngine.factory.js';
 import { isModelAllowed } from '../services/platform/modelCatalog.js';
 
@@ -36,7 +36,12 @@ const safeJson = (str, fallback) => {
   }
 };
 
-export async function handleWebCallUpgrade(ws, { workspaceId, agentId }) {
+/**
+ * `direction`: which greeting the in-page test call opens with — the editor
+ * passes the tab being viewed, so both greetings can be heard before saving a
+ * number against the agent. Null keeps the agent's configured side.
+ */
+export async function handleWebCallUpgrade(ws, { workspaceId, agentId, direction = null }) {
   let authenticated = false;
   let session = null;
   let callLogId = null;
@@ -176,7 +181,8 @@ export async function handleWebCallUpgrade(ws, { workspaceId, agentId }) {
 
       try {
         const { kbText } = await getAgentKbText(workspaceId, agentId);
-        session = createRealtimeSession(settings.voiceEngine, { agent, kbText, audioFormat: 'pcm16' });
+        const { welcome } = renderWelcome(agent, { direction });
+        session = createRealtimeSession(settings.voiceEngine, { agent, kbText, audioFormat: 'pcm16', welcome });
 
         session.on('audio', (buf) => {
           if (ws.readyState === ws.OPEN) ws.send(buf, { binary: true });

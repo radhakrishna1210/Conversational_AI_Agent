@@ -31,7 +31,7 @@
 
 import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
-import { getAgentKbText } from '../services/agentRuntime.service.js';
+import { getAgentKbText, renderWelcome } from '../services/agentRuntime.service.js';
 import { createRealtimeSession } from '../services/voice/realtimeEngine.factory.js';
 import { isModelAllowed } from '../services/platform/modelCatalog.js';
 import { createAmbiencePump } from '../services/voice/ambiencePump.js';
@@ -49,7 +49,12 @@ const safeJson = (str, fallback) => {
   }
 };
 
-export function handlePlivoMediaUpgrade(ws, { workspaceId, agentId, callLogId = null }) {
+/**
+ * @param {{ workspaceId: string, agentId: string, callLogId?: string|null,
+ *   direction?: 'INBOUND'|'OUTBOUND'|null }} p  `direction` picks the greeting —
+ *   an inbound caller and an outbound callee must not hear the same one.
+ */
+export function handlePlivoMediaUpgrade(ws, { workspaceId, agentId, callLogId = null, direction = null }) {
   let session = null;
   let pump = null;      // realtime outbound clock: ambience pump, else bare pacer
   let streamId = null;
@@ -145,8 +150,10 @@ export function handlePlivoMediaUpgrade(ws, { workspaceId, agentId, callLogId = 
           }
 
           const { kbText } = await getAgentKbText(workspaceId, agentId);
+          // From the row already loaded above — no second database read.
+          const { welcome } = renderWelcome(agent, { direction });
           session = createRealtimeSession(settings.voiceEngine, {
-            agent, kbText, audioFormat: 'g711_ulaw',
+            agent, kbText, audioFormat: 'g711_ulaw', welcome,
           });
 
           // There is ALWAYS a clock on this leg now. Ambience gives us one as a

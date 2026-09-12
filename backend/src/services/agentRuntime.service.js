@@ -104,9 +104,8 @@ async function agentHasKbChunks(workspaceId, agentId) {
  * agent is the normal way to work, which is exactly when the stale window bit.
  *
  * A file with no agentId is workspace-wide grounding for EVERY agent, so that
- * case clears the whole workspace. The welcome cache goes too: the greeting is
- * rewritten from the knowledge base (resolveWelcomeMessage), so it is derived
- * from the same text.
+ * case clears the whole workspace. (There is no welcome cache to clear any
+ * more: the greeting is spoken as written and never derived from the KB.)
  */
 export function invalidateKbCaches(workspaceId, agentId = null) {
   if (agentId) {
@@ -535,11 +534,131 @@ const stripPlaceholders = (text) =>
 // EditAgent.tsx (THANKS_FOR_CALLING_RE).
 const THANKS_FOR_CALLING_RE = /\bthank(?:s|\s*you)?\b[^.!?]*\bfor\s+calling\b/i;
 
+// The same thanks in Hindi and Marathi: "कॉल करने के लिए धन्यवाद", "फ़ोन करने के
+// लिए शुक्रिया", "कॉल केल्याबद्दल धन्यवाद". The English rewrite below cannot be
+// applied to these, so a legacy greeting that matches falls back to the neutral
+// greeting instead. Mirrored in EditAgent.tsx.
+const THANKS_FOR_CALLING_INDIC_RE = /(?:कॉल|फ़ोन|फोन|संपर्क)\s*(?:करने\s*के\s*लिए|केल्याबद्दल)\s*(?:धन्यवाद|शुक्रिया|आभार)/;
+
+// First-person "I'm calling" phrasing — right when WE rang THEM, absurd to
+// somebody who rang in. "Is now a good time?" alone is deliberately not here: an
+// inbound agent can ask it too. Mirrors OUTBOUND_PHRASING_RE in EditAgent.tsx,
+// plus the Marathi form.
+const OUTBOUND_PHRASING_RE = new RegExp([
+  String.raw`\b(?:i\s*['’]?m|i\s+am|this\s+is\s+\w+)\s+calling\b`,
+  String.raw`\bcalling\s+(?:from|you|to)\b`,
+  '(?:कॉल|फ़ोन|फोन)\\s*कर\\s*रह[ीा]\\s*हू[ँं]',
+  '(?:कॉल|फ़ोन|फोन)\\s*करत\\s*आहे',
+].join('|'), 'i');
+
+/** Does this greeting read as the wrong one for a call going this way? */
+export function readsAsOtherDirection(text, callDirection) {
+  const s = String(text || '');
+  if (callDirection === 'OUTBOUND') return THANKS_FOR_CALLING_RE.test(s) || THANKS_FOR_CALLING_INDIC_RE.test(s);
+  if (callDirection === 'INBOUND') return OUTBOUND_PHRASING_RE.test(s);
+  return false;
+}
+
+/**
+ * The business name, when one of the member's own greetings says it.
+ *
+ * There is no business-name field on an agent, and the agent's `name` is a
+ * label for the dashboard ("Feedback Campaign", "Cold Calling Leads"), not
+ * something to say to a customer. The greetings the member wrote are the one
+ * place the business is named in their own words, so the neutral greeting
+ * borrows it from there — and says nothing rather than guess.
+ *
+ * English only, and only a Proper Noun run: "calling from support" names a
+ * department, not a business.
+ */
+export function companyFromGreetings(...texts) {
+  // The lead words match in any case ("Welcome to", "welcome to"), but the name
+  // itself must be capitalised — that is the whole test for "a business, not a
+  // department". A regex `i` flag would apply to both, so the lead words spell
+  // out their own case instead.
+  const ci = (words) => words.replace(/[a-z]/g, (ch) => `[${ch.toUpperCase()}${ch}]`).replace(/ /g, String.raw`\s+`);
+  // No '.' inside a word: "Sunrise Hospital. How can I help" must stop at the full stop.
+  const NAME = String.raw`([A-Z][\w&'’-]*(?:\s+(?:of|and|&|the)?\s*[A-Z0-9][\w&'’-]*){0,5})`;
+  const patterns = [
+    new RegExp(String.raw`\b${ci('calling from')}\s+${NAME}`),
+    new RegExp(String.raw`\b${ci('for calling')}\s+${NAME}`),
+    new RegExp(String.raw`\b${ci('welcome to')}\s+${NAME}`),
+    new RegExp(String.raw`\b(?:${ci('this is')}|${ci('my name is')}|[Ii]\s*['’]?[Mm]|[Ii]\s+[Aa][Mm])\s+\S+\s+${ci('from')}\s+${NAME}`),
+  ];
+  const NOT_A_BUSINESS = /^(?:us|support|sales|today|back|now|in|the|our|your|team|customer\s+care)$/i;
+  for (const text of texts) {
+    const s = String(text || '');
+    for (const re of patterns) {
+      const hit = s.match(re)?.[1]?.trim().replace(/[.,]+$/, '');
+      if (hit && !NOT_A_BUSINESS.test(hit)) return hit;
+    }
+  }
+  return '';
+}
+
+/**
+ * Neutral greetings, per direction and language, for a call whose own greeting
+ * is missing or reads as the other direction's.
+ *
+ * Written by hand, not generated — the greeting is data in this product, and a
+ * reviewed sentence beats a paraphrase on a live call. Gender-neutral by
+ * construction: Hindi and Marathi mark the speaker's gender on most verbs
+ * ("कर सकती हूँ" / "कर सकता हूँ"), and the persona's gender is not known here,
+ * so these use forms that do not ("मदद करूँ", "मदत करू").
+ *
+ * Languages without an entry fall back to English. That is a deliberate floor,
+ * not a translation: a caller who rang in hearing a neutral English opener is
+ * far better off than one hearing the outbound pitch in their own language, and
+ * the editor shows this text so the member can write the real one.
+ */
+const NEUTRAL_GREETINGS = {
+  english: {
+    INBOUND: (p, c) => `Hello, this is ${p}${c ? ` from ${c}` : ''}. How can I help you today?`,
+    // Kept exactly as the long-standing persona fallback when there is no
+    // business to name, so nothing that already spoke this changes.
+    OUTBOUND: (p, c) => `Hello, this is ${p}${c ? ` from ${c}` : ''}.`,
+  },
+  hindi: {
+    INBOUND: (p, c) => `नमस्ते${c ? `, ${c} में आपका स्वागत है` : ''}। मेरा नाम ${p} है। बताइए, मैं आपकी क्या मदद करूँ?`,
+    OUTBOUND: (p, c) => `नमस्ते, मेरा नाम ${p} है${c ? `, ${c} से` : ''}।`,
+  },
+  marathi: {
+    INBOUND: (p, c) => `नमस्कार${c ? `, ${c} मध्ये आपलं स्वागत आहे` : ''}. माझं नाव ${p} आहे. सांगा, मी आपली काय मदत करू?`,
+    OUTBOUND: (p, c) => `नमस्कार, माझं नाव ${p} आहे${c ? `, ${c} कडून` : ''}.`,
+  },
+};
+
+/** The agent's first configured language, as a key into NEUTRAL_GREETINGS. */
+function greetingLanguageOf(agent) {
+  const languages = safeJson(agent?.languages, []);
+  const first = String((Array.isArray(languages) ? languages[0] : languages) || '').toLowerCase();
+  if (first.startsWith('hindi')) return 'hindi';
+  if (first.startsWith('marathi')) return 'marathi';
+  return 'english';
+}
+
+/**
+ * The neutral greeting for a call going this way.
+ *
+ * @param {object} agent    agent row
+ * @param {object} settings its parsed settings
+ * @param {'INBOUND'|'OUTBOUND'} callDirection
+ */
+export function neutralGreeting(agent, settings, callDirection) {
+  const dir = callDirection === 'OUTBOUND' ? 'OUTBOUND' : 'INBOUND';
+  const persona = getPersonaName(agent);
+  const company = companyFromGreetings(settings?.welcomeOutbound, settings?.welcomeInbound, agent?.welcomeMessage);
+  const table = NEUTRAL_GREETINGS[greetingLanguageOf(agent)] || NEUTRAL_GREETINGS.english;
+  return table[dir](persona, company);
+}
+
 /**
  * Turn an inbound-style greeting into an outbound one, deterministically.
  *
- * This is the no-KB path: there is nothing to ground an LLM rewrite in, so the
- * opener has to be rebuilt out of what the stored greeting already says.
+ * There is no LLM on the greeting path, so the opener has to be rebuilt out of
+ * what the stored greeting already says. Applied ONLY to the legacy single
+ * field on an outbound call — never to text typed into the Outgoing tab, which
+ * is spoken as written (see renderWelcome).
  *
  * DELETING THE THANKS IS NOT ENOUGH, which is all this used to do. The clause
  * that thanks the caller is usually the same clause that carries the identity:
@@ -549,9 +668,8 @@ const THANKS_FOR_CALLING_RE = /\bthank(?:s|\s*you)?\b[^.!?]*\bfor\s+calling\b/i;
  *
  * Dropping it left "I'm here to help you schedule a demo." — no name, no
  * company, straight into the pitch, which is exactly the opening an outbound
- * call must not have. It is the one thing the LLM prompt for this case spells
- * out: introduce yourself BY NAME, name the company, and only THEN give the
- * reason for the call.
+ * call must not have: introduce yourself BY NAME, name the company, and only
+ * THEN give the reason for the call.
  *
  * So the company is recovered from the thanks clause itself — "for calling
  * <COMPANY>" — and reused. It counts as a company only when it reads like a
@@ -580,31 +698,46 @@ export const stripInboundThanks = (text, persona = '') => {
   const THANKS_CLAUSE = /\b(?:and\s+)?thank(?:s|\s*you)?\b[^.!?]*\bfor\s+calling\b[^.!?]*[.!?]?/i;
   const clause = text.match(THANKS_CLAUSE)?.[0] ?? '';
   // Nothing to correct: callers only reach here on a greeting that DOES thank
-  // the caller (see directionMismatch), but as an exported helper it must not
-  // bolt an opener onto a greeting that was already fine.
+  // the caller, but as an exported helper it must not bolt an opener onto a
+  // greeting that was already fine.
   if (!clause) return text.trim();
+  // "Thanks for calling us yesterday" thanks them for a PAST call — exactly what
+  // an outbound follow-up says. It is not the inbound "thank you for calling",
+  // and rebuilding around it deleted the rest of the sentence, consent question
+  // included.
+  if (/\b(?:yesterday|earlier|last\s+(?:week|month|time|night)|the\s+other\s+day|previously)\b/i.test(clause)) {
+    return text.trim();
+  }
   const body0 = tidy(text.replace(new RegExp(THANKS_CLAUSE.source, 'gi'), ''));
 
   // "for calling <X>" — X is a company only if it looks like a name. Stops at
   // the first comma so "…calling Innovate Solutions, my name is Sarah" does not
-  // swallow the introduction that follows it.
+  // swallow the introduction that follows it. When the thanks names no company,
+  // the introduction may ("this is Anjali from Sunrise Hospital"): dropping it
+  // along with the introduction lost the business name entirely.
   const named = clause.match(/\bfor\s+calling\s+([^,.!?]+)/i)?.[1]?.trim() ?? '';
-  const company = /^[A-Z][\w&'’-]*(?:\s+[\w&'’-]+){0,4}$/.test(named)
+  const company = (/^[A-Z][\w&'’-]*(?:\s+[\w&'’-]+){0,4}$/.test(named)
     && !/^(?:us|support|today|back|now|in|the)$/i.test(named)
     ? named
-    : '';
+    : '') || companyFromGreetings(text);
 
   if (!persona && !company) return body0;
 
   // The rebuilt opener says who is calling, so a second introduction left in the
-  // remainder ("my name is Sarah", "This is Priya.") is now a repeat.
+  // remainder ("my name is Sarah", "This is Priya.", "I'm Sarah") is now a
+  // repeat. `\b` before the I: without it "Tim Sarah" read as "…im Sarah".
   let body = body0;
   if (persona) {
     const p = persona.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const INTRO = `(?:my\\s+name\\s+is|this\\s+is|i\\s*a?m)\\s+${p}\\b[\\s,.!-]*`;
+    const INTRO = `(?:my\\s+name\\s+is|this\\s+is|\\bi\\s*['’]?\\s*a?m)\\s+${p}\\b[\\s,.!-]*`;
     body = tidy(body
       .replace(new RegExp(`^\\s*(?:hi|hello|hey|namaste)?[\\s,]*${INTRO}`, 'i'), '')
       .replace(new RegExp(INTRO, 'gi'), ''));
+  }
+  // …and the "from <Company>" that introduction carried, now said by the opener.
+  if (company) {
+    const c = company.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    body = tidy(body.replace(new RegExp(`^from\\s+${c}\\b[\\s,.!-]*`, 'i'), ''));
   }
 
   // The opener says hello and names the caller, so a remainder that opens with
@@ -623,10 +756,10 @@ export const stripInboundThanks = (text, persona = '') => {
 };
 
 /**
- * Return the agent's welcome message with template placeholders like
- * "[Your Company Name]" resolved from the knowledge base. This is what the
- * chat seeds and the web call speaks — the raw stored template is never
- * shown or spoken literally.
+ * The greeting a call going `direction` opens with: that direction's tab, the
+ * legacy field where it suits the direction, else the neutral greeting — with
+ * "[Your Company Name]"-style placeholders stripped. What the chat seeds, the
+ * web call speaks and every phone bridge says.
  */
 /**
  * @param {string} workspaceId
@@ -654,7 +787,22 @@ export async function getRenderedWelcome(workspaceId, agentId, { direction = nul
     err.statusCode = 404;
     throw err;
   }
+  return renderWelcome(agent, { direction });
+}
 
+/**
+ * getRenderedWelcome for a caller already holding the agent row.
+ *
+ * The bundled-engine bridges (xAI, ElevenLabs) load the row themselves at
+ * `start`; routing them through getRenderedWelcome would re-read it, and a miss
+ * on the agent cache is a Supabase round trip (490-1400ms) before the session
+ * even opens. Pure and synchronous, so it costs the caller nothing.
+ *
+ * @param {object} agent  agent row
+ * @param {{ direction?: 'INBOUND'|'OUTBOUND'|null }} [opts]
+ * @returns {{ welcome: string, rendered: boolean, source: 'authored'|'legacy'|'neutral' }}
+ */
+export function renderWelcome(agent, { direction = null } = {}) {
   const settings = safeJson(agent.settings, {});
   const persona = getPersonaName(agent);
 
@@ -695,27 +843,40 @@ export async function getRenderedWelcome(workspaceId, agentId, { direction = nul
   //   - the same words on the phone as in the browser, always.
   //
   // What is left is deterministic and cheap enough to run per call.
-  const raw = welcomeTextFor(agent, settings, callDirection);
+  const { text: raw, source } = resolveWelcome(agent, settings, callDirection);
 
   // [Placeholders] are stripped, not filled. There is no LLM here to look one
   // up in the knowledge base, and speaking "[Your Company Name]" aloud is worse
   // than speaking around it.
   let welcome = stripPlaceholders(raw);
 
-  // Last-resort direction guard, kept because it is deterministic and because
-  // it protects the agents that have not filled in the new per-direction fields
-  // yet. An agent whose only greeting thanks the caller "for calling" is
-  // self-contradictory on a call WE placed; campaigns routinely dial out
-  // through agents saved as INBOUND or saved with no direction at all.
-  if (callDirection === 'OUTBOUND' && THANKS_FOR_CALLING_RE.test(welcome)) {
+  // The English "thank you for calling" rewrite, for the one source it is for:
+  // the legacy single field, spoken on an outbound call. resolveWelcome already
+  // swapped a legacy greeting it cannot fix (Hindi, Marathi) for the neutral
+  // one, and it NEVER runs on a greeting typed into the Outgoing tab — that text
+  // is spoken as written. It used to run on anything, and turned a member's own
+  // "Hi Rahul, this is Anjali from Sunrise Hospital. Thanks for calling us
+  // yesterday — is now a good time to talk?" into "Hi, this is Anjali. Rahul,
+  // from Sunrise Hospital." — consent question gone.
+  if (source === 'legacy' && callDirection === 'OUTBOUND' && THANKS_FOR_CALLING_RE.test(welcome)) {
     welcome = stripInboundThanks(welcome, persona);
   }
 
   welcome = String(welcome || '').trim();
+  // A greeting made only of [placeholders] strips to nothing. Never dead air on
+  // answer: the neutral greeting for this direction, not the raw legacy column
+  // the callers used to reach for.
+  let finalSource = source;
+  if (!welcome) {
+    welcome = neutralGreeting(agent, settings, callDirection === 'OUTBOUND' ? 'OUTBOUND' : 'INBOUND');
+    finalSource = 'neutral';
+  }
 
   // `rendered` reports whether the stored text was modified on its way out. It
-  // is no longer "an LLM was involved" — nothing here calls one.
-  return { welcome, rendered: welcome !== String(raw || '').trim() };
+  // is no longer "an LLM was involved" — nothing here calls one. `source` says
+  // where the greeting came from, so the editor can tell a member what a caller
+  // will actually hear when a tab is empty.
+  return { welcome, rendered: welcome !== String(raw || '').trim(), source: finalSource };
 }
 
 /**
@@ -731,11 +892,13 @@ export async function getRenderedWelcome(workspaceId, agentId, { direction = nul
  *
  * Resolution is a fallback chain rather than a hard requirement, so no existing
  * agent breaks: an agent that has only ever had `welcomeMessage` keeps using it
- * for both directions, exactly as before.
+ * wherever that text is safe for the call's direction.
  *
  *   settings.welcomeOutbound / settings.welcomeInbound   ← per-direction, preferred
- *   agent.welcomeMessage                                  ← the single legacy field
- *   "Hello, this is <persona>."                           ← never dead air on answer
+ *   agent.welcomeMessage                                  ← legacy, only where safe
+ *   neutralGreeting()                                     ← never dead air on answer
+ *
+ * See resolveWelcome for what "safe" means and why.
  *
  * Stored in `settings` rather than as new columns deliberately: nearly all
  * agent configuration already lives there (callDirection, personaName,
@@ -747,17 +910,55 @@ export async function getRenderedWelcome(workspaceId, agentId, { direction = nul
  * @param {'INBOUND'|'OUTBOUND'|null} callDirection
  */
 export function welcomeTextFor(agent, settings, callDirection) {
-  const perDirection = callDirection === 'OUTBOUND' ? settings.welcomeOutbound
-    : callDirection === 'INBOUND' ? settings.welcomeInbound
-    // Direction genuinely unknown (an inbound webhook on a number that could be
-    // either). Prefer the agent's own configured side over guessing.
-    : (settings.callDirection === 'OUTBOUND' ? settings.welcomeOutbound : settings.welcomeInbound);
+  return resolveWelcome(agent, settings, callDirection).text;
+}
 
-  const chosen = typeof perDirection === 'string' && perDirection.trim()
-    ? perDirection
-    : agent.welcomeMessage;
+/**
+ * welcomeTextFor, plus WHERE the greeting came from.
+ *
+ *   'authored'  typed into this direction's tab — spoken exactly as written
+ *   'legacy'    the single welcomeMessage column
+ *   'neutral'   neutralGreeting(): nothing usable was written for this direction
+ *
+ * ── WHY A LEGACY GREETING IS NOT ALWAYS USED ───────────────────────────────
+ *
+ * The editor saves welcomeMessage as a MIRROR of the agent's configured
+ * direction (EditAgent.tsx activeWelcome) and leaves the other tab empty. For an
+ * agent built for outbound calling, welcomeMessage therefore IS its outbound
+ * pitch — so an inbound call to its rented number fell through the empty
+ * Incoming tab to "Hi, this is Anjali calling from Sunrise Hospital. Is this a
+ * good time to talk?", said to somebody who had just rung Sunrise Hospital.
+ * Rented numbers take inbound calls now, so that was a real caller.
+ *
+ * So the legacy text is used only where it is safe for this call:
+ *   INBOUND   not when the agent is configured OUTBOUND (the text is its pitch
+ *             by construction), and not when it reads as outbound phrasing;
+ *   OUTBOUND  not when it thanks the caller in a language the English rewrite
+ *             cannot fix. English "thank you for calling" stays legacy and is
+ *             rewritten by getRenderedWelcome, which keeps the member's words.
+ * Otherwise: the neutral greeting for this direction.
+ *
+ * @returns {{ text: string, source: 'authored'|'legacy'|'neutral' }}
+ */
+export function resolveWelcome(agent, settings = {}, callDirection = null) {
+  // Direction genuinely unknown (web calls, chat, the preview). Use the agent's
+  // own configured side rather than guessing.
+  const dir = callDirection === 'OUTBOUND' || callDirection === 'INBOUND'
+    ? callDirection
+    : (settings.callDirection === 'OUTBOUND' ? 'OUTBOUND' : 'INBOUND');
 
-  return String(chosen || '').trim() || `Hello, this is ${getPersonaName(agent)}.`;
+  const authored = dir === 'OUTBOUND' ? settings.welcomeOutbound : settings.welcomeInbound;
+  if (typeof authored === 'string' && authored.trim()) return { text: authored.trim(), source: 'authored' };
+
+  const legacy = String(agent?.welcomeMessage || '').trim();
+  if (legacy) {
+    const unsafe = dir === 'INBOUND'
+      ? settings.callDirection === 'OUTBOUND' || readsAsOtherDirection(legacy, 'INBOUND')
+      : THANKS_FOR_CALLING_INDIC_RE.test(legacy);
+    if (!unsafe) return { text: legacy, source: 'legacy' };
+  }
+
+  return { text: neutralGreeting(agent, settings, dir), source: 'neutral' };
 }
 
 // ─── Conversation ─────────────────────────────────────────────────────────────
@@ -827,6 +1028,10 @@ export function buildRuntimeMessages({
   voiceMode = false,
   supportsChatHistory = false,
   transfer = null,
+  // The greeting this call actually opened with, when the caller knows it.
+  // Otherwise the prompt names the greeting for the agent's CONFIGURED
+  // direction, which is a different string on every cross-direction call.
+  spokenWelcome = null,
 }) {
   // RAG-retrieved chunks vary with every question, so — unlike kbText above —
   // they must NEVER sit in the system prompt or the static synthetic KB turn
@@ -840,7 +1045,7 @@ export function buildRuntimeMessages({
     : content);
 
   if (!supportsChatHistory) {
-    let systemPrompt = buildAgentSystemPrompt(agent, kbText, { voiceMode, transfer });
+    let systemPrompt = buildAgentSystemPrompt(agent, kbText, { voiceMode, transfer, spokenWelcome });
     if (prior.length) {
       const transcript = prior
         .map((m) => `${m.role === 'user' ? 'User' : agent.name}: ${m.content}`)
@@ -861,7 +1066,7 @@ export function buildRuntimeMessages({
   chatHistory.push(...prior);
 
   return {
-    systemPrompt: buildAgentSystemPrompt(agent, kbText, { voiceMode, kbInline: false, transfer }),
+    systemPrompt: buildAgentSystemPrompt(agent, kbText, { voiceMode, kbInline: false, transfer, spokenWelcome }),
     chatHistory,
     // Order is RAG excerpts, then affect — both ride on the current turn,
     // never the system prompt or the cached KB turn.
@@ -927,7 +1132,7 @@ export function windowHistory(messages, { maxMessages, maxChars }) {
   return kept;
 }
 
-async function _prepareConverse(workspaceId, agentId, messages, { voiceMode = false, affect = null, transfer = null } = {}) {
+async function _prepareConverse(workspaceId, agentId, messages, { voiceMode = false, affect = null, transfer = null, spokenWelcome = null } = {}) {
   const agent = await loadAgent(workspaceId, agentId);
   if (!agent) {
     const err = new Error('Agent not found in this workspace');
@@ -991,6 +1196,7 @@ async function _prepareConverse(workspaceId, agentId, messages, { voiceMode = fa
     voiceMode,
     supportsChatHistory: Boolean(llm.supportsChatHistory),
     transfer,
+    spokenWelcome,
   });
   // Brevity in voice mode is enforced by the prompt, not the token cap —
   // Gemini 2.5's internal "thinking" tokens count against maxTokens, so a
@@ -1041,9 +1247,9 @@ export const isRateLimited = (err) =>
  */
 const VOICE_MODEL_FALLBACKS = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
 
-export async function converse(workspaceId, agentId, messages, { voiceMode = false, affect = null, transfer = null } = {}) {
+export async function converse(workspaceId, agentId, messages, { voiceMode = false, affect = null, transfer = null, spokenWelcome = null } = {}) {
   const { agent, message, llm, provider, model, config, options, ragMs } =
-    await _prepareConverse(workspaceId, agentId, messages, { voiceMode, affect, transfer });
+    await _prepareConverse(workspaceId, agentId, messages, { voiceMode, affect, transfer, spokenWelcome });
 
   const raw = await llm.generateResponse(message, config, options);
   let reply = (typeof raw === 'object' ? raw.message : raw) || '';
@@ -1065,9 +1271,9 @@ export async function converse(workspaceId, agentId, messages, { voiceMode = fal
  * rate-limit fallback below.
  * @returns {AsyncGenerator<string, { provider: string, model: string, ragMs: number }>}
  */
-export async function* converseStream(workspaceId, agentId, messages, { voiceMode = false, affect = null, signal = null, transfer = null } = {}) {
+export async function* converseStream(workspaceId, agentId, messages, { voiceMode = false, affect = null, signal = null, transfer = null, spokenWelcome = null } = {}) {
   const { message, llm, provider, model, config, options: prepared, ragMs } =
-    await _prepareConverse(workspaceId, agentId, messages, { voiceMode, affect, transfer });
+    await _prepareConverse(workspaceId, agentId, messages, { voiceMode, affect, transfer, spokenWelcome });
   // `signal` lets a speculative turn cancel a superseded request at the
   // provider socket (see voice/speculativeTurn.js). Providers that ignore it
   // still stop being consumed when the generator is returned; they just finish
@@ -1514,7 +1720,7 @@ export async function voiceTurn(workspaceId, agentId, audioBuffer, mimeType, his
  * path of a live call. Everything else about the turn is identical, which is
  * the point: web and phone run the same conversation code.
  */
-export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeType, history = [], { onEvent, shouldAbort, userText: providedText, audioHadSpeech = false, affect = null, fillerBudget = null, audioFormat = null, sampleRate = null, channel = null, preLlmMs = null, endpointMs = null, turnId = null, speculation = null, extraLatency = null, transfer = null } = {}) {
+export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeType, history = [], { onEvent, shouldAbort, userText: providedText, audioHadSpeech = false, affect = null, fillerBudget = null, audioFormat = null, sampleRate = null, channel = null, preLlmMs = null, endpointMs = null, turnId = null, speculation = null, extraLatency = null, transfer = null, spokenWelcome = null } = {}) {
   const emit = typeof onEvent === 'function' ? onEvent : () => {};
   const aborted = typeof shouldAbort === 'function' ? shouldAbort : () => false;
   const turnStartedAt = performance.now();
@@ -1532,7 +1738,7 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
   let specConsumed = false;
   const startLlmStream = () => {
     if (specHit) { specConsumed = true; return specHit.iterator; }
-    return converseStream(workspaceId, agentId, messages, { voiceMode: true, affect, transfer });
+    return converseStream(workspaceId, agentId, messages, { voiceMode: true, affect, transfer, spokenWelcome });
   };
   // ── Human handover (see voice/transferIntent.js) ─────────────────────────
   // Two signals: the pre-filter on the caller's words, and the model's marker
@@ -2112,7 +2318,10 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
       timedOut = err?.message === 'llm-timeout';
       if (!timedOut) throw err;
       logger.warn(`Voice LLM slow first token (>${LLM_FIRST_TOKEN_TIMEOUT_MS}ms) — hedging with a second stream`);
-      const hedge = converseStream(workspaceId, agentId, messages, { voiceMode: true, affect });
+      // The hedge must be built from the SAME prompt as the stream it races —
+      // it used to omit transfer too, so a hedged reply answered from a system
+      // prompt with no handover rules and a different cached prefix.
+      const hedge = converseStream(workspaceId, agentId, messages, { voiceMode: true, affect, transfer, spokenWelcome });
       // Each side swallows its OWN failure into null rather than rejecting, so
       // one stream erroring fast cannot lose the race for a healthy one that is
       // simply a moment behind — the exact case the hedge exists to survive.

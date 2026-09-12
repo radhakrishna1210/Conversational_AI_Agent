@@ -45,7 +45,7 @@ import {
 import { settleBroadcastCall } from '../services/broadcast/broadcastSettlement.service.js';
 import { releaseSlot } from '../services/telephony/concurrency.js';
 import { syncProgress } from '../services/broadcast/broadcastRunner.service.js';
-import { getRenderedWelcome, loadAgent } from '../services/agentRuntime.service.js';
+import { getRenderedWelcome, loadAgent, neutralGreeting } from '../services/agentRuntime.service.js';
 import { isBundledEngine } from '../services/outboundCall.service.js';
 import { createCallFinalizer } from '../ws/callFinalizer.js';
 
@@ -310,7 +310,9 @@ export async function answer(req, res) {
   if (mode === 'greeting') {
     // Re-rendered here rather than carried on the query string: see
     // plivo.provider.js#buildGreetingDoc for why the text does not travel.
-    let welcome = agent.welcomeMessage || `Hello, this is a call from ${agent.name}.`;
+    // Only if rendering throws: the neutral outbound greeting, not the raw
+    // legacy column, which may be an inbound "thank you for calling".
+    let welcome = neutralGreeting(agent, (() => { try { return JSON.parse(agent.settings || '{}'); } catch { return {}; } })(), 'OUTBOUND');
     try {
       // A greeting-only call is one this platform dialled — there is no other
       // way to reach this mode — so OUTBOUND even if the flag went missing.

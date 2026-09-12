@@ -12,6 +12,7 @@ import * as carrier from '../services/plivo/compliance.service.js';
 import * as carrierNumbers from '../services/plivo/number.service.js';
 import * as numberRequests from '../services/plivo/numberRequest.service.js';
 import { setInboundAgent } from '../services/plivo/inbound.service.js';
+import { warmInboundGreeting } from '../services/outboundCall.service.js';
 import { PlivoError } from '../services/plivo/client.js';
 import { ROLES } from '../constants/roles.js';
 
@@ -306,6 +307,9 @@ export const putInboundAgent = async (req, res) => {
   });
   if (!result.ok) return fail(res, result, 404);
   res.json(await compliance.getComplianceState(wsId(req)));
+  // Warm the greeting this number's callers will hear, before the first one
+  // rings. Never throws; see warmInboundGreeting.
+  if (req.body?.agentId) warmInboundGreeting(wsId(req), req.body.agentId);
 };
 
 // DELETE /workspaces/:workspaceId/compliance/numbers/:numberId

@@ -189,7 +189,7 @@ export const plivoProvider = {
    * the length where intermediaries start truncating, and a truncated greeting
    * is spoken aloud to a customer. The endpoint re-renders the welcome from the
    * agent instead, through the same `getRenderedWelcome()` the caller used, so
-   * the text is identical and cached by content hash.
+   * the text is identical (it is deterministic: no model, no per-call state).
    *
    * The closing line has no agent-side source — it is per-call, supplied by the
    * campaign — so it does ride on the query string, capped.

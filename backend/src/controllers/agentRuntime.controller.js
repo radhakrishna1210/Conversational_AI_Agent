@@ -47,12 +47,14 @@ export const converse = async (req, res) => {
 };
 
 // GET .../welcome[?direction=outbound|inbound]
-//   welcome message with [placeholders] resolved from the KB.
+//   { welcome, rendered, source } — the greeting a call going that way opens
+//   with, [placeholders] stripped. `source` is 'authored' (the tab's own text),
+//   'legacy' (the single old field) or 'neutral' (nothing usable was written
+//   for this direction), so the editor can show what an empty tab will say.
 //
-// `direction` is optional and describes the call the caller is ABOUT to make,
-// so a web test call placed against an outbound agent hears the same opener the
-// dialler would produce. Omitted (the Assistant Details preview) it falls back
-// to the agent's configured callDirection, which is the previous behaviour.
+// `direction` describes the call the caller is ABOUT to make. The editor's test
+// call passes the tab being viewed, so both greetings can be heard. Omitted, it
+// falls back to the agent's configured callDirection.
 export const welcome = async (req, res) => {
   try {
     const { workspaceId, agentId } = req.params;

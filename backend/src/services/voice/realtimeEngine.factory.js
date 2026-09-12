@@ -12,7 +12,10 @@ import { ElevenLabsRealtimeSession } from './elevenLabsRealtime.service.js';
 
 /**
  * @param {'xai'|'elevenlabs'} engine
- * @param {{ agent: object, kbText: string, audioFormat: 'g711_ulaw'|'pcm16' }} opts
+ * @param {{ agent: object, kbText: string, audioFormat: 'g711_ulaw'|'pcm16', welcome?: string|null }} opts
+ *   `welcome`: the greeting for this call's direction, from renderWelcome().
+ *   Both engines speak it and name it in their prompt — without it xAI spoke no
+ *   greeting at all and ElevenLabs spoke the raw legacy column.
  */
 export function createRealtimeSession(engine, opts) {
   switch (engine) {

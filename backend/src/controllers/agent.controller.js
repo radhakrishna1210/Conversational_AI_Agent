@@ -6,7 +6,7 @@ import { geminiService } from '../services/gemini.service.js';
 import { invalidateAgentRuntimeCaches } from '../services/agentRuntime.service.js';
 import logger from '../lib/logger.js';
 import { assertCanStartCall } from '../services/billing/settlement.service.js';
-import { placeOutboundCall, resolveCallMode, telephonyStatus } from '../services/outboundCall.service.js';
+import { placeOutboundCall, resolveCallMode, telephonyStatus, warmInboundGreetingIfAnswering } from '../services/outboundCall.service.js';
 import fetch from 'node-fetch';
 import { env } from '../config/env.js';
 import { isModelAllowed, labelFor } from '../services/platform/modelCatalog.js';
@@ -213,6 +213,10 @@ export const updateAgent = async (req, res) => {
     // call — don't let the runtime's short-TTL caches serve the old config.
     invalidateAgentRuntimeCaches(req.params.workspaceId, agentId);
     res.json(serializeAgent(agent));
+    // After the response, on purpose: an edited greeting (or voice) is a new
+    // cache key, and an agent answering a rented number should not make its next
+    // caller wait on the synthesis. Does nothing for an agent on no number.
+    warmInboundGreetingIfAnswering(req.params.workspaceId, agentId);
   } catch (error) {
     logger.error('Failed to update agent', error, { agentId });
     res.status(500).json({ error: 'Failed to update agent' });

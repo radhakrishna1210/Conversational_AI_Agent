@@ -15,7 +15,7 @@
 
 import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
-import { getAgentKbText } from '../services/agentRuntime.service.js';
+import { getAgentKbText, renderWelcome } from '../services/agentRuntime.service.js';
 import { createRealtimeSession } from '../services/voice/realtimeEngine.factory.js';
 import { isModelAllowed } from '../services/platform/modelCatalog.js';
 import { createAmbiencePump } from '../services/voice/ambiencePump.js';
@@ -31,7 +31,8 @@ const safeJson = (str, fallback) => {
   }
 };
 
-export function handleTwilioMediaUpgrade(ws, { workspaceId, agentId }) {
+/** `direction` picks the greeting; null (an older URL) falls back to the agent's configured side. */
+export function handleTwilioMediaUpgrade(ws, { workspaceId, agentId, direction = null }) {
   let session = null;
   let pump = null;   // ambience/pacing pump; null when ambience is off
   let streamSid = null;
@@ -114,7 +115,8 @@ export function handleTwilioMediaUpgrade(ws, { workspaceId, agentId }) {
           }
 
           const { kbText } = await getAgentKbText(workspaceId, agentId);
-          session = createRealtimeSession(settings.voiceEngine, { agent, kbText, audioFormat: 'g711_ulaw' });
+          const { welcome } = renderWelcome(agent, { direction });
+          session = createRealtimeSession(settings.voiceEngine, { agent, kbText, audioFormat: 'g711_ulaw', welcome });
 
           // Background ambience (BUG-003). Constructed ONLY when the agent has a
           // real preset selected, so an agent without ambience keeps the exact

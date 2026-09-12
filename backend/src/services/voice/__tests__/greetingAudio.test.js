@@ -55,6 +55,16 @@ test('a different RATE is a miss — a format alone is not enough for raw PCM', 
   assert.equal(getGreetingAudio(VOICE, 'Hello there.', greetingSynthesisOpts(PCM24, {})), null);
 });
 
+test('a different AMBIENCE tag is a miss — it changes the bytes too', () => {
+  // The options comment long claimed the tag was "part of the cache key by
+  // construction"; it was not, so a greeting synthesized without ambience was
+  // served to a native-ambience agent (and vice versa).
+  store(VOICE, 'Hello there.', { audioFormat: 'ulaw_8000', ambienceTag: null });
+  assert.equal(getGreetingAudio(VOICE, 'Hello there.', { audioFormat: 'ulaw_8000', ambienceTag: '(cafe ambience)' }), null);
+  store(VOICE, 'Hello there.', { audioFormat: 'ulaw_8000', ambienceTag: '(cafe ambience)' }, 'with-bed');
+  assert.equal(getGreetingAudio(VOICE, 'Hello there.', { audioFormat: 'ulaw_8000', ambienceTag: '(cafe ambience)' }).buf.toString(), 'with-bed');
+});
+
 test('a different PACE is a miss — it changes the bytes', () => {
   store(VOICE, 'Hello there.', greetingSynthesisOpts(ULAW, { speakingRate: 1.05 }));
   assert.equal(
