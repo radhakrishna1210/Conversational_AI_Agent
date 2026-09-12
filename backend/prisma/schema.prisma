@@ -535,6 +535,10 @@ model AgentCallLog {
   workspaceId      String
   agentId          String
   type             String    @default("CHAT") // CHAT | WEB_CALL | PHONE_CALL
+  // INBOUND | OUTBOUND. Only outboundCall.service.js's dial ever sets this to
+  // OUTBOUND; every other creation path (inbound phone, web call, chat) is
+  // correctly the default — none of them are agent-initiated.
+  direction        String    @default("INBOUND")
   status           String    @default("COMPLETED") // IN_PROGRESS | COMPLETED | INITIATED | FAILED
   transcript       String    @default("[]") // JSON [{ role, content }]
   durationSec      Int       @default(0)

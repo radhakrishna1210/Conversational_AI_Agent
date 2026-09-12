@@ -411,6 +411,7 @@ export async function placeOutboundCall({
         type: 'PHONE_CALL',
         status: 'INITIATED',
         phoneNumber: String(toNumber).slice(0, 32),
+        direction: 'OUTBOUND',
       },
     }).catch((e) => { logger.warn(`Could not pre-create phone call log: ${e.message}`); return null; });
     logId = created?.id ?? null;

@@ -102,6 +102,7 @@ export const deliverPostCall = async (workspaceId, agentId, row) => {
       outcome: row.status === 'COMPLETED' ? 'Completed' : row.status === 'FAILED' ? 'Failed' : row.status,
       durationSec: row.durationSec,
       phoneNumber: row.phoneNumber ?? '',
+      direction: row.direction,
       variables: Array.isArray(extracted.variables) ? extracted.variables : [],
       transcript: transcript.map((m) => `${m.role === 'user' ? 'Customer' : 'Agent'}: ${m.content}`).join('\n'),
       endedAt: (row.endedAt ?? new Date()).toISOString(),
