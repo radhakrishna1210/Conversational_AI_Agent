@@ -110,7 +110,7 @@ const PROVIDERS: ProviderMeta[] = [
     docsUrl: 'https://docs.omnidim.io/docs/integrations/calendly',
   },
   {
-    key: 'salesforce', name: 'Salesforce', category: 'Post Call', tab: 'calendar', connectType: 'apikey',
+    key: 'salesforce', name: 'Salesforce', category: 'Post Call', tab: 'calendar', connectType: 'oauth',
     logo: '☁️', accent: '#00A1E0', tint: 'rgba(0,161,224,0.12)',
     description: 'Push call transcripts, leads, and opportunities to your Salesforce CRM.',
     modalDescription: 'Connect Salesforce to automatically log calls, update leads, and manage opportunities post-call.',
@@ -118,8 +118,8 @@ const PROVIDERS: ProviderMeta[] = [
     dashboardUrl: 'https://login.salesforce.com',
     connectFields: [
       { name: 'integrationName', label: 'Integration Name', placeholder: 'My Salesforce Integration', type: 'text' },
-      { name: 'instanceUrl', label: 'Instance URL', placeholder: 'https://yourorg.salesforce.com', type: 'url', help: 'Your Salesforce org URL from your browser address bar' },
-      { name: 'accessToken', label: 'Access Token', placeholder: '00D...', type: 'password', help: 'Setup → Users → Your profile → Reset Security Token (sent to your email)' },
+      { name: 'instanceUrl', label: 'Instance URL', placeholder: 'https://yourorg.salesforce.com', type: 'url', help: 'Only needed if OAuth is unavailable. Your Salesforce org URL from your browser address bar', optional: true },
+      { name: 'accessToken', label: 'Access Token', placeholder: '00D...', type: 'password', help: 'Only needed if OAuth is unavailable. Setup → Users → Your profile → Reset Security Token (sent to your email)', optional: true },
       { name: 'description', label: 'Description', placeholder: 'Log call outcomes and update CRM records automatically.', type: 'textarea', optional: true },
     ],
     docsUrl: 'https://omnidim.io/docs/guides/salesforce-integration',
@@ -436,7 +436,7 @@ function ConnectModal({ provider, oauthAvailable, onClose, onConnected }: {
                 disabled={saving}
                 style={{ padding: '14px', borderRadius: '11px', border: 'none', background: provider.accent, color: '#fff', fontFamily: 'var(--ff-d)', fontSize: '15px', fontWeight: 600, cursor: saving ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px' }}
               >
-                {saving ? <><Loader2 size={16} className="animate-spin" /> Redirecting…</> : <>Sign in with Google</>}
+                {saving ? <><Loader2 size={16} className="animate-spin" /> Redirecting…</> : <>Sign in with {provider.name}</>}
               </button>
               <button onClick={() => setShowManual(true)} style={{ background: 'transparent', border: 'none', color: 'var(--tx-2)', fontSize: '13px', cursor: 'pointer', textDecoration: 'underline' }}>
                 Or enter access token manually

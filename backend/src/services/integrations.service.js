@@ -110,7 +110,7 @@ const serialize = (i) => ({
   logs: (i.logs ?? []).map((l) => ({ id: l.id, level: l.level, event: l.event, message: l.message, status: l.status, metadata: safeJson(l.metadata, {}), createdAt: l.createdAt })),
 });
 
-const addLog = async ({ workspaceId, provider, integrationId = null, level = 'info', event, message, status = null, metadata = {} }) => {
+export const addLog = async ({ workspaceId, provider, integrationId = null, level = 'info', event, message, status = null, metadata = {} }) => {
   try {
     const log = await prisma.integrationLog.create({
       data: { workspaceId, provider, integrationId, level, event, message, status, metadata: jsonStr(metadata) },
@@ -657,6 +657,19 @@ export const completeOAuthCallback = async (providerKey, code, state, callbackUr
         });
       }
     } catch { /* non-fatal */ }
+  }
+
+  if (p.key === 'salesforce' && tokenPayload.instance_url) {
+    // Salesforce has no fixed API host — instance_url from the token
+    // response is the host for every subsequent request. No dedicated
+    // column for it exists on IntegrationToken, so it lives in this generic
+    // metadata blob instead. Merged, not overwritten: metadata may already
+    // carry other keys.
+    const existingMetadata = safeJson(connected.metadata, {});
+    await prisma.integration.update({
+      where: { id: connected.id },
+      data: { metadata: jsonStr({ ...existingMetadata, instanceUrl: tokenPayload.instance_url }) },
+    });
   }
 
   await addLog({ workspaceId: session.workspaceId, provider: p.key, integrationId: connected.id, event: 'oauth_connected', message: `${p.name} connected successfully` });
