@@ -52,6 +52,7 @@
  */
 
 import logger from '../../lib/logger.js';
+import { isLlmUnderPressure } from '../llmPressure.js';
 
 export const SPECULATION_MODES = ['off', 'candidate', 'interim'];
 export const DEFAULT_SPECULATION_MODE = 'candidate';
@@ -193,6 +194,11 @@ class Speculation {
  * @param {number} [opts.debounceMs]     interim mode: quiet time before a restart
  * @param {number} [opts.minDeltaChars]  interim mode: smallest change worth a restart
  * @param {string} [opts.label]          for logs
+ * @param {() => boolean} [opts.underPressure]  true while the LLM quota is being
+ *   hit (llmPressure.js). Interim launches pause then — each meaningful interim
+ *   delta can start a request, and on a shared requests-per-minute quota those
+ *   are taken from other live calls' committed turns. Candidate launches carry
+ *   on: at most one per pause, and a hit IS the turn's request, not an extra.
  */
 export function createSpeculator({
   mode = DEFAULT_SPECULATION_MODE,
@@ -201,6 +207,7 @@ export function createSpeculator({
   debounceMs = Number(process.env.VOICE_SPECULATION_DEBOUNCE_MS) || 180,
   minDeltaChars = Number(process.env.VOICE_SPECULATION_MIN_DELTA) || 4,
   label = 'speculation',
+  underPressure = isLlmUnderPressure,
 } = {}) {
   if (typeof start !== 'function') throw new Error('createSpeculator needs start()');
   const enabled = mode !== 'off';
@@ -250,6 +257,8 @@ export function createSpeculator({
     /** Deepgram's onTranscript: the turn's words so far changed. */
     onTranscript(text, { isFinal = false } = {}) {
       if (!enabled || mode !== 'interim' || !turnOpen) return;
+      // Behaves as 'candidate' while the quota is being hit; see underPressure.
+      if (underPressure()) { clearDebounce(); return; }
       const clean = String(text || '').trim();
       if (!clean) return;
       // A final is a firm statement of the words; an interim is a guess that

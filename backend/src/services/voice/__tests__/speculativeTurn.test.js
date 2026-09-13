@@ -244,4 +244,26 @@ describe('createSpeculator — interim mode', () => {
     await tick(40);
     assert.equal(calls.length, 0);
   });
+
+  test('while the LLM quota is being hit, interims start nothing — the candidate still does', async () => {
+    // Under a bulk campaign every interim request comes out of the same
+    // requests-per-minute quota the other live calls' turns need.
+    const { start, calls } = fakeStart(['x']);
+    let pressured = true;
+    const s = createSpeculator({ mode: 'interim', start, debounceMs: 20, underPressure: () => pressured });
+    s.beginTurn();
+    s.onTranscript('what are your', { isFinal: false });
+    s.onTranscript('what are your hours', { isFinal: true });
+    await tick(40);
+    assert.equal(calls.length, 0, 'no interim request under pressure');
+    s.onCandidate('what are your hours');
+    assert.equal(calls.length, 1, 'one candidate request, which the turn reuses');
+    assert.ok(s.take('What are your hours?').hit);
+
+    // Pressure over: interim speculation is back exactly as before.
+    pressured = false;
+    s.beginTurn();
+    s.onTranscript('and on sunday', { isFinal: true });
+    assert.equal(calls.length, 2);
+  });
 });

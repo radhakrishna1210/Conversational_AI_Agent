@@ -258,6 +258,25 @@ export function releaseSlot(callLogId) {
   if (callLogId) slots.delete(callLogId);
 }
 
+/**
+ * Is this call still up, as far as the carrier ceiling is concerned?
+ *
+ * The campaign dialer's own "Concurrent Calls" limit counts its calls with this
+ * rather than with a second table: the slot is taken when the carrier accepts
+ * the dial and given back when the call finalizes, which is exactly the life of
+ * a call the limit is about — ringing included.
+ */
+export function isSlotHeld(callLogId) {
+  if (!callLogId) return false;
+  sweep();
+  return slots.has(callLogId);
+}
+
+/** When this call's slot was taken, or null. For reconciling a slot nothing released. */
+export function slotTakenAt(callLogId) {
+  return (callLogId && slots.get(callLogId)?.takenAt) ?? null;
+}
+
 /** For Super Admin and for tests. */
 export function snapshot() {
   sweep();

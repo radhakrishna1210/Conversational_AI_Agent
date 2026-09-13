@@ -17,6 +17,7 @@ import { ambienceTagFor } from './voice/ambience.js';
 import { detectTransferRequest, createTransferMarkerScanner, stripTransferMarker, transferPromptSection, TRANSFER_MARKER as TRANSFER_MARKER_LITERAL } from './voice/transferIntent.js';
 import { createSegmentOrder } from './voice/segmentOrder.js';
 import { logTurnLatency } from '../lib/latencyLog.js';
+import { isLlmUnderPressure, noteLlmRateLimited } from './llmPressure.js';
 import { getLLMProviderWithFallback } from './llm.factory.js';
 import { mapAgentModel } from '../controllers/llm.controller.js';
 import { DEFAULT_TEMPERATURE } from '../constants/llmModels.js';
@@ -1315,6 +1316,9 @@ export async function* converseStream(workspaceId, agentId, messages, { voiceMod
       return { provider, model: candidate, ragMs };
     } catch (err) {
       lastErr = err;
+      // Every rate-limit answer is recorded, fallback or not: it is the signal
+      // that pauses the requests no caller is waiting on (see llmPressure.js).
+      if (isRateLimited(err)) noteLlmRateLimited(`${candidate}`);
       // Mid-stream, or an error that another model would fail on too: give up.
       if (yielded || !isRateLimited(err)) throw err;
       logger.warn(`${candidate} is rate limited — falling back to the next voice model`);
@@ -2312,7 +2316,12 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
       const budgetMs = specHit
         ? Math.max(250, LLM_FIRST_TOKEN_TIMEOUT_MS - Math.round(performance.now() - specHit.startedAt))
         : LLM_FIRST_TOKEN_TIMEOUT_MS;
-      first = await withTimeout(primaryNext, budgetMs);
+      // No hedge while the quota is being hit (llmPressure.js). A first token
+      // that is late because the provider is throttling us does not come
+      // sooner for asking twice, and the second copy spends a request another
+      // live call's turn needs — under a bulk campaign, that is what turns one
+      // slow turn into several failed ones.
+      first = isLlmUnderPressure() ? await primaryNext : await withTimeout(primaryNext, budgetMs);
     } catch (err) {
       // HEDGE ONLY ON SLOWNESS, NEVER ON A FAILURE. The hedge answers "this
       // stream is taking too long" with a second request — which is the right

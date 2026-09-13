@@ -27,6 +27,27 @@ import { settleCall } from '../services/billing/settlement.service.js';
 import { releaseSlot } from '../services/telephony/concurrency.js';
 import { extractAndStoreCallVariables } from '../services/postCallExtraction.service.js';
 import { deliverPostCall } from '../controllers/agentCallLog.controller.js';
+import { isRateLimited } from '../services/agentRuntime.service.js';
+import { deferWhileLlmPressured, noteLlmRateLimited } from '../services/llmPressure.js';
+
+/**
+ * Extraction spends a request from the same LLM quota the live calls are using,
+ * and nobody is waiting on it, so while that quota is being hit it waits its
+ * turn (llmPressure.js). One extraction refused for the rate limit is retried
+ * once the pressure clears: a FAILED extraction means no variables, so no
+ * WhatsApp confirmation and no Sheets row — for a booking that did happen.
+ * FAILED is not a terminal state for the extractor, so the retry needs no force.
+ */
+export async function extractWhenLlmHasHeadroom(workspaceId, agentId, callLogId, {
+  extract = extractAndStoreCallVariables,
+  defer = deferWhileLlmPressured,
+} = {}) {
+  const run = () => extract(workspaceId, agentId, callLogId);
+  const first = await defer(run);
+  if (!first?.error || !isRateLimited({ message: first.error })) return first;
+  noteLlmRateLimited('Post-call extraction');
+  return defer(run);
+}
 
 /**
  * @param {object} p
@@ -70,7 +91,7 @@ export function createCallFinalizer({ workspaceId, agentId, label }) {
     // so extraction + Post-Call delivery (webhook / email / Google Sheets) is
     // driven from here, mirroring updateCallLog in agentCallLog.controller.js.
     try {
-      await extractAndStoreCallVariables(workspaceId, agentId, callLogId);
+      await extractWhenLlmHasHeadroom(workspaceId, agentId, callLogId);
       const row = await prisma.agentCallLog.findFirst({
         where: { id: callLogId, workspaceId, agentId },
       });
