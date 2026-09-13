@@ -119,6 +119,9 @@ export const INTEGRATION_PROVIDERS = {
       clientIdEnv: 'SALESFORCE_CLIENT_ID',
       clientSecretEnv: 'SALESFORCE_CLIENT_SECRET',
       redirectUriEnv: 'SALESFORCE_REDIRECT_URI',
+      // Required for External Client Apps — the authorization request is
+      // rejected with invalid_request otherwise.
+      pkce: true,
     },
     connectFields: [
       { name: 'instanceUrl', label: 'Instance URL', placeholder: 'https://yourorg.salesforce.com', type: 'text', help: 'Only needed if OAuth is unavailable. Your Salesforce org URL' },

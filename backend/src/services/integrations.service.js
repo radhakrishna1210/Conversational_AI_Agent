@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import prisma from '../config/prisma.js';
 import { env } from '../config/env.js';
 import { encryptToken, decryptToken } from '../lib/encryption.js';
@@ -144,7 +145,17 @@ const getAccessToken = async (integration) => {
   try { return decryptToken(integration.token.accessTokenCipher); } catch { return null; }
 };
 
-const buildAuthUrl = (p, state, redirectUriOverride) => {
+// RFC 7636 PKCE. Only generated for providers with oauth.pkce === true
+// (Salesforce External Client Apps require it); every other provider's
+// authorize/token calls are unaffected since codeChallenge/codeVerifier
+// are simply undefined for them.
+const generatePkcePair = () => {
+  const codeVerifier = generateSecureToken(32); // hex — within RFC 7636's allowed charset
+  const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
+  return { codeVerifier, codeChallenge };
+};
+
+const buildAuthUrl = (p, state, redirectUriOverride, codeChallenge) => {
   const base = p.oauth.authorizationUrl.replace('{region}', genesysRegion());
   const url = new URL(base);
   url.searchParams.set('client_id',    clientId(p) ?? '');
@@ -152,11 +163,15 @@ const buildAuthUrl = (p, state, redirectUriOverride) => {
   url.searchParams.set('response_type', 'code');
   url.searchParams.set('state', state);
   if (p.oauth.scope?.length) url.searchParams.set('scope', p.oauth.scope.join(' '));
+  if (codeChallenge) {
+    url.searchParams.set('code_challenge', codeChallenge);
+    url.searchParams.set('code_challenge_method', 'S256');
+  }
   for (const [k, v] of Object.entries(p.oauth.extraParams ?? {})) url.searchParams.set(k, v);
   return url.toString();
 };
 
-const exchangeCode = async (p, code, cbUri) => {
+const exchangeCode = async (p, code, cbUri, codeVerifier) => {
   const params = new URLSearchParams({
     grant_type:   'authorization_code',
     code,
@@ -164,6 +179,7 @@ const exchangeCode = async (p, code, cbUri) => {
     client_id:    clientId(p) ?? '',
     client_secret: clientSecret(p) ?? '',
   });
+  if (codeVerifier) params.set('code_verifier', codeVerifier);
   const res = await fetch(p.oauth.tokenUrl.replace('{region}', genesysRegion()), {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -633,9 +649,10 @@ export const createOAuthConnectUrl = async (workspaceId, providerKey, userId, re
   const row   = await upsertRow(workspaceId, providerKey);
   const state = generateSecureToken(24);
   const cbUri = redirectUriOverride ?? redirectUri(p) ?? `${env.CLIENT_URL ?? 'http://localhost:5173'}/api/v1/integrations/${p.key}/callback`;
+  const pkce  = p.oauth.pkce === true ? generatePkcePair() : null;
 
   await prisma.oAuthSession.create({
-    data: { workspaceId, integrationId: row.id, provider: p.key, userId: userId ?? 'unknown', state, redirectUri: cbUri, expiresAt: new Date(Date.now() + oauthExpiryMs), metadata: jsonStr({ mock: isMockProvider(p) }) },
+    data: { workspaceId, integrationId: row.id, provider: p.key, userId: userId ?? 'unknown', state, codeVerifier: pkce?.codeVerifier, redirectUri: cbUri, expiresAt: new Date(Date.now() + oauthExpiryMs), metadata: jsonStr({ mock: isMockProvider(p) }) },
   });
 
   if (!clientId(p) || !clientSecret(p)) {
@@ -643,7 +660,7 @@ export const createOAuthConnectUrl = async (workspaceId, providerKey, userId, re
   }
 
   await addLog({ workspaceId, provider: p.key, integrationId: row.id, event: 'oauth_started', message: `${p.name} OAuth flow started` });
-  return { authorizationUrl: buildAuthUrl(p, state, cbUri), state };
+  return { authorizationUrl: buildAuthUrl(p, state, cbUri, pkce?.codeChallenge), state };
 };
 
 export const completeOAuthCallback = async (providerKey, code, state, callbackUri = null) => {
@@ -656,7 +673,7 @@ export const completeOAuthCallback = async (providerKey, code, state, callbackUr
   if (session.expiresAt < now())            throw Object.assign(new Error('OAuth session expired — please try connecting again.'),               { statusCode: 400 });
 
   const cbUri       = callbackUri ?? session.redirectUri ?? redirectUri(p) ?? '';
-  const tokenPayload = await exchangeCode(p, code, cbUri);
+  const tokenPayload = await exchangeCode(p, code, cbUri, session.codeVerifier);
 
   const connected = await markConnected(session.workspaceId, p.key, p, tokenPayload.expires_in);
   await upsertToken(connected.id, session.workspaceId, p.key, tokenPayload);
