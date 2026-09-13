@@ -26,6 +26,12 @@ const PROVIDER = 'salesforce';
 // Sandbox orgs use test.salesforce.com instead — not supported here.
 const TOKEN_URL = 'https://login.salesforce.com/services/oauth2/token';
 
+// Per-process, not persisted: an org's highest API version only ever
+// advances, so a stale cached value from before a restart still works —
+// unlike a version hardcoded at build time, which can outlive what the org
+// actually supports.
+const apiVersionCache = new Map();
+
 const notConnected = () => Object.assign(
   new Error('Salesforce is not connected for this workspace — connect it on the Integrations page.'),
   { statusCode: 400 },
@@ -105,6 +111,32 @@ export async function getValidAccessToken(workspaceId, { forceRefresh = false } 
 
   logger.info({ workspaceId, forceRefresh }, 'Salesforce access token refreshed');
   return { accessToken: data.access_token, instanceUrl: nextInstanceUrl };
+}
+
+/**
+ * The org's highest available REST API version (e.g. 'v67.0'), resolved by
+ * listing /services/data/ and cached per workspace. A Developer Edition
+ * org's rollout regularly lags behind Salesforce's current platform
+ * version, so a build-time constant eventually points at a version the org
+ * doesn't have yet — this queries the actual org instead.
+ */
+export async function getApiVersion(workspaceId) {
+  if (apiVersionCache.has(workspaceId)) return apiVersionCache.get(workspaceId);
+
+  const { accessToken, instanceUrl } = await getValidAccessToken(workspaceId);
+  if (!instanceUrl) throw notConnected();
+  const res = await fetch(`${instanceUrl}/services/data/`, {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(10_000),
+  });
+  const versions = await res.json().catch(() => null);
+  if (!res.ok || !Array.isArray(versions) || !versions.length) {
+    throw new Error('Could not determine Salesforce API version for this org');
+  }
+
+  const version = `v${versions[versions.length - 1].version}`;
+  apiVersionCache.set(workspaceId, version);
+  return version;
 }
 
 /**

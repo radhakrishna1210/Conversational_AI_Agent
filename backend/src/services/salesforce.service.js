@@ -6,9 +6,12 @@
  * Scope is Contact + Task only — no Lead/Opportunity handling, matching
  * hubspot.service.js's scope.
  *
- * API version v68.0. The existing manual-token Salesforce syncEndpoint in
- * constants/integrations.js is still on v60.0 — that's a separate, stale
- * code path, not a convention worth matching here.
+ * API version is resolved dynamically per workspace (getApiVersion), not
+ * hardcoded — a Developer Edition org's rollout regularly lags behind
+ * Salesforce's current platform version, so a fixed version eventually 404s
+ * on orgs that don't have it yet. The existing manual-token Salesforce
+ * syncEndpoint in constants/integrations.js is still hardcoded to v60.0 —
+ * that's a separate, stale code path, not a convention worth matching here.
  *
  * sObject Rows by External ID upsert (PATCH .../sobjects/{Object}/
  * {externalIdField}/{value}) doesn't apply to Contact.Email — only a field
@@ -24,10 +27,9 @@
  */
 
 import logger from '../lib/logger.js';
-import { salesforceFetch } from './salesforceAuth.service.js';
+import { salesforceFetch, getApiVersion } from './salesforceAuth.service.js';
 
-const API_VERSION = 'v68.0';
-const DATA_API = `/services/data/${API_VERSION}`;
+const dataApi = async (workspaceId) => `/services/data/${await getApiVersion(workspaceId)}`;
 
 /** Escapes a value for safe interpolation into a SOQL string literal. */
 const soqlEscape = (value) => String(value).replace(/\\/g, '\\\\').replace(/'/g, "\\'");
@@ -49,8 +51,9 @@ export async function upsertContact(workspaceId, { email, phone, firstname, last
     throw Object.assign(new Error('A contact email is required to sync to Salesforce'), { statusCode: 400 });
   }
 
+  const api = await dataApi(workspaceId);
   const soql = `SELECT Id FROM Contact WHERE Email = '${soqlEscape(trimmedEmail)}' LIMIT 1`;
-  const queryResult = await salesforceFetch(workspaceId, `${DATA_API}/query?q=${encodeURIComponent(soql)}`);
+  const queryResult = await salesforceFetch(workspaceId, `${api}/query?q=${encodeURIComponent(soql)}`);
   const existingId = queryResult?.records?.[0]?.Id;
 
   const fields = {
@@ -63,7 +66,7 @@ export async function upsertContact(workspaceId, { email, phone, firstname, last
     // LastName is only required on create, so an existing Contact's is left
     // untouched here rather than overwritten with the fallback below.
     if (lastname) fields.LastName = String(lastname).trim();
-    await salesforceFetch(workspaceId, `${DATA_API}/sobjects/Contact/${existingId}`, {
+    await salesforceFetch(workspaceId, `${api}/sobjects/Contact/${existingId}`, {
       method: 'PATCH',
       body: JSON.stringify(fields),
     });
@@ -74,7 +77,7 @@ export async function upsertContact(workspaceId, { email, phone, firstname, last
   // Contact.LastName is required on create; 'Unknown' is a deliberate
   // generic placeholder, not an inferred value from the email.
   fields.LastName = lastname ? String(lastname).trim() : 'Unknown';
-  const created = await salesforceFetch(workspaceId, `${DATA_API}/sobjects/Contact`, {
+  const created = await salesforceFetch(workspaceId, `${api}/sobjects/Contact`, {
     method: 'POST',
     body: JSON.stringify(fields),
   });
@@ -101,9 +104,10 @@ export async function logCallActivity(workspaceId, contactId, { summary, directi
     throw Object.assign(new Error('A contact id is required to log a call activity'), { statusCode: 400 });
   }
 
+  const api = await dataApi(workspaceId);
   const activityDate = new Date(timestamp ?? Date.now()).toISOString().slice(0, 10);
 
-  const created = await salesforceFetch(workspaceId, `${DATA_API}/sobjects/Task`, {
+  const created = await salesforceFetch(workspaceId, `${api}/sobjects/Task`, {
     method: 'POST',
     body: JSON.stringify({
       WhoId: contactId,
