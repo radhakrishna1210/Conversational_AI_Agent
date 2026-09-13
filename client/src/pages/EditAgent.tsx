@@ -339,10 +339,10 @@ export default function EditAgent() {
   const [voice, setVoice] = useState('Google - Aoede (female)');
   const [aiModel, setAiModel] = useState('GPT-4.1-Mini');
   const [transcription, setTranscription] = useState('Azure');
-  // 'xai' / 'elevenlabs' = a bundled speech-to-speech Conversational Agent
+  // 'xai' / 'elevenlabs' / 'openai' = a bundled speech-to-speech Conversational Agent
   // replaces the modular Languages/Voice/AI Model/Transcription pipeline
   // entirely for this agent's Web Call + Phone Call.
-  const [voiceEngine, setVoiceEngine] = useState<'modular' | 'xai' | 'elevenlabs'>('modular');
+  const [voiceEngine, setVoiceEngine] = useState<'modular' | 'xai' | 'elevenlabs' | 'openai' | 'gpt-realtime'>('modular');
   const [showXaiModal, setShowXaiModal] = useState(false);
 
   // What this platform currently offers. Super Admin → Models owns this list;
@@ -3261,7 +3261,7 @@ export default function EditAgent() {
               {([
                 { value: 'modular' as const, label: 'Off (modular pipeline)' },
                 ...(modelCatalog?.conversational ?? []).map((m) => ({
-                  value: m.value as 'xai' | 'elevenlabs',
+                  value: m.value as 'xai' | 'elevenlabs' | 'openai' | 'gpt-realtime',
                   label: m.label,
                 })),
               ]).map((opt) => (
@@ -3914,7 +3914,7 @@ export default function EditAgent() {
                   // but still takes a Language and a Voice — so only those two
                   // stages lock.
                   const superseded = voiceEngine !== 'modular' && (key === 'llm' || key === 'stt');
-                  const engineLabel = voiceEngine === 'xai' ? 'xAI' : voiceEngine === 'elevenlabs' ? 'ElevenLabs' : '';
+                  const engineLabel = voiceEngine === 'xai' ? 'xAI' : voiceEngine === 'elevenlabs' ? 'ElevenLabs' : (voiceEngine === 'openai' || voiceEngine === 'gpt-realtime') ? 'OpenAI' : '';
                   return (
                     <button
                       key={key}
@@ -3958,7 +3958,9 @@ export default function EditAgent() {
                       ? 'xAI Grok is handling transcription and reasoning'
                       : voiceEngine === 'elevenlabs'
                         ? 'ElevenLabs is handling transcription and reasoning'
-                        : 'Off — the four stages above run separately'}
+                        : (voiceEngine === 'openai' || voiceEngine === 'gpt-realtime')
+                          ? 'OpenAI GPT Realtime is handling transcription and reasoning'
+                          : 'Off — the four stages above run separately'}
                   </span>
                 </span>
                 <span style={{ fontSize: '12px', fontWeight: 600, color: voiceEngine !== 'modular' ? 'var(--cyan-fg)' : 'var(--tx-3)', whiteSpace: 'nowrap' }}>

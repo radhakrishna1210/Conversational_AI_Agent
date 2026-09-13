@@ -51,6 +51,7 @@ import logger from '../lib/logger.js';
 import { getAgentKbText } from '../services/agentRuntime.service.js';
 import { createRealtimeSession } from '../services/voice/realtimeEngine.factory.js';
 import { isModelAllowed } from '../services/platform/modelCatalog.js';
+import { isBundledEngine } from '../services/outboundCall.service.js';
 import { createPcmStreamPacer } from '../services/voice/pcmStreamPacer.js';
 import { resamplePcm16, bufferToPcm16 } from '../services/voice/telephonyAudio.js';
 import { createCallFinalizer } from './callFinalizer.js';
@@ -145,7 +146,7 @@ export function handlePiopiyMediaUpgrade(ws, { workspaceId, agentId, sampleRate,
     if (!agent) throw new Error('Agent not found in this workspace');
 
     const settings = safeJson(agent.settings, {});
-    if (settings.voiceEngine !== 'xai' && settings.voiceEngine !== 'elevenlabs') {
+    if (!isBundledEngine(settings.voiceEngine)) {
       // The modular STT→LLM→TTS pipeline is µ-law-native and PIOPIY has no
       // µ-law option, so there is no bridge for it here. outboundCall.service
       // refuses these before dialling; reaching this line means an agent

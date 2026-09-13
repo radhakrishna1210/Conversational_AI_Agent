@@ -25,6 +25,7 @@ import { verifyAccessToken } from '../lib/jwt.js';
 import { getAgentKbText } from '../services/agentRuntime.service.js';
 import { createRealtimeSession } from '../services/voice/realtimeEngine.factory.js';
 import { isModelAllowed } from '../services/platform/modelCatalog.js';
+import { isBundledEngine } from '../services/outboundCall.service.js';
 
 const AUTH_TIMEOUT_MS = 10_000;
 
@@ -119,7 +120,7 @@ export async function handleWebCallUpgrade(ws, { workspaceId, agentId }) {
         return;
       }
       const settings = safeJson(agent.settings, {});
-      if (settings.voiceEngine !== 'xai' && settings.voiceEngine !== 'elevenlabs') {
+      if (!isBundledEngine(settings.voiceEngine)) {
         ws.close(4003, 'Agent is not configured to use a bundled Conversational Agent');
         return;
       }
