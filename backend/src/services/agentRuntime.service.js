@@ -493,7 +493,8 @@ export function resolveLlmForAgent(agent, { lowLatency = false } = {}) {
     return { llm: sarvamLLMService, provider: 'sarvam', model: model || 'sarvam-105b-conversations' };
   }
 
-  if (lowLatency && provider === 'gemini') {
+  // Only fallback to VOICE_LLM_MODEL if agent does not specify a model
+  if (lowLatency && provider === 'gemini' && !fromAgent.model) {
     model = process.env.VOICE_LLM_MODEL || 'gemini-3.5-flash-lite';
   }
 
