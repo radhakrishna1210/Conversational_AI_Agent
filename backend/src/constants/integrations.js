@@ -107,12 +107,25 @@ export const INTEGRATION_PROVIDERS = {
     key: 'salesforce',
     name: 'Salesforce',
     category: 'Post Call',
-    connectType: 'apikey',
+    connectType: 'oauth',
+    // Manual instanceUrl + Access Token fields below are the fallback when
+    // OAuth app credentials aren't configured on this server.
+    oauth: {
+      authorizationUrl: 'https://login.salesforce.com/services/oauth2/authorize',
+      tokenUrl: 'https://login.salesforce.com/services/oauth2/token',
+      // NEEDS VERIFICATION against the scopes configured on the Salesforce
+      // Connected App — a mismatch fails the redirect with invalid_scope.
+      scope: ['api', 'refresh_token', 'offline_access'],
+      clientIdEnv: 'SALESFORCE_CLIENT_ID',
+      clientSecretEnv: 'SALESFORCE_CLIENT_SECRET',
+      redirectUriEnv: 'SALESFORCE_REDIRECT_URI',
+    },
     connectFields: [
-      { name: 'instanceUrl', label: 'Instance URL', placeholder: 'https://yourorg.salesforce.com', type: 'text', help: 'Your Salesforce org URL' },
-      { name: 'accessToken', label: 'Access Token', placeholder: '00D...', type: 'password', help: 'From Setup → API → Reset Security Token or use OAuth' },
+      { name: 'instanceUrl', label: 'Instance URL', placeholder: 'https://yourorg.salesforce.com', type: 'text', help: 'Only needed if OAuth is unavailable. Your Salesforce org URL' },
+      { name: 'accessToken', label: 'Access Token', placeholder: '00D...', type: 'password', help: 'From Setup → API → Reset Security Token or use OAuth', optional: true },
     ],
-    oauth: null,
+    // Known-stale — never actually exercised against a real org. Worth
+    // bumping off v60.0 separately.
     syncEndpoint: '/services/data/v60.0/query?q=SELECT%20Id,Name,Email%20FROM%20Lead%20LIMIT%20100',
   },
   hubspot: {

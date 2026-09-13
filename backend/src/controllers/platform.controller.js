@@ -7,6 +7,8 @@ import { sendMail, isMailerConfigured } from '../lib/mailer.js';
 import { fetchPublicUrl } from '../lib/safeUrl.js';
 import { appendCallRow } from '../services/googleSheets.service.js';
 import { createEvent, resolveAppointmentStart } from '../services/googleCalendar.service.js';
+import { upsertContact as upsertSalesforceContact, logCallActivity } from '../services/salesforce.service.js';
+import { addLog } from '../services/integrations.service.js';
 import { getBindingForSend } from '../services/whatsappTemplates.service.js';
 import {
   sendWhatsAppConfirmation, buildPositionalVariables, resolveRecipient, recordWhatsAppSendFailure,
@@ -398,6 +400,32 @@ export const executePostCall = async (agentId, workspaceId, payload) => {
           attendees: cfg.attendeeVariable ? [findVar(cfg.attendeeVariable)].filter(Boolean) : undefined,
         });
         results.push({ method: 'googlecalendar', target: out.htmlLink || out.id, ok: true, bookedFrom: resolved.from, ...out });
+      } else if (method === 'salesforce') {
+        const findVar = (key) => variables.find((v) => String(v.key).toLowerCase() === String(key ?? '').toLowerCase())?.value;
+        const email = cfg.emailVariable ? findVar(cfg.emailVariable) : undefined;
+        if (!email) {
+          throw new Error(
+            'No email address to sync to Salesforce: could not find one among the extracted variables. '
+            + `Set this destination's email variable to one of: ${variables.map((v) => v.key).join(', ') || '(none extracted)'}.`,
+          );
+        }
+        const contact = await upsertSalesforceContact(workspaceId, {
+          email,
+          phone: cfg.phoneVariable ? findVar(cfg.phoneVariable) : undefined,
+          firstname: cfg.firstNameVariable ? findVar(cfg.firstNameVariable) : undefined,
+          lastname: cfg.lastNameVariable ? findVar(cfg.lastNameVariable) : undefined,
+        });
+        await logCallActivity(workspaceId, contact.id, {
+          summary: `Call with ${agent.name}.\n\nExtracted information:\n${variableLines}\n\nSummary:\n${payload.summary ?? '(none)'}`,
+          direction: payload.direction,
+          timestamp: payload.endedAt,
+        });
+        results.push({ method: 'salesforce', target: email, ok: true, contactId: contact.id });
+        await addLog({
+          workspaceId, provider: 'salesforce', event: 'salesforce_contact_synced',
+          message: `Salesforce contact synced (${contact.id})`,
+          metadata: { callId: payload.callId, contactId: contact.id, email },
+        }).catch(() => {});
       } else if (method === 'whatsapp') {
         // A WhatsApp confirmation through the workspace's own ChatFlow account.
         //
@@ -523,6 +551,13 @@ export const executePostCall = async (agentId, workspaceId, payload) => {
         results.push({ method: method || 'unknown', ok: false, error: 'Unsupported or incomplete config' });
       }
     } catch (err) {
+      if (method === 'salesforce') {
+        await addLog({
+          workspaceId, provider: 'salesforce', level: 'error', event: 'salesforce_contact_sync_failed',
+          message: `Salesforce contact sync failed: ${err.message}`,
+          metadata: { callId: payload.callId },
+        }).catch(() => {});
+      }
       results.push({ method, target: cfg.url || cfg.email || cfg.spreadsheetId, ok: false, error: err.message });
     }
   }
