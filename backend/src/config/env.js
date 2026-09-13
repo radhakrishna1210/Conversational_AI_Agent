@@ -264,8 +264,13 @@ export const env = {
   // OPT-IN: sent as a conversation_config_override only when set, and only works
   // if turn overrides are enabled on the shell agent — otherwise ElevenLabs
   // rejects the connection, so it stays unset by default. Read directly via
-  // process.env in elevenLabsRealtime.service.js (same convention as the key).
-  ELEVENLABS_CONVAI_TURN_TIMEOUT_S: optional('ELEVENLABS_CONVAI_TURN_TIMEOUT_S', ''),
+  // OpenAI GPT Realtime API — bundled speech-to-speech engine (GA /v1/realtime)
+  OPENAI_REALTIME_WS_URL: optional('OPENAI_REALTIME_WS_URL', 'wss://api.openai.com/v1/realtime'),
+  OPENAI_REALTIME_MODEL: optional('OPENAI_REALTIME_MODEL', 'gpt-realtime'),
+  OPENAI_REALTIME_VOICE: optional('OPENAI_REALTIME_VOICE', 'alloy'),
+  OPENAI_REALTIME_TURN_SILENCE_MS: parseInt(optional('OPENAI_REALTIME_TURN_SILENCE_MS', '300'), 10),
+  OPENAI_REALTIME_TURN_THRESHOLD: parseFloat(optional('OPENAI_REALTIME_TURN_THRESHOLD', '0.5')),
+  OPENAI_REALTIME_TURN_PREFIX_MS: parseInt(optional('OPENAI_REALTIME_TURN_PREFIX_MS', '300'), 10),
 
   // Deepgram streaming STT (B3) — optional, lowest-latency real-time
   // transcription for the modular Web Call. When DEEPGRAM_API_KEY is set the

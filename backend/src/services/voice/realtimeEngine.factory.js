@@ -9,21 +9,27 @@
 
 import { XaiRealtimeSession } from './xaiRealtime.service.js';
 import { ElevenLabsRealtimeSession } from './elevenLabsRealtime.service.js';
+import { OpenAiRealtimeSession } from './openAiRealtime.service.js';
 
 /**
- * @param {'xai'|'elevenlabs'} engine
+ * @param {'xai'|'elevenlabs'|'openai'|'gpt-realtime'} engine
  * @param {{ agent: object, kbText: string, audioFormat: 'g711_ulaw'|'pcm16', welcome?: string|null }} opts
  *   `welcome`: the greeting for this call's direction, from renderWelcome().
  *   Both engines speak it and name it in their prompt — without it xAI spoke no
  *   greeting at all and ElevenLabs spoke the raw legacy column.
  */
 export function createRealtimeSession(engine, opts) {
-  switch (engine) {
+  switch (String(engine || '').toLowerCase()) {
     case 'xai':
       return new XaiRealtimeSession(opts);
     case 'elevenlabs':
       return new ElevenLabsRealtimeSession(opts);
+    case 'openai':
+    case 'gpt-realtime':
+    case 'openai-realtime':
+      return new OpenAiRealtimeSession(opts);
     default:
       throw new Error(`Unknown conversational agent engine: "${engine}"`);
   }
 }
+

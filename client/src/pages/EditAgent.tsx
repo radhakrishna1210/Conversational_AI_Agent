@@ -451,8 +451,9 @@ export default function EditAgent() {
   // The LLM, the transcription model and any bundled speech-to-speech engine
   // are not the client's choice: Super Admin assigns them. The engine is still
   // READ, because the browser test call has to open the matching transport for
-  // an older agent saved with one.
-  const [voiceEngine, setVoiceEngine] = useState<'modular' | 'xai' | 'elevenlabs'>('modular');
+  // an older agent saved with one — including 'openai'/'gpt-realtime', which the
+  // backend now serves even though no picker here offers it.
+  const [voiceEngine, setVoiceEngine] = useState<'modular' | 'xai' | 'elevenlabs' | 'openai' | 'gpt-realtime'>('modular');
 
   // Modal states
   const [showLanguageModal, setShowLanguageModal] = useState(false);

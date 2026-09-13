@@ -51,6 +51,7 @@ export const MODEL_GROUPS = [
     models: [
       { id: 'conversational:xai',        value: 'xai',        label: 'xAI Grok Voice Agent',       provider: 'xAI',        envKey: 'XAI_API_KEY' },
       { id: 'conversational:elevenlabs', value: 'elevenlabs', label: 'ElevenLabs Conversational AI', provider: 'ElevenLabs', envKey: 'ELEVENLABS_API_KEY' },
+      { id: 'conversational:openai',     value: 'openai',     label: 'OpenAI GPT Realtime (Voice)', provider: 'OpenAI',     envKey: 'OPENAI_API_KEY' },
     ],
   },
   {
