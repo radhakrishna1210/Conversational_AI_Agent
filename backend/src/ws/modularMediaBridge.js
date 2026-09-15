@@ -587,8 +587,10 @@ export function runModularMediaBridge(ws, {
   let turnId = null;
 
   /** When the carrier opened the media stream, i.e. when the callee answered.
-   *  The zero point for "how long did they hear nothing before the greeting". */
-  let connectedAtMs = Date.now();
+   *  The zero point for "how long did they hear nothing before the greeting".
+   *  performance.now(), because it is subtracted from turnFirstFrameAt, which
+   *  is — against Date.now() the greeting log read about −1.79e12 ms. */
+  let connectedAtMs = performance.now();
 
   /**
    * @param {Buffer} frame
@@ -1760,8 +1762,8 @@ export function runModularMediaBridge(ws, {
       logger.warn({ callLogId, error: result.error }, `${carrier.label}: transfer redirect refused`);
       await updateTransfer(row, { status: 'REJECTED', error: result.error, resolvedAt: new Date() });
       const line = failureLineFor(result.unsupported ? 'failed' : 'failed', { targetLabel: avail.config.targetLabel, lang: langHint });
-      transcript.push({ role: 'assistant', content: line });
-      history.push({ role: 'assistant', content: line });
+      // speakLine() writes the line to transcript and history once it plays;
+      // pushing it here as well recorded every refusal twice.
       await speakLine(line);
       return;
     }
@@ -1833,7 +1835,7 @@ export function runModularMediaBridge(ws, {
         streamId = started.streamId ?? null;
         // Re-based off the `start` event rather than socket construction: the
         // handshake is not part of what the callee waits through.
-        connectedAtMs = Date.now();
+        connectedAtMs = performance.now();
         turnFirstFrameAt = null;
 
         // Started here rather than at construction: sendFrameNow needs streamId,
@@ -2151,8 +2153,7 @@ export function runModularMediaBridge(ws, {
             const langHint = /hindi|^hi\b/i.test(String(settings.sttLanguage || agentLanguages?.[0] || '')) ? 'hi' : 'en';
             const line = failureLineFor(outcome, { targetLabel: avail.config.targetLabel, lang: langHint });
             transcript.push({ role: 'system', content: `Handover ended: ${outcome}. Agent resumed.` });
-            transcript.push({ role: 'assistant', content: line });
-            history.push({ role: 'assistant', content: line });
+            // Not pushed here: speakLine() records the line itself once spoken.
             await welcomePending.catch(() => '');
             await speakLine(line);
             logger.info({ callLogId, outcome }, `${carrier.label}: resumed after a failed handover`);
@@ -2236,7 +2237,14 @@ export function runModularMediaBridge(ws, {
             openDeepgram();
           }
         }
-        if (!dg) break;
+        // NOT `if (!dg) break`. Before `start` opens the session the frames still
+        // matter: they are the only quiet stretch in which this line's noise
+        // floor can be measured before the welcome plays, and without it
+        // `lineMeasured` stays false for the whole welcome, so a caller who
+        // genuinely interrupts it cannot cut it. They also belong in the
+        // recording. Only the Deepgram send waits for a session. (Until the
+        // duplicate-session fix, the stray settings-less session is what kept
+        // these frames flowing — the measurement was an accident of that bug.)
         const frame = Buffer.from(msg.media.payload, 'base64');
 
         // The RAW frame, because a recording should be what the caller and the
@@ -2258,9 +2266,11 @@ export function runModularMediaBridge(ws, {
         // caller says over the top are not lost when the barge lands. Now it is
         // the CLEANED audio: transcribing the agent's own echo is what made
         // those words unusable even when they were captured.
-        try {
-          dg.send(echo.refActive ? encodeUlaw(pcm) : frame);
-        } catch { /* session died; next attempt recreates */ }
+        if (dg) {
+          try {
+            dg.send(echo.refActive ? encodeUlaw(pcm) : frame);
+          } catch { /* session died; next attempt recreates */ }
+        }
 
         const rms = pcmRms(pcm);
 

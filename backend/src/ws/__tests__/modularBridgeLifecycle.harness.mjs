@@ -102,7 +102,9 @@ mockModule(here('../callRecordingTap.js'), {
   createRecordingTap: () => ({ active: false, inbound() {}, outbound() {}, barge() {}, save() {} }),
 });
 mockModule(here('../callFinalizer.js'), {
-  createCallFinalizer: () => async (callLogId, status) => { scenario.finalized.push({ callLogId, status }); },
+  createCallFinalizer: () => async (callLogId, status, opts = {}) => {
+    scenario.finalized.push({ callLogId, status, transcript: structuredClone(opts.transcript ?? null) });
+  },
 });
 mockModule(here('../../lib/latencyLog.js'), { logTurnLatency: () => {} });
 
@@ -136,10 +138,10 @@ function fakeSocket() {
 const message = (obj) => Buffer.from(JSON.stringify(obj));
 const media = () => message({ event: 'media', media: { payload: Buffer.alloc(FRAME, 0xff).toString('base64') } });
 
-function startCall() {
+function startCall(extra = {}) {
   const sent = [];
   const ws = fakeSocket();
-  runModularMediaBridge(ws, { workspaceId: 'ws-1', agentId: 'agent-1', callLogId: 'log-1', carrier: pacedCarrier(sent) });
+  runModularMediaBridge(ws, { workspaceId: 'ws-1', agentId: 'agent-1', callLogId: 'log-1', carrier: pacedCarrier(sent), ...extra });
   return { ws, sent };
 }
 
@@ -198,5 +200,20 @@ describe('modular bridge start-up', () => {
     assert.equal(scenario.deepgram.length, 0, 'no Deepgram session for a call that is over');
     assert.equal(sent.length, 0, 'no greeting sent to a closed call');
     assert.ok(scenario.budgets.every((b) => b.stopped), 'the wallet budget timer is stopped');
+  });
+
+  // speakLine() records the line it speaks. The resume-after-a-failed-handover
+  // path also pushed it first, so the call log carried every apology twice.
+  test('a call resumed after a failed handover records its apology once', async () => {
+    const { ws } = startCall({ transferOutcome: 'no-answer' });
+    ws.emit('message', message({ event: 'start' }));
+    await sleep(700);
+    ws.close();
+    await sleep(50);
+
+    const [final] = scenario.finalized;
+    assert.ok(final?.transcript, 'the call was finalised with its transcript');
+    const apologies = final.transcript.filter((m) => m.role === 'assistant' && m.content === 'Sorry.');
+    assert.equal(apologies.length, 1, JSON.stringify(final.transcript));
   });
 });
