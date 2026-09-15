@@ -45,6 +45,10 @@ export type ModularCallEvent =
   | { type: 'audio-start'; contentType: string | null; turnId?: string; filler?: boolean }
   | { type: 'audio-chunk'; data: ArrayBuffer }
   | { type: 'audio-end' }
+  // A timed hold inside the reply ("please stay on the line" … the answer):
+  // arrives between two segments, and the next segment waits `ms` after the
+  // one before it has finished playing. Server: services/voice/holdPause.js.
+  | { type: 'pause'; ms: number; turnId?: string }
   // Semantic turn end: Deepgram detected the caller finished speaking — the
   // client ends the current listening turn now instead of waiting for its VAD.
   | { type: 'endpoint' }

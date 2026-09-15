@@ -31,6 +31,7 @@
  *   client: { type: 'barge' }                       caller interrupted the reply
  *   server: { type: 'transcript', role, text, done }
  *   server: { type: 'audio', seq, audioBase64, contentType }   one per sentence
+ *   server: { type: 'pause', ms, turnId }           timed hold between two segments
  *   server: { type: 'done', timings } | { type: 'error', message }
  */
 
@@ -262,7 +263,8 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
     // The same caller-state read the committed turn will make, on the audio
     // heard so far — it changes the prompt, so a hit must have been built with it.
     affect: (text) => classifyCallerAffect(analyzeSpeech(Buffer.concat(frames), sampleRate), text),
-    start: (messages, { signal, affect }) => converseStream(workspaceId, agentId, messages, { voiceMode: true, signal, transfer: transferOpts, spokenWelcome, affect }),
+    // allowHold: the committed turn is built with it, and a hit must have been too.
+    start: (messages, { signal, affect }) => converseStream(workspaceId, agentId, messages, { voiceMode: true, signal, transfer: transferOpts, spokenWelcome, affect, allowHold: true }),
   });
 
   // Cleared when the auth FRAME arrives — see AUTH_TIMEOUT_MS.
@@ -591,6 +593,13 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
             } else if (e.type === 'audio-end') {
               if (e.text) send({ type: 'transcript', role: 'assistant', text: e.text, done: true });
               send({ type: 'audio-end' });
+            } else if (e.type === 'pause') {
+              // A timed hold between two segments (voice/holdPause.js). Relayed
+              // in place — this socket preserves the runtime's event order — and
+              // the browser waits `ms` before the next segment. The server does
+              // not wait: the client owns playback, and the continuation arrives
+              // (and buffers) during the silence instead of after it.
+              send({ type: 'pause', ms: e.ms, turnId });
             } else if (e.type === 'transfer') {
               // Recorded as a WEB_CALLBACK: the caller asked for a person on a
               // browser call. Nothing dials; the reply already offered a

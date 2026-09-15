@@ -1240,6 +1240,10 @@ export default function EditAgent() {
     modularSession: ModularPlaybackSession | null;
     modularQueue: ModularPlaybackSession[];
     modularPlaying: ModularPlaybackSession | null;
+    // turnEpoch when the latest reply segment arrived. A timed hold is only
+    // queued behind audio from the same epoch — after a barge (which bumps the
+    // epoch) a late pause frame belongs to a reply the caller already cut off.
+    modularSegmentEpoch: number;
     // Segments opened but not yet finished this turn; resolvers wake when 0.
     modularOutstanding: number;
     modularDoneResolvers: (() => void)[];
@@ -1270,7 +1274,7 @@ export default function EditAgent() {
     // so a change to the server's grace windows cannot silently be overridden by
     // a client constant that still fires first.
     endpointCommitMs: number;
-  }>({ active: false, stream: null, audioCtx: null, analyser: null, recorder: null, vadTimer: null, player: null, history: [], mixDest: null, mixRecorder: null, mixChunks: [], logId: null, bundledEngine: false, lastSpeechAt: 0, ambientStop: null, stopPlayback: null, bargeTimer: null, welcomeAudible: false, welcomeCut: null, duckLevel: 1, duckRamp: null, duckDisabled: false, socketMode: false, micWorklet: null, capturingPcm: false, modularSession: null, modularQueue: [], modularPlaying: null, modularOutstanding: 0, modularDoneResolvers: [], pendingUserText: '', turnEpoch: 0, endTurnEarly: null, turnTiming: null, noiseFloor: 0, sttEndpointing: false, endpointCommitMs: 0, noInputPrompts: [], noInputDelaysMs: [], noInputAttempt: 0, noInputTimer: null });
+  }>({ active: false, stream: null, audioCtx: null, analyser: null, recorder: null, vadTimer: null, player: null, history: [], mixDest: null, mixRecorder: null, mixChunks: [], logId: null, bundledEngine: false, lastSpeechAt: 0, ambientStop: null, stopPlayback: null, bargeTimer: null, welcomeAudible: false, welcomeCut: null, duckLevel: 1, duckRamp: null, duckDisabled: false, socketMode: false, micWorklet: null, capturingPcm: false, modularSession: null, modularQueue: [], modularPlaying: null, modularSegmentEpoch: -1, modularOutstanding: 0, modularDoneResolvers: [], pendingUserText: '', turnEpoch: 0, endTurnEarly: null, turnTiming: null, noiseFloor: 0, sttEndpointing: false, endpointCommitMs: 0, noInputPrompts: [], noInputDelaysMs: [], noInputAttempt: 0, noInputTimer: null });
 
   // ─── Call history logging (Recent Calls tab) ────────────────────────────────
   // Every test session — chat modal, Chat Test tab, web call, phone call — is
@@ -2410,6 +2414,74 @@ export default function EditAgent() {
     // else: blob still buffering — endModularPlayback plays it (activated set)
   };
 
+  // A segment is over (played, cut off, or failed): count it out and give the
+  // next queued one its turn. Shared by audio segments and timed holds.
+  const releaseModularSegment = (session: ModularPlaybackSession) => {
+    const call = callRef.current;
+    call.modularOutstanding = Math.max(0, call.modularOutstanding - 1);
+    if (call.modularPlaying === session) {
+      call.modularPlaying = null;
+      const next = call.modularQueue.shift();
+      if (next) activateModular(next);
+    }
+    modularSegmentsIdle();
+  };
+
+  // One turn-level stopper covers every segment: cut whatever is playing and
+  // drop the rest of the queue (barge-in).
+  const ensureModularStopper = () => {
+    const call = callRef.current;
+    if (call.stopPlayback) return;
+    call.stopPlayback = () => {
+      const playing = call.modularPlaying;
+      const queued = [...call.modularQueue, ...(call.modularSession && !call.modularSession.activated ? [call.modularSession] : [])];
+      call.modularQueue = [];
+      try { playing?.audioEl?.pause(); } catch { /* noop */ }
+      playing?.finish();
+      queued.forEach((s) => s.finish());
+    };
+  };
+
+  // A timed hold between two segments (server: services/voice/holdPause.js).
+  // It is an entry in the SAME queue as the audio, so it can only start once
+  // the segment before it has finished playing, and a barge-in — which finishes
+  // everything queued — cancels it together with the answer queued behind it.
+  // It counts in modularOutstanding like audio: during the hold the agent is
+  // still "speaking", so listening keeps its echo-rejecting bar and the
+  // caller's silence cannot end their turn.
+  const queueModularPause = (ms: number) => {
+    const call = callRef.current;
+    const waitMs = Math.min(Math.max(0, Number(ms) || 0), 10_000);
+    // Stale: the reply this pause belongs to was cut off (barge-in bumps the
+    // epoch), or none of its audio ever arrived. Silence after nothing is not a hold.
+    if (!waitMs || call.modularSegmentEpoch !== call.turnEpoch) return;
+    let timer: number | null = null;
+    let finished = false;
+    const session: ModularPlaybackSession = {
+      mediaSource: null, audioEl: null, url: null, sourceBuffer: null,
+      queue: [], ended: true, started: false, activated: false, anyAppended: false, filler: false,
+      epoch: call.turnEpoch, useMediaSource: false, contentType: '', blobChunks: [],
+      // activateModular() calls this when the hold reaches the front of the queue.
+      playBlob: () => {
+        timer = window.setTimeout(() => {
+          timer = null;
+          // Hung up during the hold: the answer behind it has nobody to play to.
+          if (!call.active) call.modularQueue.splice(0).forEach((s) => s.finish());
+          session.finish();
+        }, waitMs);
+      },
+      finish: () => {
+        if (finished) return; finished = true;
+        if (timer !== null) { window.clearTimeout(timer); timer = null; }
+        releaseModularSegment(session);
+      },
+    };
+    call.modularOutstanding += 1;
+    ensureModularStopper();
+    if (call.modularPlaying) call.modularQueue.push(session);
+    else activateModular(session);
+  };
+
   // B4: open one streaming playback SEGMENT. Segments play sequentially; the
   // first one starts immediately.
   // Latency instrumentation: the ONLY place "the caller can hear the reply" is
@@ -2450,30 +2522,13 @@ export default function EditAgent() {
       finish: () => {
         if (finished) return; finished = true;
         if (session.url) { try { URL.revokeObjectURL(session.url); } catch { /* noop */ } }
-        call.modularOutstanding = Math.max(0, call.modularOutstanding - 1);
-        if (call.modularPlaying === session) {
-          call.modularPlaying = null;
-          const next = call.modularQueue.shift();
-          if (next) activateModular(next);
-        }
-        modularSegmentsIdle();
+        releaseModularSegment(session);
       },
     };
     call.modularSession = session;
+    call.modularSegmentEpoch = epoch;
     call.modularOutstanding += 1;
-
-    // One turn-level stopper covers every segment: cut whatever is playing and
-    // drop the rest of the queue (barge-in).
-    if (!call.stopPlayback) {
-      call.stopPlayback = () => {
-        const playing = call.modularPlaying;
-        const queued = [...call.modularQueue, ...(call.modularSession && !call.modularSession.activated ? [call.modularSession] : [])];
-        call.modularQueue = [];
-        try { playing?.audioEl?.pause(); } catch { /* noop */ }
-        playing?.finish();
-        queued.forEach((s) => s.finish());
-      };
-    }
+    ensureModularStopper();
 
     if (useMS) {
       const mediaSource = new MediaSource();
@@ -2649,6 +2704,9 @@ export default function EditAgent() {
         break;
       case 'audio-end':
         endModularPlayback();
+        break;
+      case 'pause':
+        queueModularPause(event.ms);
         break;
       case 'endpoint':
         // The server's speech recogniser says the caller finished.
