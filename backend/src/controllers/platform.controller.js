@@ -7,7 +7,7 @@ import { sendMail, isMailerConfigured } from '../lib/mailer.js';
 import { assertPublicHttpUrl } from '../lib/safeUrl.js';
 import { appendCallRow } from '../services/googleSheets.service.js';
 import { createEvent, resolveAppointmentStart } from '../services/googleCalendar.service.js';
-import { getBinding } from '../services/whatsappTemplates.service.js';
+import { getBindingForSend } from '../services/whatsappTemplates.service.js';
 import {
   sendWhatsAppConfirmation, buildPositionalVariables, resolveRecipient, recordWhatsAppSendFailure,
 } from '../services/whatsappPostCall.service.js';
@@ -387,7 +387,8 @@ export const executePostCall = async (agentId, workspaceId, payload) => {
           continue;
         }
 
-        const binding = await getBinding(workspaceId, cfg.whatsappBindingId);
+        // Re-checks approval with ChatFlow when the cache says no — see getBindingForSend.
+        const binding = await getBindingForSend(workspaceId, cfg.whatsappBindingId);
         if (!binding) {
           await refuse('No WhatsApp template is linked to this destination');
           continue;

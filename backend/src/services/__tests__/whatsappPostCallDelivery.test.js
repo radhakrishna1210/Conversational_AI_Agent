@@ -90,6 +90,9 @@ let chatflow;
 const world = ({ cfg = WA_CFG, binding = APPROVED } = {}) => {
   stub(prisma.agent, 'findFirst', async () => ({ id: 'agent_1', name: 'Hotel desk', settings: JSON.stringify({ postCallConfigs: [cfg] }) }));
   stub(prisma.whatsAppTemplateBinding, 'findFirst', async () => binding);
+  // A non-APPROVED binding is re-checked with ChatFlow before refusing; the
+  // templates list the fetch stub below returns has no match, so it stays as is.
+  stub(prisma.whatsAppTemplateBinding, 'findMany', async () => [binding]);
   stub(prisma.integration, 'findUnique', async () => ({ token: { accessTokenCipher: encryptToken('cf_test_key'), revokedAt: null } }));
   stub(prisma.whatsAppPostCallSend, 'create', async ({ data }) => { db.created.push(data); return { id: `send_${db.created.length}`, ...data }; });
   stub(prisma.whatsAppPostCallSend, 'update', async (args) => { db.updated.push(args); return {}; });
@@ -171,6 +174,36 @@ describe('executePostCall — a confirmation that is not sent is recorded on the
     assert.equal(db.created[0].status, 'FAILED');
     assert.match(db.created[0].lastError, /awaiting Meta approval/);
     assert.equal(chatflow.length, 0);
+  });
+
+  test('a template Meta approved since the cache was written is re-checked and sent', async () => {
+    const pending = { ...APPROVED, status: 'PENDING', chatflowTemplateId: 'cf_tpl_1' };
+    world({ binding: pending });
+    const bindingUpdates = [];
+    stub(prisma.whatsAppTemplateBinding, 'update', async ({ data }) => { bindingUpdates.push(data); return { ...pending, ...data }; });
+    stub(globalThis, 'fetch', async (url, init) => {
+      if (String(url).endsWith('/api/v1/public/templates')) {
+        return new Response(JSON.stringify({ templates: [{ id: 'cf_tpl_1', name: 'booking_confirmed', language: 'en', status: 'APPROVED' }] }), { status: 200 });
+      }
+      chatflow.push({ url: String(url), body: JSON.parse(init.body) });
+      return new Response(JSON.stringify({ messages: [{ id: 'wamid.new' }] }), { status: 200 });
+    });
+
+    const variables = deliveredVariables({ customer_name: 'Krishna', objective_completed: 'Booked' });
+    const out = await executePostCall('agent_1', 'ws_1', payloadFor(variables));
+
+    assert.equal(whatsappResult(out).ok, true, whatsappResult(out).error);
+    assert.equal(bindingUpdates[0]?.status, 'APPROVED', 'the cache is corrected too');
+    assert.equal(chatflow.length, 1, 'the confirmation went out');
+  });
+
+  test('ChatFlow unreachable while re-checking: refused exactly as before, never sent unapproved', async () => {
+    world({ binding: { ...APPROVED, status: 'PENDING' } });
+    stub(globalThis, 'fetch', async () => { throw new Error('ECONNREFUSED'); });
+    const variables = deliveredVariables({ customer_name: 'Krishna', objective_completed: 'Booked' });
+    const out = await executePostCall('agent_1', 'ws_1', payloadFor(variables));
+    assert.equal(whatsappResult(out).ok, false);
+    assert.match(db.created[0].lastError, /awaiting Meta approval/);
   });
 
   test('a placeholder with nothing captured shows on the call', async () => {

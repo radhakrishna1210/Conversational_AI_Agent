@@ -256,6 +256,28 @@ export async function getBinding(workspaceId, bindingId) {
   return prisma.whatsAppTemplateBinding.findFirst({ where: { id: bindingId, workspaceId } });
 }
 
+/**
+ * The binding a send is about to use, with its approval re-checked first when
+ * the cached status says no.
+ *
+ * The cache is only refreshed when someone opens the templates page, so a
+ * template Meta approved overnight kept being refused as "awaiting approval" on
+ * every call until a person happened to look. Only a non-APPROVED binding pays
+ * the ChatFlow round trip, and a failed refresh falls back to the cached row —
+ * the send is then refused exactly as it was before, never sent unapproved.
+ */
+export async function getBindingForSend(workspaceId, bindingId) {
+  const binding = await getBinding(workspaceId, bindingId);
+  if (!binding || binding.status === 'APPROVED') return binding;
+  try {
+    const refreshed = await refreshBindings(workspaceId);
+    return refreshed.find((b) => b.id === binding.id) ?? binding;
+  } catch (err) {
+    logger.warn({ workspaceId, bindingId, err: err.message }, 'Could not re-check WhatsApp template approval before sending');
+    return binding;
+  }
+}
+
 // ─── Custom templates ────────────────────────────────────────────────────────
 //
 // A template the client wrote, or had drafted for them, rather than one of the
