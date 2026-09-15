@@ -11,6 +11,7 @@
 import { e164, TRANSFER_MODES, OUT_OF_HOURS } from '../services/telephony/transfer.service.js';
 import { SPECULATION_MODES } from '../services/voice/speculativeTurn.js';
 import { AMBIENT_MODES, ALL_AMBIENT_PRESET_NAMES } from '../services/voice/ambience.js';
+import { MIN_HOLD_SEC, MAX_HOLD_SEC } from '../services/voice/holdPause.js';
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -65,6 +66,21 @@ export function validateAgentSettings(extras = {}) {
   }
   if (has('speculation') && String(extras.speculation) !== '') {
     if (!SPECULATION_MODES.includes(extras.speculation)) return { ok: false, error: `Speculation must be one of ${SPECULATION_MODES.join(', ')}.` };
+  }
+  if (has('holdPauseSec')) {
+    // Empty and 0 both mean "off" and are stored as null, so the runtime has one
+    // spelling of off to read. Anything else must be a real hold length: a
+    // caller hears this as silence on a live line, and past ~10s that silence
+    // is a dropped call as far as they can tell.
+    const raw = extras.holdPauseSec;
+    const n = Number(raw);
+    if (String(raw).trim() === '' || (typeof raw !== 'boolean' && n === 0)) {
+      out.holdPauseSec = null;
+    } else if (typeof raw === 'boolean' || !Number.isInteger(n) || n < MIN_HOLD_SEC || n > MAX_HOLD_SEC) {
+      return { ok: false, error: `Hold pause must be a whole number of seconds from ${MIN_HOLD_SEC} to ${MAX_HOLD_SEC}, or empty to turn it off.` };
+    } else {
+      out.holdPauseSec = n;
+    }
   }
   return { ok: true, extras: out };
 }

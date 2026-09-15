@@ -1,7 +1,8 @@
-// What these pin: the transfer and speculation fields that live in the agent's
-// settings JSON are validated on the way in — a number that is not dialable,
-// a timeout outside the carrier's range, or hours that cannot be evaluated are
-// refused with a message, and valid input is normalised (E.164, sorted days).
+// What these pin: the transfer, speculation and hold-pause fields that live in
+// the agent's settings JSON are validated on the way in — a number that is not
+// dialable, a timeout outside the carrier's range, hours that cannot be
+// evaluated, or a hold no caller would sit through are refused with a message,
+// and valid input is normalised (E.164, sorted days, one spelling of "off").
 
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
@@ -30,6 +31,22 @@ describe('validateAgentSettings', () => {
     assert.equal(validateAgentSettings({ transferOutOfHours: 'attempt' }).ok, true);
     assert.equal(validateAgentSettings({ speculation: 'aggressive' }).ok, false);
     assert.equal(validateAgentSettings({ speculation: 'interim' }).ok, true);
+  });
+  test('hold pause is a whole number of seconds from 1 to 10; empty or 0 turns it off', () => {
+    assert.equal(validateAgentSettings({ holdPauseSec: 5 }).extras.holdPauseSec, 5);
+    assert.equal(validateAgentSettings({ holdPauseSec: '10' }).extras.holdPauseSec, 10);
+    assert.equal(validateAgentSettings({ holdPauseSec: 1 }).extras.holdPauseSec, 1);
+    for (const off of ['', 0, '0']) {
+      const r = validateAgentSettings({ holdPauseSec: off });
+      assert.equal(r.ok, true, JSON.stringify(off));
+      assert.equal(r.extras.holdPauseSec, null, JSON.stringify(off));
+    }
+    assert.equal(validateAgentSettings({ holdPauseSec: null }).ok, true, 'null is how the editor clears it');
+    for (const bad of [11, -1, 2.5, 'abc', true, 60]) {
+      const r = validateAgentSettings({ holdPauseSec: bad });
+      assert.equal(r.ok, false, JSON.stringify(bad));
+      assert.match(r.error, /Hold pause must be a whole number of seconds from 1 to 10/);
+    }
   });
   test('hours need HH:MM, at least one weekday and a real timezone', () => {
     assert.equal(validateAgentSettings({ transferHours: { enabled: true, start: '9', end: '18:00', days: [1] } }).ok, false);

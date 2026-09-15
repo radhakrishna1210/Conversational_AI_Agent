@@ -68,6 +68,8 @@
  * comma before it leaves this module — see createReplyTextFilter({ ssmlBreaks }).
  */
 
+import { stripHoldMarkers } from './holdPause.js';
+
 /**
  * Hard ceiling on a single pause. ElevenLabs allows up to 3s; three seconds of
  * silence on a live phone call is indistinguishable from a dropped connection,
@@ -278,11 +280,13 @@ function recapitalize(text) {
 
 /**
  * Strip every speech-only marker so the text can be shown as a transcript.
- * The caller HEARD the pause; they should not READ "<break time=…>".
+ * The caller HEARD the pause; they should not READ "<break time=…>" — or a
+ * [[HOLD]] token, which the runtime removes before this and is removed here
+ * again because a transcript is the one place a leak would be permanent.
  */
 export function stripSpeechMarkup(text) {
   if (!text) return '';
-  return tidy(String(text).replace(BREAK_RE, ' ')).trim();
+  return tidy(stripHoldMarkers(String(text)).replace(BREAK_RE, ' ')).trim();
 }
 
 /** Clamp one break tag to a length that works on a live call (see MAX_BREAK_MS). */
