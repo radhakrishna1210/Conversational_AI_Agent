@@ -100,11 +100,25 @@ export const list = async (req, res) => {
   const { workspaceId } = req.params;
   const { agentId } = req.query;
   try {
+    // Every column EXCEPT textContent. A file's extracted text can run to
+    // millions of characters, and listing used to load all of it for every file
+    // only to test it for emptiness. The second query answers that in Postgres.
     const rows = await prisma.kbFile.findMany({
       where: { workspaceId, ...(agentId ? { agentId: String(agentId) } : {}) },
       orderBy: { createdAt: 'desc' },
+      select: {
+        id: true, fileName: true, mimeType: true, sizeBytes: true, agentId: true,
+        createdAt: true, status: true, chunked: true, embeddingError: true,
+      },
     });
-    res.json({ files: rows.map(toDto) });
+    const withText = rows.length
+      ? await prisma.kbFile.findMany({
+        where: { id: { in: rows.map((r) => r.id) }, textContent: { not: null }, NOT: { textContent: '' } },
+        select: { id: true },
+      })
+      : [];
+    const hasText = new Set(withText.map((r) => r.id));
+    res.json({ files: rows.map((r) => toDto({ ...r, hasText: hasText.has(r.id) })) });
   } catch (err) {
     logger.error({ err, workspaceId, agentId }, 'KB list failed');
     res.status(500).json({ error: `Failed to list files: ${err?.message || 'unknown error'}` });
@@ -174,7 +188,7 @@ export const agentKbText = async (req, res) => {
 
 const toDto = (f) => ({
   id: f.id, fileName: f.fileName, mimeType: f.mimeType, sizeBytes: f.sizeBytes,
-  agentId: f.agentId, hasText: Boolean(f.textContent), createdAt: f.createdAt,
+  agentId: f.agentId, hasText: f.hasText ?? Boolean(f.textContent), createdAt: f.createdAt,
   // status/chunked expose RAG processing progress ('pending' -> 'processing'
   // -> 'ready'/'failed', chunked true once retrieval has taken over from the
   // flat-text path) — not consumed by any frontend yet, added so one can be

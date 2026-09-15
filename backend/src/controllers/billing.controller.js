@@ -246,7 +246,9 @@ export const verifyTopUp = async (req, res) => {
  * POST /billing/razorpay/webhook  (unauthenticated by design — the HMAC IS the
  * authentication). Mounted with express.raw so `req.body` is the exact bytes.
  *
- * THE ONLY PLACE A TOP-UP CREDITS A WALLET.
+ * One of TWO places a top-up credits a wallet — verifyTopUp above is the other,
+ * for when the checkout callback beats this webhook. Both credit under the same
+ * `rzp:payment:<paymentId>` idempotency key, so whichever lands second is a no-op.
  */
 export const razorpayWebhook = async (req, res) => {
   const signature = req.get('X-Razorpay-Signature');

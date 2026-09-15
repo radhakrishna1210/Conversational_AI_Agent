@@ -16,6 +16,7 @@
 import { Queue } from 'bullmq';
 import { bullConnection } from '../config/redis.js';
 import { JOB_MAX_ATTEMPTS, JOB_BACKOFF_DELAY_MS } from '../constants/limits.js';
+import logger from '../lib/logger.js';
 
 export const whatsappPostCallQueue = bullConnection
   ? new Queue('whatsapp-postcall', bullConnection)
@@ -28,19 +29,38 @@ export const whatsappPostCallQueue = bullConnection
 const jobIdFor = (callLogId, postCallConfigId) => `${callLogId}__${postCallConfigId}`;
 
 /**
- * @returns {Promise<import('bullmq').Job>|null} null when Redis is not
- *   configured — the caller MUST then send inline rather than treat the message
- *   as queued, or it is dropped in silence.
+ * Add a send to `queue`, or answer null so the caller sends inline.
+ *
+ * The queue object is created at import whenever REDIS_URL is set. If Redis is
+ * down or gives up reconnecting afterwards, the object still exists and `add`
+ * REJECTS — which surfaced as the whole confirmation failing with "Connection
+ * is closed" instead of taking the inline path Redis-less deployments use. A
+ * refused add is treated exactly like having no queue. A duplicate is still
+ * impossible either way: the send claims its WhatsAppPostCallSend row first.
+ *
+ * @returns {Promise<import('bullmq').Job|null>}
  */
-export const enqueueWhatsAppSend = (payload) => {
-  if (!whatsappPostCallQueue) return null;
-  return whatsappPostCallQueue.add('send', payload, {
-    jobId: jobIdFor(payload.callLogId, payload.postCallConfigId),
-    attempts: JOB_MAX_ATTEMPTS,
-    backoff: { type: 'exponential', delay: JOB_BACKOFF_DELAY_MS },
-    // Keep a window of history: when a client asks why a customer never got their
-    // confirmation, the failed job and its error is the answer.
-    removeOnComplete: { age: 24 * 3600, count: 1000 },
-    removeOnFail: { age: 7 * 24 * 3600 },
-  });
+export const enqueueWith = async (queue, payload) => {
+  if (!queue) return null;
+  try {
+    return await queue.add('send', payload, {
+      jobId: jobIdFor(payload.callLogId, payload.postCallConfigId),
+      attempts: JOB_MAX_ATTEMPTS,
+      backoff: { type: 'exponential', delay: JOB_BACKOFF_DELAY_MS },
+      // Keep a window of history: when a client asks why a customer never got their
+      // confirmation, the failed job and its error is the answer.
+      removeOnComplete: { age: 24 * 3600, count: 1000 },
+      removeOnFail: { age: 7 * 24 * 3600 },
+    });
+  } catch (err) {
+    logger.warn({ err: err.message, callLogId: payload.callLogId }, 'WhatsApp queue unavailable — sending the confirmation inline');
+    return null;
+  }
 };
+
+/**
+ * @returns {Promise<import('bullmq').Job|null>} null when Redis is not
+ *   configured or not accepting jobs — the caller MUST then send inline rather
+ *   than treat the message as queued, or it is dropped in silence.
+ */
+export const enqueueWhatsAppSend = (payload) => enqueueWith(whatsappPostCallQueue, payload);
