@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { safeGet, safeSet, decodeJwtPayload, clearAuth } from '@/lib/authStorage';
+import { authFetch } from '@/lib/authFetch';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
   Bot,
@@ -108,12 +109,13 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     };
 
     const fetchMe = async () => {
-      const token = safeGet('token');
-      if (!token) return;
+      if (!safeGet('token')) return;
       try {
-        const res = await fetch('/api/v1/auth/me', {
-          headers: { Authorization: `Bearer ${token}` },
-        });
+        // authFetch: a tab reopened after the access token expired refreshes
+        // instead of silently falling back to cached profile data.
+        const res = await authFetch('/api/v1/auth/me');
+        // Read after the call: a refresh inside authFetch replaces the token.
+        const token = safeGet('token');
         if (res.ok) {
           const data = await res.json();
           const u = data.user;
@@ -158,20 +160,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     fetchMe();
   }, []);
 
-  useEffect(() => {
-    const token = safeGet('token');
-    const workspaceId = safeGet('workspaceId');
-    if (!token || !workspaceId) return;
-
-    fetch(`/api/v1/workspaces/${workspaceId}/notifications/unread-count`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then((r) => (r.ok ? r.json() : null))
-      .then((data) => {
-        if (data?.count != null) setUnreadCount(data.count);
-      })
-      .catch(() => {});
-  }, []);
+  // The bell's unread count comes from NotificationPanel (onUnreadCountChange),
+  // whose stream stays connected while this shell is mounted — a one-off fetch
+  // here left the badge frozen at its mount-time value.
 
   useEffect(() => {
     const handler = (e: MouseEvent) => {
