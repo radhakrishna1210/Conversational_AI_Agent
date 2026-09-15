@@ -133,10 +133,13 @@ function fishGenerationParams(affect) {
  * rather than words. Measured on this deployment (reports/AMBIENCE_VOICE.md):
  * s2.1-pro-free spoke none of 8 tagged utterances' tags aloud.
  * Exported for the tag-leak regression test.
+ *
+ * `model` is the model that will actually read the text: the HTTP path's by
+ * default, the socket session passes its own (FISH_TTS_WS_MODEL can differ).
  */
-export function applyAmbienceTag(text, tag) {
+export function applyAmbienceTag(text, tag, model = ttsModel()) {
   if (!tag || !/^\[[^\]]{2,80}\]$/.test(String(tag))) return text;
-  if (!/^s2/.test(ttsModel())) return text;
+  if (!/^s2/.test(String(model))) return text;
   return `${tag} ${text}`;
 }
 
@@ -584,6 +587,11 @@ export class FishAudioTtsStream extends EventEmitter {
     this.sampleRate = opts.sampleRate || null;
     this.pace = opts.pace;
     this.affect = opts.affect ?? null;
+    // Mode A ambience, as on the HTTP path. That path tags every synthesis
+    // request (each sentence segment), so this tags every text batch sent; the
+    // socket path used to take no tag at all, so an agent in native mode lost
+    // its ambience on exactly the turns that ran the fast path.
+    this.ambienceTag = opts.ambienceTag ?? null;
     this.ws = null;
     this._open = false;
     this._pending = [];       // text queued before the socket is ready
@@ -689,7 +697,7 @@ export class FishAudioTtsStream extends EventEmitter {
   _sendText(chunk) {
     const clean = cleanForSpeech(chunk);
     if (!clean) return;
-    const t = `${clean} `;
+    const t = `${applyAmbienceTag(clean, this.ambienceTag, this.modelId)} `;
     if (this._open) {
       this._raw({ event: 'text', text: t });
       // Flush asks Fish to synthesize what it holds instead of waiting for more

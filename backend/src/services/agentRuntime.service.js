@@ -2190,6 +2190,8 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
     const ttsProvider = synthesisProviderName(voice);
     const tts = createTokenTtsStream(voice, {
       pace: speakingRate, affect,
+      // Same Mode A tag the split path sends; null unless 'native' on a tagged preset.
+      ambienceTag: ambienceTagFor(settings),
       ...(audioFormat ? { audioFormat } : {}),
       ...(sampleRate ? { sampleRate } : {}),
     });
