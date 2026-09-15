@@ -1,47 +1,33 @@
 import { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { toast } from 'sonner';
 import { useTheme } from '../hooks/useTheme';
+import { safeGet } from '@/lib/authStorage';
 import { RzCard, RzSwitch } from '@/components/rz';
 
 /**
  * Settings — the two-column account panel from Spandan Account.dc.html#settings.
  *
  * Profile on the left, preferences and the danger zone stacked on the right.
+ *
+ * Only what the server can actually store is editable here. The profile,
+ * password, timezone and the two notification toggles used to accept input and
+ * toast "saved" while nothing left the browser (there is no endpoint for any of
+ * them), so a user who "changed their password" still had the old one. Each is
+ * now shown read-only with the working route to what they wanted, until the
+ * endpoints exist.
  */
 
-const validateName  = (name: string)  => /^[A-Za-z ]{2,50}$/.test(name.trim());
-const validateEmail = (email: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
-const validatePhone = (phone: string) => /^\+?[1-9]\d{9,14}$/.test(phone.trim());
-
-const TIMEZONES = [
-  'Los Angeles (GMT-7)',
-  'New York (GMT-5)',
-  'London (GMT+0)',
-  'Kolkata (GMT+5:30)',
-  'Tokyo (GMT+9)',
-];
+const muted = { fontSize: 12, color: 'var(--tx-3)', marginTop: 2 } as const;
 
 export default function Settings() {
-  const [user, setUser] = useState({ name: '', email: '', phone: '' });
-  const [passwords, setPasswords] = useState({ current: '', new: '', confirm: '' });
-  const [timezone, setTimezone] = useState('New York (GMT-5)');
+  const [user, setUser] = useState({ name: '', email: '' });
   const { darkMode, toggleDarkMode } = useTheme();
 
-  // Local-only preferences. Persisted to localStorage so a reload keeps them;
-  // they gate client-side behaviour only, so there is no endpoint to call.
-  const [emailDigest, setEmailDigest] = useState(() => localStorage.getItem('prefEmailDigest') !== '0');
-  const [callAlerts, setCallAlerts] = useState(() => localStorage.getItem('prefCallAlerts') !== '0');
-
   useEffect(() => {
-    const name = localStorage.getItem('userName') || '';
-    const email = localStorage.getItem('userEmail') || '';
-    setUser(prev => ({ ...prev, name, email }));
+    // DashboardLayout refreshes these from /auth/me on mount.
+    setUser({ name: safeGet('userName'), email: safeGet('userEmail') });
   }, []);
-
-  const setPref = (key: string, value: boolean, set: (v: boolean) => void) => {
-    set(value);
-    localStorage.setItem(key, value ? '1' : '0');
-  };
 
   const initials = (user.name || 'U')
     .split(' ')
@@ -49,40 +35,6 @@ export default function Settings() {
     .join('')
     .toUpperCase()
     .slice(0, 2);
-
-  const handleSavePersonal = () => {
-    if (!validateName(user.name))   { toast.error('Name should contain only letters and spaces.'); return; }
-    if (!validateEmail(user.email)) { toast.error('Please enter a valid email address.'); return; }
-    if (!user.phone)                { toast.error('Phone number is required.'); return; }
-    if (!validatePhone(user.phone)) { toast.error('Please enter a valid phone number.'); return; }
-
-    toast.success('Personal information updated');
-    localStorage.setItem('userName', user.name);
-    localStorage.setItem('userEmail', user.email);
-  };
-
-  const handleSavePassword = () => {
-    if (!passwords.current || !passwords.new || !passwords.confirm) {
-      toast.error('Please fill in all password fields');
-      return;
-    }
-    if (passwords.new !== passwords.confirm) {
-      toast.error('New passwords do not match');
-      return;
-    }
-    if (passwords.new.length < 8) {
-      toast.error('Password must be at least 8 characters long.');
-      return;
-    }
-    if (!/(?=.*[a-z])(?=.*[A-Z])(?=.*\d)/.test(passwords.new)) {
-      toast.error('Password must contain uppercase, lowercase and a number.');
-      return;
-    }
-    toast.success('Password changed');
-    setPasswords({ current: '', new: '', confirm: '' });
-  };
-
-  const handleSaveTimezone = () => toast.success(`Timezone saved as ${timezone}`);
 
   return (
     <div className="rz-page rz-page-pad rz-bleed">
@@ -112,74 +64,25 @@ export default function Settings() {
               <div className="rz-stack" style={{ gap: 14 }}>
                 <div className="rz-field">
                   <label className="rz-field-label" htmlFor="set-name">Name</label>
-                  <input
-                    id="set-name"
-                    className="rz-input"
-                    type="text"
-                    value={user.name}
-                    onChange={(e) => {
-                      // Reject digits at the keystroke rather than on submit —
-                      // the field only ever accepts letters and spaces.
-                      if (/^[A-Za-z ]*$/.test(e.target.value)) setUser({ ...user, name: e.target.value });
-                    }}
-                  />
+                  <input id="set-name" className="rz-input" type="text" value={user.name} readOnly disabled />
                 </div>
                 <div className="rz-field">
                   <label className="rz-field-label" htmlFor="set-email">Email</label>
-                  <input
-                    id="set-email"
-                    className="rz-input"
-                    type="email"
-                    value={user.email}
-                    onChange={(e) => setUser({ ...user, email: e.target.value })}
-                  />
+                  <input id="set-email" className="rz-input" type="email" value={user.email} readOnly disabled />
                 </div>
-                <div className="rz-field">
-                  <label className="rz-field-label" htmlFor="set-phone">Phone</label>
-                  <input
-                    id="set-phone"
-                    className="rz-input"
-                    type="tel"
-                    placeholder="+919876543210"
-                    value={user.phone}
-                    onChange={(e) => {
-                      if (/^[0-9+]*$/.test(e.target.value)) setUser({ ...user, phone: e.target.value });
-                    }}
-                  />
+                <div className="rz-field-hint">
+                  Your name and sign-in email can't be edited here yet. Contact support to change them.
                 </div>
-              </div>
-
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 18 }}>
-                <button className="rz-btn rz-btn-primary" onClick={handleSavePersonal}>Save changes</button>
               </div>
             </RzCard>
 
             <RzCard title="Security" size="lg">
-              <p className="rz-sub" style={{ margin: '-6px 0 16px' }}>Change your account password.</p>
-              <div className="rz-stack" style={{ gap: 14 }}>
-                {([
-                  ['current', 'Current password', 'Enter current password'],
-                  ['new', 'New password', 'At least 8 characters'],
-                  ['confirm', 'Confirm new password', 'Repeat the new password'],
-                ] as const).map(([key, label, placeholder]) => (
-                  <div className="rz-field" key={key}>
-                    <label className="rz-field-label" htmlFor={`set-pw-${key}`}>{label}</label>
-                    <input
-                      id={`set-pw-${key}`}
-                      className="rz-input"
-                      type="password"
-                      placeholder={placeholder}
-                      value={passwords[key]}
-                      onChange={(e) => setPasswords({ ...passwords, [key]: e.target.value })}
-                    />
-                  </div>
-                ))}
-                <div className="rz-field-hint">
-                  Must mix upper case, lower case and a digit.
-                </div>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 18 }}>
-                <button className="rz-btn rz-btn-primary" onClick={handleSavePassword}>Change password</button>
+              <p className="rz-sub" style={{ margin: '-6px 0 16px' }}>
+                To change your password, reset it: we email a one-time code to {user.email || 'your sign-in address'}, and
+                you choose a new password with it.
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <Link className="rz-btn rz-btn-primary" to="/forgot-password">Reset password</Link>
               </div>
             </RzCard>
           </div>
@@ -193,45 +96,46 @@ export default function Settings() {
                   desc: 'The instrument-panel theme. Light mode is available for bright rooms.',
                   value: darkMode,
                   onChange: () => toggleDarkMode(),
+                  available: true,
                 },
                 {
                   label: 'Weekly email digest',
-                  desc: 'A Monday summary of call volume, outcomes and spend.',
-                  value: emailDigest,
-                  onChange: (v: boolean) => setPref('prefEmailDigest', v, setEmailDigest),
+                  desc: 'A Monday summary of call volume, outcomes and spend. Not available yet.',
+                  value: false,
+                  onChange: () => {},
+                  available: false,
                 },
                 {
                   label: 'Live call alerts',
-                  desc: 'Notify me when an agent transfers a call to a human.',
-                  value: callAlerts,
-                  onChange: (v: boolean) => setPref('prefCallAlerts', v, setCallAlerts),
+                  desc: 'Notify me when an agent transfers a call to a human. Not available yet.',
+                  value: false,
+                  onChange: () => {},
+                  available: false,
                 },
               ].map((row, i, arr) => (
                 <div
                   key={row.label}
                   className="rz-between"
-                  style={{ padding: '11px 0', borderBottom: i === arr.length - 1 ? 'none' : '1px solid var(--line)' }}
+                  style={{ padding: '11px 0', borderBottom: i === arr.length - 1 ? 'none' : '1px solid var(--line)', opacity: row.available ? 1 : 0.6 }}
                 >
                   <div style={{ minWidth: 0 }}>
                     <div style={{ fontSize: 13.5, fontWeight: 600, color: 'var(--tx)' }}>{row.label}</div>
-                    <div style={{ fontSize: 12, color: 'var(--tx-3)', marginTop: 2 }}>{row.desc}</div>
+                    <div style={muted}>{row.desc}</div>
                   </div>
-                  <RzSwitch checked={row.value} onChange={row.onChange} label={row.label} />
+                  <RzSwitch checked={row.value} onChange={row.onChange} label={row.label} disabled={!row.available} />
                 </div>
               ))}
             </RzCard>
 
             <RzCard title="Timezone" size="lg">
               <div className="rz-field">
-                <select className="rz-select" value={timezone} onChange={(e) => setTimezone(e.target.value)}>
-                  {TIMEZONES.map(tz => <option key={tz} value={tz}>{tz}</option>)}
+                <select className="rz-select" disabled value="browser">
+                  <option value="browser">Your browser's timezone</option>
                 </select>
                 <div className="rz-field-hint">
-                  Used for every date and time shown in the console, including call timestamps.
+                  Dates and times in the console are shown in your browser's timezone. Choosing a different one
+                  isn't available yet.
                 </div>
-              </div>
-              <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: 16 }}>
-                <button className="rz-btn rz-btn-secondary" onClick={handleSaveTimezone}>Save timezone</button>
               </div>
             </RzCard>
 
