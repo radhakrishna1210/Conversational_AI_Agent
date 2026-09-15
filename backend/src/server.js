@@ -441,11 +441,15 @@ setTimeout(runReconciliationSweep, 5 * 60_000).unref?.();
 // Offset from the subscription sweep's catch-up so the two do not contend for
 // the same wallet rows the moment a deployment comes back up.
 setTimeout(runNumberRenewals, 60_000).unref?.();
-// Don't hold the process open purely for the renewal timer.
-renewalTimer.unref?.();
+// Don't hold the process open purely for the renewal timer. `renewalTimer` is
+// null when the sweep is switched off, and `null.unref?.()` still throws — the
+// `?.` guards the call, not the property read — so the switch used to crash
+// boot instead of disabling anything.
+renewalTimer?.unref?.();
 // One sweep shortly after boot so a deployment that was down over a period
-// boundary catches up without waiting a full interval.
-setTimeout(runRenewals, 30_000).unref?.();
+// boundary catches up without waiting a full interval. Skipped with the switch
+// off, or "disabled" would still run the failing sweep once per deploy.
+if (renewalTimer) setTimeout(runRenewals, 30_000).unref?.();
 
 const shutdown = async (signal) => {
   logger.info(`${signal} received — shutting down`);
