@@ -47,6 +47,15 @@ export const AUDIT_ACTIONS = Object.freeze({
   REFUND_ISSUE: 'refund.issue',
   SUBSCRIPTION_OVERRIDE: 'subscription.override',
   INVOICE_GENERATE: 'invoice.generate',
+  // pricing — what customers are charged. Every one of these reprices someone.
+  PRICING_WALLET_RATE_UPDATE: 'pricing.wallet_rate_update',
+  PRICING_BUCKET_CREATE: 'pricing.bucket_create',
+  PRICING_BUCKET_UPDATE: 'pricing.bucket_update',
+  PRICING_BUCKET_DELETE: 'pricing.bucket_delete',
+  PRICING_WORKSPACE_BUCKET: 'pricing.workspace_bucket',
+  PRICING_WORKSPACE_OVERRIDE: 'pricing.workspace_override',
+  PRICING_NUMBER_RATE_UPDATE: 'pricing.number_rate_update',
+  PRICING_BROADCAST_RATE_UPDATE: 'pricing.broadcast_rate_update',
   // plan
   PLAN_CREATE: 'plan.create',
   PLAN_UPDATE: 'plan.update',

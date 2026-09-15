@@ -17,6 +17,7 @@ import { listBuckets, createBucket, updateBucket, deleteBucket } from '../servic
 import { resolveWorkspaceRate, assignBucket, setRateOverride } from '../services/billing/workspaceRate.js';
 import { getNumberRate, setNumberRate } from '../services/billing/numberRate.js';
 import { getBroadcastRate, setBroadcastRate } from '../services/billing/broadcastRate.js';
+import { writeAudit, AUDIT_ACTIONS, AUDIT_CATEGORIES } from '../services/audit.service.js';
 
 /*
  * The plan catalogue used to live here: a DEFAULT_PLANS seed, ensurePlansSeeded,
@@ -34,6 +35,47 @@ import { getBroadcastRate, setBroadcastRate } from '../services/billing/broadcas
  */
 
 const safeJson = (v, fb) => { try { return JSON.parse(v); } catch { return fb; } };
+
+/**
+ * Run one admin pricing change and record it in the audit trail.
+ *
+ * Every handler below reprices real customers, and walletRate.js has long said
+ * these changes "inherit the existing admin audit path" — none of them wrote a
+ * row. A refused change is recorded as well: an attempt to reprice is itself
+ * something to be able to explain later. writeAudit never throws.
+ *
+ * @param {object} opts
+ * @param {string} opts.action AUDIT_ACTIONS value
+ * @param {() => Promise<any>} [opts.readBefore] snapshot taken before the change
+ * @param {() => Promise<{ body: any, status?: number, target?: { type?: string, id?: string, label?: string } }>} opts.change
+ * @param {{ type: string, id?: string, label?: string, workspaceId?: string }} opts.target
+ * @param {string} opts.fallbackError
+ */
+const auditedPricingChange = async (req, res, { action, readBefore, change, target, fallbackError }) => {
+  const before = readBefore ? await readBefore().catch(() => null) : null;
+  const base = {
+    action,
+    category: AUDIT_CATEGORIES.BILLING,
+    targetType: target.type,
+    targetId: target.id ?? null,
+    targetLabel: target.label ?? null,
+    workspaceId: target.workspaceId ?? null,
+    before,
+  };
+  try {
+    const { body, status = 200, target: resolved = {} } = await change();
+    await writeAudit(req, {
+      ...base,
+      targetId: resolved.id ?? base.targetId,
+      targetLabel: resolved.label ?? base.targetLabel,
+      after: body,
+    });
+    res.status(status).json(body);
+  } catch (err) {
+    await writeAudit(req, { ...base, metadata: { input: req.body ?? null }, status: 'failure', errorMessage: err.message });
+    res.status(err.status ?? 500).json({ error: err.message ?? fallbackError });
+  }
+};
 
 // ─── WALLET RATE (the only pricing this deployment has) ──────────────────────
 
@@ -55,14 +97,16 @@ export const adminGetWalletRate = async (_req, res) => {
 };
 
 /** PUT /admin/wallet-rate — the one number that sets what every call costs. */
-export const adminSetWalletRate = async (req, res) => {
-  try {
+export const adminSetWalletRate = (req, res) => auditedPricingChange(req, res, {
+  action: AUDIT_ACTIONS.PRICING_WALLET_RATE_UPDATE,
+  target: { type: 'Platform', id: 'wallet_rate', label: 'Wallet rate' },
+  readBefore: async () => ({ perMinuteInr: (await getWalletRate()).perMinuteInr }),
+  change: async () => {
     const rate = await setWalletRate(req.body?.perMinuteInr);
-    res.json({ perMinuteInr: rate.perMinuteInr });
-  } catch (err) {
-    res.status(err.status ?? 500).json({ error: err.message ?? 'Failed to save the rate' });
-  }
-};
+    return { body: { perMinuteInr: rate.perMinuteInr } };
+  },
+  fallbackError: 'Failed to save the rate',
+});
 
 // ─── PRICING BUCKETS ─────────────────────────────────────────────────────────
 // Volume tiers a Super Admin assigns to a workspace, plus the bespoke per-
@@ -87,23 +131,27 @@ export const adminListBuckets = async (_req, res) => {
  * Creating a tier assigns it to nobody, so unlike a reprice this cannot change
  * what any existing client pays. 409 means a tier already quotes those minutes.
  */
-export const adminCreateBucket = async (req, res) => {
-  try {
-    res.status(201).json({ bucket: await createBucket(req.body ?? {}) });
-  } catch (err) {
-    res.status(err.status ?? 500).json({ error: err.message ?? 'Failed to create the bucket' });
-  }
-};
+export const adminCreateBucket = (req, res) => auditedPricingChange(req, res, {
+  action: AUDIT_ACTIONS.PRICING_BUCKET_CREATE,
+  target: { type: 'PricingBucket' },
+  change: async () => {
+    const bucket = await createBucket(req.body ?? {});
+    return { body: { bucket }, status: 201, target: { id: bucket?.id, label: bucket?.label } };
+  },
+  fallbackError: 'Failed to create the bucket',
+});
 
 /** PATCH /admin/pricing/buckets/:id — reprice, relabel, resize or retire one tier. */
-export const adminUpdateBucket = async (req, res) => {
-  try {
+export const adminUpdateBucket = (req, res) => auditedPricingChange(req, res, {
+  action: AUDIT_ACTIONS.PRICING_BUCKET_UPDATE,
+  target: { type: 'PricingBucket', id: req.params.id },
+  readBefore: () => prisma.pricingBucket.findUnique({ where: { id: req.params.id } }),
+  change: async () => {
     const bucket = await updateBucket(req.params.id, req.body ?? {});
-    res.json({ bucket });
-  } catch (err) {
-    res.status(err.status ?? 500).json({ error: err.message ?? 'Failed to update the bucket' });
-  }
-};
+    return { body: { bucket }, target: { label: bucket?.label } };
+  },
+  fallbackError: 'Failed to update the bucket',
+});
 
 /**
  * DELETE /admin/pricing/buckets/:id — remove a tier for good.
@@ -112,13 +160,16 @@ export const adminUpdateBucket = async (req, res) => {
  * past: the FK nulls assignments on delete, so removing an occupied tier
  * silently reprices real customers to the default. Reassign, or retire it.
  */
-export const adminDeleteBucket = async (req, res) => {
-  try {
-    res.json({ deleted: await deleteBucket(req.params.id) });
-  } catch (err) {
-    res.status(err.status ?? 500).json({ error: err.message ?? 'Failed to delete the bucket' });
-  }
-};
+export const adminDeleteBucket = (req, res) => auditedPricingChange(req, res, {
+  action: AUDIT_ACTIONS.PRICING_BUCKET_DELETE,
+  target: { type: 'PricingBucket', id: req.params.id },
+  readBefore: () => prisma.pricingBucket.findUnique({ where: { id: req.params.id } }),
+  change: async () => {
+    const deleted = await deleteBucket(req.params.id);
+    return { body: { deleted }, target: { label: deleted?.label } };
+  },
+  fallbackError: 'Failed to delete the bucket',
+});
 
 /**
  * GET /admin/pricing/workspaces/:workspaceId — the effective rate and WHY.
@@ -136,22 +187,22 @@ export const adminGetWorkspaceRate = async (req, res) => {
 };
 
 /** PUT /admin/pricing/workspaces/:workspaceId/bucket — assign, or clear with null. */
-export const adminAssignBucket = async (req, res) => {
-  try {
-    res.json(await assignBucket(req.params.workspaceId, req.body?.bucketId ?? null));
-  } catch (err) {
-    res.status(err.status ?? 500).json({ error: err.message ?? 'Failed to assign the bucket' });
-  }
-};
+export const adminAssignBucket = (req, res) => auditedPricingChange(req, res, {
+  action: AUDIT_ACTIONS.PRICING_WORKSPACE_BUCKET,
+  target: { type: 'Workspace', id: req.params.workspaceId, workspaceId: req.params.workspaceId },
+  readBefore: () => resolveWorkspaceRate(req.params.workspaceId),
+  change: async () => ({ body: await assignBucket(req.params.workspaceId, req.body?.bucketId ?? null) }),
+  fallbackError: 'Failed to assign the bucket',
+});
 
 /** PUT /admin/pricing/workspaces/:workspaceId/override — set, or clear with null. */
-export const adminSetRateOverride = async (req, res) => {
-  try {
-    res.json(await setRateOverride(req.params.workspaceId, req.body?.perMinuteInr ?? null));
-  } catch (err) {
-    res.status(err.status ?? 500).json({ error: err.message ?? 'Failed to set the override' });
-  }
-};
+export const adminSetRateOverride = (req, res) => auditedPricingChange(req, res, {
+  action: AUDIT_ACTIONS.PRICING_WORKSPACE_OVERRIDE,
+  target: { type: 'Workspace', id: req.params.workspaceId, workspaceId: req.params.workspaceId },
+  readBefore: () => resolveWorkspaceRate(req.params.workspaceId),
+  change: async () => ({ body: await setRateOverride(req.params.workspaceId, req.body?.perMinuteInr ?? null) }),
+  fallbackError: 'Failed to set the override',
+});
 
 // ─── PHONE-NUMBER RATE ───────────────────────────────────────────────────────
 // The only price here that is not per-minute. A rented number costs us a fixed
@@ -171,17 +222,22 @@ export const adminGetNumberRate = async (_req, res) => {
 };
 
 /** PUT /admin/number-rate  { monthlyInr?, setupInr? } */
-export const adminSetNumberRate = async (req, res) => {
-  try {
+export const adminSetNumberRate = (req, res) => auditedPricingChange(req, res, {
+  action: AUDIT_ACTIONS.PRICING_NUMBER_RATE_UPDATE,
+  target: { type: 'Platform', id: 'number_rate', label: 'Number rate' },
+  readBefore: async () => {
+    const rate = await getNumberRate();
+    return { monthlyInr: rate.monthlyInr, setupInr: rate.setupInr };
+  },
+  change: async () => {
     const rate = await setNumberRate({
       monthlyInr: req.body?.monthlyInr,
       setupInr: req.body?.setupInr,
     });
-    res.json({ monthlyInr: rate.monthlyInr, setupInr: rate.setupInr });
-  } catch (err) {
-    res.status(err.status ?? 500).json({ error: err.message ?? 'Failed to save the rate' });
-  }
-};
+    return { body: { monthlyInr: rate.monthlyInr, setupInr: rate.setupInr } };
+  },
+  fallbackError: 'Failed to save the rate',
+});
 
 // ─── BROADCAST RATE ──────────────────────────────────────────────────────────
 // A one-way broadcast costs us a carrier minute and nothing else — no STT, no
@@ -195,14 +251,16 @@ export const adminGetBroadcastRate = async (_req, res) => {
 };
 
 /** PUT /admin/broadcast-rate */
-export const adminSetBroadcastRate = async (req, res) => {
-  try {
+export const adminSetBroadcastRate = (req, res) => auditedPricingChange(req, res, {
+  action: AUDIT_ACTIONS.PRICING_BROADCAST_RATE_UPDATE,
+  target: { type: 'Platform', id: 'broadcast_rate', label: 'Broadcast rate' },
+  readBefore: async () => ({ perMinuteInr: (await getBroadcastRate()).perMinuteInr }),
+  change: async () => {
     const rate = await setBroadcastRate(req.body?.perMinuteInr);
-    res.json({ perMinuteInr: rate.perMinuteInr });
-  } catch (err) {
-    res.status(err.status ?? 500).json({ error: err.message ?? 'Failed to save the rate' });
-  }
-};
+    return { body: { perMinuteInr: rate.perMinuteInr } };
+  },
+  fallbackError: 'Failed to save the rate',
+});
 
 // ─── WALLET ───────────────────────────────────────────────────────────────────
 // Moved to controllers/billing.controller.js + services/billing/ (BUG-002).
