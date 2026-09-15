@@ -1247,6 +1247,11 @@ export default function EditAgent() {
     // queued behind audio from the same epoch — after a barge (which bumps the
     // epoch) a late pause frame belongs to a reply the caller already cut off.
     modularSegmentEpoch: number;
+    // Server turnId of the latest reply segment, and of the reply the caller
+    // last barged into. Audio for a barged reply can still be on the wire when
+    // the barge lands; see startModularPlayback.
+    modularSegmentTurnId: string | null;
+    modularBargedTurnId: string | null;
     // Segments opened but not yet finished this turn; resolvers wake when 0.
     modularOutstanding: number;
     modularDoneResolvers: (() => void)[];
@@ -1277,7 +1282,7 @@ export default function EditAgent() {
     // so a change to the server's grace windows cannot silently be overridden by
     // a client constant that still fires first.
     endpointCommitMs: number;
-  }>({ active: false, stream: null, audioCtx: null, analyser: null, recorder: null, vadTimer: null, player: null, history: [], mixDest: null, mixRecorder: null, mixChunks: [], logId: null, bundledEngine: false, lastSpeechAt: 0, ambientStop: null, stopPlayback: null, bargeTimer: null, welcomeAudible: false, welcomeCut: null, duckLevel: 1, duckRamp: null, duckDisabled: false, socketMode: false, micWorklet: null, capturingPcm: false, modularSession: null, modularQueue: [], modularPlaying: null, modularSegmentEpoch: -1, modularOutstanding: 0, modularDoneResolvers: [], pendingUserText: '', turnEpoch: 0, endTurnEarly: null, turnTiming: null, noiseFloor: 0, sttEndpointing: false, endpointCommitMs: 0, noInputPrompts: [], noInputDelaysMs: [], noInputAttempt: 0, noInputTimer: null });
+  }>({ active: false, stream: null, audioCtx: null, analyser: null, recorder: null, vadTimer: null, player: null, history: [], mixDest: null, mixRecorder: null, mixChunks: [], logId: null, bundledEngine: false, lastSpeechAt: 0, ambientStop: null, stopPlayback: null, bargeTimer: null, welcomeAudible: false, welcomeCut: null, duckLevel: 1, duckRamp: null, duckDisabled: false, socketMode: false, micWorklet: null, capturingPcm: false, modularSession: null, modularQueue: [], modularPlaying: null, modularSegmentEpoch: -1, modularSegmentTurnId: null, modularBargedTurnId: null, modularOutstanding: 0, modularDoneResolvers: [], pendingUserText: '', turnEpoch: 0, endTurnEarly: null, turnTiming: null, noiseFloor: 0, sttEndpointing: false, endpointCommitMs: 0, noInputPrompts: [], noInputDelaysMs: [], noInputAttempt: 0, noInputTimer: null });
 
   // ─── Call history logging (Recent Calls tab) ────────────────────────────────
   // Every test session — chat modal, Chat Test tab, web call, phone call — is
@@ -2442,6 +2447,9 @@ export default function EditAgent() {
     const call = callRef.current;
     if (call.stopPlayback) return;
     call.stopPlayback = () => {
+      // Segments of this reply the server sent before it heard the barge are
+      // still to arrive; startModularPlayback drops them by this id.
+      call.modularBargedTurnId = call.modularSegmentTurnId;
       const playing = call.modularPlaying;
       const queued = [...call.modularQueue, ...(call.modularSession && !call.modularSession.activated ? [call.modularSession] : [])];
       call.modularQueue = [];
@@ -2516,9 +2524,18 @@ export default function EditAgent() {
     if (t.turnId) modularCallSocket.reportTurnTiming({ turnId: t.turnId, ...timing });
   };
 
-  const startModularPlayback = (contentType: string | null, filler = false) => {
+  const startModularPlayback = (contentType: string | null, filler = false, turnId: string | null = null) => {
     const call = callRef.current;
+    // A segment of the reply the caller just barged into, sent before the server
+    // received the barge. stopPlayback() already finished everything that had
+    // ARRIVED; this is what had not. With no session, its chunks and audio-end
+    // are ignored too (appendModularChunk / endModularPlayback).
+    if (turnId && turnId === call.modularBargedTurnId) { call.modularSession = null; return; }
+    call.modularSegmentTurnId = turnId;
     const epoch = call.turnEpoch;
+    // This call's audio graph, as an identity for the call itself: turnEpoch
+    // restarts at 0 for every call, so it cannot tell two calls apart.
+    const callCtx = call.audioCtx;
     const ct = contentType || 'audio/mpeg';
     const useMS = typeof window.MediaSource !== 'undefined' && MediaSource.isTypeSupported(ct);
     setWebCallActivity('speaking');
@@ -2553,7 +2570,16 @@ export default function EditAgent() {
       audioEl.addEventListener('playing', () => noteFirstAudible(session.filler), { once: true });
 
       mediaSource.addEventListener('sourceopen', () => {
-        if (call.turnEpoch !== epoch) { session.finish(); return; }
+        // NOT a turnEpoch comparison, which silently dropped real reply audio.
+        // sourceopen fires a task after this segment is created, and a segment
+        // that arrives in the same burst as 'done' — always the answer after a
+        // timed hold, sometimes the last sentence of any reply — opens only
+        // AFTER finishModularTurn has re-armed listening, and re-arming bumps
+        // the epoch. The two things the epoch was standing in for are handled
+        // where they happen: a barge finishes every session it cuts off
+        // (stopPlayback, and startModularPlayback drops the barged reply's late
+        // segments), and a hangup clears active/socketMode and the audio graph.
+        if (finished || !call.active || !call.socketMode || call.audioCtx !== callCtx) { session.finish(); return; }
         try {
           const sb = mediaSource.addSourceBuffer(ct);
           session.sourceBuffer = sb;
@@ -2706,7 +2732,7 @@ export default function EditAgent() {
         break;
       case 'audio-start':
         if (call.turnTiming && !call.turnTiming.turnId && event.turnId) call.turnTiming.turnId = event.turnId;
-        startModularPlayback(event.contentType, event.filler === true);
+        startModularPlayback(event.contentType, event.filler === true, event.turnId ?? null);
         break;
       case 'audio-chunk':
         appendModularChunk(event.data);
