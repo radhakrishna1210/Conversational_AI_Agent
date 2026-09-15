@@ -377,9 +377,20 @@ export function buildAgentSystemPrompt(agent, kbText, { voiceMode = false, kbInl
   // default resolves the same way the bridges do for the direction the agent is
   // configured for. welcomeTextFor never returns empty (it falls back to a
   // persona line), so this rule always names something real.
-  const deliveredWelcome = (typeof spokenWelcome === 'string' && spokenWelcome.trim())
-    ? spokenWelcome.trim()
+  //
+  // A bridge whose welcome was CUT OFF passes `{ text, heard, interrupted }`
+  // instead (voice/welcomeBarge.js). Telling that model "already delivered, do
+  // not repeat it" is what made it skip past the introduction the caller never
+  // heard and go straight to the next stage of the flow.
+  const welcomeObj = spokenWelcome && typeof spokenWelcome === 'object' ? spokenWelcome : null;
+  const spokenText = welcomeObj ? welcomeObj.text : spokenWelcome;
+  const deliveredWelcome = (typeof spokenText === 'string' && spokenText.trim())
+    ? spokenText.trim()
     : welcomeTextFor(agent, settings, settings.callDirection || null);
+  const heardWelcome = welcomeObj?.interrupted ? String(welcomeObj.heard || '').trim() : null;
+  const welcomeRule = heardWelcome == null
+    ? `- Welcome message already delivered at call start: "${deliveredWelcome}". Do not repeat it, and do not greet or re-introduce yourself again — the call is already in progress.`
+    : `- Your welcome message was CUT OFF by the caller at call start. They heard only: "${heardWelcome}…" — the rest of it ("${deliveredWelcome}") was NOT heard. Respond to what they said first. Then, if they have not yet heard who you are and why you are calling, get that across in one short, natural sentence before continuing with the flow. Do not restart the welcome word for word, and do not skip ahead as if they heard all of it.`;
 
   const flowSection = flowItems.length
     ? flowItems
@@ -418,7 +429,7 @@ ${languages.length
     : `No language restriction configured — mirror the language the user uses.`}
 
 # Conversation Rules
-- Welcome message already delivered at call start: "${deliveredWelcome}". Do not repeat it, and do not greet or re-introduce yourself again — the call is already in progress.
+${welcomeRule}
 - Track everything the user has told you (name, contact details, preferences) and never re-ask for information already collected.
 - Ask for at most one piece of information per turn.
 - If the user asks for a human, or the request is outside your configured scope, offer to transfer/escalate.

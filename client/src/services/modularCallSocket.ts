@@ -152,6 +152,15 @@ class ModularCallSocketService {
   attachCallLog(callLogId: string) { this.sendJson({ type: 'call-log', callLogId }); }
 
   /**
+   * The caller cut the welcome off. `heard` is roughly how much of `text` they
+   * heard. Without this the server's prompt still says the whole welcome was
+   * delivered, so the agent skips the introduction the caller missed.
+   */
+  welcomeHeard(text: string, heard: string) {
+    this.sendJson({ type: 'welcome-heard', text, heard, interrupted: true });
+  }
+
+  /**
    * Begin a listening segment.
    *
    * History rides along even though nothing is being answered yet. The server

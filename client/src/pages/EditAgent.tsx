@@ -5,6 +5,7 @@ import { AgentConfig, getDefaultFlowItems } from '../lib/agentStore';
 
 import { whapi, getAuth } from '../lib/whapi';
 import { integrationsApi } from '../lib/integrationsApi';
+import { heardPortion } from '../lib/heardPortion';
 import { toast } from 'sonner';
 import ChatComponent from '../components/ChatComponent';
 import AIAssistantSidebar from '../components/AIAssistantSidebar';
@@ -1208,6 +1209,11 @@ export default function EditAgent() {
     stopPlayback: (() => void) | null;
     // Interval that watches the mic for barge-in while the agent speaks.
     bargeTimer: number | null;
+    // True while the welcome is playing. Barge-in then needs WELCOME_CUT_MS of
+    // speech, so a caller's "hello" does not cut the welcome off.
+    welcomeAudible: boolean;
+    // Where the welcome's <audio> was when the caller really did cut it off.
+    welcomeCut: { heardSec: number; totalSec: number } | null;
     // Playback volume for the agent's voice, 0..1. Below 1 while the agent is
     // DUCKED — the first stage of barge-in, see the barge timer. Stored on the
     // call (not just applied to the element that happens to be playing) because
@@ -1265,7 +1271,7 @@ export default function EditAgent() {
     // so a change to the server's grace windows cannot silently be overridden by
     // a client constant that still fires first.
     endpointCommitMs: number;
-  }>({ active: false, stream: null, audioCtx: null, analyser: null, recorder: null, vadTimer: null, player: null, history: [], mixDest: null, mixRecorder: null, mixChunks: [], logId: null, bundledEngine: false, lastSpeechAt: 0, ambientStop: null, stopPlayback: null, bargeTimer: null, duckLevel: 1, duckRamp: null, duckDisabled: false, socketMode: false, micWorklet: null, capturingPcm: false, modularSession: null, modularQueue: [], modularPlaying: null, modularOutstanding: 0, modularDoneResolvers: [], pendingUserText: '', turnEpoch: 0, endTurnEarly: null, turnTiming: null, noiseFloor: 0, sttEndpointing: false, endpointCommitMs: 0, noInputPrompts: [], noInputDelaysMs: [], noInputAttempt: 0, noInputTimer: null });
+  }>({ active: false, stream: null, audioCtx: null, analyser: null, recorder: null, vadTimer: null, player: null, history: [], mixDest: null, mixRecorder: null, mixChunks: [], logId: null, bundledEngine: false, lastSpeechAt: 0, ambientStop: null, stopPlayback: null, bargeTimer: null, welcomeAudible: false, welcomeCut: null, duckLevel: 1, duckRamp: null, duckDisabled: false, socketMode: false, micWorklet: null, capturingPcm: false, modularSession: null, modularQueue: [], modularPlaying: null, modularOutstanding: 0, modularDoneResolvers: [], pendingUserText: '', turnEpoch: 0, endTurnEarly: null, turnTiming: null, noiseFloor: 0, sttEndpointing: false, endpointCommitMs: 0, noInputPrompts: [], noInputDelaysMs: [], noInputAttempt: 0, noInputTimer: null });
 
   // ─── Call history logging (Recent Calls tab) ────────────────────────────────
   // Every test session — chat modal, Chat Test tab, web call, phone call — is
@@ -3140,7 +3146,7 @@ export default function EditAgent() {
       // noiseFloor starts at 0 so the first listening ticks adapt straight to
       // the real room (FLOOR_DOWN converges in a few hundred ms); until then
       // the absolute SPEECH_RMS_FLOOR governs, which is the conservative end.
-      Object.assign(call, { active: true, stream, audioCtx, analyser, history: [], mixDest, mixRecorder, mixChunks, logId: null, lastSpeechAt: Date.now(), ambientStop, socketMode: true, micWorklet, capturingPcm: false, modularPlayChain: null, pendingUserText: '', turnEpoch: 0, noiseFloor: 0, duckLevel: 1, duckDisabled: false });
+      Object.assign(call, { active: true, stream, audioCtx, analyser, history: [], mixDest, mixRecorder, mixChunks, logId: null, lastSpeechAt: Date.now(), ambientStop, socketMode: true, micWorklet, capturingPcm: false, modularPlayChain: null, pendingUserText: '', turnEpoch: 0, noiseFloor: 0, duckLevel: 1, duckDisabled: false, welcomeAudible: false, welcomeCut: null });
 
       // Barge-in, in TWO STAGES: duck first, cut only if they keep going.
       //
@@ -3183,6 +3189,13 @@ export default function EditAgent() {
       // promptly for them. (Classic compressor attack/release, same reason.)
       const DUCK_MS = 240;           // sound over the agent → lower the volume
       const CUT_MS = 800;            // sustained speech → a real interruption
+      // The welcome gets twice the bar. People open a call with "hello?", and
+      // cutting the welcome on it (often together with the welcome's own echo on
+      // laptop speakers) meant the caller never heard who was calling or why.
+      // A "hello" (~0.5s) cannot reach this, and neither can "hello? hello?",
+      // because the pause between them resets the count. The duck still fires,
+      // so the caller still hears that they were heard.
+      const WELCOME_CUT_MS = 1600;
       const RESTORE_HOLD_MS = 600;   // continuous quiet required to come back up
       // A duck that never escalates to a cut was not an interruption.
       //
@@ -3284,8 +3297,13 @@ export default function EditAgent() {
           }
           // Stage 2: still talking — this is a real interruption, not an
           // acknowledgement. Cut the reply and hand the floor over.
-          if (bargeActiveMs >= CUT_MS) {
+          if (bargeActiveMs >= (call.welcomeAudible ? WELCOME_CUT_MS : CUT_MS)) {
             bargeActiveMs = 0;
+            // Read before stop() pauses and releases the element: how far into
+            // the welcome the caller got. See the welcome playback below.
+            if (call.welcomeAudible && call.player) {
+              call.welcomeCut = { heardSec: call.player.currentTime, totalSec: call.player.duration };
+            }
             const stop = call.stopPlayback;
             call.stopPlayback = null;
             // Restore the level BEFORE tearing down, so the next reply's
@@ -3359,7 +3377,24 @@ export default function EditAgent() {
       setWebCallTranscript([...call.history]);
       if (call.active && welcomeSpeech.current) {
         setWebCallActivity('speaking');
+        // welcomeCut was reset with the rest of the call state above.
+        call.welcomeAudible = true;
         await playAgentAudio(welcomeSpeech.current.audioBase64, welcomeSpeech.current.contentType);
+        call.welcomeAudible = false;
+        // Cut off anyway: the history must not say the whole welcome was
+        // delivered. With it, the model skipped the introduction the caller
+        // never heard and went straight to the next stage of the flow. So
+        // record what they heard, and tell the server's prompt.
+        const cut = call.welcomeCut;
+        if (cut && Number.isFinite(cut.totalSec) && cut.totalSec > 0) {
+          const full = welcome.trim().split(/\s+/).join(' ');
+          const heard = heardPortion(full, cut.heardSec, cut.totalSec);
+          if (heard !== full) {
+            call.history = [{ role: 'assistant', content: `${heard}—` }];
+            setWebCallTranscript([...call.history]);
+            modularCallSocket.welcomeHeard(full, heard);
+          }
+        }
       }
 
       // `lastSpeechAt` was stamped when the call object was created, before

@@ -75,6 +75,12 @@ import {
   stripOverlapEcho,
 } from '../services/stt/speechGate.js';
 import { bargeThresholds, BARGE_MARGIN } from '../services/voice/bargeThreshold.js';
+import {
+  createWelcomeGuard,
+  heardPortion,
+  interruptedWelcome,
+  isPickupOnly,
+} from '../services/voice/welcomeBarge.js';
 import { noInputPromptFor, noInputDelayMs, maxNoInputAttempts } from '../services/voice/noInputPrompt.js';
 import { createFillerBudget } from '../services/voice/disfluency.js';
 import {
@@ -85,6 +91,7 @@ import {
   createPcmUlawConverter,
   playableWithFormat,
   PHONE_SAMPLE_RATE,
+  FRAME_MS,
 } from '../services/voice/telephonyAudio.js';
 import {
   telephonyFormatForVoice,
@@ -206,6 +213,40 @@ const OVERLAP_MIN_LOUD_FRAMES = Number(process.env.PHONE_OVERLAP_FRAMES) || 3;
  * stopped, for whom no end-of-turn would otherwise ever fire.
  */
 const OVERLAP_SETTLE_MS = Number(process.env.PHONE_OVERLAP_SETTLE_MS) || 700;
+
+/**
+ * ── The welcome message is not cut off by "hello?" ──────────────────────────
+ *
+ * People answer the phone by talking, so the callee's "hello?" lands on top of
+ * the welcome on nearly every outbound call. The barge detector above cut the
+ * welcome on it, and the model, told the welcome was delivered, skipped straight
+ * to the next stage of the flow. While the welcome plays, sound only PROPOSES a
+ * barge and words decide it. See services/voice/welcomeBarge.js and
+ * docs/WELCOME_BARGE_IN.md.
+ */
+/** Words that are not pickup phrases or the welcome's own, needed to cut it off. */
+const WELCOME_BARGE_WORDS = Number(process.env.PHONE_WELCOME_BARGE_WORDS) || 2;
+/** How long an energy barge waits for Deepgram's words to catch up. */
+const WELCOME_BARGE_HOLD_MS = Number(process.env.PHONE_WELCOME_BARGE_HOLD_MS) || 1200;
+/**
+ * How long a "hello" said over the welcome waits before it is answered.
+ *
+ * Answering it the moment the welcome ends means talking over the caller just
+ * as they start answering the welcome's own question. If they say nothing for
+ * this long, the "hello" gets its turn, so a caller who is waiting for us is
+ * not left in dead air until the no-input prompt fires.
+ */
+const WELCOME_REPLY_MS = Number(process.env.PHONE_WELCOME_REPLY_MS) || 2500;
+/**
+ * Speech over the last stretch of the welcome is an ANSWER, not a greeting.
+ *
+ * "…is this a good time?" "Yes—" routinely overlaps the welcome's last word,
+ * and "yes" is also something people say when they pick up. What separates the
+ * two is when it was said: a pickup "hello?" is over well before the welcome
+ * is, while an answer is still going as it ends. The answer is carried and
+ * answered as before.
+ */
+const WELCOME_TAIL_MS = 1000;
 
 /**
  * Longest stretch of caller audio kept for the affect analysis below, matching
@@ -373,6 +414,24 @@ export function runModularMediaBridge(ws, {
 
   /** Pending "answer the carried text if the line stays quiet". See armNextTurn. */
   let settleTimer = null;
+
+  /**
+   * The welcome while it is audible, and what happened to it. Set at the
+   * greeting call site in 'start'; `playing` is cleared by harvestOverlap(),
+   * the first thing to run once the welcome's playout is over.
+   *   guard    the words-not-sound barge decision (voice/welcomeBarge.js)
+   *   entries  the history/transcript rows speakLine() wrote for it
+   *   cut      { heardMs, totalMs } once the caller really did cut it off
+   */
+  let welcome = null;
+  /**
+   * False until the opening line has been spoken. An end of turn Deepgram
+   * commits before then (a "hello?" at pickup, while the call is still being
+   * set up) must not start a turn that would run alongside the greeting.
+   */
+  let greetingDone = false;
+  /** Pending "answer the hello said over the welcome". See harvestOverlap. */
+  let welcomeReplyTimer = null;
 
   /**
    * ── Call configuration, which the phone never used to honour ─────────────
@@ -660,11 +719,20 @@ export function runModularMediaBridge(ws, {
    * (voice, text, carrier format) rather than once per call — and only when the
    * stream COMPLETED, so a greeting cut short by a barge-in or a hangup is
    * never what the next caller hears.
+   *
+   * Returns the history and transcript rows it wrote (null if it wrote none),
+   * so a caller that later learns the line was cut off can correct them. A
+   * cached line is handed to the pacer in one go and this resolves long before
+   * it has played, so the cut usually comes AFTER the rows were written.
    */
   const speakLine = async (text) => {
-    if (!text || !voice || closed) return;
+    if (!text || !voice || closed) return null;
     const synthOpts = greetingSynthesisOpts(ttsFormat, settings);
     const isUlaw = ttsFormat?.kind === 'native';
+    // A new line is not the one a barge aborted. Left set by a barge that no
+    // turn followed, it silently dropped the next line in pumpAudio — the
+    // no-input prompt went into the history without ever being heard.
+    abortTurn = false;
     playout.beginGenerating();
     try {
       const cached = getGreetingAudio(voice, text, synthOpts);
@@ -690,10 +758,16 @@ export function runModularMediaBridge(ws, {
           rememberGreetingAudio(voice, text, synthOpts, Buffer.concat(collected), contentType);
         }
       }
-      transcript.push({ role: 'assistant', content: text });
-      history.push({ role: 'assistant', content: text });
+      const entries = {
+        transcriptEntry: { role: 'assistant', content: text },
+        historyEntry: { role: 'assistant', content: text },
+      };
+      transcript.push(entries.transcriptEntry);
+      history.push(entries.historyEntry);
+      return entries;
     } catch (err) {
       logger.warn(`Phone greeting synthesis failed: ${err.message}`);
+      return null;
     } finally {
       // Generation is over; the playout window keeps the barge detector armed
       // for as long as the carrier is still playing the greeting out.
@@ -1121,7 +1195,10 @@ export function runModularMediaBridge(ws, {
       // passes straight through. armNextTurn() re-arms cleanly once the line is
       // quiet, so nothing the caller actually says afterwards is lost.
       onEndOfTurn: (reason) => {
-        if (playout.isSpeaking()) {
+        // Before the opening line has been spoken counts as "while speaking":
+        // the turn would run alongside the greeting, with the greeting not yet
+        // in the history it answers from.
+        if (playout.isSpeaking() || !greetingDone) {
           // Still dropped as an end of turn — we are mid-reply and must not
           // start another — but REMEMBERED. This is Deepgram saying the caller
           // finished the sentence they spoke over us, which is the same
@@ -1358,6 +1435,13 @@ export function runModularMediaBridge(ws, {
   const harvestOverlap = () => {
     const loud = overlapLoudFrames;
     overlapLoudFrames = 0;
+    // The first harvest after the welcome is where its playout ends, so the
+    // welcome is settled here, before anything the caller said over it is judged.
+    const endedWelcome = welcome?.playing ? welcome : null;
+    if (endedWelcome) {
+      endedWelcome.playing = false;
+      if (endedWelcome.cut) settleCutWelcome(endedWelcome);
+    }
     if (!dg || carriedUserText) return;
 
     // takeTranscript(), not finalizeTurn(): there is nothing to flush (we are
@@ -1375,7 +1459,9 @@ export function runModularMediaBridge(ws, {
       return;
     }
 
-    const lastAgentText = history
+    // The FULL welcome, even if it was cut: the history row now holds only the
+    // part that was heard, and echo of the rest may still be in the transcript.
+    const lastAgentText = endedWelcome?.text || history
       .filter((m) => m?.role === 'assistant' && typeof m.content === 'string')
       .pop()?.content || '';
     const stripped = stripOverlapEcho(heard, lastAgentText).trim();
@@ -1390,11 +1476,75 @@ export function runModularMediaBridge(ws, {
       return;
     }
 
+    // ── "Hello?" said over the welcome is not a question ─────────────────
+    //
+    // It is the caller picking up. The welcome has just told them who is
+    // calling and usually asked them something, so what comes next is their
+    // answer. Carrying the "hello" answered it the instant playout ended —
+    // talking straight over that answer and, told the welcome was delivered,
+    // jumping to the next stage of the flow.
+    const spokeOverTail = endedWelcome?.callerHeardAt != null
+      && Date.now() - endedWelcome.callerHeardAt < WELCOME_TAIL_MS;
+    if (endedWelcome && !endedWelcome.cut && !spokeOverTail && isPickupOnly(stripped)) {
+      logger.info(
+        `${carrier.label}: caller greeted over the welcome ("${stripped}") — `
+        + `not a turn unless the line stays quiet for ${WELCOME_REPLY_MS}ms`,
+      );
+      armWelcomeReply(stripped);
+      return;
+    }
+
     carriedUserText = stripped;
     logger.info(
       { loudFrames: loud, raw: heard.slice(0, 80) },
       `${carrier.label}: caller talked over the agent — recovered "${stripped}"`,
     );
+  };
+
+  /**
+   * The caller really did cut the welcome off: make the history say what they
+   * heard, and tell the model.
+   *
+   * Left as it was, the history said the whole welcome was delivered and the
+   * prompt said "do not repeat it", so the model skipped the introduction the
+   * caller never heard. The row is truncated to roughly the heard part, which
+   * is how an interrupted assistant message is recorded elsewhere too (OpenAI
+   * Realtime truncates the item to the audio played). spokenWelcome then
+   * switches the prompt to its interrupted rule.
+   */
+  const settleCutWelcome = (w) => {
+    const full = w.text.trim().split(/\s+/).join(' ');
+    const heard = heardPortion(full, w.cut.heardMs, w.cut.totalMs);
+    // Cut on its very last word: it was delivered.
+    if (heard === full) return;
+    if (w.entries) {
+      w.entries.historyEntry.content = `${heard}—`;
+      w.entries.transcriptEntry.content = `${heard}—`;
+    }
+    spokenWelcome = interruptedWelcome(full, heard);
+    logger.info(
+      { heardMs: Math.round(w.cut.heardMs), totalMs: Math.round(w.cut.totalMs) },
+      `${carrier.label}: welcome cut by the caller after "${heard}"`,
+    );
+  };
+
+  /**
+   * Answer a "hello" said over the welcome, but only if the caller then says
+   * nothing at all — see WELCOME_REPLY_MS. Any sound or words from them after
+   * the welcome ended means the ordinary turn path owns what happens next.
+   */
+  const armWelcomeReply = (text) => {
+    if (welcomeReplyTimer) clearTimeout(welcomeReplyTimer);
+    const endedAt = Date.now();
+    welcomeReplyTimer = setTimeout(() => {
+      welcomeReplyTimer = null;
+      if (closed || turnRunning || playout.isSpeaking() || carriedUserText) return;
+      if (lastCallerSpeechAt > endedAt || dg?.turnTextSoFar()) return;
+      logger.info(`${carrier.label}: no reply to the welcome — answering the caller's "${text}"`);
+      carriedUserText = text;
+      runTurn();
+    }, WELCOME_REPLY_MS);
+    if (typeof welcomeReplyTimer.unref === 'function') welcomeReplyTimer.unref();
   };
 
   const cancelSettle = () => {
@@ -1652,6 +1802,7 @@ export function runModularMediaBridge(ws, {
     // hangup guard may outlive the call it was guarding.
     cancelSettle();
     cancelNoInput();
+    if (welcomeReplyTimer) { clearTimeout(welcomeReplyTimer); welcomeReplyTimer = null; }
     if (maxCallTimer) { clearTimeout(maxCallTimer); maxCallTimer = null; }
     if (silenceTimer) { clearInterval(silenceTimer); silenceTimer = null; }
     carriedUserText = '';
@@ -2012,8 +2163,21 @@ export function runModularMediaBridge(ws, {
             const greeting = (await welcomePending)
               || neutralGreeting(agent, settings, (direction || settings.callDirection) === 'OUTBOUND' ? 'OUTBOUND' : 'INBOUND');
             spokenWelcome = greeting;
-            await speakLine(greeting);
+            // Protected from the callee's "hello?" for as long as it is audible —
+            // see WELCOME_BARGE_WORDS and the barge block in 'media'.
+            welcome = {
+              text: greeting,
+              playing: true,
+              guard: createWelcomeGuard(greeting, { minWords: WELCOME_BARGE_WORDS, holdMs: WELCOME_BARGE_HOLD_MS }),
+              entries: null,
+              cut: null,
+              heldLogged: false,
+              // Last time the caller was audible over it. See WELCOME_TAIL_MS.
+              callerHeardAt: null,
+            };
+            welcome.entries = await speakLine(greeting);
           }
+          greetingDone = true;
           // The one number that says how long the callee heard nothing. Measured
           // to the WIRE (see turnFirstFrameAt), not to "TTS returned bytes",
           // because on a paced carrier those differ by the queue depth.
@@ -2211,6 +2375,9 @@ export function runModularMediaBridge(ws, {
           // armNextTurn started reading this, that "yes" was thrown away and the
           // caller had to say it again. See OVERLAP_MIN_LOUD_FRAMES.
           overlapLoudFrames += 1;
+          // Not lastCallerSpeechAt: the silence-hangup timer resets that on
+          // every tick while we are speaking.
+          if (welcome?.playing) welcome.callerHeardAt = Date.now();
         }
 
         // ── Do not cut the agent off on a line we have never measured ──────
@@ -2231,6 +2398,7 @@ export function runModularMediaBridge(ws, {
         // within half a second of the greeting ending and costs nothing after.
         const lineMeasured = noiseSamples >= NOISE_MIN_SAMPLES;
 
+        let energyBarge = false;
         if (rms >= bargeThreshold && !isOurEcho && lineMeasured) {
           // `interruptibleEnabled` off means the agent finishes its sentence —
           // NOT that the caller goes unheard. Only the interrupt is suppressed;
@@ -2239,34 +2407,69 @@ export function runModularMediaBridge(ws, {
           // frames is skipped rather than the whole block, so the noise floor
           // and the overlap evidence above keep updating either way.
           if (interruptible) bargeCount += 1;
-          if (bargeCount >= BARGE_FRAMES) {
-            bargeCount = 0;
-            abortTurn = true;
-            // How much buffered speech the caller just cut off. Read before
-            // stop() zeroes it: a barge that lands with ~0ms left is the
-            // detector catching the caller's ANSWER at the tail of the reply
-            // rather than a real interruption, and the two are indistinguishable
-            // in the log without this.
-            const cutMs = playout.remainingMs();
-            playout.stop();
-            clearPlayback();
-            recording.barge();
-            // Logged because a barge that should not have happened is otherwise
-            // indistinguishable from the agent simply going quiet — which is
-            // exactly how the false-positive bug hid.
-            logger.info(
-              {
-                rms: Math.round(rms),
-                threshold: Math.round(bargeThreshold),
-                noiseFloor: Math.round(noiseFloor),
-                cutMs: Math.round(cutMs),
-                aecConverged: echo.converged,
-              },
-              'Phone barge-in: caller interrupted',
-            );
-          }
+          energyBarge = bargeCount >= BARGE_FRAMES;
         } else {
           bargeCount = 0;
+        }
+
+        // ── The welcome: sound proposes, words decide ───────────────────────
+        //
+        // A run of loud frames over the welcome is almost always the callee's
+        // "hello?", and cutting on it lost the welcome on nearly every outbound
+        // call. So while the welcome plays, the energy run only proposes the
+        // barge. The guard allows it once Deepgram has heard real words — not
+        // pickup phrases, not the welcome's own words coming back up the line.
+        // It is asked on EVERY frame, quiet ones included, because those words
+        // usually arrive after the caller has already paused.
+        let cutNow = energyBarge;
+        if (welcome?.playing && !welcome.cut) {
+          const heardSoFar = dg?.turnTextSoFar() || '';
+          cutNow = welcome.guard.shouldCut(energyBarge, heardSoFar);
+          if (energyBarge && !cutNow && !welcome.heldLogged) {
+            welcome.heldLogged = true;
+            logger.info(
+              { heard: heardSoFar.slice(0, 80) },
+              `${carrier.label}: welcome barge held — nothing but a greeting heard yet`,
+            );
+          }
+        }
+
+        if (cutNow) {
+          bargeCount = 0;
+          abortTurn = true;
+          // How much buffered speech the caller just cut off. Read before
+          // stop() zeroes it: a barge that lands with ~0ms left is the
+          // detector catching the caller's ANSWER at the tail of the reply
+          // rather than a real interruption, and the two are indistinguishable
+          // in the log without this.
+          const cutMs = playout.remainingMs();
+          if (welcome?.playing && !welcome.cut) {
+            // Where in the welcome the caller stopped hearing it, for
+            // settleCutWelcome(). Played so far, out of played + already on the
+            // wire + still in our own queue — read before clearPlayback() drops
+            // that queue. The greeting's first wire frame is turnFirstFrameAt,
+            // since no turn has run yet.
+            const heardMs = turnFirstFrameAt != null ? performance.now() - turnFirstFrameAt : 0;
+            const queuedMs = (pacer?.stats().queuedFrames ?? 0) * FRAME_MS;
+            welcome.cut = { heardMs, totalMs: Math.max(1, heardMs + cutMs + queuedMs) };
+          }
+          playout.stop();
+          clearPlayback();
+          recording.barge();
+          // Logged because a barge that should not have happened is otherwise
+          // indistinguishable from the agent simply going quiet — which is
+          // exactly how the false-positive bug hid.
+          logger.info(
+            {
+              rms: Math.round(rms),
+              threshold: Math.round(bargeThreshold),
+              noiseFloor: Math.round(noiseFloor),
+              cutMs: Math.round(cutMs),
+              aecConverged: echo.converged,
+              welcome: Boolean(welcome?.cut && welcome.playing),
+            },
+            'Phone barge-in: caller interrupted',
+          );
         }
         break;
       }

@@ -23,6 +23,7 @@
  *   client: { type: 'auth', token }
  *   server: { type: 'ready' }                       (or closes on auth failure)
  *   client: { type: 'call-log', callLogId }         the Recent Calls row it opened
+ *   client: { type: 'welcome-heard', text, heard, interrupted }   the welcome was cut off
  *   client: { type: 'start-turn', sampleRate }      begin a listening segment
  *   client: <binary PCM16 mono frames>              caller audio for this turn
  *   client: { type: 'end-turn', history }           VAD detected end of speech
@@ -40,6 +41,7 @@ import prisma from '../config/prisma.js';
 import { voiceTurnStream, warmVoiceTurn, converseStream } from '../services/agentRuntime.service.js';
 import { createSpeculator, speculationModeFor } from '../services/voice/speculativeTurn.js';
 import { createFrameVad } from '../services/voice/frameVad.js';
+import { interruptedWelcome } from '../services/voice/welcomeBarge.js';
 import { transferAvailability } from '../services/telephony/transfer.service.js';
 import { DeepgramStreamSession, isDeepgramConfigured, toDeepgramLanguage } from '../services/stt/deepgramStream.service.js';
 import { turnEndProfileFor, maxCommitMsFor } from '../services/voice/turnEndProfile.js';
@@ -976,6 +978,19 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
         // a different call's row.
         if (!callLogId && typeof msg.callLogId === 'string' && msg.callLogId) {
           callLogId = msg.callLogId;
+        }
+        break;
+      case 'welcome-heard':
+        // The caller cut the browser's welcome off. The page has already
+        // truncated its history to the part they heard. This tells the prompt,
+        // whose "already delivered, do not repeat it" rule otherwise sends the
+        // model straight past the introduction they missed. Bounded like the
+        // greeting editor, since both strings come from the page.
+        if (msg.interrupted === true && typeof msg.text === 'string' && msg.text.trim()) {
+          spokenWelcome = interruptedWelcome(
+            msg.text.trim().slice(0, 1000),
+            typeof msg.heard === 'string' ? msg.heard.trim().slice(0, 1000) : '',
+          );
         }
         break;
       case 'turn-timing': {
