@@ -1976,10 +1976,33 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
   // fire at all, which is the point of moving to it.
   const LLM_FIRST_TOKEN_TIMEOUT_MS = Number(process.env.VOICE_LLM_FIRST_TOKEN_TIMEOUT_MS) || 2500;
   const LLM_SPIKE_TIMEOUT_MS = Number(process.env.VOICE_LLM_SPIKE_TIMEOUT_MS) || 4000;
-  const withTimeout = (p, ms) => Promise.race([
-    p,
-    new Promise((_, reject) => setTimeout(() => reject(new Error('llm-timeout')), ms)),
-  ]);
+  // A stream that STOPS mid-reply, and a TTS socket that never says it is done.
+  // Neither had any bound, and on the phone bridge a turn that never resolves
+  // holds `turnRunning` forever — the caller is never heard again for the rest
+  // of the call. Generous on purpose: these catch hangs, not slow tokens.
+  const LLM_STALL_TIMEOUT_MS = Number(process.env.VOICE_LLM_STALL_TIMEOUT_MS) || 10_000;
+  const TTS_DRAIN_TIMEOUT_MS = Number(process.env.VOICE_TTS_DRAIN_TIMEOUT_MS) || 30_000;
+  const withTimeout = (p, ms, reason = 'llm-timeout') => {
+    let timer;
+    return Promise.race([
+      p,
+      new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(reason)), ms); }),
+    ]).finally(() => clearTimeout(timer));
+  };
+  /** The next delta, or `null` when the stream has stalled (and has been closed). */
+  const nextOrStall = async (iterator) => {
+    try {
+      return await withTimeout(iterator.next(), LLM_STALL_TIMEOUT_MS, 'llm-stall');
+    } catch (err) {
+      if (err?.message !== 'llm-stall') throw err;
+      logger.warn(`Voice LLM stream stalled mid-reply (>${LLM_STALL_TIMEOUT_MS}ms) — speaking what arrived`);
+      iterator.return?.().catch?.(() => {});
+      return null;
+    }
+  };
+  // A first-token wait the socket path gave up on, handed to the split path
+  // instead of being closed — see the overlap block.
+  let carried = null;
   // TOKEN-STREAMING overlap (opt in with VOICE_TTS_OVERLAP=true): LLM tokens are
   // fed straight into a socket-based TTS session, so ONE continuous audio stream
   // comes back and the agent speaks while the reply is still being written.
@@ -2228,11 +2251,11 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
 
     if (connected) {
       const iterator = startLlmStream();
+      const firstNext = iterator.next();
       let first;
       try {
-        first = await withTimeout(iterator.next(), LLM_FIRST_TOKEN_TIMEOUT_MS);
+        first = await withTimeout(firstNext, LLM_FIRST_TOKEN_TIMEOUT_MS);
       } catch (err) {
-        iterator.return?.().catch(() => {});
         tts.close();
         // A SPIKE and a FAILURE need opposite responses, and treating both as a
         // spike is expensive under a rate limit. The buffered fallback below is
@@ -2241,15 +2264,26 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
         // blocking retries (1s then 2s), and fails anyway: ~3s of dead air to
         // reach the same place. converseStream has already tried every sibling
         // model by the time it throws, so there is nothing left to try.
-        if (err?.message !== 'llm-timeout') throw err;
-        first = null; // first-token spike — abandon overlap, fall back to single-call
-        logger.warn(`Voice LLM slow first token (>${LLM_FIRST_TOKEN_TIMEOUT_MS}ms) — falling back to single-call`);
+        if (err?.message !== 'llm-timeout') {
+          iterator.return?.().catch(() => {});
+          throw err;
+        }
+        first = null; // first-token spike — abandon the socket, keep the request
+        // NOT closed. The request is still running — on a speculation hit it is
+        // the one already built for these exact words — so the split path races
+        // it against a hedge instead of starting over. Closing it here made the
+        // split path pick up a finished iterator (a hit's iterator is the same
+        // object every time), find no token, and fall through to a whole fresh
+        // buffered generation after the caller had already waited 2.5s.
+        carried = { iterator, next: firstNext };
+        firstNext.catch(() => {}); // observed later, or deliberately never
+        logger.warn(`Voice LLM slow first token (>${LLM_FIRST_TOKEN_TIMEOUT_MS}ms) — leaving the socket path`);
       }
       if (first) {
         llmTtftMs = Math.round(performance.now() - llmStartedAt);
         const filter = createReplyTextFilter(replyFilterOpts);
         let result = first;
-        while (!result.done) {
+        while (result && !result.done) {
           if (aborted()) { await iterator.return?.(); break; }
           // Filtered text is what gets spoken AND what `reply` accumulates, so
           // the transcript can never claim the agent said something it didn't.
@@ -2259,16 +2293,19 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
             if (firstTtsTextAt == null) firstTtsTextAt = performance.now();
             tts.pushText(piece); // stream the token straight into TTS
           }
-          result = await iterator.next();
+          result = await nextOrStall(iterator);
         }
         if (!aborted()) {
           const tail = filter.push(transferScanner.flush()) + filter.flush(); // opener held back on a very short reply
           if (tail) { reply += tail; tts.pushText(tail); }
         }
-        if (result.done) ({ provider, model, ragMs } = result.value || {});
+        if (result?.done) ({ provider, model, ragMs } = result.value || {});
         llmMs = Math.round(performance.now() - llmStartedAt); // LLM done (audio may still be arriving)
         if (aborted()) tts.close(); else tts.end();
-        await audioDone;
+        await withTimeout(audioDone, TTS_DRAIN_TIMEOUT_MS, 'tts-drain').catch(() => {
+          logger.warn(`${ttsProvider} WS TTS never finished (>${TTS_DRAIN_TIMEOUT_MS}ms) — closing it`);
+          tts.close();
+        });
         if (wsSegmentOpen) emit({ type: 'audio-end' });
         // If the WS produced no audio (connect/protocol issue), speak the reply
         // we already have via the single-call path — no extra LLM call.
@@ -2306,18 +2343,23 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
     // (that was the real motivation), but a first token that was merely a
     // little late — by far the common case — still arrives on the original
     // stream instead of being thrown away seconds into its own generation.
-    let iterator = startLlmStream();
+    // A request the socket path already waited LLM_FIRST_TOKEN_TIMEOUT_MS on is
+    // raced against a hedge straight away rather than waited on a second time.
+    const fromOverlap = Boolean(carried);
+    let iterator = carried ? carried.iterator : startLlmStream();
     let first = null;
-    const primaryNext = iterator.next();
+    const primaryNext = carried ? carried.next : iterator.next();
+    carried = null;
     let timedOut = false;
     try {
       // A speculative stream has been running since before the turn committed;
       // its budget is measured from ITS start, not from now, so a hit that is
       // simply still waiting on a slow model gets the remaining time rather
       // than a fresh 2.5s on top of what it already spent.
-      const budgetMs = specHit
-        ? Math.max(250, LLM_FIRST_TOKEN_TIMEOUT_MS - Math.round(performance.now() - specHit.startedAt))
-        : LLM_FIRST_TOKEN_TIMEOUT_MS;
+      const budgetMs = fromOverlap ? 1
+        : specHit
+          ? Math.max(250, LLM_FIRST_TOKEN_TIMEOUT_MS - Math.round(performance.now() - specHit.startedAt))
+          : LLM_FIRST_TOKEN_TIMEOUT_MS;
       // No hedge while the quota is being hit (llmPressure.js). A first token
       // that is late because the provider is throttling us does not come
       // sooner for asking twice, and the second copy spends a request another
@@ -2366,7 +2408,7 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
       let firstSegment = null; // in-flight synthesis of sentence 1
       const filter = createReplyTextFilter(replyFilterOpts);
       let result = first;
-      while (!result.done) {
+      while (result && !result.done) {
         // `reply` holds FILTERED text, so splitIdx and the slices below all
         // index the same string the caller will hear.
         reply += filter.push(transferScanner.push(result.value));
@@ -2379,10 +2421,10 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
           }
           if (splitIdx > 0) firstSegment = streamTtsForText(reply.slice(0, splitIdx));
         }
-        result = await iterator.next();
+        result = await nextOrStall(iterator);
       }
       if (!aborted()) reply += filter.push(transferScanner.flush()) + filter.flush();
-      if (result.done) ({ provider, model, ragMs } = result.value || {});
+      if (result?.done) ({ provider, model, ragMs } = result.value || {});
       llmMs = Math.round(performance.now() - llmStartedAt);
       // splitIdx indexes the RAW reply — take the remainder before stripping,
       // or the seam would duplicate/drop characters.
@@ -2405,13 +2447,28 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
     }
   }
 
+  // A request the socket path handed on that the split path never took (split
+  // disabled, no voice) must not keep generating in the background.
+  if (carried) { carried.iterator.return?.().catch?.(() => {}); carried = null; }
+
   if (!handled) {
     // BUFFERED fallback (no voice / split disabled / LLM first-token spike).
-    const runConverse = () => converse(workspaceId, agentId, messages, { voiceMode: true, affect });
+    // The SAME prompt as every other path: without transfer and spokenWelcome
+    // this reply was built from a system prompt with no handover rules and the
+    // configured direction's greeting — a different cached prefix, and a model
+    // that could promise a transfer nothing would carry out.
+    const runConverse = () => converse(workspaceId, agentId, messages, { voiceMode: true, affect, transfer, spokenWelcome });
     let converseResult;
     try {
       converseResult = await withTimeout(runConverse(), LLM_SPIKE_TIMEOUT_MS);
-    } catch {
+    } catch (err) {
+      // Retry a SPIKE, never a rate limit: converse() has no sibling-model
+      // fallback, so a second ask of an exhausted model only adds its blocking
+      // retries to the dead air before failing anyway (see the socket path).
+      if (isRateLimited(err)) {
+        noteLlmRateLimited('buffered voice turn');
+        throw err;
+      }
       logger.warn(`Voice LLM slow (>${LLM_SPIKE_TIMEOUT_MS}ms) — retrying once`);
       converseResult = await runConverse(); // fresh attempt; almost always fast
     }
