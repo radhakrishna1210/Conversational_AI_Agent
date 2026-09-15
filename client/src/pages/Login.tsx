@@ -1,13 +1,45 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { safeSet, setTokens, decodeJwtPayload, isAdminRole } from '@/lib/authStorage';
-import { Link } from 'react-router-dom';
+import { peekSignOutReason, clearSignOutReason } from '@/lib/authFetch';
+import { Link, useSearchParams } from 'react-router-dom';
 import AuthShell, { AuthField, AuthOAuth } from '@/components/AuthShell';
 
+/**
+ * Why Google sign-in sent the user back here (`/login?error=<code>`, set by the
+ * backend's Google callback). Without these the page reloaded with no message
+ * and a refused sign-in looked like nothing had happened.
+ */
+const SIGN_IN_ERRORS: Record<string, string> = {
+  account_suspended: 'This account has been suspended. Contact support.',
+  email_unverified: "Google hasn't verified this email address.",
+  no_email: "Google didn't share an email address.",
+  google_denied: 'Google sign-in was cancelled.',
+};
+const SIGN_IN_ERROR_FALLBACK = "Google sign-in didn't complete. Please try again.";
+
 export default function Login() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [form, setForm] = useState({ email: '', password: '' });
   const [status, setStatus] = useState<'idle' | 'submitting' | 'success' | 'error'>('idle');
   const [showPass, setShowPass] = useState(false);
-  const [errorMsg, setErrorMsg] = useState('');
+  const [errorMsg, setErrorMsg] = useState(() => {
+    const code = searchParams.get('error');
+    if (code) return SIGN_IN_ERRORS[code] ?? SIGN_IN_ERROR_FALLBACK;
+    // A session the server refused to refresh (e.g. a suspended account).
+    // Peeked here and cleared in an effect: StrictMode runs this initializer
+    // twice, and a destructive read would hand the second run nothing.
+    return peekSignOutReason();
+  });
+
+  useEffect(() => { clearSignOutReason(); }, []);
+
+  // Scrub ?error= once read, so a reload or a shared link doesn't repeat it.
+  useEffect(() => {
+    if (!searchParams.has('error')) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete('error');
+    setSearchParams(next, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm({ ...form, [e.target.name]: e.target.value });
@@ -31,10 +63,17 @@ export default function Login() {
         body: JSON.stringify({ email: form.email, password: form.password }),
       });
 
-      const data = await res.json();
+      // A refusal body may not be JSON (a proxy error page); that is still a
+      // refusal, not a network failure.
+      const data = await res.json().catch(() => ({}));
 
       if (!res.ok) {
-        setErrorMsg(data.error || 'Invalid email or password.');
+        // Show the server's own reason — a suspended account (403) must not
+        // read as a mistyped password.
+        setErrorMsg(
+          data.error || data.message
+          || (res.status === 403 ? "This account can't sign in. Contact support." : 'Invalid email or password.'),
+        );
         setStatus('error');
         return;
       }

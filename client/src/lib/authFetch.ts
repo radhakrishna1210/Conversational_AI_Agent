@@ -23,6 +23,22 @@ const BASE = '/api/v1';
  */
 let refreshInFlight: Promise<string | null> | null = null;
 
+/** Why the server ended the session, shown once by the login page. */
+const SIGN_OUT_REASON_KEY = 'signOutReason';
+
+function rememberSignOutReason(message: string): void {
+  try { sessionStorage.setItem(SIGN_OUT_REASON_KEY, message); } catch { /* storage blocked */ }
+}
+
+/** The reason a refresh was refused, if there was one. Does not clear it. */
+export function peekSignOutReason(): string {
+  try { return sessionStorage.getItem(SIGN_OUT_REASON_KEY) || ''; } catch { return ''; }
+}
+
+export function clearSignOutReason(): void {
+  try { sessionStorage.removeItem(SIGN_OUT_REASON_KEY); } catch { /* storage blocked */ }
+}
+
 /** Mint a new access token from the stored refresh token. Returns the new access
  *  token, or null if refresh is impossible/failed. */
 export async function refreshAccessToken(): Promise<string | null> {
@@ -38,7 +54,16 @@ export async function refreshAccessToken(): Promise<string | null> {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refreshToken }),
       });
-      if (!res.ok) return null;
+      if (!res.ok) {
+        // 403 is a refusal, not an expiry (e.g. the account was suspended).
+        // The session still ends, but the login page should say why rather
+        // than look like an ordinary sign-out.
+        if (res.status === 403) {
+          const body = await res.json().catch(() => null);
+          rememberSignOutReason(body?.error || body?.message || 'This account can no longer sign in. Contact support.');
+        }
+        return null;
+      }
       const data = await res.json().catch(() => null);
       if (!data?.accessToken) return null;
       // Persist the rotated pair (new access + new refresh token).
