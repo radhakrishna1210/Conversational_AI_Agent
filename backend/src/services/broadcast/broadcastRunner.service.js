@@ -63,10 +63,27 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 export const isRunning = (broadcastId) => active.has(broadcastId);
 
-/** Ask a running dispatch loop to stop at the next safe point. */
+/**
+ * Ask a running dispatch loop to stop at the next safe point.
+ *
+ * The caller owns the status (pause → PAUSED, cancel → CANCELLED); the loop only
+ * stops. Its own PAUSED write on the way out could land after Cancel's and turn
+ * a cancelled broadcast back into a paused one.
+ */
 export function requestStop(broadcastId) {
   const entry = active.get(broadcastId);
   if (entry) entry.stop = true;
+  return Boolean(entry);
+}
+
+/**
+ * Start pressed while this process's loop is still unwinding from a Pause: the
+ * exiting loop goes round again instead of a second one being refused as
+ * already running. See campaignRunner.service.js#requestResume.
+ */
+export function requestResume(broadcastId) {
+  const entry = active.get(broadcastId);
+  if (entry) entry.resume = true;
   return Boolean(entry);
 }
 
@@ -154,17 +171,18 @@ export async function syncProgress(broadcastId) {
   return { total, done, answered, failed: failed + noAnswer, skipped };
 }
 
+/** The loop's own ending. Never overwrites a cancel — see campaignRunner's finish(). */
 async function finish(broadcastId, status, lastError = null) {
   await syncProgress(broadcastId);
-  await prisma.broadcast.update({
-    where: { id: broadcastId },
+  const { count } = await prisma.broadcast.updateMany({
+    where: { id: broadcastId, status: { not: BROADCAST_STATUS.CANCELLED } },
     data: {
       status,
       lastError,
       ...(status === BROADCAST_STATUS.COMPLETED ? { completedAt: new Date() } : {}),
     },
-  }).catch(() => {});
-  logger.info({ broadcastId, status }, 'Broadcast dispatch finished');
+  }).catch(() => ({ count: 0 }));
+  logger.info({ broadcastId, status, applied: count > 0 }, 'Broadcast dispatch finished');
 }
 
 /**
@@ -179,7 +197,7 @@ export async function runBroadcast(broadcastId, workspaceId) {
     logger.info({ broadcastId }, 'Broadcast already dispatching in this process — ignoring duplicate start');
     return { started: false, reason: 'already-running' };
   }
-  const control = { stop: false };
+  const control = { stop: false, resume: false };
   active.set(broadcastId, control);
 
   try {
@@ -188,6 +206,11 @@ export async function runBroadcast(broadcastId, workspaceId) {
       include: { recording: true },
     });
     if (!broadcast) return { started: false, reason: 'not-found' };
+    // startBroadcast sets RUNNING before it calls this. Anything else was halted
+    // by a person between that and now (or before a resumed loop came round).
+    if (broadcast.status !== BROADCAST_STATUS.RUNNING) {
+      return { started: false, reason: 'not-runnable' };
+    }
     if (!broadcast.recording) {
       await finish(broadcastId, BROADCAST_STATUS.FAILED, 'This broadcast has no recording to play.');
       return { started: false, reason: 'no-recording' };
@@ -203,7 +226,7 @@ export async function runBroadcast(broadcastId, workspaceId) {
     // carrier in it that cannot play audio would silently fail its whole share
     // of the calls, one row at a time, with the reason buried per recipient.
     for (const from of rotation) {
-      const ready = await broadcastReadiness(from);
+      const ready = await broadcastReadiness(from, { workspaceId });
       if (!ready.ready) {
         await finish(broadcastId, BROADCAST_STATUS.FAILED, `${from}: ${ready.error}`);
         return { started: false, reason: 'telephony' };
@@ -239,7 +262,8 @@ export async function runBroadcast(broadcastId, workspaceId) {
     let rotationIndex = 0;
 
     for (;;) {
-      if (control.stop) { await finish(broadcastId, BROADCAST_STATUS.PAUSED); return { started: true, dialled }; }
+      // Whoever asked for the stop has written the status. See requestStop.
+      if (control.stop) { await syncProgress(broadcastId); return { started: true, dialled }; }
 
       // Re-read status each batch so Pause/Cancel from the UI takes effect
       // without reaching into this loop.
@@ -398,5 +422,49 @@ export async function runBroadcast(broadcastId, workspaceId) {
     return { started: false, reason: 'error' };
   } finally {
     active.delete(broadcastId);
+    // Start was pressed while this loop was leaving (requestResume).
+    if (control.resume) {
+      setImmediate(() => {
+        runBroadcast(broadcastId, workspaceId).catch((err) =>
+          logger.error({ broadcastId, err }, 'Resumed broadcast dispatch failed'));
+      });
+    }
   }
+}
+
+/**
+ * Broadcasts this process was dispatching when it last stopped.
+ *
+ * Broadcasts only ever dispatch in-process, so after a restart every RUNNING one
+ * is an orphan: it reads as sending forever, and RUNNING cannot be started
+ * again. Paused rather than resumed — a deploy is not a decision to start
+ * calling people. Dials still out with the carrier are left to their callbacks,
+ * which arrive whether or not this process was restarted; only the ones that
+ * can no longer be waiting on one are closed.
+ *
+ * @returns {Promise<{paused: number, reaped: number}>}
+ */
+export async function recoverOrphanedBroadcasts() {
+  const running = await prisma.broadcast.findMany({
+    where: { status: BROADCAST_STATUS.RUNNING },
+    select: { id: true },
+  });
+
+  let paused = 0;
+  let reaped = 0;
+  for (const { id } of running) {
+    if (active.has(id)) continue;
+    reaped += await reapStalledDials(id).catch(() => 0);
+    const { count } = await prisma.broadcast.updateMany({
+      where: { id, status: BROADCAST_STATUS.RUNNING },
+      data: {
+        status: BROADCAST_STATUS.PAUSED,
+        lastError: 'Paused by a server restart — press Start to resume.',
+      },
+    });
+    paused += count;
+    if (count) await syncProgress(id).catch(() => {});
+  }
+  if (paused) logger.warn({ paused, reaped }, 'Paused broadcasts left running by a restart');
+  return { paused, reaped };
 }

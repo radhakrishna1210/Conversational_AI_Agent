@@ -16,6 +16,10 @@ import { createWhatsAppPostCallWorker } from './workers/whatsappPostCall.worker.
 import { startIntegrationScheduler } from './services/integrationScheduler.service.js';
 import { startVoiceSyncScheduler } from './services/voice/voice.startup.js';
 import { sweepDueBroadcasts } from './services/broadcast/broadcast.service.js';
+import { recoverOrphanedBroadcasts } from './services/broadcast/broadcastRunner.service.js';
+import { sweepDueCampaigns } from './services/campaign.service.js';
+import { recoverOrphanedCampaigns } from './services/campaignRunner.service.js';
+import { queuedCampaignIds } from './queues/campaign.queue.js';
 import { handleWebCallUpgrade } from './ws/webCallRealtime.handler.js';
 import { handleWebCallModularUpgrade } from './ws/webCallModularRealtime.handler.js';
 import { handleTwilioMediaUpgrade } from './ws/twilioMediaRealtime.handler.js';
@@ -110,9 +114,24 @@ resumeStuckKbJobs().catch((err) => logger.warn(`KB stuck-job sweep failed: ${err
 // "schedule for 9am" and 9am would silently drop the send. This re-arms the
 // pending ones and starts anything that came due while the process was down —
 // without it, "scheduled" quietly means "scheduled unless we ship tonight".
-sweepDueBroadcasts()
+//
+// AFTER the orphan sweep, not beside it: the orphan sweep pauses whatever is
+// RUNNING with no loop in this process, and an overdue broadcast this sweep has
+// just started is RUNNING for a moment before its loop registers.
+recoverOrphanedBroadcasts()
+  .catch((err) => logger.warn(`Orphaned-broadcast sweep failed: ${err.message}`))
+  .then(() => sweepDueBroadcasts())
   .then((n) => { if (n) logger.info({ scheduled: n }, 'Re-armed scheduled broadcasts'); })
   .catch((err) => logger.warn(`Scheduled-broadcast sweep failed: ${err.message}`));
+
+// Campaigns, likewise: a RUNNING campaign whose loop died with the old process is
+// paused (never silently re-dialled), and a scheduled one with no queued job gets
+// its in-process timer back. Anything BullMQ still holds a job for is left to it.
+recoverOrphanedCampaigns({ queuedCampaignIds })
+  .catch((err) => logger.warn(`Orphaned-campaign sweep failed: ${err.message}`))
+  .then(() => sweepDueCampaigns({ queuedCampaignIds }))
+  .then((n) => { if (n) logger.info({ scheduled: n }, 'Re-armed scheduled campaigns'); })
+  .catch((err) => logger.warn(`Scheduled-campaign sweep failed: ${err.message}`));
 
 // Plain http.Server wrapping the Express app — needed so WebSocket upgrade
 // requests (xAI Conversational Agent: Web Call + Twilio Media Streams) can be

@@ -9,7 +9,7 @@ import prisma from '../../config/prisma.js';
 import logger from '../../lib/logger.js';
 import { BROADCAST_STATUS } from '../../constants/broadcastStatus.js';
 import { resolveClusterContacts } from '../contact.service.js';
-import { runBroadcast, requestStop, syncProgress } from './broadcastRunner.service.js';
+import { runBroadcast, requestStop, requestResume, syncProgress } from './broadcastRunner.service.js';
 import { estimateBroadcast, quotePerCall } from './broadcastSettlement.service.js';
 import { broadcastReadiness } from './broadcastCall.service.js';
 
@@ -144,6 +144,16 @@ export const updateBroadcast = async (workspaceId, broadcastId, data) => {
   if (broadcast.status === BROADCAST_STATUS.RUNNING) {
     throw conflict('Pause this broadcast before editing it');
   }
+  // The recording has to be this workspace's. The id was taken on trust, so a
+  // broadcast could be pointed at another client's audio — and the carrier
+  // fetches that file through the public, token-signed audio URL on every call.
+  if (data.recordingId && data.recordingId !== broadcast.recordingId) {
+    const recording = await prisma.broadcastRecording.findFirst({
+      where: { id: data.recordingId, workspaceId },
+      select: { id: true },
+    });
+    if (!recording) throw badRequest('That recording does not exist in this workspace');
+  }
   return prisma.broadcast.update({ where: { id: broadcastId }, data });
 };
 
@@ -192,9 +202,15 @@ export async function startBroadcast(workspaceId, broadcastId) {
       launchedAt: broadcast.launchedAt ?? new Date(),
     },
   });
+  clearTimeout(timers.get(broadcastId));
+  timers.delete(broadcastId);
 
-  runBroadcast(broadcastId, workspaceId).catch((err) =>
-    logger.error({ broadcastId, err }, 'In-process broadcast dispatch failed'));
+  // The loop from a Pause a moment ago is still unwinding: it picks this back
+  // up itself, where a second runBroadcast would be refused as already running.
+  if (!requestResume(broadcastId)) {
+    runBroadcast(broadcastId, workspaceId).catch((err) =>
+      logger.error({ broadcastId, err }, 'In-process broadcast dispatch failed'));
+  }
 
   return { ...updated, pending };
 }
@@ -389,12 +405,12 @@ export async function previewBroadcastCost(workspaceId, { recordingId, clusterId
 }
 
 /** Can these caller IDs broadcast at all? Asked by the wizard before launch, not after. */
-export async function checkCallerReadiness(fromNumbers = []) {
+export async function checkCallerReadiness(fromNumbers = [], { workspaceId } = {}) {
   const results = [];
   for (const from of fromNumbers) {
     // Sequential on purpose: this is at most a handful of numbers, and each
     // check is a VoiceNumber lookup that would otherwise stampede the pool.
-    results.push({ fromNumber: from, ...(await broadcastReadiness(from)) });
+    results.push({ fromNumber: from, ...(await broadcastReadiness(from, { workspaceId })) });
   }
   return { ready: results.every((r) => r.ready), numbers: results };
 }

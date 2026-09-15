@@ -2,7 +2,7 @@ import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
 import { CAMPAIGN_STATUS } from '../constants/campaignStatus.js';
 import { enqueueCampaign } from '../queues/campaign.queue.js';
-import { runCampaign, requestStop } from './campaignRunner.service.js';
+import { runCampaign, requestStop, requestResume } from './campaignRunner.service.js';
 import { resolveCallMode } from './outboundCall.service.js';
 import { resolveClusterContacts } from './contact.service.js';
 
@@ -125,20 +125,54 @@ export const syncCampaignList = async (workspaceId, campaignId) => {
   return { ...updated, added };
 };
 
-export const updateCampaign = (workspaceId, campaignId, data) =>
-  prisma.campaign.update({ where: { id: campaignId, workspaceId }, data });
+// The fields a PUT may change. Picked explicitly rather than spreading the body:
+// the validator is one layer, and a status or counter written straight from a
+// request is how a campaign came to claim RUNNING with nothing dialling.
+const EDITABLE = ['name', 'botId', 'fromNumber', 'concurrentCalls'];
+
+export const updateCampaign = (workspaceId, campaignId, data = {}) => {
+  const patch = Object.fromEntries(EDITABLE.filter((k) => data[k] !== undefined).map((k) => [k, data[k]]));
+  return prisma.campaign.update({ where: { id: campaignId, workspaceId }, data: patch });
+};
 
 export const deleteCampaign = (workspaceId, campaignId) =>
   prisma.campaign.delete({ where: { id: campaignId, workspaceId } });
 
-export const addRecipients = async (workspaceId, campaignId, contactIds) => {
-  const rows = contactIds.map((contactId) => ({ campaignId, contactId }));
-  await prisma.campaignRecipient.createMany({ data: rows, skipDuplicates: true });
+/**
+ * Add known contacts to a campaign that has not finished.
+ *
+ * Two things were wrong here. The campaign was never looked up in the caller's
+ * workspace, so any member could write recipients onto another workspace's
+ * campaign by id. And the rows were created with no phone number — the dialling
+ * truth — so each one was a recipient the dispatcher would try to call with
+ * `toNumber: null`. Contacts are resolved in this workspace and only callable
+ * ones are added, the same rule every cluster-built list follows.
+ */
+export const addRecipients = async (workspaceId, campaignId, contactIds = []) => {
+  const campaign = await prisma.campaign.findFirstOrThrow({ where: { id: campaignId, workspaceId } });
+  if (!SYNCABLE.has(campaign.status)) {
+    throw Object.assign(
+      new Error(`A ${campaign.status.toLowerCase()} campaign cannot take on new numbers — pause it first`),
+      { statusCode: 409 },
+    );
+  }
+
+  const contacts = await prisma.contact.findMany({
+    where: { id: { in: contactIds.map(String) }, workspaceId, status: 'ACTIVE' },
+    select: { id: true, phoneNumber: true },
+  });
+  if (contacts.length) {
+    await prisma.campaignRecipient.createMany({
+      data: contacts.map((c) => ({ campaignId, contactId: c.id, phoneNumber: c.phoneNumber })),
+      skipDuplicates: true,
+    });
+  }
   const count = await prisma.campaignRecipient.count({ where: { campaignId } });
-  return prisma.campaign.update({
+  const updated = await prisma.campaign.update({
     where: { id: campaignId },
     data: { totalContacts: count },
   });
+  return { ...updated, added: contacts.length, ignored: contactIds.length - contacts.length };
 };
 
 export const launchCampaign = async (workspaceId, campaignId, scheduledAt) => {
@@ -156,26 +190,89 @@ export const launchCampaign = async (workspaceId, campaignId, scheduledAt) => {
     data: { status, scheduledAt: scheduledAt ? new Date(scheduledAt) : null, launchedAt: new Date() },
   });
 
+  const delay = scheduledAt ? Math.max(new Date(scheduledAt).getTime() - Date.now(), 0) : 0;
+  let queued = null;
   try {
-    if (!scheduledAt) {
-      await enqueueCampaign(campaignId, workspaceId);
-    } else {
-      const delay = new Date(scheduledAt).getTime() - Date.now();
-      await enqueueCampaign(campaignId, workspaceId, Math.max(delay, 0));
-    }
+    queued = await enqueueCampaign(campaignId, workspaceId, delay);
   } catch (err) {
-    await prisma.campaign.update({
-      where: { id: campaignId },
-      data: { status: campaign.status },
-    });
-    const error = new Error('Failed to enqueue campaign job. Please try again later.');
-    error.statusCode = 503;
-    error.cause = err;
-    throw error;
+    // Same fall-through startCampaign takes: an unreachable Redis is not a
+    // reason to refuse the launch when this process can dispatch it itself.
+    logger.warn({ campaignId, err: err.message }, 'Campaign queue unavailable — dispatching in-process');
   }
 
-  return updated;
+  // No queue. enqueueCampaign returns null without Redis, and this used to stop
+  // there: RUNNING with nothing dialling, or SCHEDULED with nothing to fire it.
+  if (!queued) {
+    if (scheduledAt) {
+      scheduleCampaignTimer(campaignId, workspaceId, delay);
+    } else {
+      runCampaign(campaignId, workspaceId).catch((err) =>
+        logger.error({ campaignId, err }, 'In-process campaign dispatch failed'));
+    }
+  }
+
+  return { ...updated, dispatch: queued ? 'queued' : 'in-process' };
 };
+
+// ── Scheduled campaigns without a queue ─────────────────────────────────────
+// With Redis, a scheduled launch is a delayed BullMQ job and survives restarts.
+// Without it, the timer lives in this process — the same arrangement broadcasts
+// use — and sweepDueCampaigns re-arms it at boot. Keyed so re-scheduling
+// replaces rather than stacks a second timer that would dial the list twice.
+const campaignTimers = new Map();
+
+function scheduleCampaignTimer(campaignId, workspaceId, delayMs) {
+  clearTimeout(campaignTimers.get(campaignId));
+  // setTimeout's delay is a signed 32-bit int; anything longer fires at once.
+  // The boot sweep picks those up instead, well before they come due.
+  if (delayMs > 2 ** 31 - 1) return;
+
+  const timer = setTimeout(async () => {
+    campaignTimers.delete(campaignId);
+    try {
+      // runCampaign refuses anything no longer SCHEDULED/RUNNING, so a launch
+      // cancelled before its time simply does nothing here.
+      await runCampaign(campaignId, workspaceId);
+    } catch (err) {
+      logger.error({ campaignId, err: err.message }, 'Scheduled campaign failed to start');
+    }
+  }, Math.max(0, delayMs));
+  timer.unref?.();
+  campaignTimers.set(campaignId, timer);
+}
+
+/**
+ * Re-arm scheduled campaigns that have no queued job, and start the ones that
+ * came due while the process was down. Called from server startup.
+ *
+ * @param {object} [deps]  tests only
+ * @returns {Promise<number>} campaigns armed or started
+ */
+export async function sweepDueCampaigns({ queuedCampaignIds = async () => new Set() } = {}) {
+  const scheduled = await prisma.campaign.findMany({
+    where: { status: CAMPAIGN_STATUS.SCHEDULED },
+    select: { id: true, workspaceId: true, scheduledAt: true },
+  });
+  if (!scheduled.length) return 0;
+
+  let queued = null;
+  try {
+    queued = await queuedCampaignIds();
+  } catch (err) {
+    // Unknown means do nothing: a delayed job may well exist, and arming a
+    // timer on top of it would dial the list twice when both fire.
+    logger.warn({ err: err.message }, 'Could not read the campaign queue — scheduled campaigns not re-armed');
+    return 0;
+  }
+
+  let armed = 0;
+  for (const row of scheduled) {
+    if (queued.has(row.id)) continue;
+    scheduleCampaignTimer(row.id, row.workspaceId, (row.scheduledAt?.getTime() ?? 0) - Date.now());
+    armed += 1;
+  }
+  return armed;
+}
 
 // A campaign can be started from DRAFT/FAILED (fresh) or PAUSED (resume).
 const STARTABLE = new Set([
@@ -219,6 +316,18 @@ export const startCampaign = async (workspaceId, campaignId) => {
     data: { status: CAMPAIGN_STATUS.RUNNING, lastError: null, launchedAt: campaign.launchedAt ?? new Date() },
   });
 
+  // Started by hand ahead of its scheduled time: the in-process timer (if this
+  // launch had no queue) must not start a second dispatch later.
+  clearTimeout(campaignTimers.get(campaignId));
+  campaignTimers.delete(campaignId);
+
+  // This process's loop for the campaign is still stopping from a Pause a moment
+  // ago. It picks the campaign straight back up once it has unwound; queueing a
+  // second dispatch now would only be refused as already running.
+  if (requestResume(campaignId)) {
+    return { ...updated, dispatch: 'in-process', pending };
+  }
+
   // A configured-but-unreachable Redis throws here rather than returning null,
   // and that must not turn into a 500 on Start — fall through to in-process.
   let queued = null;
@@ -253,6 +362,8 @@ export const pauseCampaign = async (workspaceId, campaignId) => {
 export const cancelCampaign = async (workspaceId, campaignId) => {
   await prisma.campaign.findFirstOrThrow({ where: { id: campaignId, workspaceId } });
   requestStop(campaignId);
+  clearTimeout(campaignTimers.get(campaignId));
+  campaignTimers.delete(campaignId);
   // Retire the queue so a resumed/duplicated dispatch cannot pick them up later.
   await prisma.campaignRecipient.updateMany({
     where: { campaignId, status: 'pending' },

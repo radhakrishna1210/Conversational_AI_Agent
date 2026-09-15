@@ -176,9 +176,12 @@ describe('runCampaign honours "Concurrent Calls"', () => {
     }));
     stub(prisma.campaign, 'findFirst', async () => ({
       id: 'camp', workspaceId: 'ws', botId: 'agent_1', fromNumbers: ['+918045678901'], fromNumber: null, launchedAt: null,
+      // startCampaign sets RUNNING before it dispatches; runCampaign refuses anything else.
+      status: 'RUNNING',
     }));
     stub(prisma.agent, 'findFirst', async () => ({ id: 'agent_1', name: 'Hotel desk', settings: '{}' }));
     stub(prisma.campaign, 'update', async () => ({}));
+    stub(prisma.campaign, 'updateMany', async () => ({ count: 1 }));
     stub(prisma.campaign, 'findUnique', async () => ({ status: 'RUNNING', concurrentCalls }));
     stub(prisma.campaignRecipient, 'findMany', async ({ take }) => rows.filter((r) => r.status === 'pending').slice(0, take));
     stub(prisma.campaignRecipient, 'update', async ({ where, data }) => {

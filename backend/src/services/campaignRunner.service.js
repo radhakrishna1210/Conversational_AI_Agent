@@ -191,12 +191,37 @@ export function __resetCampaignCallsForTests() {
 
 export const isRunning = (campaignId) => active.has(campaignId);
 
-/** Ask a running dispatch loop to stop at the next safe point. */
+/**
+ * Ask a running dispatch loop to stop at the next safe point.
+ *
+ * The caller owns the status: pause writes PAUSED, cancel writes CANCELLED. The
+ * loop only stops. It used to write PAUSED on the way out as well, and that
+ * write could land after Cancel's — so a cancelled campaign ended up PAUSED,
+ * with its recipients already skipped and nothing left to resume.
+ */
 export function requestStop(campaignId) {
   const entry = active.get(campaignId);
   if (entry) entry.stop = true;
   return Boolean(entry);
 }
+
+/**
+ * Start was pressed while this process's loop for the campaign is still on its
+ * way out (paused a moment ago, mid-dial or mid-wait). A second runCampaign would
+ * be refused as already running and the exiting loop would then leave, so the
+ * campaign read RUNNING with nothing dialling. Instead the exiting loop is told
+ * to go round again once it has finished unwinding.
+ *
+ * @returns {boolean} true when a loop in this process will pick the campaign up
+ */
+export function requestResume(campaignId) {
+  const entry = active.get(campaignId);
+  if (entry) entry.resume = true;
+  return Boolean(entry);
+}
+
+/** The statuses a dispatch loop may act on. Anything else was halted by a person. */
+const DISPATCHABLE = new Set([CAMPAIGN_STATUS.RUNNING, CAMPAIGN_STATUS.SCHEDULED]);
 
 /**
  * Normalise the configured caller IDs into a rotation list.
@@ -231,17 +256,24 @@ async function syncProgress(campaignId) {
   return { total, done, sent, failed, skipped };
 }
 
+/**
+ * The loop's own ending — completed, failed, or paused for a reason it found.
+ *
+ * Conditional on the campaign not having been cancelled in the meantime. Cancel
+ * is a person's decision and the last word; a dispatch that happened to reach
+ * its end a moment later must not turn it back into COMPLETED or PAUSED.
+ */
 async function finish(campaignId, status, lastError = null) {
   await syncProgress(campaignId);
-  await prisma.campaign.update({
-    where: { id: campaignId },
+  const { count } = await prisma.campaign.updateMany({
+    where: { id: campaignId, status: { not: CAMPAIGN_STATUS.CANCELLED } },
     data: {
       status,
       lastError,
       ...(status === CAMPAIGN_STATUS.COMPLETED ? { completedAt: new Date() } : {}),
     },
-  }).catch(() => {});
-  logger.info({ campaignId, status }, 'Campaign dispatch finished');
+  }).catch(() => ({ count: 0 }));
+  logger.info({ campaignId, status, applied: count > 0 }, 'Campaign dispatch finished');
 }
 
 /**
@@ -267,12 +299,21 @@ export async function runCampaign(campaignId, workspaceId, deps = {}) {
     logger.info({ campaignId }, 'Campaign already dispatching in this process — ignoring duplicate start');
     return { started: false, reason: 'already-running' };
   }
-  const control = { stop: false };
+  const control = { stop: false, resume: false };
   active.set(campaignId, control);
 
   try {
     const campaign = await prisma.campaign.findFirst({ where: { id: campaignId, workspaceId } });
     if (!campaign) return { started: false, reason: 'not-found' };
+
+    // Only a campaign someone asked to run. A queued job can outlive the
+    // decision behind it — a delayed launch the owner then cancelled, or a job
+    // BullMQ re-runs after a restart for a campaign that restart paused — and
+    // this used to set RUNNING below regardless and dial.
+    if (!DISPATCHABLE.has(campaign.status)) {
+      logger.info({ campaignId, status: campaign.status }, 'Campaign is not running — dispatch skipped');
+      return { started: false, reason: 'not-runnable' };
+    }
 
     if (!campaign.botId) {
       await finish(campaignId, CAMPAIGN_STATUS.FAILED, 'No voice agent selected for this campaign.');
@@ -302,7 +343,7 @@ export async function runCampaign(campaignId, workspaceId, deps = {}) {
     // EVERY number, not just the first: a rotation can span carriers, and one
     // unconfigured carrier in it silently fails its whole share of the calls.
     for (const from of rotation) {
-      const tw = await numberStatus(from);
+      const tw = await numberStatus(from, { workspaceId });
       if (!tw.ready) {
         await finish(campaignId, CAMPAIGN_STATUS.FAILED, `${from}: ${tw.error}`);
         return { started: false, reason: 'telephony' };
@@ -332,7 +373,8 @@ export async function runCampaign(campaignId, workspaceId, deps = {}) {
     let rotationIndex = 0;
 
     for (;;) {
-      if (control.stop) { await finish(campaignId, CAMPAIGN_STATUS.PAUSED); return { started: true, dialled }; }
+      // Whoever asked for the stop has written the status. See requestStop.
+      if (control.stop) { await syncProgress(campaignId); return { started: true, dialled }; }
 
       // Re-read status each batch so Pause/Cancel from the UI takes effect
       // without needing to reach into this loop.
@@ -484,5 +526,76 @@ export async function runCampaign(campaignId, workspaceId, deps = {}) {
     return { started: false, reason: 'error' };
   } finally {
     active.delete(campaignId);
+    // Start was pressed while this loop was leaving (requestResume). Go round
+    // again now that the slot in `active` is free; the fresh run re-reads the
+    // campaign, so a Start followed by another Pause is honoured too.
+    if (control.resume) {
+      logger.info({ campaignId }, 'Campaign was restarted while its dispatch was stopping — resuming');
+      setImmediate(() => {
+        runCampaign(campaignId, workspaceId, deps).catch((err) =>
+          logger.error({ campaignId, err }, 'Resumed campaign dispatch failed'));
+      });
+    }
   }
+}
+
+/**
+ * Campaigns this process was dispatching when it last stopped.
+ *
+ * A deploy or crash kills the dispatch loop but leaves the campaign RUNNING, so
+ * it reads as in progress forever with nothing dialling, and cannot be started
+ * again (RUNNING is not startable). Deliberately NOT resumed automatically: a
+ * restart is not a decision to start calling people, and a campaign that
+ * silently resumes after a 2am deploy is worse than one that asks.
+ *
+ * A campaign BullMQ still holds a job for is left alone — the queue re-runs a
+ * job its worker lost, and that is the dispatch the owner already started.
+ *
+ * @param {object} [deps]  tests only
+ * @returns {Promise<{paused: number, interrupted: number}>}
+ */
+export async function recoverOrphanedCampaigns({ queuedCampaignIds = async () => new Set() } = {}) {
+  const running = await prisma.campaign.findMany({
+    where: { status: CAMPAIGN_STATUS.RUNNING },
+    select: { id: true },
+  });
+  if (!running.length) return { paused: 0, interrupted: 0 };
+
+  let queued = new Set();
+  try {
+    queued = await queuedCampaignIds();
+  } catch (err) {
+    // Unknown is treated as "not queued": pausing a campaign whose job does
+    // re-run costs one press of Start (the job sees PAUSED and stands down),
+    // whereas guessing the other way leaves an orphan looking alive.
+    logger.warn({ err: err.message }, 'Could not read the campaign queue — treating running campaigns as orphaned');
+  }
+
+  let paused = 0;
+  let interrupted = 0;
+  for (const { id } of running) {
+    if (queued.has(id) || active.has(id)) continue;
+
+    // A recipient left 'calling' was mid-dial when the process died: the carrier
+    // may or may not have taken the request. Not dialled again — ringing
+    // someone twice is the worse mistake — and not left 'calling', which no
+    // later run looks at, so the campaign could never reach 100%.
+    const { count } = await prisma.campaignRecipient.updateMany({
+      where: { campaignId: id, status: 'calling' },
+      data: { status: 'failed', failureReason: 'interrupted_by_restart' },
+    });
+    interrupted += count;
+
+    const { count: moved } = await prisma.campaign.updateMany({
+      where: { id, status: CAMPAIGN_STATUS.RUNNING },
+      data: {
+        status: CAMPAIGN_STATUS.PAUSED,
+        lastError: 'Paused by a server restart — press Start to resume.',
+      },
+    });
+    paused += moved;
+    if (moved) await syncProgress(id);
+  }
+  if (paused) logger.warn({ paused, interrupted }, 'Paused campaigns left running by a restart');
+  return { paused, interrupted };
 }
