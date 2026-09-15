@@ -4,6 +4,7 @@ import prisma from '../config/prisma.js';
 import * as sarvamService from '../services/sarvam.service.js';
 import { geminiService } from '../services/gemini.service.js';
 import { invalidateAgentRuntimeCaches } from '../services/agentRuntime.service.js';
+import { deleteKbChunks } from '../services/kbChunking.service.js';
 import logger from '../lib/logger.js';
 import { assertCanStartCall } from '../services/billing/settlement.service.js';
 import { placeOutboundCall, resolveCallMode, telephonyStatusForNumber, warmInboundGreetingIfAnswering } from '../services/outboundCall.service.js';
@@ -241,7 +242,7 @@ export const deleteAgent = async (req, res) => {
       const [kbFiles, callLogs] = await Promise.all([
         prisma.kbFile.findMany({
           where: { workspaceId, agentId },
-          select: { storedPath: true },
+          select: { id: true, storedPath: true },
         }),
         prisma.agentCallLog.findMany({
           where: { workspaceId, agentId },
@@ -251,6 +252,11 @@ export const deleteAgent = async (req, res) => {
       await Promise.all([
         prisma.kbFile.deleteMany({ where: { workspaceId, agentId } }),
         prisma.agentCallLog.deleteMany({ where: { workspaceId, agentId } }),
+        // A KbChunk has no FK back to its KbFile (Prisma cannot declare one
+        // through the Unsupported vector column), so deleting the files alone
+        // left every chunk and its 1536-dim embedding behind for good. Same
+        // cleanup the single-file delete does.
+        ...kbFiles.map((f) => deleteKbChunks(f.id)),
       ]);
       for (const f of kbFiles) {
         if (f.storedPath) fs.unlink(path.join(KB_FILES_DIR, path.basename(f.storedPath)), () => {});
