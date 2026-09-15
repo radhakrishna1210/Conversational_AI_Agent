@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { safeSet, decodeJwtPayload, isAdminRole } from '@/lib/authStorage';
+import { safeSet, setTokens, decodeJwtPayload, isAdminRole } from '@/lib/authStorage';
 import { Link } from 'react-router-dom';
 import AuthShell, { AuthField, AuthOAuth } from '@/components/AuthShell';
 
@@ -42,8 +42,9 @@ export default function Login() {
       // Persist via authStorage — writes to localStorage with automatic
       // sessionStorage fallback (Safari/incognito), matching how the rest of
       // the app now reads auth state.
-      safeSet('token', data.accessToken);
-      safeSet('refreshToken', data.refreshToken);
+      // setTokens also caches the role from the new token, so nothing keeps
+      // routing by the previous session's role.
+      setTokens(data.accessToken, data.refreshToken);
       safeSet('userName', data.user.name);
       safeSet('userEmail', data.user.email);
       if (data.workspace?.id) safeSet('workspaceId', data.workspace.id);

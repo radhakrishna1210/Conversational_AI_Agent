@@ -69,7 +69,14 @@ export function getRefreshToken(): string {
  * refresh token each time or the next refresh will fail with the revoked token.
  */
 export function setTokens(accessToken: string, refreshToken?: string): void {
-  if (accessToken) safeSet('token', accessToken);
+  if (accessToken) {
+    safeSet('token', accessToken);
+    // Keep the cached role in step with the token that was just issued. Login
+    // and refresh both reconcile the role server-side (SUPER_ADMIN_EMAIL), so
+    // the claim on a new token can differ from the previous session's.
+    const role = decodeJwtPayload(accessToken)?.role;
+    if (role) safeSet('userRole', String(role));
+  }
   if (refreshToken) safeSet('refreshToken', refreshToken);
 }
 
@@ -92,10 +99,14 @@ export function getWorkspaceId(): string {
 }
 
 export function getUserRole(): string {
-  const stored = safeGet('userRole');
-  if (stored) return stored;
+  // The token's claim wins. It is what the server authorises against and it is
+  // re-issued on every login and refresh, whereas the stored copy can still be
+  // the previous session's — which routed a user promoted or demoted at their
+  // last login by their old role. Stored is only the fallback for a token that
+  // cannot be decoded.
   const payload = decodeJwtPayload(getToken());
-  return payload?.role ? String(payload.role) : '';
+  if (payload?.role) return String(payload.role);
+  return safeGet('userRole');
 }
 
 /** True only for the platform owner (Superadmin). Gates the /admin panel UI. */

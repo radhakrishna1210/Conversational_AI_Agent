@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { safeSet, decodeJwtPayload, isAdminRole } from '@/lib/authStorage';
+import { safeSet, setTokens, decodeJwtPayload, isAdminRole } from '@/lib/authStorage';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 export default function AuthCallback() {
@@ -36,8 +36,8 @@ export default function AuthCallback() {
       return;
     }
 
-    safeSet('token', token);
-    if (refreshToken) safeSet('refreshToken', refreshToken);
+    // setTokens also caches the role from the new token.
+    setTokens(token, refreshToken ?? undefined);
     if (workspaceId) safeSet('workspaceId', workspaceId);
     // Persist profile so the navbar avatar and Settings aren't blank for
     // Google-authenticated users (they previously only got the token).
