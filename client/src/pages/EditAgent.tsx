@@ -501,6 +501,9 @@ export default function EditAgent() {
   // Defaults reproduce today's behaviour exactly.
   const [turnEndSensitivity, setTurnEndSensitivity] = useState('balanced');
   const [ttsDelivery, setTtsDelivery] = useState('auto');
+  // Timed hold inside one reply, in whole seconds (1-10). Kept as the input's
+  // text so empty — the "off" state — is representable; saved as null then.
+  const [holdPauseSec, setHoldPauseSec] = useState('');
   // What the server says these controls can actually do for THIS agent, given
   // the voice it is on. Fetched rather than assumed: whether a reply can stream
   // while it is being written depends on the selected voice provider, and
@@ -1376,6 +1379,10 @@ export default function EditAgent() {
           setSpeakingRate((agent as any).speakingRate ?? 1.0);
           setTurnEndSensitivity((agent as any).turnEndSensitivity ?? 'balanced');
           setTtsDelivery((agent as any).ttsDelivery ?? 'auto');
+          {
+            const { holdPauseSec: hold } = agent as { holdPauseSec?: number | null };
+            setHoldPauseSec(hold ? String(hold) : '');
+          }
           setAmbientSound((agent as any).ambientSound ?? 'None');
           {
             const { ambientMode: m, ambientSound: preset } = agent as { ambientMode?: string; ambientSound?: string };
@@ -1483,6 +1490,8 @@ export default function EditAgent() {
       speakingRate,
       turnEndSensitivity,
       ttsDelivery,
+      // Empty is off. The API validates the range and says so on a bad value.
+      holdPauseSec: holdPauseSec.trim() === '' ? null : Number(holdPauseSec),
       ambientSound,
       ambientMode,
       interruptibleEnabled,
@@ -5039,6 +5048,30 @@ export default function EditAgent() {
                             <label style={{ display: 'block', color: 'var(--tx)', fontSize: '14px', fontWeight: '600', marginBottom: '8px' }}>Speaking Rate (Speed)</label>
                             <input type="range" min="0.5" max="2.0" step="0.1" value={speakingRate} onChange={e => setSpeakingRate(Number(e.target.value))} style={{ width: '100%', accentColor: 'var(--cyan)' }} />
                             <div style={{ textAlign: 'right', color: 'var(--cyan-fg)', fontSize: '14px', fontWeight: '700' }}>{speakingRate}x</div>
+                          </div>
+
+                          <div style={{ height: '1px', background: 'var(--s1)' }} />
+
+                          {/* A silence the agent can put INSIDE one reply — "let me
+                              check with the manager, please stay on the line" … then
+                              the answer — without the caller having to speak first.
+                              Used only where the flow's instructions ask for a pause. */}
+                          <div>
+                            <label style={{ display: 'block', color: 'var(--tx)', fontSize: '14px', fontWeight: '600', marginBottom: '4px' }}>Hold pause (seconds)</label>
+                            <div style={{ fontSize: '12px', color: 'var(--tx-2)', marginBottom: '12px' }}>
+                              Lets the agent pause mid-reply where its instructions ask it to (for example while it checks
+                              with the manager) and then carry on. 1&ndash;10 seconds; leave empty to turn it off. Modular voice engine only.
+                            </div>
+                            <input
+                              type="number"
+                              min={1}
+                              max={10}
+                              step={1}
+                              placeholder="Off"
+                              value={holdPauseSec}
+                              onChange={e => setHoldPauseSec(e.target.value)}
+                              style={{ width: '100%', padding: '10px 14px', background: 'var(--s1)', border: '1px solid var(--line-2)', borderRadius: '8px', color: 'var(--tx)', outline: 'none' }}
+                            />
                           </div>
 
                           <div style={{ height: '1px', background: 'var(--s1)' }} />
