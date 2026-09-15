@@ -21,8 +21,13 @@ router.post('/register', sendLimiter, validate(registerSchema), verifyCtrl.reque
 router.post('/verify-otp', verifyLimiter, verifyCtrl.verifySignupOtp);
 router.post('/forgot-password', sendLimiter, verifyCtrl.forgotPassword);
 router.post('/reset-password', verifyLimiter, verifyCtrl.resetPassword);
-router.post('/login', validate(loginSchema), ctrl.login);
-router.post('/refresh', validate(refreshSchema), ctrl.refresh);
+// Login had no limit at all, so a password could be guessed as fast as bcrypt
+// would answer. Refresh is bounded too, but loosely: every open tab renews on
+// its own 15-minute clock, and several people can sit behind one office IP.
+const loginLimiter   = rateLimit({ windowMs: 60_000, max: 10, keyPrefix: 'auth-login' });
+const refreshLimiter = rateLimit({ windowMs: 60_000, max: 60, keyPrefix: 'auth-refresh' });
+router.post('/login', loginLimiter, validate(loginSchema), ctrl.login);
+router.post('/refresh', refreshLimiter, validate(refreshSchema), ctrl.refresh);
 router.post('/logout', ctrl.logout);
 router.post('/invite/accept', validate(acceptInviteSchema), ctrl.acceptInvite);
 router.get('/me', authenticate, ctrl.me);

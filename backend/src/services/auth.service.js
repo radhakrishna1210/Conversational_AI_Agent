@@ -71,6 +71,33 @@ const reconcileSuperAdminRole = async (user, membership) => {
   return updated;
 };
 
+/**
+ * A banned account may not start or renew a session.
+ *
+ * The admin ban sets `User.banned` and revokes refresh tokens, but nothing ever
+ * read the flag — so a banned user simply logged in again, by password or by
+ * Google. Checked at every point that mints a token. Access tokens already
+ * issued still expire on their own (15 minutes); their refresh is refused here.
+ */
+const assertNotBanned = (user) => {
+  if (user?.banned) {
+    throw Object.assign(
+      new Error('This account has been suspended. Contact support if you think this is a mistake.'),
+      { statusCode: 403, code: 'ACCOUNT_SUSPENDED' },
+    );
+  }
+};
+
+/**
+ * The workspace a session opens in, when the user belongs to several.
+ *
+ * `findFirst` with no order let Postgres pick, so the same login could land in a
+ * different workspace from one day to the next. The earliest membership is the
+ * one the account was created with.
+ */
+const firstMembership = (where, include) =>
+  prisma.workspaceMember.findFirst({ where, ...(include ? { include } : {}), orderBy: { joinedAt: 'asc' } });
+
 const makeSlug = (name) =>
   name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '') + '-' + Date.now().toString(36);
 
@@ -109,14 +136,14 @@ export const loginUser = async ({ email, password }) => {
   if (!user.passwordHash) throw Object.assign(new Error('Invalid credentials'), { statusCode: 401 });
   const valid = await comparePassword(password, user.passwordHash);
   if (!valid) throw Object.assign(new Error('Invalid credentials'), { statusCode: 401 });
+  // After the password check, so a wrong password never reveals that an
+  // address belongs to a suspended account.
+  assertNotBanned(user);
 
-  let membership = await prisma.workspaceMember.findFirst({
-    where: { userId: user.id },
-    include: { workspace: true },
-  });
+  let membership = await firstMembership({ userId: user.id }, { workspace: true });
 
   if (!membership) {
-    const workspace = await prisma.workspace.create({
+    await prisma.workspace.create({
       data: {
         name: `${user.name || user.email.split('@')[0]}'s Workspace`,
         slug: makeSlug(user.name || user.email.split('@')[0]),
@@ -124,10 +151,7 @@ export const loginUser = async ({ email, password }) => {
         settings: { create: {} },
       },
     });
-    membership = await prisma.workspaceMember.findFirst({
-      where: { userId: user.id },
-      include: { workspace: true },
-    });
+    membership = await firstMembership({ userId: user.id }, { workspace: true });
   }
 
   membership = await reconcileSuperAdminRole(user, membership);
@@ -166,11 +190,13 @@ export const refreshTokens = async (rawToken) => {
   await prisma.refreshToken.update({ where: { id: stored.id }, data: { revokedAt: new Date() } });
 
   const user = await prisma.user.findUnique({ where: { id: stored.userId } });
+  // A deleted account used to crash here on `user.id` and answer 500.
+  if (!user) throw Object.assign(new Error('Invalid refresh token'), { statusCode: 401 });
+  // The token above is already revoked, so a refused refresh cannot be retried.
+  assertNotBanned(user);
 
   // Re-fetch the membership role so it isn't lost after a token refresh
-  let membership = await prisma.workspaceMember.findFirst({
-    where: { userId: user.id, workspaceId: stored.workspaceId ?? undefined },
-  });
+  let membership = await firstMembership({ userId: user.id, workspaceId: stored.workspaceId ?? undefined });
 
   membership = await reconcileSuperAdminRole(user, membership);
 
@@ -206,15 +232,27 @@ export const logout = async (rawToken) => {
   });
 };
 
-export const loginOrRegisterWithGoogle = async ({ googleId, email, name, avatarUrl }) => {
+export const loginOrRegisterWithGoogle = async ({ googleId, email, name, avatarUrl, emailVerified = false }) => {
   const resolvedName = resolveGoogleName(name, email);
 
   let user = await prisma.user.findUnique({ where: { googleId } });
 
   if (!user) {
+    // Linking by email, or creating an account under it, trusts Google's word
+    // that this person owns the address. Google only vouches for that when it
+    // says `email_verified`; without it, anyone could attach their Google login
+    // to an existing account — or claim an address before its owner signs up.
+    // An account already linked by googleId (above) is unaffected.
+    if (!emailVerified) {
+      throw Object.assign(
+        new Error('Google has not verified this email address, so it cannot be used to sign in.'),
+        { statusCode: 403, code: 'EMAIL_UNVERIFIED' },
+      );
+    }
     // Try to link to existing account with same email
     user = await prisma.user.findUnique({ where: { email } });
     if (user) {
+      assertNotBanned(user);
       user = await prisma.user.update({
         where: { id: user.id },
         data: {
@@ -237,10 +275,9 @@ export const loginOrRegisterWithGoogle = async ({ googleId, email, name, avatarU
     }
   }
 
-  let membership = await prisma.workspaceMember.findFirst({
-    where: { userId: user.id },
-    include: { workspace: true },
-  });
+  assertNotBanned(user);
+
+  let membership = await firstMembership({ userId: user.id }, { workspace: true });
 
   membership = await reconcileSuperAdminRole(user, membership);
 

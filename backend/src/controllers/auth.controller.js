@@ -148,12 +148,23 @@ export const googleCallback = async (req, res) => {
       return res.redirect(`${env.CLIENT_URL}/login?error=no_email`);
     }
 
-    const { accessToken, refreshToken, workspace } = await getAuthService().loginOrRegisterWithGoogle({
-      googleId: profile.sub,
-      email: profile.email,
-      name: profile.name,
-      avatarUrl: profile.picture,
-    });
+    let session;
+    try {
+      session = await getAuthService().loginOrRegisterWithGoogle({
+        googleId: profile.sub,
+        email: profile.email,
+        name: profile.name,
+        avatarUrl: profile.picture,
+        // userinfo v3 sends a boolean; tolerate the string form older payloads used.
+        emailVerified: profile.email_verified === true || profile.email_verified === 'true',
+      });
+    } catch (err) {
+      // A refusal is an answer, not a crash: say which one on the login page.
+      if (err?.code === 'ACCOUNT_SUSPENDED') return res.redirect(`${env.CLIENT_URL}/login?error=account_suspended`);
+      if (err?.code === 'EMAIL_UNVERIFIED') return res.redirect(`${env.CLIENT_URL}/login?error=email_unverified`);
+      throw err;
+    }
+    const { accessToken, refreshToken, workspace } = session;
 
     const params = new URLSearchParams({
       token: accessToken,

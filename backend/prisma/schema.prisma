@@ -816,6 +816,10 @@ model VerificationToken {
   payload    String?
   expiresAt  DateTime
   consumedAt DateTime?
+  // Wrong codes tried against this token. A 6-digit code is a million guesses;
+  // without a counter the per-IP limiter was the only thing between an attacker
+  // and a password reset. The token is burned once this reaches the cap.
+  attempts   Int       @default(0)
   createdAt  DateTime  @default(now())
 
   @@index([email, purpose])

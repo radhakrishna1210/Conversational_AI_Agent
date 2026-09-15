@@ -14,6 +14,30 @@ const genOtp = () => String(crypto.randomInt(100000, 1000000)); // 6 digits
 
 const emailOk = (e) => typeof e === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 
+/** Codes a single token may be tried with before the user must ask for a new one. */
+export const MAX_OTP_ATTEMPTS = 5;
+
+/**
+ * Spend one attempt on an emailed code, then compare it.
+ *
+ * A wrong code used to leave the token live for the next guess, so the only
+ * brake on a million-code space was the per-IP limiter. The attempt is claimed
+ * in the database BEFORE comparing: parallel guesses cannot all read a fresh
+ * counter, so no token is ever compared more than MAX_OTP_ATTEMPTS times.
+ *
+ * @returns {Promise<'ok'|'wrong'|'exhausted'>}
+ */
+export const spendOtpAttempt = async (token, otp) => {
+  const claimed = await prisma.verificationToken.updateMany({
+    where: { id: token.id, consumedAt: null, attempts: { lt: MAX_OTP_ATTEMPTS } },
+    data: { attempts: { increment: 1 } },
+  });
+  if (claimed.count === 0) return 'exhausted';
+  return token.tokenHash === sha256(String(otp).trim()) ? 'ok' : 'wrong';
+};
+
+const TOO_MANY_ATTEMPTS = 'Too many incorrect codes. Request a new code and try again.';
+
 // ── POST /auth/register  (now: validate → email OTP → account created on verify)
 export const requestSignupOtp = async (req, res) => {
   const { name, email, password, workspaceName } = req.body ?? {};
@@ -92,9 +116,10 @@ export const verifySignupOtp = async (req, res) => {
     where: { email, purpose: 'signup_otp', consumedAt: null, expiresAt: { gt: new Date() } },
     orderBy: { createdAt: 'desc' },
   });
-  if (!token || token.tokenHash !== sha256(String(otp).trim())) {
-    return res.status(400).json({ error: 'Invalid or expired verification code' });
-  }
+  if (!token) return res.status(400).json({ error: 'Invalid or expired verification code' });
+  const verdict = await spendOtpAttempt(token, otp);
+  if (verdict === 'exhausted') return res.status(400).json({ error: TOO_MANY_ATTEMPTS });
+  if (verdict !== 'ok') return res.status(400).json({ error: 'Invalid or expired verification code' });
 
   const pending = JSON.parse(token.payload);
   const user = await prisma.user.create({
@@ -172,9 +197,10 @@ export const resetPassword = async (req, res) => {
     where: { email, purpose: 'password_reset', consumedAt: null, expiresAt: { gt: new Date() } },
     orderBy: { createdAt: 'desc' },
   });
-  if (!token || token.tokenHash !== sha256(String(otp).trim())) {
-    return res.status(400).json({ error: 'Invalid or expired reset code' });
-  }
+  if (!token) return res.status(400).json({ error: 'Invalid or expired reset code' });
+  const verdict = await spendOtpAttempt(token, otp);
+  if (verdict === 'exhausted') return res.status(400).json({ error: TOO_MANY_ATTEMPTS });
+  if (verdict !== 'ok') return res.status(400).json({ error: 'Invalid or expired reset code' });
 
   const user = await prisma.user.findUnique({ where: { email } });
   if (!user) return res.status(400).json({ error: 'Invalid or expired reset code' });
