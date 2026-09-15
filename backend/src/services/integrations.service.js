@@ -830,7 +830,15 @@ export const processPendingSyncJobs = async ({ skipIntegrationIds } = {}) => {
 
 // ─── Webhook events ───────────────────────────────────────────────────────────
 
-export const handleWebhookEvent = async (providerKey, headers, rawBody) => {
+/**
+ * Record an inbound provider webhook.
+ *
+ * `signatureValid` is what the caller actually verified — it used to be stored
+ * as a hardcoded `true`. The workspace still comes from the payload, which no
+ * provider's own events carry, so an UNVERIFIED event is recorded at most and
+ * never allowed to set a workspace's integration syncing.
+ */
+export const handleWebhookEvent = async (providerKey, headers, rawBody, { signatureValid = false } = {}) => {
   const p = getProvider(providerKey);
   const bodyText = Buffer.isBuffer(rawBody) ? rawBody.toString('utf8') : String(rawBody ?? '');
   const payload  = safeJson(bodyText, { raw: bodyText });
@@ -839,10 +847,12 @@ export const handleWebhookEvent = async (providerKey, headers, rawBody) => {
   const providerEventId = payload.id         || headers['x-event-id'] || null;
 
   const event = await prisma.webhookEvent.create({
-    data: { workspaceId, provider: p.key, providerEventId, eventType, payload: jsonStr(payload), headers: jsonStr(headers), signatureValid: true, processingStatus: 'received' },
+    data: { workspaceId, provider: p.key, providerEventId, eventType, payload: jsonStr(payload), headers: jsonStr(headers), signatureValid: signatureValid === true, processingStatus: 'received' },
   });
 
   await addLog({ workspaceId, provider: p.key, event: 'webhook_received', message: `${p.name} webhook received`, metadata: { eventId: event.id, eventType } });
+
+  if (signatureValid !== true) return event;
 
   const integration = await prisma.integration.findUnique({ where: { workspaceId_provider: { workspaceId, provider: p.key } } });
   if (integration) {

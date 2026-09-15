@@ -29,59 +29,66 @@ router.get('/:provider/callback', async (req, res) => {
   }
 });
 
+/** Constant-time compare that returns false, rather than throwing, on a length mismatch. */
+const safeEqual = (a, b) => {
+  const x = Buffer.from(String(a ?? ''));
+  const y = Buffer.from(String(b ?? ''));
+  return x.length === y.length && timingSafeEqual(x, y);
+};
+
+/**
+ * Is this webhook genuinely from the provider it names?
+ *
+ * This endpoint is public and the event it records picks its workspace from the
+ * body, then queues a sync against that workspace's own credentials. It used to
+ * accept anything for any provider — verifying only Calendly and Slack, and only
+ * when their secret happened to be set — and stored every event as
+ * `signatureValid: true`. So anyone could fill any workspace's event log and set
+ * its integrations syncing on demand.
+ *
+ * Now a request is accepted only when a signature it carries has been verified.
+ * A provider with no verification configured is refused outright: nothing real
+ * depended on that path, because no provider's own payload carries our
+ * workspace id — every genuine event fell through to the 'public' placeholder.
+ *
+ * @returns {{ ok: true } | { ok: false, status: number, error: string }}
+ */
+export const verifyProviderWebhook = (provider, headers, rawBody, secrets = {
+  calendly: env.CALENDLY_WEBHOOK_SIGNING_KEY,
+  slack: env.SLACK_SIGNING_SECRET,
+}) => {
+  const body = Buffer.isBuffer(rawBody) ? rawBody.toString('utf8') : JSON.stringify(rawBody ?? {});
+
+  if (provider === 'calendly' && secrets.calendly) {
+    const signature = headers['calendly-webhook-signature'];
+    if (!signature) return { ok: false, status: 401, error: 'Missing Calendly webhook signature' };
+    // Calendly sends: t=timestamp,v1=hmac_sha256_hex
+    const parts = Object.fromEntries(String(signature).split(',').map((p) => p.split('=')));
+    const expected = createHmac('sha256', secrets.calendly).update(`${parts.t}.${body}`).digest('hex');
+    return safeEqual(expected, parts.v1) ? { ok: true } : { ok: false, status: 401, error: 'Invalid Calendly webhook signature' };
+  }
+
+  if (provider === 'slack' && secrets.slack) {
+    const slackSig = headers['x-slack-signature'];
+    const slackTs = headers['x-slack-request-timestamp'];
+    const expected = 'v0=' + createHmac('sha256', secrets.slack).update(`v0:${slackTs}:${body}`).digest('hex');
+    // safeEqual, not a bare timingSafeEqual: a signature of the wrong length used
+    // to throw inside the handler and answer 500.
+    return safeEqual(expected, slackSig) ? { ok: true } : { ok: false, status: 401, error: 'Invalid Slack webhook signature' };
+  }
+
+  return { ok: false, status: 401, error: 'Webhook signature verification is not configured for this provider' };
+};
+
 // ── Webhook receiver ──────────────────────────────────────────────────────────
 router.post('/webhooks/:provider', async (req, res) => {
   const { provider } = req.params;
 
-  // Verify Calendly webhook signature
-  if (provider === 'calendly') {
-    const signingKey = env.CALENDLY_WEBHOOK_SIGNING_KEY;
-    if (signingKey) {
-      const signature = req.headers['calendly-webhook-signature'];
-      if (!signature) {
-        return res.status(401).json({ error: 'Missing Calendly webhook signature' });
-      }
-      try {
-        // Calendly sends: t=timestamp,v1=hmac_sha256_hex
-        const parts = Object.fromEntries(
-          String(signature).split(',').map(p => p.split('=')),
-        );
-        const timestamp = parts.t;
-        const receivedSig = parts.v1;
-        const body = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : JSON.stringify(req.body);
-        const expected = createHmac('sha256', signingKey)
-          .update(`${timestamp}.${body}`)
-          .digest('hex');
-        const valid = timingSafeEqual(
-          Buffer.from(expected, 'hex'),
-          Buffer.from(receivedSig, 'hex'),
-        );
-        if (!valid) {
-          return res.status(401).json({ error: 'Invalid Calendly webhook signature' });
-        }
-      } catch {
-        return res.status(401).json({ error: 'Webhook signature verification failed' });
-      }
-    }
-  }
-
-  // Verify Slack webhook signature
-  if (provider === 'slack') {
-    const signingSecret = env.SLACK_SIGNING_SECRET;
-    if (signingSecret) {
-      const slackSig    = req.headers['x-slack-signature'];
-      const slackTs     = req.headers['x-slack-request-timestamp'];
-      const body = Buffer.isBuffer(req.body) ? req.body.toString('utf8') : JSON.stringify(req.body);
-      const baseStr = `v0:${slackTs}:${body}`;
-      const expected = 'v0=' + createHmac('sha256', signingSecret).update(baseStr).digest('hex');
-      if (!slackSig || !timingSafeEqual(Buffer.from(expected), Buffer.from(String(slackSig)))) {
-        return res.status(401).json({ error: 'Invalid Slack webhook signature' });
-      }
-    }
-  }
+  const verdict = verifyProviderWebhook(provider, req.headers, req.body);
+  if (!verdict.ok) return res.status(verdict.status).json({ error: verdict.error });
 
   try {
-    await service.handleWebhookEvent(provider, req.headers, req.body);
+    await service.handleWebhookEvent(provider, req.headers, req.body, { signatureValid: true });
     res.sendStatus(200);
   } catch (err) {
     res.status(400).json({ error: err.message });
