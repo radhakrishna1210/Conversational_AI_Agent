@@ -1111,7 +1111,7 @@ export default function EditAgent() {
   const [viewMode, setViewMode] = useState<'ui' | 'code'>('ui');
   const [phoneTestNumber, setPhoneTestNumber] = useState('');
   const [fromNumber, setFromNumber] = useState('');
-  const [deployStatus, setDeployStatus] = useState<'idle' | 'deploying' | 'done'>('idle');
+  const [deployStatus, setDeployStatus] = useState<'idle' | 'deploying' | 'done' | 'failed'>('idle');
   const [askAIInput, setAskAIInput] = useState('');
   const [askAIResponse, setAskAIResponse] = useState('');
   const [isAskAILoading, setIsAskAILoading] = useState(false);
@@ -1445,13 +1445,11 @@ export default function EditAgent() {
   }, [agentId]);
 
 
-  // Save changes to backend and local storage
-  // `overrides` lets a caller save a value it *just* set in the same tick —
-  // React state updates aren't committed yet, so reading state alone would
-  // persist the previous value.
-  const handleSave = async (overrides: Record<string, unknown> = {}, { silent = false } = {}) => {
-    setIsSaving(true);
-    const agentData = {
+  // The full agent config exactly as it is saved. One builder, so the Code view's
+  // Copy/Download JSON can never drift from what the PUT actually stores (it used
+  // to export raw postCallConfigs and leave out the engine, transfer, STT and
+  // ambience fields).
+  const buildAgentPayload = (overrides: Record<string, unknown> = {}) => ({
       name: agentName,
       // The legacy single field tracks whichever direction this agent is FOR,
       // so exports, the Recent-calls preview and any older reader keep seeing
@@ -1494,10 +1492,24 @@ export default function EditAgent() {
       // Integrations
       callDirection,
       ...overrides,
-    };
+    });
+
+  // Save changes to backend and local storage
+  // `overrides` lets a caller save a value it *just* set in the same tick —
+  // React state updates aren't committed yet, so reading state alone would
+  // persist the previous value.
+  // Resolves true only when the server stored the config. A failure is always
+  // toasted here, and callers that report an outcome of their own (Deploy)
+  // must check the result — this never throws, so a try/catch around it
+  // cannot see a failed save.
+  const handleSave = async (overrides: Record<string, unknown> = {}, { silent = false } = {}): Promise<boolean> => {
+    setIsSaving(true);
+    const agentData = buildAgentPayload(overrides);
+    let saved = false;
 
     try {
       await whapi.put(`/agents/${agentId}`, agentData);
+      saved = true;
       // Auto-saves stay quiet; a failure is always surfaced.
       if (!silent) toast.success('Agent saved');
       // The saved config may change what the call opens with (voice, welcome
@@ -1517,6 +1529,7 @@ export default function EditAgent() {
     }
 
     setIsSaving(false);
+    return saved;
   };
 
 
@@ -1933,17 +1946,16 @@ export default function EditAgent() {
     }
   };
 
+  // Saving IS deploying: the next call loads the saved config (the server drops
+  // its agent cache on update). There used to be a fixed 1.2 s pause dressed up
+  // as a deploy step, and "Deployed" showed even when the save had failed,
+  // because handleSave reports failure by toast rather than by throwing.
   const handleDeploy = async () => {
     setDeployStatus('deploying');
     setShowDeployDropdown(false);
-    try {
-      await handleSave();
-      await new Promise(resolve => setTimeout(resolve, 1200));
-      setDeployStatus('done');
-      setTimeout(() => setDeployStatus('idle'), 3000);
-    } catch {
-      setDeployStatus('idle');
-    }
+    const saved = await handleSave();
+    setDeployStatus(saved ? 'done' : 'failed');
+    setTimeout(() => setDeployStatus('idle'), saved ? 3000 : 5000);
   };
 
   // ─── Real web call: mic → VAD segmentation → /voice-turn (STT→LLM→TTS) ──────
@@ -4155,13 +4167,15 @@ export default function EditAgent() {
               onClick={() => setShowDeployDropdown(prev => !prev)}
               aria-expanded={showDeployDropdown}
               aria-haspopup="menu"
-              style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '8px 16px', background: deployStatus === 'done' ? 'var(--lime)' : 'var(--cyan)', color: '#060c17', border: 'none', borderRadius: 'var(--radius-sm)', cursor: deployStatus === 'deploying' ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 700, opacity: deployStatus === 'deploying' ? 0.7 : 1, transition: 'background 0.2s ease, opacity 0.2s ease' }}
+              style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '8px 16px', background: deployStatus === 'done' ? 'var(--lime)' : deployStatus === 'failed' ? 'var(--err)' : 'var(--cyan)', color: '#060c17', border: 'none', borderRadius: 'var(--radius-sm)', cursor: deployStatus === 'deploying' ? 'not-allowed' : 'pointer', fontSize: '13px', fontWeight: 700, opacity: deployStatus === 'deploying' ? 0.7 : 1, transition: 'background 0.2s ease, opacity 0.2s ease' }}
               disabled={deployStatus === 'deploying'}
             >
               {deployStatus === 'deploying' ? (
                 <><Loader2 size={15} className="animate-spin" /> Deploying…</>
               ) : deployStatus === 'done' ? (
                 <><Check size={15} /> Deployed</>
+              ) : deployStatus === 'failed' ? (
+                <><X size={15} /> Save failed</>
               ) : (
                 <><Rocket size={15} /> Deploy</>
               )}
@@ -4254,28 +4268,19 @@ export default function EditAgent() {
           </div>
           <textarea
             readOnly
-            value={JSON.stringify({
-              name: agentName,
-              welcomeMessage: activeWelcome,
-              aiModel,
-              voice,
-              transcription,
-              languages: selectedLanguages,
-              flowItems,
-              maxDuration,
-              silenceTimeout,
-              interruptibleEnabled,
-              postCallConfigs
-            }, null, 2)}
+            value={JSON.stringify(buildAgentPayload(), null, 2)}
             style={{ width: '100%', minHeight: '500px', background: 'var(--bg-secondary)', border: '1px solid var(--line)', borderRadius: '8px', padding: '20px', color: 'var(--cyan-fg)', fontSize: '13px', fontFamily: 'monospace', resize: 'vertical', outline: 'none', boxSizing: 'border-box' }}
           />
           <div style={{ display: 'flex', gap: '12px', marginTop: '16px' }}>
             <button
-              onClick={() => { navigator.clipboard.writeText(JSON.stringify({ name: agentName, welcomeMessage: activeWelcome, welcomeInbound, welcomeOutbound, aiModel, voice, transcription, languages: selectedLanguages, flowItems, maxDuration, silenceTimeout, interruptibleEnabled, postCallConfigs }, null, 2)); alert('Copied to clipboard!'); }}
+              onClick={() => {
+                navigator.clipboard.writeText(JSON.stringify(buildAgentPayload(), null, 2))
+                  .then(() => toast.success('Copied to clipboard'), () => toast.error('Could not copy to the clipboard'));
+              }}
               style={{ padding: '10px 20px', background: 'var(--s1)', border: '1px solid var(--line-2)', color: 'var(--tx)', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}
             >📋 Copy JSON</button>
             <button
-              onClick={() => { const blob = new Blob([JSON.stringify({ name: agentName, welcomeMessage: activeWelcome, welcomeInbound, welcomeOutbound, aiModel, voice, transcription, languages: selectedLanguages, flowItems, maxDuration, silenceTimeout, interruptibleEnabled, postCallConfigs }, null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${agentName.replace(/\s+/g, '_')}_config.json`; a.click(); URL.revokeObjectURL(url); }}
+              onClick={() => { const blob = new Blob([JSON.stringify(buildAgentPayload(), null, 2)], { type: 'application/json' }); const url = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = url; a.download = `${agentName.replace(/\s+/g, '_')}_config.json`; a.click(); URL.revokeObjectURL(url); }}
               style={{ padding: '10px 20px', background: 'var(--s1)', border: '1px solid var(--line-2)', color: 'var(--tx)', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '500' }}
             >⬇️ Download JSON</button>
           </div>
