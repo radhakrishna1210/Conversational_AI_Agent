@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 
-const API_BASE = import.meta.env.VITE_API_URL ?? '/api/v1';
+// Same-origin and relative, like every other API call in the client. This was
+// the only reader of VITE_API_URL, and with the documented value
+// (http://localhost:4000) it posted to /report-issue without the /api/v1 prefix.
+const API_BASE = '/api/v1';
 
 // Must match the limits enforced in reportIssue.controller.js — rejecting here
 // saves the user an 8 MB upload that the server was always going to refuse.
