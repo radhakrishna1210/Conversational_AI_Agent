@@ -64,8 +64,6 @@ type CallModePreview = {
   agentName?: string;
 };
 
-const CONCURRENT_LIMIT = 1;
-
 const STATUS_STYLES: Record<string, { bg: string; color: string }> = {
   RUNNING:   { bg: 'rgba(14,179,158,0.14)',  color: 'var(--cyan-fg)' },
   COMPLETED: { bg: 'rgba(34,197,94,0.14)',   color: 'var(--lime)' },
@@ -463,12 +461,10 @@ export default function BulkCall() {
           </p>
         </div>
         <div className="rz-head-actions">
-          <span
-            className="rz-tag"
-            title="Maximum number of calls that can run at the same time on this workspace."
-          >
-            {CONCURRENT_LIMIT} concurrent {CONCURRENT_LIMIT === 1 ? 'call' : 'calls'}
-          </span>
+          {/* A "1 concurrent call" tag used to sit here, from a hardcoded
+              constant. The limit is per campaign (its Concurrent Calls, shown
+              in the table) within the workspace's own ceiling, so no single
+              workspace-wide number was true. */}
           <button className="rz-btn rz-btn-primary" onClick={() => setShowModal(true)}>
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <circle cx="12" cy="12" r="10" />
@@ -925,6 +921,9 @@ export default function BulkCall() {
                   onChange={(event) => handleCreateChange('concurrentCalls', Number(event.target.value))}
                   style={{ width: '100%', padding: '12px 14px', borderRadius: '12px', border: '1px solid var(--line)', background: 'var(--s2)', color: 'var(--tx)' }}
                 />
+                <span style={{ fontSize: '12px', color: 'var(--tx-3)' }}>
+                  How many of this campaign's calls may be live at once. Your workspace's overall call limit still applies.
+                </span>
               </label>
 
             </div>
