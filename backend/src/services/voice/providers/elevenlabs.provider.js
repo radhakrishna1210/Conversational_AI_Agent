@@ -160,9 +160,10 @@ export async function getVoices() {
  * Synthesise speech using ElevenLabs TTS and return an audio Buffer.
  * @param {string} voiceId – ElevenLabs voice_id
  * @param {string} text    – Text to synthesise
- * @param {{ fast?: boolean }} [opts] – fast mode uses eleven_flash_v2_5 with a
- *   lower bitrate and latency-optimized routing (~700ms vs ~7s for long text);
- *   used by live web calls. Default (quality) mode is kept for voice previews.
+ * @param {{ pace?: number }} [opts] – the voice-preview path: always ttsModel()
+ *   at 44.1kHz/128k. There is no "fast" mode here (an earlier note claimed one
+ *   switched to eleven_flash_v2_5; nothing does) — live calls use streamVoice,
+ *   and a faster tier is chosen with ELEVENLABS_TTS_MODEL.
  * @returns {Promise<Buffer>}
  */
 export async function previewVoice(voiceId, text, opts = {}) {

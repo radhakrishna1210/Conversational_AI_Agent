@@ -413,9 +413,10 @@ export const streamSynthesizeVoice = async (voice, text, opts = {}) => {
     return { stream: Readable.fromWeb(body), contentType };
   }
 
-  // ElevenLabs streams its fast Flash model chunk-by-chunk — genuine
-  // first-byte-early audio for live web calls (B4), unlike Sarvam whose
-  // "stream" endpoint buffers server-side (ttfaMs ≈ totalMs in the logs).
+  // ElevenLabs streams chunk-by-chunk — genuine first-byte-early audio for
+  // live calls (B4), unlike Sarvam whose "stream" endpoint buffers server-side
+  // (ttfaMs ≈ totalMs in the logs). The model is ELEVENLABS_TTS_MODEL
+  // (multilingual_v2 by default); `fast` does not switch it to Flash.
   if (providerName === 'ElevenLabs') {
     const { body, contentType } = await elevenLabsProvider.streamVoice(providerVoiceId, text, opts);
     return { stream: Readable.fromWeb(body), contentType };

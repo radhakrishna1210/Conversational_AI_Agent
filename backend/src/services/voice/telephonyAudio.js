@@ -224,11 +224,12 @@ export function createFrameSplitter() {
  * encodes. Anything absent is treated as telephony-incapable, which downgrades
  * the agent to greeting-only with a specific reason.
  *
- * ── Why this list is currently one entry ─────────────────────────────────────
+ * ── Why this list is short ───────────────────────────────────────────────────
  *
  * A provider belongs here only once its module actually HONOURS
- * `opts.audioFormat`. ElevenLabs does (see elevenlabs.provider.js: both
- * streamVoice and ElevenLabsTtsStream put it in the query string).
+ * `opts.audioFormat`. ElevenLabs, Sarvam and Fish Audio do — see each row's
+ * note below (for ElevenLabs, both streamVoice and ElevenLabsTtsStream put it
+ * in the query string).
  *
  * Cartesia and Google still hardcode MP3 today and ignore the option. Listing them here would be actively dangerous rather than merely
  * incomplete: the bridge would take MP3 bytes and either ship them to the
