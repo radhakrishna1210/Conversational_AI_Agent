@@ -42,6 +42,24 @@
  *      resolve — is handled by a 128-tap NLMS filter centred on the estimated
  *      delay. 16ms of span at 8kHz.
  *
+ * ── ONE CLOCK FOR BOTH LEGS ─────────────────────────────────────────────────
+ *
+ * Both stages index the reference by "how many samples ago", measured on the
+ * INBOUND clock — the carrier sends one inbound frame every 20ms for the whole
+ * call. The reference used to be indexed by how many samples WE had written,
+ * and those are not the same count: nothing is written while the agent is
+ * silent (a Plivo pacer only emits speech), and a Twilio reply is written in a
+ * burst seconds faster than it plays. After the first silence or burst the
+ * aligned window pointed at the wrong audio — or past the write head, into
+ * stale ring contents — so the filter only ever worked when an ambience bed
+ * happened to keep the two counts in step.
+ *
+ * So reference() only QUEUES what was handed to the carrier, and each inbound
+ * frame releases exactly one frame of it into the ring — silence when nothing
+ * is queued. That is what the far end hears: the carrier plays at realtime,
+ * whatever order and speed the bytes reached it in. A barge-in's clear drops
+ * the carrier's buffer, so flush() drops the queue with it.
+ *
  * ── WHY THIS IS SAFE TO PUT ON A LIVE CALL ──────────────────────────────────
  *
  * The failure mode of a bad canceller is chewing up the caller's speech, which
@@ -120,6 +138,13 @@ const REF_ACTIVE_RMS = Number(process.env.PHONE_AEC_REF_FLOOR) || 180;
  */
 const DOUBLE_TALK_RATIO = Number(process.env.PHONE_AEC_DT_RATIO) || 0.5;
 
+/**
+ * Most reference audio held waiting for its slot. A carrier buffers a whole
+ * burst, so this has to cover the longest reply shipped at once; past it the
+ * OLDEST is dropped, matching what a carrier that overflowed would play.
+ */
+const MAX_PENDING_SAMPLES = 60 * SAMPLE_RATE;
+
 const enabled = () => process.env.PHONE_AEC_ENABLED !== 'false';
 
 const rmsOf = (buf, from = 0, len = buf.length - from) => {
@@ -144,17 +169,39 @@ const rmsOf = (buf, from = 0, len = buf.length - from) => {
  * @param {number} [opts.taps]
  * @returns {{ reference(pcm: Int16Array): void,
  *             process(pcm: Int16Array): AecResult,
- *             reset(): void, stats(): object }}
+ *             flush(): void, reset(): void, stats(): object }}
  */
 export function createEchoCanceller({ taps = TAPS } = {}) {
-  // Ring of everything we have written to the wire, as floats. Sized to hold
-  // the longest delay we search for plus the filter span, rounded to a power of
-  // two so the index wrap is a mask rather than a modulo.
+  // Ring of what the far end PLAYED, one slot per inbound frame, as floats.
+  // Sized to hold the longest delay we search for plus the filter span, rounded
+  // to a power of two so the index wrap is a mask rather than a modulo.
   const ringSize = 1 << Math.ceil(Math.log2(MAX_DELAY_SAMPLES + taps + FRAME_SAMPLES * 4));
   const ringMask = ringSize - 1;
   const ring = new Float32Array(ringSize);
   let ringWrite = 0;          // next write index
-  let refWritten = 0;         // total samples ever written, for absolute positions
+  let refWritten = 0;         // total samples released into the ring — always equal to micTotal
+
+  // Handed to the carrier but not yet played. See "ONE CLOCK FOR BOTH LEGS".
+  const pending = [];
+  let pendingHead = 0;        // read offset into pending[0]
+  let pendingSamples = 0;
+
+  /** Release exactly `n` samples of reference into the ring: queued audio, then silence. */
+  function advanceReference(n) {
+    let written = 0;
+    while (written < n && pending.length) {
+      const chunk = pending[0];
+      const take = Math.min(n - written, chunk.length - pendingHead);
+      for (let i = 0; i < take; i++) ring[(ringWrite + written + i) & ringMask] = chunk[pendingHead + i];
+      written += take;
+      pendingHead += take;
+      pendingSamples -= take;
+      if (pendingHead >= chunk.length) { pending.shift(); pendingHead = 0; }
+    }
+    for (; written < n; written++) ring[(ringWrite + written) & ringMask] = 0;
+    ringWrite = (ringWrite + n) & ringMask;
+    refWritten += n;
+  }
 
   const w = new Float32Array(taps);
   let micTotal = 0;           // total inbound samples ever seen
@@ -238,14 +285,25 @@ export function createEchoCanceller({ taps = TAPS } = {}) {
   }
 
   return {
-    /** One frame of what we just handed the carrier. */
+    /**
+     * What we just handed the carrier — queued until the inbound clock reaches
+     * it, however fast it was handed over. Copied: the caller may reuse its buffer.
+     */
     reference(pcm) {
-      if (!pcm?.length) return;
-      for (let i = 0; i < pcm.length; i++) {
-        ring[(ringWrite + i) & ringMask] = pcm[i];
+      if (!enabled() || !pcm?.length) return;
+      pending.push(Float32Array.from(pcm));
+      pendingSamples += pcm.length;
+      while (pendingSamples > MAX_PENDING_SAMPLES && pending.length > 1) {
+        pendingSamples -= pending.shift().length - pendingHead;
+        pendingHead = 0;
       }
-      ringWrite = (ringWrite + pcm.length) & ringMask;
-      refWritten += pcm.length;
+    },
+
+    /** The carrier dropped its buffered playback (barge-in): nothing queued will play. */
+    flush() {
+      pending.length = 0;
+      pendingHead = 0;
+      pendingSamples = 0;
     },
 
     /**
@@ -257,16 +315,20 @@ export function createEchoCanceller({ taps = TAPS } = {}) {
         pcm, refActive: false, doubleTalk: false, residualRatio: 1,
         delayMs: haveDelay ? (delaySamples / SAMPLE_RATE) * 1000 : 0, converged,
       };
-      if (!enabled() || !pcm?.length || pcm.length !== FRAME_SAMPLES) return passthrough;
+      if (!enabled() || !pcm?.length) return passthrough;
 
+      // This frame is one frame of the far end's playout, whatever its length:
+      // advance both clocks together so they can never drift apart.
+      advanceReference(pcm.length);
       micTotal += pcm.length;
+      if (pcm.length !== FRAME_SAMPLES) return passthrough;
 
       // ── envelopes, always, so the delay search has history the moment the
       // agent starts speaking rather than a second afterwards ──────────────
       const micRms = rmsOf(pcm);
-      // The reference frame for THIS moment is the one written `delaySamples`
+      // The reference frame for THIS moment is the one released `delaySamples`
       // ago; for the envelope we just want "were we speaking recently", so the
-      // most recent frame is the right thing to record.
+      // frame released for this slot is the right thing to record.
       const refRecentStart = (ringWrite - FRAME_SAMPLES + ringSize) & ringMask;
       let refRecent = 0;
       for (let i = 0; i < FRAME_SAMPLES; i++) {
@@ -304,7 +366,10 @@ export function createEchoCanceller({ taps = TAPS } = {}) {
       // Absolute position of this frame's first sample in the reference stream,
       // stepped back by the echo delay and half the filter.
       const startAbs = micTotal - FRAME_SAMPLES - delaySamples - (taps >> 1);
-      if (startAbs < 0 || refWritten - startAbs > ringSize - FRAME_SAMPLES) return passthrough;
+      // The window must lie entirely in audio already played: a delay shorter
+      // than half the filter would read past the write head into stale slots.
+      if (startAbs < 0 || startAbs + FRAME_SAMPLES + taps > refWritten
+        || refWritten - startAbs > ringSize - FRAME_SAMPLES) return passthrough;
 
       const startIdx = (ringWrite - (refWritten - startAbs) + ringSize * 2) & ringMask;
       for (let i = 0; i < FRAME_SAMPLES + taps; i++) x[i] = ring[(startIdx + i) & ringMask];
@@ -406,11 +471,14 @@ export function createEchoCanceller({ taps = TAPS } = {}) {
         return { ...passthrough, refActive: true, doubleTalk: true, residualRatio: 1 };
       }
 
-      // ── adapt, unless the caller is talking ──────────────────────────────
+      // ── bookkeeping for the adaptation that already happened ────────────
       //
-      // Freezing during double talk is the single thing that keeps an NLMS
-      // filter from modelling the CALLER as if they were echo — which is how a
-      // canceller ends up deleting the speech it exists to protect.
+      // The coefficients were updated inside the filter loop above, per sample,
+      // gated on `suspectDoubleTalk` — freezing during double talk is the single
+      // thing that keeps an NLMS filter from modelling the CALLER as if they
+      // were echo. There used to be a SECOND, block-wise update here from the
+      // same frame's errors, applied on top of the first: exactly the overshoot
+      // the note on the filter loop describes, reintroduced one pass later.
       if (doubleTalk) {
         dtStreak += 1;
         // Sustained double talk on a converged filter is far more likely to be
@@ -420,13 +488,6 @@ export function createEchoCanceller({ taps = TAPS } = {}) {
         if (converged && dtStreak > 100) { converged = false; dtStreak = 0; }
       } else {
         dtStreak = 0;
-        for (let n = 0; n < FRAME_SAMPLES; n++) {
-          let energy = 1e-6;
-          for (let k = 0; k < taps; k++) energy += x[n + k] * x[n + k];
-          const e = out[n];
-          const step = (MU * e) / energy;
-          for (let k = 0; k < taps; k++) w[k] += step * x[n + k];
-        }
         if (ratio < 0.35) converged = true;
       }
 

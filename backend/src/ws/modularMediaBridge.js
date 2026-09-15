@@ -565,6 +565,9 @@ export function runModularMediaBridge(ws, {
    */
   const clearPlayback = () => {
     pacer?.flush();
+    // The canceller queues what the carrier will play; after a clear it won't,
+    // and subtracting that phantom echo would eat the words that caused the barge.
+    aec.flush();
     if (ws.readyState === ws.OPEN && streamId) carrier.clearAudio(ws, streamId);
   };
 

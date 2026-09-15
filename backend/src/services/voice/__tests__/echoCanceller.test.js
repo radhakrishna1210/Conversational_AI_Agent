@@ -128,6 +128,129 @@ describe('echoCanceller', () => {
     }
   });
 
+  // ── The reference does NOT arrive one frame per inbound frame ─────────────
+  //
+  // Every test above feeds reference() and process() in lockstep, which no
+  // carrier does. Twilio gets a whole reply in a burst and plays it at realtime;
+  // Plivo's pacer emits only while the agent speaks, so nothing is written
+  // during silence. The canceller used to align on "samples WE wrote", which is
+  // right only in lockstep — so on a real call it read the wrong reference.
+
+  /** What the far end PLAYS in slot f, given the audio queued for it so far. */
+  const playedEcho = (played, f, i, { delayFrames, gain }) => {
+    const abs = f * N + i - delayFrames * N;
+    return abs >= 0 && abs < played.length ? played[abs] * gain : 0;
+  };
+
+  /**
+   * Speech-shaped but NOT periodic. The harmonic `speech()` above is a sum of
+   * steady sinusoids, which a 128-tap filter can predict from a window that is
+   * hundreds of milliseconds off — so a misaligned reference still "cancels" it
+   * and the alignment bug below is invisible. Real speech does not repeat.
+   */
+  function babble(frames, { seed = 1, amp = 8000 } = {}) {
+    const out = new Int16Array(frames * N);
+    let s = seed;
+    const rnd = () => (s = (s * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+    let env = 0.5;
+    let prev = 0;
+    for (let i = 0; i < out.length; i++) {
+      if (i % 400 === 0) env = 0.25 + rnd() * 0.75;
+      prev = 0.6 * prev + 0.4 * (rnd() - 0.5); // a little low-pass, like a voice band
+      out[i] = Math.round(env * amp * prev * 3);
+    }
+    return out;
+  }
+
+  const settledReduction = (results, from, to) => {
+    const window = results.slice(from, to).filter((r) => r.refActive);
+    const before = rms(window.flatMap((r) => Array.from(r.mic)));
+    const after = rms(window.flatMap((r) => Array.from(r.pcm)));
+    return { active: window.length, before, after };
+  };
+
+  it('cancels a reply that was handed over in one burst (Twilio)', () => {
+    const opts = { delayFrames: 6, gain: 0.55 };
+    // The media stream has been running for a second before the reply: the
+    // caller's own turn. Nothing was written for it.
+    const lead = 50;
+    const reply = babble(250, { seed: 3 });
+    const played = new Int16Array((lead + 250) * N);
+    played.set(reply, lead * N);
+
+    const aec = createEchoCanceller();
+    const results = [];
+    for (let f = 0; f < lead + 250; f++) {
+      if (f === lead) aec.reference(reply); // the whole reply, in one burst
+      const mic = new Int16Array(N);
+      for (let i = 0; i < N; i++) mic[i] = Math.round(playedEcho(played, f, i, opts));
+      results.push({ mic, ...aec.process(mic) });
+    }
+    const { active, before, after } = settledReduction(results, lead + 210, lead + 250);
+    assert.ok(active > 10, 'the reference should be active while the burst plays out');
+    assert.ok(after < before * 0.5,
+      `burst echo must cancel like lockstep echo (before=${before.toFixed(0)} after=${after.toFixed(0)})`);
+  });
+
+  it('cancels speech that follows a silence nothing was written for (Plivo)', () => {
+    const opts = { delayFrames: 6, gain: 0.55 };
+    const silentFrames = 60;
+    const talk = babble(200, { seed: 3 });
+    // What the far end plays: silence (nothing sent), then the reply.
+    const played = new Int16Array((silentFrames + 200) * N);
+    played.set(talk, silentFrames * N);
+
+    const aec = createEchoCanceller();
+    const results = [];
+    for (let f = 0; f < silentFrames + 200; f++) {
+      // A paced carrier writes reference only for frames that carry speech.
+      if (f >= silentFrames) aec.reference(frameAt(talk, f - silentFrames));
+      const mic = new Int16Array(N);
+      for (let i = 0; i < N; i++) mic[i] = Math.round(playedEcho(played, f, i, opts));
+      results.push({ mic, ...aec.process(mic) });
+    }
+    const { active, before, after } = settledReduction(results, silentFrames + 160, silentFrames + 200);
+    assert.ok(active > 10);
+    assert.ok(after < before * 0.5,
+      `echo after a gap must still cancel (before=${before.toFixed(0)} after=${after.toFixed(0)})`);
+  });
+
+  it('flush() forgets playout the carrier was told to drop, so the caller is left alone', () => {
+    const opts = { delayFrames: 6, gain: 0.55 };
+    const far = speech(300, { seed: 3 });
+    const caller = speech(100, { seed: 11, amp: 6000 });
+    const aec = createEchoCanceller();
+    aec.reference(far);
+
+    const bargeAt = 150;
+    const results = [];
+    for (let f = 0; f < 250; f++) {
+      if (f === bargeAt) aec.flush(); // barge-in: the carrier's buffer is cleared
+      const mic = new Int16Array(N);
+      for (let i = 0; i < N; i++) {
+        // Echo of what really played (nothing after the barge), plus the caller from then on.
+        const echo = f * N + i - opts.delayFrames * N < bargeAt * N ? playedEcho(far, f, i, opts) : 0;
+        const talk = f >= bargeAt ? caller[(f - bargeAt) * N + i] : 0;
+        mic[i] = Math.max(-32768, Math.min(32767, Math.round(echo + talk)));
+      }
+      results.push({ mic, ...aec.process(mic) });
+    }
+    // Once the last pre-barge echo has arrived, there is no reference left, so
+    // the caller's audio must come through untouched rather than have phantom
+    // echo subtracted from it.
+    for (const r of results.slice(bargeAt + opts.delayFrames + 2)) {
+      assert.equal(r.refActive, false);
+      assert.deepEqual(Array.from(r.pcm), Array.from(r.mic));
+    }
+  });
+
+  it('does not trip the divergence guard on a clean echo path', () => {
+    const far = speech(250, { seed: 3 });
+    const { aec } = runCall(far, null);
+    assert.equal(aec.stats().diverged, 0, 'a clean, stationary echo path must never be judged diverged');
+    assert.equal(aec.stats().converged, true);
+  });
+
   it('can be switched off without a release', () => {
     const saved = process.env.PHONE_AEC_ENABLED;
     process.env.PHONE_AEC_ENABLED = 'false';
