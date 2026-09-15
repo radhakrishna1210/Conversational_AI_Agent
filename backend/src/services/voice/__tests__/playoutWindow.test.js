@@ -113,6 +113,42 @@ describe('playout window', () => {
     assert.equal(w.speakingForMs(), 0);
   });
 
+  // THE PACED-CARRIER BUG. A cached greeting is pushed into the pacer's queue
+  // in one synchronous burst, so no frame has reached noteFrame() by the time
+  // generation ends. Reading only `endsAt`, the window said "silent" with the
+  // whole greeting still queued, and the bridge started listening over it.
+  test('audio still queued in a pacer counts as speaking', () => {
+    let clock = 1_000_000;
+    let queued = 2_000;       // 2s of greeting sitting in the pacer, nothing sent
+    const w = createPlayoutWindow({ frameMs: 20, now: () => clock, queuedMs: () => queued });
+    w.beginGenerating();
+    w.endGenerating();
+
+    assert.equal(w.isSpeaking(), true, 'queued greeting is not silence');
+    assert.equal(w.remainingMs(), 2_000);
+
+    // The pacer drains at realtime: each tick, 20ms later, moves one frame from
+    // the queue to the wire. Speaking the whole way through.
+    for (let i = 0; i < 100; i++) {
+      clock += 20;
+      queued -= 20;
+      w.noteFrame();
+      assert.equal(w.isSpeaking(), true, `still speaking at frame ${i}`);
+    }
+    assert.equal(queued, 0);
+    assert.equal(w.remainingMs(), 20, 'the last frame is still playing');
+    clock += 20;
+    assert.equal(w.isSpeaking(), false);
+  });
+
+  test('a pacer that goes away stops counting — no queue, no speech', () => {
+    let pacer = { queuedMs: () => 400 };
+    const w = createPlayoutWindow({ queuedMs: () => pacer?.queuedMs?.() ?? 0 });
+    assert.equal(w.isSpeaking(), true);
+    pacer = null;             // cleanup() nulls the pacer on hangup
+    assert.equal(w.isSpeaking(), false);
+  });
+
   test('defaults to the carrier frame size when none is given', () => {
     const w = createPlayoutWindow();
     w.noteFrame();

@@ -243,3 +243,29 @@ test('the queue is bounded, and drops the oldest audio rather than the newest', 
     pacer.stop();
   });
 });
+
+// playoutWindow counts this as audio the caller has not heard. A cached
+// greeting pushed in one burst must read as the full greeting, and the answer
+// must fall to zero exactly as the queue drains — not stay up forever.
+test('queuedMs reports what is still waiting, and nothing once stopped', () => {
+  withFakeClock(({ advance }) => {
+    const pacer = createUlawPacer({ send: () => {} });
+    assert.equal(pacer.queuedMs(), 0, 'a pacer that never started holds nothing');
+    pacer.start();
+
+    pacer.push(speech(50));
+    assert.equal(pacer.queuedMs(), 1000, 'a 1s burst is 1s of pending playout');
+
+    pacer.push(Buffer.alloc(40, 0x7f));
+    assert.equal(pacer.queuedMs(), 1020, 'a partial tail frame still has to play');
+
+    advance(500);
+    assert.ok(pacer.queuedMs() > 0 && pacer.queuedMs() < 1020, 'drains at realtime');
+    advance(1000);
+    assert.equal(pacer.queuedMs(), 0);
+
+    pacer.push(speech(10));
+    pacer.stop();
+    assert.equal(pacer.queuedMs(), 0, 'a stopped pacer will never emit what it holds');
+  });
+});

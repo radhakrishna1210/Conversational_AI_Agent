@@ -462,7 +462,10 @@ export function runModularMediaBridge(ws, {
    * for the whole barge detector, and deliberately not the same thing as "TTS
    * is running". See the header, and playoutWindow.js for the full reasoning.
    */
-  const playout = createPlayoutWindow();
+  // `queuedMs`: audio handed to a pacer is speech the caller has not heard yet.
+  // Without it a cached greeting, pushed into the queue in one burst, read as
+  // "not speaking" and armNextTurn() listened over it. `pacer` is read live.
+  const playout = createPlayoutWindow({ queuedMs: () => pacer?.queuedMs?.() ?? 0 });
 
   /**
    * Subtracts our own voice from the inbound leg.

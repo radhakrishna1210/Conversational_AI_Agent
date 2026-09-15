@@ -183,6 +183,12 @@ export function createUlawPacer({ send, onError }) {
 
     stop,
     isRunning: () => timer !== null,
+    /**
+     * Playout still waiting in this queue, a partial tail frame included —
+     * what playoutWindow needs to know the caller has not heard yet. Zero once
+     * stopped: a pacer that gave up will never emit what it holds.
+     */
+    queuedMs: () => (timer ? Math.ceil(queue.length / ULAW_FRAME_BYTES) * FRAME_MS : 0),
     stats: () => ({
       emitted,
       dropped,

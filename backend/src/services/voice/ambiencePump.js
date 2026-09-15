@@ -157,6 +157,11 @@ export function createAmbiencePump({ presetName, send, onError }) {
 
     stop,
     isRunning: () => timer !== null,
+    /**
+     * ENGINE speech still waiting for its slot — the bed is not counted, for
+     * the same reason `speech: false` exists above. Zero once stopped.
+     */
+    queuedMs: () => (timer ? Math.ceil(queue.length / ULAW_FRAME_BYTES) * FRAME_MS : 0),
     stats: () => ({
       emitted,
       dropped,

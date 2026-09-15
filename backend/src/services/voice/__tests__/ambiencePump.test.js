@@ -159,4 +159,18 @@ describe('ambiencePump', () => {
     assert.equal(seen[seen.length - 1].speech, false);
     pump.stop();
   });
+
+  // playoutWindow reads this as speech the caller has not heard yet, so the bed
+  // must never count — that would re-create the "agent never hears the caller"
+  // bug the speech flag above fixed.
+  it('queuedMs counts engine speech only, never the bed, and nothing once stopped', async () => {
+    const pump = createAmbiencePump({ presetName: 'Office', send: () => {} });
+    pump.start();
+    await sleep(60);
+    assert.equal(pump.queuedMs(), 0, 'a bed with no engine audio is not pending speech');
+    pump.push(speechFrames(25));
+    assert.equal(pump.queuedMs(), 500);
+    pump.stop();
+    assert.equal(pump.queuedMs(), 0);
+  });
 });
