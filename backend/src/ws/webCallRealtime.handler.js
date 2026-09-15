@@ -18,8 +18,8 @@
 
 import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
-import { settleCall } from '../services/billing/settlement.service.js';
 import { openCallBudget } from '../services/billing/callBudget.js';
+import { createCallFinalizer } from './callFinalizer.js';
 import { startHeartbeat } from './socketHeartbeat.js';
 import { verifyAccessToken } from '../lib/jwt.js';
 import { getAgentKbText, renderWelcome } from '../services/agentRuntime.service.js';
@@ -60,23 +60,28 @@ export async function handleWebCallUpgrade(ws, { workspaceId, agentId, direction
   // never settled — until TCP eventually gave up, potentially hours later.
   const stopHeartbeat = startHeartbeat(ws, { label: 'bundled web call' });
 
-  const finalizeCallLog = async (status) => {
-    if (!callLogId) return;
-    await prisma.agentCallLog.update({
-      where: { id: callLogId },
-      data: {
-        status,
-        transcript: JSON.stringify(transcript.slice(-200)),
-        durationSec: Math.round((Date.now() - startedAt) / 1000),
-        endedAt: new Date(),
-      },
-    }).catch((e) => logger.warn(`Could not finalize realtime web call log: ${e.message}`));
+  // The same end of call as every phone bridge: status write, settlement even
+  // if that write failed, then extraction and Post-Call delivery — exactly once.
+  // This handler used to stop at settlement, so an xAI/ElevenLabs agent tested
+  // from the browser never produced its webhook, Sheets row or WhatsApp
+  // confirmation, while the same agent did on a phone call and a modular agent
+  // did on this very page. See ws/callFinalizer.js.
+  const finalizer = createCallFinalizer({ workspaceId, agentId, label: 'bundled web call' });
+  const finalizeCallLog = (status) => finalizer(callLogId, status, { transcript, startedAt });
 
-    // BUG-002: charge the wallet for the minutes used. Idempotent per call, so
-    // a socket close racing an explicit stop cannot double-charge.
-    // Runs even if the update above failed: a call left PENDING is a bill that
-    // nothing else in the system will ever come back to resolve.
-    await settleCall(callLogId);
+  const send = (obj) => {
+    if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj));
+  };
+  /**
+   * Refuse the call and say why. The browser shows the last error frame it saw
+   * when the socket closes, so the frame goes first. Every await below used to
+   * be unguarded: a database timeout rejected this async handler after
+   * `authenticated` was set and the auth timer cleared, so nothing ever closed
+   * the socket and the caller sat on a call that would never start.
+   */
+  const refuse = (closeCode, code, message) => {
+    send({ type: 'error', code, message });
+    if (ws.readyState === ws.OPEN) ws.close(closeCode, code);
   };
 
   /**
@@ -118,7 +123,16 @@ export async function handleWebCallUpgrade(ws, { workspaceId, agentId, direction
         return;
       }
 
-      const agent = await prisma.agent.findFirst({ where: { id: agentId, workspaceId } });
+      clearTimeout(authTimer); // the client met its deadline; the rest is our work
+      let agent;
+      try {
+        agent = await prisma.agent.findFirst({ where: { id: agentId, workspaceId } });
+      } catch (err) {
+        logger.error({ err: err.message, workspaceId, agentId }, 'Bundled web call could not load the agent');
+        refuse(4503, 'BACKEND_UNAVAILABLE', 'Could not reach the database to start this call. Please try again in a moment.');
+        return;
+      }
+      if (teardown) return; // hung up meanwhile
       if (!agent) {
         ws.close(4004, 'Agent not found in this workspace');
         return;
@@ -131,14 +145,22 @@ export async function handleWebCallUpgrade(ws, { workspaceId, agentId, direction
       // Super Admin can withdraw an engine after an agent was already pointed at
       // it. Checked here, before the upstream session exists, so a withdrawn
       // engine stops costing money immediately rather than at the next edit.
-      if (!(await isModelAllowed('conversational', settings.voiceEngine))) {
+      let engineAllowed;
+      try {
+        engineAllowed = await isModelAllowed('conversational', settings.voiceEngine);
+      } catch (err) {
+        logger.error({ err: err.message, workspaceId, agentId }, 'Bundled web call could not read the model catalogue');
+        refuse(4503, 'BACKEND_UNAVAILABLE', 'Could not check this agent\'s engine to start the call. Please try again in a moment.');
+        return;
+      }
+      if (teardown) return;
+      if (!engineAllowed) {
         logger.info({ workspaceId, agentId, engine: settings.voiceEngine }, 'Web call blocked: engine disabled by platform');
         ws.close(4003, 'This conversational engine is no longer available on this platform');
         return;
       }
 
       authenticated = true;
-      clearTimeout(authTimer);
 
       // BUG-002: balance gate, and the spend deadline that goes with it. Runs
       // BEFORE the upstream realtime session is created -- connecting to the
@@ -150,28 +172,35 @@ export async function handleWebCallUpgrade(ws, { workspaceId, agentId, direction
       // the budget adds, a workspace with one minute of balance could hold this
       // socket open for half an hour and settle the lot against an empty wallet.
       // See callBudget.js.
-      const send = (obj) => {
-        if (ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj));
-      };
-      const gate = await openCallBudget({
-        workspaceId,
-        type: 'WEB_CALL',
-        label: 'bundled web call',
-        onWarn: (secondsLeft) => send({
-          type: 'error',
-          code: 'BALANCE_LOW',
-          message: `Your wallet balance runs out in about ${secondsLeft} seconds. Add funds to keep talking.`,
-        }),
-        onExpire: () => {
-          send({
+      let gate;
+      try {
+        gate = await openCallBudget({
+          workspaceId,
+          type: 'WEB_CALL',
+          label: 'bundled web call',
+          onWarn: (secondsLeft) => send({
             type: 'error',
-            code: 'INSUFFICIENT_BALANCE',
-            message: 'Your wallet balance has run out. Add funds to place more calls.',
-          });
-          ws.close(4009, 'INSUFFICIENT_BALANCE');
-        },
-      });
+            code: 'BALANCE_LOW',
+            message: `Your wallet balance runs out in about ${secondsLeft} seconds. Add funds to keep talking.`,
+          }),
+          onExpire: () => {
+            send({
+              type: 'error',
+              code: 'INSUFFICIENT_BALANCE',
+              message: 'Your wallet balance has run out. Add funds to place more calls.',
+            });
+            ws.close(4009, 'INSUFFICIENT_BALANCE');
+          },
+        });
+      } catch (err) {
+        // Could not READ the wallet — not the same as an empty one, so the caller
+        // is told the service is unavailable, never that they are out of money.
+        logger.error({ err: err.message, workspaceId, agentId }, 'Bundled web call could not verify the wallet balance');
+        refuse(4503, 'BACKEND_UNAVAILABLE', 'Could not verify your balance to start this call. Please try again in a moment.');
+        return;
+      }
       budget = gate.budget;
+      if (teardown) { budget?.stop(); return; }
       if (!gate.allowed) {
         logger.info({ workspaceId, agentId, code: gate.code }, `Web call blocked: ${gate.code}`);
         send({ type: 'error', code: gate.code, message: gate.message });
@@ -181,6 +210,9 @@ export async function handleWebCallUpgrade(ws, { workspaceId, agentId, direction
 
       try {
         const { kbText } = await getAgentKbText(workspaceId, agentId);
+        // Hung up during the KB read: cleanup() has run, and a provider session
+        // opened now would have nothing to close it.
+        if (teardown) { budget?.stop(); return; }
         const { welcome } = renderWelcome(agent, { direction });
         session = createRealtimeSession(settings.voiceEngine, { agent, kbText, audioFormat: 'pcm16', welcome });
 
@@ -209,16 +241,23 @@ export async function handleWebCallUpgrade(ws, { workspaceId, agentId, direction
         });
 
         await session.connect();
+        // Hung up while the provider session was connecting. cleanup() closed
+        // it, but a connect that completes afterwards may have reopened it —
+        // close again rather than hold a paid provider session for nobody.
+        if (teardown) { session.close(); return; }
 
         const log = await prisma.agentCallLog.create({
           data: { workspaceId, agentId, type: 'WEB_CALL', status: 'IN_PROGRESS' },
         });
         callLogId = log.id;
+        // Hung up during that insert: the teardown already ran with no row to
+        // close, so close this one now or it sits IN_PROGRESS, unbilled.
+        if (teardown) { await finalizeCallLog('COMPLETED'); return; }
 
         ws.send(JSON.stringify({ type: 'ready' }));
       } catch (err) {
         logger.error(`Failed to start realtime web call session: ${err.message}`);
-        ws.close(1011, 'Failed to start conversational agent session');
+        refuse(1011, 'SESSION_START_FAILED', 'The conversational agent session could not be started. Please try again.');
       }
       return;
     }
