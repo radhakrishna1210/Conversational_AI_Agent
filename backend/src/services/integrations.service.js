@@ -6,7 +6,7 @@ import logger from '../lib/logger.js';
 import { errorMessage, apiError } from './integrationError.js';
 import { resetIntegrationBackoff } from './integrationBackoff.js';
 import { broadcastIntegrationEvent } from '../lib/integrationEvents.js';
-import { assertPublicHttpUrl } from '../lib/safeUrl.js';
+import { fetchPublicUrl } from '../lib/safeUrl.js';
 import { INTEGRATION_ORDER, INTEGRATION_PROVIDERS } from '../constants/integrations.js';
 import { buildConnectionIdentity, isPlaceholderValue, isValidWebhookUrl, normalizeIntegrationName, normalizeWebhookUrl, validateIntegrationCredentials, validateWebhookProviderUrl } from './integrationConnectionUtils.js';
 
@@ -41,6 +41,21 @@ const clientId     = (p) => p.oauth ? envValue(p.oauth.clientIdEnv)     : null;
 const clientSecret = (p) => p.oauth ? envValue(p.oauth.clientSecretEnv) : null;
 const redirectUri  = (p) => p.oauth ? envValue(p.oauth.redirectUriEnv)  : null;
 const genesysRegion = () => env.GENESYS_REGION || 'mypurecloud.com';
+
+/**
+ * A tenant-typed Genesys region, spliced into `https://login.<region>/…`.
+ *
+ * Anything beyond hostname characters rewrites that URL: `x@127.0.0.1:6379`
+ * turns `login.x` into credentials and makes the host loopback. So only a bare
+ * domain passes, and the fetch itself still goes through fetchPublicUrl.
+ */
+export const assertGenesysRegion = (region) => {
+  const value = String(region ?? '').trim().toLowerCase();
+  if (!/^[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(value)) {
+    throw Object.assign(new Error('Genesys region must be a domain such as mypurecloud.com'), { statusCode: 400 });
+  }
+  return value;
+};
 
 const isMockProvider = (p) => false;
 // Fake "connected" integrations are a demo-only behavior and must be opted into
@@ -260,7 +275,8 @@ const fetchSnapshot = async (integration) => {
     const instanceUrl = metadata.instanceUrl;
     const endpoint = p.syncEndpoint ?? '';
     if (!instanceUrl || !endpoint) return { accountLabel: fallbackLabel, lastSyncedCount: fallbackCount };
-    const res = await fetch(`${instanceUrl}${endpoint}`, {
+    // Tenant-typed, so checked like any other tenant URL — it was fetched raw.
+    const res = await fetchPublicUrl(`${instanceUrl}${endpoint}`, {
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     });
     const data = await res.json().catch(() => ({}));
@@ -269,10 +285,11 @@ const fetchSnapshot = async (integration) => {
   }
 
   if (p.key === 'genesys') {
-    const region = metadata.region || 'mypurecloud.com';
+    // Re-checked here too: a region saved before the check existed is still tenant text.
+    const region = assertGenesysRegion(metadata.region || 'mypurecloud.com');
     const endpoint = p.syncEndpoint ?? '';
     if (!endpoint) return { accountLabel: fallbackLabel, lastSyncedCount: fallbackCount };
-    const res = await fetch(`https://api.${region}${endpoint}`, {
+    const res = await fetchPublicUrl(`https://api.${region}${endpoint}`, {
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
     });
     const data = await res.json().catch(() => ({}));
@@ -438,7 +455,8 @@ export const connectWithCredentials = async (workspaceId, providerKey, credentia
     else if (providerKey === 'salesforce') {
       accessToken = sanitizedCredentials.accessToken;
       const instanceUrl = sanitizedCredentials.instanceUrl?.replace(/\/$/, '');
-      const res = await fetch(`${instanceUrl}/services/data/v60.0/limits`, {
+      // The instance URL is whatever the tenant typed; it was fetched with no SSRF check.
+      const res = await fetchPublicUrl(`${instanceUrl}/services/data/v60.0/limits`, {
         headers: { Authorization: `Bearer ${accessToken}` },
       });
       if (!res.ok) throw Object.assign(new Error('Invalid Salesforce token or instance URL'), { statusCode: 400 });
@@ -458,8 +476,8 @@ export const connectWithCredentials = async (workspaceId, providerKey, credentia
       extraMeta = { accountSid: sid };
     }
     else if (providerKey === 'genesys') {
-      const region = sanitizedCredentials.region || 'mypurecloud.com';
-      const tokenRes = await fetch(`https://login.${region}/oauth/token`, {
+      const region = assertGenesysRegion(sanitizedCredentials.region || 'mypurecloud.com');
+      const tokenRes = await fetchPublicUrl(`https://login.${region}/oauth/token`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         body: new URLSearchParams({
@@ -724,9 +742,9 @@ export const testCustomApi = async (workspaceId, payload) => {
 
   // SSRF: z.string().url() accepted http://127.0.0.1:6379/ and the cloud
   // metadata address. Refuse anything local/private, after resolving the
-  // hostname, immediately before the request is made (lib/safeUrl.js).
-  await assertPublicHttpUrl(url.toString());
-  const res  = await fetch(url.toString(), { method: cfg.method, headers: { 'Content-Type': 'application/json', ...headers }, body: ['GET','DELETE'].includes(cfg.method) ? undefined : (cfg.bodyTemplate ?? undefined) });
+  // hostname, immediately before the request is made — and again on every
+  // redirect, which a plain fetch followed unchecked (lib/safeUrl.js).
+  const res  = await fetchPublicUrl(url.toString(), { method: cfg.method, headers: { 'Content-Type': 'application/json', ...headers }, body: ['GET','DELETE'].includes(cfg.method) ? undefined : (cfg.bodyTemplate ?? undefined) });
   const text = await res.text();
 
   await prisma.customApiConfig.update({ where: { id: cfg.id }, data: { lastTestAt: now(), lastTestStatus: res.status, lastTestError: res.ok ? null : text.slice(0, 500) } });

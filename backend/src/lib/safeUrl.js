@@ -119,3 +119,52 @@ export async function assertPublicHttpUrl(input, { lookup = dnsLookup } = {}) {
   }
   return url;
 }
+
+const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const MAX_REDIRECTS = 5;
+/** Never carried to a different origin: the tenant gave them to the first host, not the next. */
+const CREDENTIAL_HEADERS = ['authorization', 'proxy-authorization', 'cookie', 'x-api-key'];
+
+/**
+ * `fetch` for a URL a tenant typed, with EVERY hop checked, not just the first.
+ *
+ * Checking the URL and then calling a plain `fetch` let the check be walked
+ * around with one redirect: a public host answering `302 Location:
+ * http://169.254.169.254/...` was followed straight to the metadata service,
+ * and the custom-API tester handed the response body back to the tenant.
+ * Redirects are followed by hand here instead, each target re-checked
+ * (including DNS) before it is requested.
+ *
+ * Follows fetch's own rules for the method: 303, and 301/302 after a POST,
+ * continue as a bodiless GET. Credential headers are dropped when the origin
+ * changes.
+ *
+ * @param {string} input
+ * @param {RequestInit} [init] `redirect` is ignored — this function owns it
+ * @param {{ lookup?: typeof dnsLookup, fetchImpl?: typeof fetch, maxRedirects?: number }} [deps] test seams
+ * @returns {Promise<Response>}
+ */
+export async function fetchPublicUrl(input, init = {}, { lookup = dnsLookup, fetchImpl = fetch, maxRedirects = MAX_REDIRECTS } = {}) {
+  let url = await assertPublicHttpUrl(input, { lookup });
+  let method = String(init.method || 'GET').toUpperCase();
+  let body = init.body;
+  const headers = new Headers(init.headers ?? {});
+
+  for (let hop = 0; ; hop += 1) {
+    const res = await fetchImpl(url.toString(), { ...init, method, body, headers, redirect: 'manual' });
+    const location = REDIRECT_STATUSES.has(res.status) ? res.headers.get('location') : null;
+    if (!location) return res;
+    if (hop >= maxRedirects) throw refuse('Too many redirects');
+
+    const next = await assertPublicHttpUrl(new URL(location, url).toString(), { lookup });
+    await res.body?.cancel().catch(() => {});
+
+    if (res.status === 303 || ((res.status === 301 || res.status === 302) && method === 'POST')) {
+      method = 'GET';
+      body = undefined;
+      headers.delete('content-type');
+    }
+    if (next.origin !== url.origin) CREDENTIAL_HEADERS.forEach((h) => headers.delete(h));
+    url = next;
+  }
+}

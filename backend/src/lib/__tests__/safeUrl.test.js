@@ -1,6 +1,6 @@
 import { test, describe } from 'node:test';
 import assert from 'node:assert/strict';
-import { isPrivateAddress, isForbiddenHost, assertPublicHttpUrlSync, assertPublicHttpUrl } from '../safeUrl.js';
+import { isPrivateAddress, isForbiddenHost, assertPublicHttpUrlSync, assertPublicHttpUrl, fetchPublicUrl } from '../safeUrl.js';
 
 const rejects400 = async (p, re) => {
   await assert.rejects(p, (e) => { assert.equal(e.statusCode, 400); assert.equal(e.code, 'URL_NOT_ALLOWED'); if (re) assert.match(e.message, re); return true; });
@@ -97,5 +97,81 @@ describe('assertPublicHttpUrl (with resolution)', () => {
   test('a public literal IP skips resolution', async () => {
     const u = await assertPublicHttpUrl('http://8.8.8.8/', { lookup: async () => { throw new Error('should not be called'); } });
     assert.equal(u.hostname, '8.8.8.8');
+  });
+});
+
+describe('fetchPublicUrl (every redirect hop is checked)', () => {
+  const lookup = async (host) => {
+    const map = { 'hooks.example.com': ['93.184.216.34'], 'other.example.com': ['93.184.216.35'], 'rebind.example.com': ['10.0.0.9'] };
+    if (!(host in map)) throw new Error('ENOTFOUND');
+    return map[host].map((address) => ({ address, family: 4 }));
+  };
+  /** A scripted server: each entry answers one request, in order. */
+  const scripted = (responses) => {
+    const calls = [];
+    const fetchImpl = async (url, init) => {
+      calls.push({ url, method: init.method, body: init.body, headers: new Headers(init.headers), redirect: init.redirect });
+      const next = responses.shift();
+      if (!next) throw new Error(`unexpected request to ${url}`);
+      return new Response(next.body ?? null, { status: next.status, headers: next.headers ?? {} });
+    };
+    return { calls, fetchImpl };
+  };
+
+  test('never lets fetch follow a redirect itself', async () => {
+    const s = scripted([{ status: 200, body: 'ok' }]);
+    const res = await fetchPublicUrl('https://hooks.example.com/in', {}, { lookup, fetchImpl: s.fetchImpl });
+    assert.equal(res.status, 200);
+    assert.equal(s.calls[0].redirect, 'manual');
+  });
+
+  test('a redirect to the cloud metadata address is refused before it is requested', async () => {
+    const s = scripted([{ status: 302, headers: { Location: 'http://169.254.169.254/latest/meta-data/' } }]);
+    await rejects400(fetchPublicUrl('https://hooks.example.com/in', {}, { lookup, fetchImpl: s.fetchImpl }), /local or private/);
+    assert.equal(s.calls.length, 1, 'only the public hop was ever requested');
+  });
+
+  test('a redirect to a host that RESOLVES privately is refused too', async () => {
+    const s = scripted([{ status: 307, headers: { Location: 'https://rebind.example.com/x' } }]);
+    await rejects400(fetchPublicUrl('https://hooks.example.com/in', { method: 'POST', body: '{}' }, { lookup, fetchImpl: s.fetchImpl }), /local or private/);
+    assert.equal(s.calls.length, 1);
+  });
+
+  test('a public redirect is followed; 303 continues as a bodiless GET', async () => {
+    const s = scripted([{ status: 303, headers: { Location: '/done' } }, { status: 200, body: 'ok' }]);
+    const res = await fetchPublicUrl('https://hooks.example.com/in', { method: 'POST', body: '{"a":1}', headers: { 'Content-Type': 'application/json' } }, { lookup, fetchImpl: s.fetchImpl });
+    assert.equal(res.status, 200);
+    assert.equal(s.calls[1].url, 'https://hooks.example.com/done');
+    assert.equal(s.calls[1].method, 'GET');
+    assert.equal(s.calls[1].body, undefined);
+  });
+
+  test('307 keeps the method and body', async () => {
+    const s = scripted([{ status: 307, headers: { Location: 'https://hooks.example.com/v2' } }, { status: 204 }]);
+    await fetchPublicUrl('https://hooks.example.com/in', { method: 'POST', body: 'payload' }, { lookup, fetchImpl: s.fetchImpl });
+    assert.equal(s.calls[1].method, 'POST');
+    assert.equal(s.calls[1].body, 'payload');
+  });
+
+  test('credentials are not carried to a different origin', async () => {
+    const s = scripted([{ status: 302, headers: { Location: 'https://other.example.com/' } }, { status: 200 }]);
+    await fetchPublicUrl('https://hooks.example.com/in', { headers: { Authorization: 'Bearer secret', 'X-API-Key': 'k', 'X-Other': 'kept' } }, { lookup, fetchImpl: s.fetchImpl });
+    assert.equal(s.calls[0].headers.get('authorization'), 'Bearer secret');
+    assert.equal(s.calls[1].headers.get('authorization'), null);
+    assert.equal(s.calls[1].headers.get('x-api-key'), null);
+    assert.equal(s.calls[1].headers.get('x-other'), 'kept');
+  });
+
+  test('a redirect loop ends', async () => {
+    const loop = Array.from({ length: 10 }, () => ({ status: 302, headers: { Location: '/again' } }));
+    const s = scripted(loop);
+    await rejects400(fetchPublicUrl('https://hooks.example.com/in', {}, { lookup, fetchImpl: s.fetchImpl, maxRedirects: 3 }), /Too many redirects/);
+    assert.equal(s.calls.length, 4);
+  });
+
+  test('the first URL is still checked', async () => {
+    const s = scripted([]);
+    await rejects400(fetchPublicUrl('http://127.0.0.1:6379/', {}, { lookup, fetchImpl: s.fetchImpl }), /local or private/);
+    assert.equal(s.calls.length, 0);
   });
 });
