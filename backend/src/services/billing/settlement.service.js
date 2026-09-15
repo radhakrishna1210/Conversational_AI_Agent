@@ -100,6 +100,10 @@ function reapAbandonedCalls(workspaceId, staleBefore) {
 export async function settleCall(callLogId, { actualCostMicroUsd = null } = {}) {
   if (!callLogId) return { billed: false, reason: 'no-call-id' };
 
+  // Set once this call has claimed the row as BILLED, so a failure after that
+  // point can undo the claim instead of leaving a charge that never happened.
+  let claimedAsBilled = false;
+
   try {
     const call = await prisma.agentCallLog.findUnique({ where: { id: callLogId } });
     if (!call) return { billed: false, reason: 'not-found' };
@@ -147,10 +151,12 @@ export async function settleCall(callLogId, { actualCostMicroUsd = null } = {}) 
     const walletRate = await resolveWorkspaceRate(call.workspaceId);
     const { ratePerMinuteCents, fxRate, amountCents } = calculateCallCharge(durationSec, walletRate);
 
-    // Claim before charging. If the process dies between claim and ledger
-    // write the call ends up BILLED with no charge — under-billing one call,
-    // which is strictly safer than the reverse and is visible in the audit
-    // (billedCents 0 with no matching ledger row).
+    // Claim before charging, so a concurrent second settlement backs off. The
+    // claim already carries the amount; if the ledger write then FAILS, the
+    // catch below takes the claim back (see releaseFailedClaim). Only a process
+    // that dies outright between the two leaves BILLED with no ledger row —
+    // under-billing one call, which is strictly safer than the reverse, and
+    // visible to auditWallet as a billed call with no matching `call:` entry.
     const claimed = await prisma.agentCallLog.updateMany({
       where: { id: callLogId, billingStatus: 'PENDING' },
       data: {
@@ -165,6 +171,7 @@ export async function settleCall(callLogId, { actualCostMicroUsd = null } = {}) 
     if (claimed.count === 0) {
       return { billed: false, reason: 'claimed-concurrently' };
     }
+    claimedAsBilled = true;
 
     // Can only happen if the rate itself is 0, which setWalletRate refuses.
     // Kept so a zero-value ledger row is never written if that ever changes.
@@ -205,12 +212,39 @@ export async function settleCall(callLogId, { actualCostMicroUsd = null } = {}) 
     // Settlement must never break call teardown — the caller is a socket close
     // handler. Mark FAILED so it is retryable and visible, and swallow.
     logger.error({ callLogId, err: err.message }, 'Call settlement failed');
-    await prisma.agentCallLog.updateMany({
-      where: { id: callLogId, billingStatus: 'PENDING' },
-      data: { billingStatus: 'FAILED' },
-    }).catch(() => {});
+    if (claimedAsBilled) {
+      await releaseFailedClaim(callLogId).catch((e) => {
+        logger.error({ callLogId, err: e.message }, 'Could not mark a failed settlement FAILED; the call reads BILLED with no charge');
+      });
+    } else {
+      await prisma.agentCallLog.updateMany({
+        where: { id: callLogId, billingStatus: 'PENDING' },
+        data: { billingStatus: 'FAILED' },
+      }).catch(() => {});
+    }
     return { billed: false, reason: 'error', error: err.message };
   }
+}
+
+/**
+ * Undo a BILLED claim whose ledger debit failed.
+ *
+ * The claim writes `billedCents` before the debit runs. The catch used to touch
+ * only PENDING rows, so a debit that threw left the call BILLED, showing an
+ * amount no wallet was ever charged, and — not being FAILED — never picked up
+ * again. The ledger decides which it was: a `call:<id>` row means the debit
+ * landed and the error came after it, so the claim stands.
+ */
+async function releaseFailedClaim(callLogId) {
+  const charged = await prisma.walletTransaction.findUnique({
+    where: { idempotencyKey: `call:${callLogId}` },
+    select: { id: true },
+  });
+  if (charged) return;
+  await prisma.agentCallLog.updateMany({
+    where: { id: callLogId, billingStatus: 'BILLED' },
+    data: { billingStatus: 'FAILED', billedCents: 0, billedMinutes: 0, billedAt: null },
+  });
 }
 
 /**
