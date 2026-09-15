@@ -100,9 +100,10 @@ export function speculationMatches(candidate, committed) {
  * exposes an async iterator that replays the buffer and then continues live.
  */
 class Speculation {
-  constructor({ text, start, trigger }) {
+  constructor({ text, start, trigger, affect = null }) {
     this.text = text;
     this.trigger = trigger;            // 'candidate' | 'interim' — for the log
+    this.affect = affect;              // the caller-state read the request was built with
     this.startedAt = performance.now();
     this.firstTokenAt = null;
     this.doneAt = null;
@@ -185,12 +186,16 @@ class Speculation {
  *
  * @param {object} opts
  * @param {'off'|'candidate'|'interim'} opts.mode
- * @param {(messages: Array<{role:string, content:string}>, o: { signal: AbortSignal }) => AsyncIterator} opts.start
+ * @param {(messages: Array<{role:string, content:string}>, o: { signal: AbortSignal, affect: string|null }) => AsyncIterator} opts.start
  *   starts one LLM stream for the given messages — the transport binds this to
  *   converseStream(workspaceId, agentId, ...) so this module never touches the
- *   runtime directly.
+ *   runtime directly. `affect` must be passed through to it.
  * @param {() => Array<{role:string, content:string}>} opts.history  the conversation
  *   as it stands (without the turn being spoken); read at start time.
+ * @param {(text: string) => string|null} [opts.affect]  the caller-state read
+ *   (speechGate.classifyCallerAffect) for the audio heard so far, taken at start
+ *   time. It changes the system prompt, so a request built with one read is
+ *   only a hit for a turn that commits with the same read — see take().
  * @param {number} [opts.debounceMs]     interim mode: quiet time before a restart
  * @param {number} [opts.minDeltaChars]  interim mode: smallest change worth a restart
  * @param {string} [opts.label]          for logs
@@ -208,6 +213,7 @@ export function createSpeculator({
   minDeltaChars = Number(process.env.VOICE_SPECULATION_MIN_DELTA) || 4,
   label = 'speculation',
   underPressure = isLlmUnderPressure,
+  affect: affectAt = () => null,
 } = {}) {
   if (typeof start !== 'function') throw new Error('createSpeculator needs start()');
   const enabled = mode !== 'off';
@@ -241,7 +247,9 @@ export function createSpeculator({
       discard(current, 'superseded');
     }
     const msgs = [...history(), { role: 'user', content: clean }];
-    current = new Speculation({ text: clean, trigger, start: (o) => start(msgs, o) });
+    let affect = null;
+    try { affect = affectAt(clean) ?? null; } catch { /* no read: neutral, as before */ }
+    current = new Speculation({ text: clean, trigger, affect, start: (o) => start(msgs, { ...o, affect }) });
     stats.started += 1; turnStats.started += 1;
   };
 
@@ -300,11 +308,16 @@ export function createSpeculator({
      * handle for voiceTurnStream, or null (after discarding whatever was in
      * flight) when the ordinary path must run.
      *
+     * @param {string} finalText
+     * @param {{ affect?: string|null }} [committed] the caller-state read the
+     *   turn is about to run with. When given, a speculation built with a
+     *   different read is a miss: the "Caller state" note is part of the system
+     *   prompt, so its reply answers a differently-framed question.
      * @returns {{ iterator: AsyncIterator, text: string, startedAt: number,
      *   firstTokenAt: number|null, bufferedChars: number, trigger: string,
      *   turn: { started: number, wasted: number, wastedChars: number } } | null}
      */
-    take(finalText) {
+    take(finalText, committed = {}) {
       turnOpen = false;
       clearDebounce();
       const spec = current; current = null;
@@ -313,6 +326,11 @@ export function createSpeculator({
       if (spec.aborted || spec.error) { discard(spec, spec.error ? 'errored' : 'aborted'); stats.misses += 1; return { hit: null, turn: { ...turnStats } }; }
       if (!speculationMatches(spec.text, finalText)) {
         discard(spec, `mismatch: "${spec.text}" vs "${finalText}"`);
+        stats.misses += 1;
+        return { hit: null, turn: { ...turnStats } };
+      }
+      if ('affect' in committed && (spec.affect ?? null) !== (committed.affect ?? null)) {
+        discard(spec, `caller state changed: ${spec.affect ?? 'none'} vs ${committed.affect ?? 'none'}`);
         stats.misses += 1;
         return { hit: null, turn: { ...turnStats } };
       }

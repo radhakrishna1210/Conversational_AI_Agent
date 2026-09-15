@@ -257,7 +257,10 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
     mode: speculationModeFor(agentSettings),
     label: 'web speculation',
     history: () => (Array.isArray(segmentHistory) ? segmentHistory : []),
-    start: (messages, { signal }) => converseStream(workspaceId, agentId, messages, { voiceMode: true, signal, transfer: transferOpts, spokenWelcome }),
+    // The same caller-state read the committed turn will make, on the audio
+    // heard so far — it changes the prompt, so a hit must have been built with it.
+    affect: (text) => classifyCallerAffect(analyzeSpeech(Buffer.concat(frames), sampleRate), text),
+    start: (messages, { signal, affect }) => converseStream(workspaceId, agentId, messages, { voiceMode: true, signal, transfer: transferOpts, spokenWelcome, affect }),
   });
 
   // Cleared when the auth FRAME arrives — see AUTH_TIMEOUT_MS.
@@ -529,7 +532,11 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
     // gates above have agreed this is a real turn. A hit hands its iterator to
     // the runtime; a miss (or nothing started) aborts whatever was in flight
     // and the ordinary path runs.
-    const speculation = { ...speculator.take(streamedText), mode: speculator.mode };
+    // Acoustic + transcript affect signal (rushed/hesitant/agitated/quiet/null)
+    // — steers reply tone and TTS delivery turn-by-turn. Read before take(): a
+    // speculation built with a different read answers a different prompt.
+    const affect = classifyCallerAffect(speech, streamedText);
+    const speculation = { ...speculator.take(streamedText, { affect }), mode: speculator.mode };
     // Supersedes any reply still unwinding from a barge: the caller has spoken
     // again, and that reply's abort must survive this one starting.
     const reply = replies.begin();
@@ -543,9 +550,7 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
         Array.isArray(history) ? history : [],
         {
           userText: streamedText,
-          // Acoustic + transcript affect signal (rushed/hesitant/agitated/
-          // quiet/null) — steers reply tone and TTS delivery turn-by-turn.
-          affect: classifyCallerAffect(speech, streamedText),
+          affect,
           // BUG-001: lets voiceTurnStream apply the STT-hallucination filter to
           // the BATCH transcript with a second, independent signal. Text alone
           // is not enough to drop "okay"/"thank you" (a caller really says

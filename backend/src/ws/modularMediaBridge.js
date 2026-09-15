@@ -446,6 +446,15 @@ export function runModularMediaBridge(ws, {
     }
   };
 
+  /** The turn's audio so far, WITHOUT draining it — for a speculation's affect read. */
+  const peekTurnAudio = () => {
+    if (!turnPcmChunks.length) return null;
+    const out = new Int16Array(turnPcmSamples);
+    let offset = 0;
+    for (const chunk of turnPcmChunks) { out.set(chunk, offset); offset += chunk.length; }
+    return Buffer.from(out.buffer, out.byteOffset, out.byteLength);
+  };
+
   /** Snapshot + reset, so an early return still clears the buffer for the next turn. */
   const takeTurnAudio = () => {
     if (!turnPcmChunks.length) return null;
@@ -853,7 +862,7 @@ export function runModularMediaBridge(ws, {
       // gates above agree this is a real turn — a hit hands its iterator to
       // the runtime, anything else is aborted so no discarded turn leaves a
       // request running. See speculativeTurn.js.
-      const speculation = { ...speculator.take(userText), mode: speculator.mode };
+      const speculation = { ...speculator.take(userText, { affect }), mode: speculator.mode };
 
       let replyText = '';
       let pending = null;
@@ -1729,13 +1738,16 @@ export function runModularMediaBridge(ws, {
             // The conversation so far. `history` already holds the greeting and
             // every completed turn; the turn being spoken is not in it yet.
             history: () => history.slice(),
+            // The caller-state read the committed turn will make, on the audio
+            // captured so far. Part of the prompt, so take() insists it matches.
+            affect: (text) => classifyCallerAffect(analyzeSpeech(peekTurnAudio(), PHONE_SAMPLE_RATE), text),
             // Same prompt as the committed turn will use (transfer protocol
             // included), or the speculative reply would not match.
             // spokenWelcome is read when the request starts, not captured now,
             // so it names the greeting once rendered (a few ms after `start`).
             // A speculation racing ahead of that falls back to the configured
             // direction's greeting, as every call did before.
-            start: (messages, { signal }) => converseStream(workspaceId, agentId, messages, { voiceMode: true, signal, transfer: transferOpts(), spokenWelcome }),
+            start: (messages, { signal, affect }) => converseStream(workspaceId, agentId, messages, { voiceMode: true, signal, transfer: transferOpts(), spokenWelcome, affect }),
           });
 
           // ── Wallet gate ───────────────────────────────────────────────────

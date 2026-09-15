@@ -112,6 +112,57 @@ describe('createSpeculator — candidate mode', () => {
     assert.equal(s.stats().hits, 1);
   });
 
+  // The caller-state read ("rushed", "hesitant", …) adds a note to the SYSTEM
+  // PROMPT. Speculations used to start without it, so a hit answered with a
+  // prompt the committed turn would never have used.
+  describe('caller state', () => {
+    const withAffect = () => {
+      const seen = [];
+      const { start: inner, calls } = fakeStart(['Sure', '.']);
+      const start = (messages, o) => { seen.push(o.affect); return inner(messages, o); };
+      return { start, calls, seen };
+    };
+
+    test('is read when the speculation starts and passed to the request', () => {
+      const { start, seen } = withAffect();
+      const reads = [];
+      const s = createSpeculator({ mode: 'candidate', start, affect: (text) => { reads.push(text); return 'rushed'; } });
+      s.beginTurn();
+      s.onCandidate('book me in quickly');
+      assert.deepEqual(reads, ['book me in quickly']);
+      assert.deepEqual(seen, ['rushed']);
+    });
+
+    test('a turn committing with the same read is a hit', async () => {
+      const { start } = withAffect();
+      const s = createSpeculator({ mode: 'candidate', start, affect: () => 'hesitant' });
+      s.beginTurn();
+      s.onCandidate('um I think so');
+      await tick(10);
+      assert.ok(s.take('um I think so', { affect: 'hesitant' }).hit);
+    });
+
+    test('a turn committing with a different read is a miss, and the request is aborted', async () => {
+      const { start, calls } = withAffect();
+      const s = createSpeculator({ mode: 'candidate', start, affect: () => null });
+      s.beginTurn();
+      s.onCandidate('what time do you close');
+      await tick(10);
+      const r = s.take('what time do you close', { affect: 'agitated' });
+      assert.equal(r.hit, null);
+      assert.equal(calls[0].aborted, true);
+      assert.equal(s.stats().misses, 1);
+    });
+
+    test('a failing read is treated as neutral, never as a crash', () => {
+      const { start, seen } = withAffect();
+      const s = createSpeculator({ mode: 'candidate', start, affect: () => { throw new Error('no audio'); } });
+      s.beginTurn();
+      s.onCandidate('hello');
+      assert.deepEqual(seen, [null]);
+    });
+  });
+
   test('a mismatch aborts the request at the provider and counts the waste', async () => {
     const { start, calls } = fakeStart(['Some', ' reply']);
     const s = createSpeculator({ mode: 'candidate', start });
