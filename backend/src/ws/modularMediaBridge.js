@@ -306,6 +306,14 @@ export function runModularMediaBridge(ws, {
   // fails to connect at all (bad key, Deepgram outage) does not retry once per
   // inbound frame (~50/s) — see the 'media' case below.
   let lastDgReconnectAt = 0;
+  /**
+   * Set once `start` has opened the call's Deepgram session. Carriers send media
+   * the instant the stream opens, while `start` is still loading the agent, and
+   * the reconnect branch in 'media' took "no session yet" for "session died" —
+   * so every call opened one session with no agent settings, then `start` opened
+   * a second over it, and the first stayed open on KeepAlive for the whole call.
+   */
+  let dgReady = false;
 
   /** Full conversation, owned here because there is no client to own it. */
   const history = [];
@@ -1061,6 +1069,10 @@ export function runModularMediaBridge(ws, {
   };
 
   const openDeepgram = () => {
+    // Never for a call that is over, and never leaving the session it replaces
+    // open — a dead-but-not-closed session still holds a socket and a KeepAlive.
+    if (closed) return;
+    if (dg) { try { dg.close(); } catch { /* already gone */ } dg = null; }
     dgLanguage = resolveDgLanguage();
     dg = new DeepgramStreamSession({
       // The carrier's own wire format — no transcoding in either direction.
@@ -1730,6 +1742,11 @@ export function runModularMediaBridge(ws, {
 
           agent = loadedAgent;
           budget = gate.budget;
+          // The caller can hang up during those round trips. cleanup() has
+          // already run, so nothing below may start: a pacer or Deepgram session
+          // opened now has nobody to stop it, and this budget's timer would
+          // outlive the call it was metering.
+          if (closed) { budget?.stop(); return; }
           if (!agent) throw new Error('Agent not found in this workspace');
           settings = safeJson(agent.settings, {});
           speculator = createSpeculator({
@@ -1826,6 +1843,7 @@ export function runModularMediaBridge(ws, {
             });
 
           voice = await resolveAgentVoice(agent.voice);
+          if (closed) return; // hung up during the lookup — see above
           if (!voice) throw new Error('Agent has no resolvable voice');
 
           // telephonyFormatForVoice, NOT telephonyOutputFormat(voice.provider.name):
@@ -1934,6 +1952,7 @@ export function runModularMediaBridge(ws, {
           }
           lastCallerSpeechAt = Date.now();
 
+          dgReady = true;
           openDeepgram();
 
           // Warm what the first turn will need, in this call's audio format,
@@ -2043,7 +2062,9 @@ export function runModularMediaBridge(ws, {
         // turn in flight, so nothing else would ever notice). Cooldown guards
         // against a reconnect attempt on every single frame (~50/s) when Deepgram
         // itself is unreachable or the key is bad.
-        if (!closed && (!dg || !dg.isAlive)) {
+        // `dgReady`: before `start` has opened the session, "no session" is not
+        // a dead one — see its declaration.
+        if (!closed && dgReady && (!dg || !dg.isAlive)) {
           const now = Date.now();
           if (now - lastDgReconnectAt > 1000) {
             lastDgReconnectAt = now;
