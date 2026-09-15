@@ -524,8 +524,10 @@ export default function Vonage() {
                 AI voice conversations.
               </div>
 
+              {/* There is no /integrations/twilio page; the phone-numbers guide
+                  is where Twilio calling is actually explained. */}
               <Link
-                to="/integrations/twilio"
+                to="/docs/user/phone-numbers"
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
@@ -577,8 +579,10 @@ export default function Vonage() {
                 and automate inbound customer conversations.
               </div>
 
+              {/* No /integrations/ringcentral page exists (or a RingCentral
+                  integration to document), so this goes to a person. */}
               <Link
-                to="/integrations/ringcentral"
+                to="/contact"
                 style={{
                   display: "inline-flex",
                   alignItems: "center",
@@ -589,7 +593,7 @@ export default function Vonage() {
                   fontSize: 13,
                 }}
               >
-                Learn more
+                Talk to us
                 <ArrowRight size={14} />
               </Link>
             </div>

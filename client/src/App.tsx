@@ -87,6 +87,7 @@ import SolutionUseCasePage from './pages/solutions/SolutionUseCasePage';
 import { solutionUseCases } from './pages/solutions/useCaseContent';
 
 import { Toaster } from './components/ui/sonner';
+import NotFound from './pages/NotFound';
 import { ThemeProvider } from './hooks/useTheme';
 
 
@@ -373,6 +374,8 @@ function App() {
     </DefaultLayout>
   }
 />
+        {/* Anything unmatched. Without this an unknown URL rendered a blank page. */}
+        <Route path="*" element={<DefaultLayout><NotFound /></DefaultLayout>} />
       </Routes>
       </Router>
     </ThemeProvider>
