@@ -11,6 +11,7 @@
  * offered something they'll be refused.
  */
 import { getAuth } from '@/lib/authStorage';
+import { authFetch } from '@/lib/authFetch';
 
 const API_BASE = '/api/v1';
 
@@ -41,10 +42,10 @@ export async function fetchModelCatalog(): Promise<ModelCatalog> {
   if (inflight) return inflight;
 
   inflight = (async () => {
-    const { token, workspaceId } = getAuth();
-    const res = await fetch(`${API_BASE}/workspaces/${workspaceId}/model-catalog`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
+    const { workspaceId } = getAuth();
+    // authFetch: current token plus refresh on 401, so the pickers still load
+    // after the access token has expired mid-session.
+    const res = await authFetch(`${API_BASE}/workspaces/${workspaceId}/model-catalog`);
     if (!res.ok) throw new Error(`Failed to load available models (${res.status})`);
     const data = await res.json();
     return { ...EMPTY, ...data } as ModelCatalog;

@@ -10,7 +10,7 @@
  * operator had to log in again — while the 7-day refresh token sat unused in
  * storage. Every admin call must go through here.
  */
-import { getRefreshToken, setTokens, clearAuth, safeGet } from './authStorage';
+import { getRefreshToken, setTokens, clearAuth, safeGet, decodeJwtPayload } from './authStorage';
 
 const BASE = '/api/v1';
 
@@ -52,6 +52,23 @@ export async function refreshAccessToken(): Promise<string | null> {
   })();
 
   return refreshInFlight;
+}
+
+/**
+ * An access token good for at least `minValidityMs` more, refreshing first when
+ * the stored one has expired or is about to.
+ *
+ * For transports that present the token once and cannot replay on a 401 — the
+ * call WebSockets send it in their first frame. A call started 15 minutes into
+ * a session used to present the already-expired token and be refused, while a
+ * perfectly good refresh token sat in storage. Falls back to the stored token
+ * when it has no readable expiry or refresh fails, so the server still decides.
+ */
+export async function getFreshAccessToken(minValidityMs = 60_000): Promise<string> {
+  const token = safeGet('token');
+  const exp = Number(decodeJwtPayload(token)?.exp);
+  if (!token || !Number.isFinite(exp) || exp * 1000 - Date.now() > minValidityMs) return token;
+  return (await refreshAccessToken()) || token;
 }
 
 /** Session is genuinely dead — drop both storages and bounce to login once. */

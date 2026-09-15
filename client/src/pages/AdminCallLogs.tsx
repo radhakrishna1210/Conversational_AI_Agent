@@ -5,7 +5,7 @@ import {
   RefreshCw, Clock, TrendingUp, CircleAlert,
 } from 'lucide-react';
 import { adminFetch, qs } from '@/lib/adminApi';
-import { safeGet } from '@/lib/authStorage';
+import { authFetch } from '@/lib/authFetch';
 import { AdminPageHeader } from './AdminPanel';
 
 interface CallRow {
@@ -292,9 +292,8 @@ function CallDrawer({ id, onClose }: { id: string; onClose: () => void }) {
 
     (async () => {
       try {
-        const res = await fetch(`/api/v1/admin/call-logs/${id}/recording`, {
-          headers: { Authorization: `Bearer ${safeGet('token')}` },
-        });
+        // authFetch: current token plus refresh on 401 (admin tokens expire too).
+        const res = await authFetch(`/api/v1/admin/call-logs/${id}/recording`);
         if (!res.ok) {
           const body = await res.json().catch(() => ({}));
           throw new Error(body.error ?? `Recording unavailable (HTTP ${res.status})`);

@@ -1,15 +1,12 @@
 const BASE = '/api/v1';
 
 import { getAuth } from './authStorage';
+import { authFetch } from './authFetch';
 import { openSseStream, type SseHandle } from './sseClient';
 
-function authHeaders(): Record<string, string> {
-  const { token } = getAuth();
-  return {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
-}
+// Every call goes through authFetch, which attaches the CURRENT token and
+// refreshes on 401. These used raw fetch with the stored token, so once the
+// ~15-min access token expired every notification call failed.
 
 function workspaceBase() {
   const { workspaceId } = getAuth();
@@ -40,46 +37,42 @@ export const notificationsApi = {
     if (params?.unread) qs.set('unread', 'true');
     if (params?.type) qs.set('type', params.type);
     if (params?.limit) qs.set('limit', String(params.limit));
-    const res = await fetch(`${workspaceBase()}?${qs}`, { headers: authHeaders() });
+    const res = await authFetch(`${workspaceBase()}?${qs}`);
     if (!res.ok) throw new Error('Failed to fetch notifications');
     return res.json();
   },
 
   unreadCount: async (): Promise<{ count: number }> => {
-    const res = await fetch(`${workspaceBase()}/unread-count`, { headers: authHeaders() });
+    const res = await authFetch(`${workspaceBase()}/unread-count`);
     if (!res.ok) throw new Error('Failed to fetch unread count');
     return res.json();
   },
 
   markRead: async (id: string): Promise<Notification> => {
-    const res = await fetch(`${workspaceBase()}/${id}/read`, {
+    const res = await authFetch(`${workspaceBase()}/${id}/read`, {
       method: 'PATCH',
-      headers: authHeaders(),
     });
     if (!res.ok) throw new Error('Failed to mark as read');
     return res.json();
   },
 
   markAllRead: async (): Promise<void> => {
-    const res = await fetch(`${workspaceBase()}/read-all`, {
+    const res = await authFetch(`${workspaceBase()}/read-all`, {
       method: 'PATCH',
-      headers: authHeaders(),
     });
     if (!res.ok) throw new Error('Failed to mark all as read');
   },
 
   delete: async (id: string): Promise<void> => {
-    const res = await fetch(`${workspaceBase()}/${id}`, {
+    const res = await authFetch(`${workspaceBase()}/${id}`, {
       method: 'DELETE',
-      headers: authHeaders(),
     });
     if (!res.ok) throw new Error('Failed to delete notification');
   },
 
   clearAll: async (): Promise<void> => {
-    const res = await fetch(`${workspaceBase()}`, {
+    const res = await authFetch(`${workspaceBase()}`, {
       method: 'DELETE',
-      headers: authHeaders(),
     });
     if (!res.ok) throw new Error('Failed to clear notifications');
   },
@@ -87,13 +80,12 @@ export const notificationsApi = {
   /**
    * Open the real-time notification stream. Authenticates via the
    * Authorization header (fetch-based SSE) — the bearer token is never
-   * placed in the URL.
+   * placed in the URL, and it is re-read on every reconnect.
    */
   openStream: (onEvent: (event: string, data: string) => void, onError?: (err: unknown) => void): SseHandle | null => {
     const { token, workspaceId } = getAuth();
     if (!token || !workspaceId) return null;
     return openSseStream(`${BASE}/workspaces/${workspaceId}/notifications/stream`, {
-      headers: { Authorization: `Bearer ${token}` },
       onEvent,
       onError,
     });

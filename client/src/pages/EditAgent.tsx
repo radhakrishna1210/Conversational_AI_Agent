@@ -4,6 +4,7 @@ import { useEffect, useState, useRef, useMemo } from 'react';
 import { AgentConfig, getDefaultFlowItems } from '../lib/agentStore';
 
 import { whapi, getAuth } from '../lib/whapi';
+import { authFetch } from '../lib/authFetch';
 import { integrationsApi } from '../lib/integrationsApi';
 import { heardPortion } from '../lib/heardPortion';
 import { toast } from 'sonner';
@@ -1001,10 +1002,8 @@ export default function EditAgent() {
   const loadRecording = async (callId: string) => {
     if (recordingUrls[callId]) return;
     try {
-      const { token, workspaceId } = getAuth();
-      const res = await fetch(`/api/v1/workspaces/${workspaceId}/agents/${agentId}/calls/${callId}/recording`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      const { workspaceId } = getAuth();
+      const res = await authFetch(`/api/v1/workspaces/${workspaceId}/agents/${agentId}/calls/${callId}/recording`);
       if (!res.ok) throw new Error(`Recording unavailable (${res.status})`);
       const blob = await res.blob();
       setRecordingUrls((prev) => ({ ...prev, [callId]: URL.createObjectURL(blob) }));
@@ -1984,15 +1983,11 @@ export default function EditAgent() {
   };
 
   const playAgentAudioStream = async (text: string) => {
-    const { token, workspaceId } = getAuth();
-    const response = await fetch(
+    const { workspaceId } = getAuth();
+    const response = await authFetch(
       `/api/v1/workspaces/${workspaceId}/agents/${agentId}/speak-stream`,
       {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {}),
-        },
         body: JSON.stringify({ text }),
       }
     );
@@ -2195,7 +2190,7 @@ export default function EditAgent() {
   const submitVoiceTurnStreaming = async (blob: Blob) => {
     const call = callRef.current;
     setWebCallActivity('processing');
-    const { token, workspaceId } = getAuth();
+    const { workspaceId } = getAuth();
 
     let userText = '';
     let replyText = '';
@@ -2218,11 +2213,10 @@ export default function EditAgent() {
       fd.append('audio', blob, 'turn.webm');
       fd.append('history', JSON.stringify(call.history));
 
-      const res = await fetch(
+      const res = await authFetch(
         `/api/v1/workspaces/${workspaceId}/agents/${agentId}/voice-turn-stream`,
         {
           method: 'POST',
-          headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
           body: fd,
         }
       );

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { whapi, getAuth } from '../lib/whapi';
+import { authFetch } from '../lib/authFetch';
 import { RzEmpty, RzPill, RzSkeleton } from '@/components/rz';
 
 // Unified file library — the SAME workspace-scoped store that Edit Agent →
@@ -83,10 +84,8 @@ export default function Files() {
 
   const handleDownload = async (f: KbRecord) => {
     try {
-      const { token, workspaceId } = getAuth();
-      const res = await fetch(`/api/v1/workspaces/${workspaceId}/files/${f.id}/download`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      const { workspaceId } = getAuth();
+      const res = await authFetch(`/api/v1/workspaces/${workspaceId}/files/${f.id}/download`);
       if (!res.ok) throw new Error(`Download failed (${res.status})`);
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);

@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 
 import { getAuth } from '@/lib/authStorage';
+import { authFetch } from '@/lib/authFetch';
 import { whapi } from '@/lib/whapi';
 interface Message {
   id: string;
@@ -79,10 +80,8 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
     };
     (async () => {
       try {
-        const { token, workspaceId } = getAuth();
-        const res = await fetch(`/api/v1/workspaces/${workspaceId}/agents/${agentId}/welcome`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-        });
+        const { workspaceId } = getAuth();
+        const res = await authFetch(`/api/v1/workspaces/${workspaceId}/agents/${agentId}/welcome`);
         const data = res.ok ? await res.json() : null;
         seed(data?.welcome || welcomeMessage);
       } catch {
@@ -121,13 +120,9 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
       // Shared agent runtime endpoint — the same server-side "brain"
       // (conversational flow + knowledge base grounding) the Web Call uses.
       // Full history is sent so the conversation is multi-turn and stateful.
-      const { token, workspaceId } = getAuth();
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
-      }
+      // authFetch attaches the current token and refreshes on 401, so a chat
+      // test left open past the ~15-min access token still works.
+      const { workspaceId } = getAuth();
 
       const history = [...messages, userMessage]
         .filter(m => !m.text.startsWith('❌ Error:'))
@@ -136,9 +131,8 @@ export default function ChatComponent({ agentId, selectedLanguages, welcomeMessa
           content: m.text,
         }));
 
-      const response = await fetch(`/api/v1/workspaces/${workspaceId}/agents/${agentId}/converse`, {
+      const response = await authFetch(`/api/v1/workspaces/${workspaceId}/agents/${agentId}/converse`, {
         method: 'POST',
-        headers,
         body: JSON.stringify({ messages: history }),
       });
 

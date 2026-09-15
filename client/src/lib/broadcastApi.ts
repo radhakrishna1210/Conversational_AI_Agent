@@ -8,6 +8,7 @@
  */
 import { whapi } from './whapi';
 import { getAuth } from './authStorage';
+import { authFetch } from './authFetch';
 
 export type RecordingSource = 'UPLOAD' | 'TTS';
 
@@ -129,11 +130,9 @@ export const deleteRecording = (id: string) =>
  * Callers must URL.revokeObjectURL() when the player goes away.
  */
 export async function recordingObjectUrl(id: string): Promise<string> {
-  const { token, workspaceId } = getAuth();
-  const res = await fetch(
-    `/api/v1/workspaces/${workspaceId}/broadcast-recordings/${id}/audio`,
-    { headers: token ? { Authorization: `Bearer ${token}` } : {} },
-  );
+  const { workspaceId } = getAuth();
+  // authFetch attaches the current token and refreshes on 401.
+  const res = await authFetch(`/api/v1/workspaces/${workspaceId}/broadcast-recordings/${id}/audio`);
   if (!res.ok) throw new Error('Could not load that recording');
   return URL.createObjectURL(await res.blob());
 }

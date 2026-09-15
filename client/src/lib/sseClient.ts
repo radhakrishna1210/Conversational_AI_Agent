@@ -6,13 +6,20 @@
  * browser history). This helper streams the same text/event-stream protocol via
  * fetch with proper headers, dispatches named events, and reconnects with
  * exponential backoff.
+ *
+ * Every (re)connect goes through authFetch, which reads the CURRENT token and
+ * refreshes on 401. Capturing the token once when the stream opened meant that
+ * after the ~15-min access token expired, every reconnect presented the dead
+ * token and 401'd forever, with backoff hiding it.
  */
+import { authFetch } from './authFetch';
 
 export interface SseHandle {
   close: () => void;
 }
 
 interface Options {
+  /** Extra headers. Authorization is added per connect by authFetch. */
   headers?: Record<string, string>;
   onEvent: (event: string, data: string) => void;
   onOpen?: () => void;
@@ -30,7 +37,7 @@ export function openSseStream(url: string, opts: Options): SseHandle {
     while (!closed) {
       controller = new AbortController();
       try {
-        const res = await fetch(url, {
+        const res = await authFetch(url, {
           headers: { Accept: 'text/event-stream', ...(opts.headers ?? {}) },
           signal: controller.signal,
         });

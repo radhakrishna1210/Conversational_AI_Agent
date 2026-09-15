@@ -86,8 +86,9 @@ export const integrationsApi = {
       'integration:log',
     ]);
 
+    // No Authorization here: openSseStream adds the current token on every
+    // (re)connect, so the stream survives the access token expiring.
     return openSseStream(`/api/v1/workspaces/${workspaceId}/integrations/events`, {
-      headers: { Authorization: `Bearer ${token}` },
       onEvent: (event) => {
         if (interesting.has(event)) onEvent();
       },

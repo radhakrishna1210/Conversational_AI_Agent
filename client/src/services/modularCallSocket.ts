@@ -15,6 +15,8 @@
  * Server bridge: backend/src/ws/webCallModularRealtime.handler.js
  */
 
+import { getFreshAccessToken } from '../lib/authFetch';
+
 export type ModularCallEvent =
   // sttEndpointing: the server has model-based (Deepgram) endpointing available,
   // so the client's RMS VAD is a backstop rather than the sole endpointer. It
@@ -54,6 +56,9 @@ export type ModularCallEvent =
 
 class ModularCallSocketService {
   private socket: WebSocket | null = null;
+  // Bumped by start() and stop(), so a start still awaiting a token refresh
+  // can tell it was hung up on in the meantime.
+  private startEpoch = 0;
 
   private wsUrl(workspaceId: string, agentId: string): string {
     const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -61,7 +66,7 @@ class ModularCallSocketService {
   }
 
   /** Opens the socket and resolves once the server confirms `ready`. */
-  start(
+  async start(
     workspaceId: string,
     agentId: string,
     token: string,
@@ -73,6 +78,13 @@ class ModularCallSocketService {
     // the first turn — which is the cost warming it early exists to avoid.
     sampleRate?: number
   ): Promise<void> {
+    // The token is presented once, in the auth frame, with no replay on refusal
+    // — so refresh first if it has expired or is about to.
+    const epoch = ++this.startEpoch;
+    const authToken = (await getFreshAccessToken()) || token;
+    // Hung up while that refresh was in flight: opening now would leave a live
+    // socket that nothing will ever close.
+    if (epoch !== this.startEpoch) throw new Error('Call ended');
     return new Promise<void>((resolve, reject) => {
       const socket = new WebSocket(this.wsUrl(workspaceId, agentId));
       socket.binaryType = 'arraybuffer';
@@ -91,7 +103,7 @@ class ModularCallSocketService {
       let serverError: string | null = null;
       const TERMINAL_CODES = ['INSUFFICIENT_BALANCE'];
 
-      socket.onopen = () => socket.send(JSON.stringify({ type: 'auth', token, sampleRate }));
+      socket.onopen = () => socket.send(JSON.stringify({ type: 'auth', token: authToken, sampleRate }));
 
       socket.onmessage = (event) => {
         // Binary frames are raw reply-audio bytes (between audio-start/audio-end).
@@ -197,6 +209,7 @@ class ModularCallSocketService {
   }
 
   stop() {
+    this.startEpoch += 1;
     try { this.sendJson({ type: 'stop' }); } catch { /* socket already gone */ }
     this.socket?.close(1000, 'Call ended by user');
     this.socket = null;

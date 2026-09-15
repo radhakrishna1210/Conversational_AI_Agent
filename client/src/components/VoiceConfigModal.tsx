@@ -15,6 +15,9 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 
 import { getAuth } from '@/lib/authStorage';
+// Every request here goes through authFetch: the current token, plus a refresh
+// on 401, so the modal keeps working after the ~15-min access token expires.
+import { authFetch } from '@/lib/authFetch';
 import { fetchModelCatalog, type ModelCatalog } from '@/lib/modelCatalog';
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -94,11 +97,6 @@ const LIBRARY_SEARCHABLE = ['FishAudio', 'Sarvam'];
 const DEFAULT_PREVIEW_TEXT = 'Hello, thank you for calling. How can I assist you today?';
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function authHeaders(): Record<string, string> {
-  const { token } = getAuth();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
 
 function capitalize(s: string) {
   return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
@@ -213,7 +211,7 @@ export default function VoiceConfigModal({
 
   // ── Load provider status ───────────────────────────────────────────
   useEffect(() => {
-    fetch(`${wsBase()}/voices/providers/status`, { headers: authHeaders() })
+    authFetch(`${wsBase()}/voices/providers/status`)
       .then(r => r.json())
       .then(setProviderStatus)
       .catch(() => null);
@@ -249,7 +247,7 @@ export default function VoiceConfigModal({
   const handleSyncNow = async () => {
     setSyncing(true);
     try {
-      const res = await fetch(`${wsBase()}/voices/sync`, { method: 'POST', headers: authHeaders() });
+      const res = await authFetch(`${wsBase()}/voices/sync`, { method: 'POST' });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `Sync failed (${res.status})`);
       await fetchVoices();
@@ -275,9 +273,7 @@ export default function VoiceConfigModal({
       // pagination disagreed with what was actually shown.
       if (search.trim()) params.set('q', search.trim());
 
-      const data: PaginatedVoices = await fetch(`${wsBase()}/voices?${params}`, {
-        headers: authHeaders(),
-      }).then(r => r.json());
+      const data: PaginatedVoices = await authFetch(`${wsBase()}/voices?${params}`).then(r => r.json());
 
       setVoices(data.voices ?? []);
       setTotal(data.total ?? 0);
@@ -317,7 +313,7 @@ export default function VoiceConfigModal({
       setLibraryError(null);
       try {
         const params = new URLSearchParams({ provider: libraryProvider, q: search.trim(), limit: '24' });
-        const res = await fetch(`${wsBase()}/voices/library?${params}`, { headers: authHeaders() });
+        const res = await authFetch(`${wsBase()}/voices/library?${params}`);
         const data = await res.json().catch(() => ({}));
         if (!res.ok) throw new Error(data.error || `Library search failed (${res.status})`);
         setLibraryVoices(data.voices ?? []);
@@ -342,9 +338,9 @@ export default function VoiceConfigModal({
     setImportingId(v.providerVoiceId);
     setLibraryError(null);
     try {
-      const res = await fetch(`${wsBase()}/voices/library/import`, {
+      const res = await authFetch(`${wsBase()}/voices/library/import`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ provider: v.provider, providerVoiceId: v.providerVoiceId }),
       });
       const data = await res.json().catch(() => ({}));
@@ -389,7 +385,7 @@ export default function VoiceConfigModal({
       // Audio elements can't send Authorization headers, so fetch the preview
       // as a blob with proper auth and play it from an object URL.
       const url = `${wsBase()}/voices/${voice.id}/preview?text=${encodeURIComponent(DEFAULT_PREVIEW_TEXT)}`;
-      const res = await fetch(url, { headers: authHeaders() });
+      const res = await authFetch(url);
       if (!res.ok) throw new Error(`Preview failed (${res.status})`);
       const blob = await res.blob();
       const objectUrl = URL.createObjectURL(blob);
@@ -413,9 +409,9 @@ export default function VoiceConfigModal({
     if (!selectedVoice) return;
     setSavingId(selectedVoice.id);
     try {
-      const res = await fetch(`${wsBase()}/agents/${agentId}/voice`, {
+      const res = await authFetch(`${wsBase()}/agents/${agentId}/voice`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json', ...authHeaders() },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ voiceId: selectedVoice.id }),
       });
       // fetch only rejects on a network error, so an unchecked call reported

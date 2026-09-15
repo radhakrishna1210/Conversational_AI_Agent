@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { whapi, getAuth } from '../lib/whapi';
+import { authFetch } from '../lib/authFetch';
 
 interface ClonedVoice {
   id: string;
@@ -228,10 +229,8 @@ export default function CloneVoice() {
     audioRef.current?.pause();
     setPlayingId(voice.id);
     try {
-      const { token, workspaceId } = getAuth();
-      const res = await fetch(`/api/v1/workspaces/${workspaceId}/voices/cloned/${voice.id}/sample`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-      });
+      const { workspaceId } = getAuth();
+      const res = await authFetch(`/api/v1/workspaces/${workspaceId}/voices/cloned/${voice.id}/sample`);
       if (!res.ok) throw new Error('Could not load sample');
       const blob = await res.blob();
       const url = URL.createObjectURL(blob);

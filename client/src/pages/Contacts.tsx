@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { whapi, getAuth } from '../lib/whapi';
+import { authFetch } from '../lib/authFetch';
 
 /**
  * Call contacts — the address book behind bulk calling.
@@ -188,11 +189,10 @@ export default function Contacts() {
   };
 
   const exportCluster = async (cluster: Cluster) => {
-    // Not through whapi: this response is a file, not JSON.
-    const { token, workspaceId } = getAuth();
-    const res = await fetch(`/api/v1/workspaces/${workspaceId}/clusters/${cluster.id}/export`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : {},
-    });
+    // Not through whapi: this response is a file, not JSON. authFetch still
+    // attaches the current token and refreshes on 401.
+    const { workspaceId } = getAuth();
+    const res = await authFetch(`/api/v1/workspaces/${workspaceId}/clusters/${cluster.id}/export`);
     if (!res.ok) throw new Error('Export failed');
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);

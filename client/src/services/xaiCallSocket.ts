@@ -23,6 +23,7 @@ export type XaiCallEvent =
   | { type: 'error'; code?: string; message: string };
 
 import { startAmbientSound } from './ambientSound';
+import { getFreshAccessToken } from '../lib/authFetch';
 
 const SAMPLE_RATE = 24000;
 
@@ -88,6 +89,10 @@ class XaiCallSocketService {
     }
     this.ambientStop = startAmbientSound(this.playbackContext, opts?.ambientSound ?? 'None');
 
+    // The token is presented once, in the auth frame, with no replay on refusal
+    // — so refresh first if it has expired or is about to.
+    const authToken = (await getFreshAccessToken()) || token;
+
     return new Promise<void>((resolve, reject) => {
       const socket = new WebSocket(this.wsUrl(workspaceId, agentId, opts?.direction));
       socket.binaryType = 'arraybuffer';
@@ -97,7 +102,7 @@ class XaiCallSocketService {
       let serverError: string | null = null;
 
       socket.onopen = () => {
-        socket.send(JSON.stringify({ type: 'auth', token }));
+        socket.send(JSON.stringify({ type: 'auth', token: authToken }));
       };
 
       socket.onmessage = (event) => {

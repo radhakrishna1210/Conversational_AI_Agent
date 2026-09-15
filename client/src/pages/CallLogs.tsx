@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { format, parseISO } from 'date-fns';
-import { whapi, getAuth } from '../lib/whapi';
+import { whapi } from '../lib/whapi';
+import { authFetch } from '../lib/authFetch';
 import { RzEmpty, RzPill, RzSearch, RzSkeleton, type Tone } from '@/components/rz';
 
 /**
@@ -117,8 +118,8 @@ export default function CallLogs() {
     if (!url) return;
     let objectUrl: string | null = null;
     let cancelled = false;
-    const { token } = getAuth();
-    fetch(url, { headers: token ? { Authorization: `Bearer ${token}` } : {} })
+    // authFetch: current token plus refresh on 401.
+    authFetch(url)
       .then(r => (r.ok ? r.blob() : Promise.reject(new Error('recording unavailable'))))
       .then(blob => {
         if (cancelled) return;
