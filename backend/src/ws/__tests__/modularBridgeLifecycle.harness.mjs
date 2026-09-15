@@ -47,7 +47,8 @@ class FakeDeepgram {
 const silentLogger = { info() {}, warn() {}, error() {}, debug() {}, fatal() {}, child() { return silentLogger; } };
 mockModule(here('../../lib/logger.js'), {}, silentLogger);
 mockModule(here('../../config/prisma.js'), {}, {
-  agentCallLog: { update: async () => ({}), findUnique: async () => null },
+  // updateMany: the bridge's IN_PROGRESS write is conditional on INITIATED.
+  agentCallLog: { update: async () => ({}), updateMany: async () => ({ count: 1 }), findUnique: async () => null },
   callTransfer: { create: async () => ({ id: 't1' }), update: async () => ({}) },
 });
 mockModule(here('../../services/agentRuntime.service.js'), {
