@@ -51,6 +51,7 @@ import { startHeartbeat } from './socketHeartbeat.js';
 import { randomUUID } from 'node:crypto';
 import { logTurnLatency } from '../lib/latencyLog.js';
 import { parseTurnTiming } from './turnTiming.js';
+import { createReplyTurns } from './replyTurns.js';
 
 /**
  * How long the browser gets to send its `auth` frame.
@@ -144,8 +145,9 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
   let sampleRate = 24000;
   let frames = [];        // PCM16 chunks for the turn currently being captured
   let capturing = false;
-  let turnActive = false; // a reply is being generated/streamed right now
-  let bargeRequested = false;
+  // The reply being generated/streamed right now, each with its OWN abort flag
+  // — see replyTurns.js for the barge race two shared booleans produced.
+  const replies = createReplyTurns();
   // B3 Deepgram streaming STT — ONE session for the whole call (created on the
   // first start-turn, kept alive between turns, recreated only if it dies or
   // the client's sample rate changes). Per-turn sessions paid a TLS connect
@@ -306,9 +308,10 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
    *
    * Both the server's own end-of-turn commit and the browser's 'end-turn' frame
    * route through here. Guarding on the segment number rather than on
-   * `turnActive` matters: turnActive only covers the window while a reply is
+   * `replies.active` matters: that only covers the window while a reply is
    * being generated, and the two triggers can arrive in the same tick, before
-   * it is set.
+   * it is set. A turn that does start while an older reply is still unwinding
+   * supersedes it — see replyTurns.js.
    */
   const beginTurnOnce = async (seq, history, endpointMs = null) => {
     if (seq !== segmentSeq || turnStartedForSegment === seq) return;
@@ -352,8 +355,8 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
         // Gated on `segmentHistory`: an older client sends no history on
         // start-turn, and a speculation without the conversation behind it
         // would answer out of context — the ordinary path waits for end-turn.
-        onTranscript: (text, meta) => { if (capturing && !turnActive && segmentHistory !== undefined) speculator.onTranscript(text, meta); },
-        onEndOfTurnCandidate: (text) => { if (capturing && !turnActive && segmentHistory !== undefined) speculator.onCandidate(text); },
+        onTranscript: (text, meta) => { if (capturing && !replies.active && segmentHistory !== undefined) speculator.onTranscript(text, meta); },
+        onEndOfTurnCandidate: (text) => { if (capturing && !replies.active && segmentHistory !== undefined) speculator.onCandidate(text); },
         onCandidateCancelled: () => speculator.onCandidateCancelled(),
         // Semantic turn end: fires only once the caller is genuinely finished
         // (confirmed speech_final, or an authoritative UtteranceEnd).
@@ -363,7 +366,7 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
         // "processing" indicator and its own no-input timers and has to know the
         // segment is over — but it is a notification now, not a request.
         onEndOfTurn: (reason) => {
-          if (!capturing || turnActive) return;
+          if (!capturing || replies.active) return;
           logger.info(`Modular web call: end of turn (${reason})`);
           const endpointMs = dgSession?.lastEndpointMs ?? null;
           send({ type: 'endpoint' });
@@ -527,8 +530,9 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
     // the runtime; a miss (or nothing started) aborts whatever was in flight
     // and the ordinary path runs.
     const speculation = { ...speculator.take(streamedText), mode: speculator.mode };
-    turnActive = true;
-    bargeRequested = false;
+    // Supersedes any reply still unwinding from a barge: the caller has spoken
+    // again, and that reply's abort must survive this one starting.
+    const reply = replies.begin();
     const wav = pcm16ToWav(pcm, sampleRate);
     try {
       await voiceTurnStream(
@@ -563,9 +567,9 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
           // to be honest and offer a callback; the request is still recorded.
           transfer: transferOpts,
           spokenWelcome,
-          shouldAbort: () => bargeRequested,
+          shouldAbort: () => reply.aborted,
           onEvent: (e) => {
-            if (bargeRequested && e.type !== 'done') return; // caller cut in; drop reply audio
+            if (reply.aborted && e.type !== 'done') return; // caller cut in; drop reply audio
             if (e.type === 'transcript') {
               if (e.userText) send({ type: 'transcript', role: 'user', text: e.userText, done: true });
             } else if (e.type === 'audio-start') {
@@ -600,7 +604,7 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
       send({ type: 'error', message: err.message });
       send({ type: 'done', timings: null });
     } finally {
-      turnActive = false;
+      replies.end(reply);
     }
   };
 
@@ -854,7 +858,7 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
         // it to flush now rather than waiting for its own speech_final.
         const v = frameVad.push(buf);
         if (v.voiced) localSilenceSpeculated = false; // speech resumed: the next silence may speculate again
-        if (localEndpointing !== 'off' && dgSession && !turnActive && frameVad.heardSpeech()
+        if (localEndpointing !== 'off' && dgSession && !replies.active && frameVad.heardSpeech()
           && frameVad.silenceMs() >= turnProfile.endpointingMs) {
           if (localEndpointing === 'commit') {
             dgSession.noteLocalSilence({ speechEndAt: frameVad.lastVoicedAt() });
@@ -983,7 +987,7 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
       case 'barge':
         // Caller cut in. Stop the in-flight reply; the client has already
         // flushed its own playback locally.
-        if (turnActive) bargeRequested = true;
+        replies.barge();
         break;
       case 'stop':
         ws.close(1000, 'Call ended by client');
