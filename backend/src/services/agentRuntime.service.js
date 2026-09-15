@@ -16,6 +16,7 @@ import { speculationMatches } from './voice/speculativeTurn.js';
 import { ambienceTagFor } from './voice/ambience.js';
 import { detectTransferRequest, createTransferMarkerScanner, stripTransferMarker, transferPromptSection, TRANSFER_MARKER as TRANSFER_MARKER_LITERAL } from './voice/transferIntent.js';
 import { createSegmentOrder } from './voice/segmentOrder.js';
+import { createHoldMarkerScanner, holdPauseSecFor, holdPromptRule, splitAtHold, stripHoldMarkers } from './voice/holdPause.js';
 import { logTurnLatency } from '../lib/latencyLog.js';
 import { isLlmUnderPressure, noteLlmRateLimited } from './llmPressure.js';
 import { getLLMProviderWithFallback } from './llm.factory.js';
@@ -356,11 +357,15 @@ export const KB_MESSAGE_ACK =
  *   caller is sending it as the first conversation turn instead. Bundled
  *   realtime engines must keep kbInline=true: they push one instruction blob at
  *   session open and have no conversation turns to attach the KB to.
+ *   holdPauseSec adds the timed-hold rule (voice/holdPause.js). Only the
+ *   modular pipeline passes it: voiceTurnStream is the one place that turns the
+ *   token into silence, so a bundled engine or a chat would print it instead.
  */
-export function buildAgentSystemPrompt(agent, kbText, { voiceMode = false, kbInline = true, spokenWelcome = null, transfer = null } = {}) {
+export function buildAgentSystemPrompt(agent, kbText, { voiceMode = false, kbInline = true, spokenWelcome = null, transfer = null, holdPauseSec = null } = {}) {
   const flowItems = (safeJson(agent.flowItems, []) || []).filter((f) => f && f.enabled !== false);
   const settings = safeJson(agent.settings, {});
   const languages = safeJson(agent.languages, []);
+  const holdSec = voiceMode ? holdPauseSecFor({ holdPauseSec }) : null;
 
   // The greeting the caller ACTUALLY heard — not `agent.welcomeMessage`.
   //
@@ -452,7 +457,10 @@ ${voiceMode
       : '')}
 ${voiceMode
     ? `- This is a live VOICE call: reply in 1-2 short natural spoken sentences (never more). Answer ONLY what was asked — give one fact/price at a time and offer to share more instead of listing everything. Absolutely no markdown, no bullet points, no emojis, and no stage directions or narration like *sighs* or (pauses)${settings.fillerWords ? ' — the ONLY markup allowed is the <break time="..."/> pause tag described above' : ''}. Everything else you write is spoken aloud verbatim.`
-    : `- Keep replies to 2-4 short sentences — answer what was asked and ask at most one follow-up. No markdown headings or bullet-point walls; write like a person chatting.`}`;
+    : `- Keep replies to 2-4 short sentences — answer what was asked and ask at most one follow-up. No markdown headings or bullet-point walls; write like a person chatting.`}${
+  // Last, and only when switched on: an agent without a hold length keeps a
+  // byte-identical prompt, so its cached prefix is untouched by this feature.
+  holdSec ? `\n${holdPromptRule(holdSec)}` : ''}`;
 }
 
 // ─── LLM resolution ───────────────────────────────────────────────────────────
@@ -1051,6 +1059,8 @@ export function buildRuntimeMessages({
   // Otherwise the prompt names the greeting for the agent's CONFIGURED
   // direction, which is a different string on every cross-direction call.
   spokenWelcome = null,
+  // Seconds of timed hold this reply may contain — see buildAgentSystemPrompt.
+  holdPauseSec = null,
 }) {
   // RAG-retrieved chunks vary with every question, so — unlike kbText above —
   // they must NEVER sit in the system prompt or the static synthetic KB turn
@@ -1064,7 +1074,7 @@ export function buildRuntimeMessages({
     : content);
 
   if (!supportsChatHistory) {
-    let systemPrompt = buildAgentSystemPrompt(agent, kbText, { voiceMode, transfer, spokenWelcome });
+    let systemPrompt = buildAgentSystemPrompt(agent, kbText, { voiceMode, transfer, spokenWelcome, holdPauseSec });
     if (prior.length) {
       const transcript = prior
         .map((m) => `${m.role === 'user' ? 'User' : agent.name}: ${m.content}`)
@@ -1085,7 +1095,7 @@ export function buildRuntimeMessages({
   chatHistory.push(...prior);
 
   return {
-    systemPrompt: buildAgentSystemPrompt(agent, kbText, { voiceMode, kbInline: false, transfer, spokenWelcome }),
+    systemPrompt: buildAgentSystemPrompt(agent, kbText, { voiceMode, kbInline: false, transfer, spokenWelcome, holdPauseSec }),
     chatHistory,
     // Order is RAG excerpts, then affect — both ride on the current turn,
     // never the system prompt or the cached KB turn.
@@ -1151,7 +1161,14 @@ export function windowHistory(messages, { maxMessages, maxChars }) {
   return kept;
 }
 
-async function _prepareConverse(workspaceId, agentId, messages, { voiceMode = false, affect = null, transfer = null, spokenWelcome = null } = {}) {
+/**
+ * `allowHold`: the reply will be spoken by voiceTurnStream, the one consumer that
+ * turns a [[HOLD]] marker into silence. Everything that builds a prompt for it —
+ * the turn itself, its hedge and buffered fallback, and the bridges'
+ * speculative requests — must pass it, or a speculation hit answers from a
+ * prompt with no hold rule and the feature silently never fires.
+ */
+async function _prepareConverse(workspaceId, agentId, messages, { voiceMode = false, affect = null, transfer = null, spokenWelcome = null, allowHold = false } = {}) {
   const agent = await loadAgent(workspaceId, agentId);
   if (!agent) {
     const err = new Error('Agent not found in this workspace');
@@ -1162,7 +1179,12 @@ async function _prepareConverse(workspaceId, agentId, messages, { voiceMode = fa
   const history = windowHistory(
     (Array.isArray(messages) ? messages : [])
       .filter((m) => m && typeof m.content === 'string' && m.content.trim() &&
-        (m.role === 'user' || m.role === 'assistant')),
+        (m.role === 'user' || m.role === 'assistant'))
+      // Replies are stripped before they reach any history, but the web client
+      // sends its own copy back every turn. A marker that got into one would
+      // teach the model, turn by turn, to write it where no pause was asked for.
+      .map((m) => (m.role === 'assistant' && /hold/i.test(m.content) ? { ...m, content: stripHoldMarkers(m.content) } : m))
+      .filter((m) => m.content.trim()),
     voiceMode
       ? { maxMessages: VOICE_HISTORY_MAX_MESSAGES, maxChars: VOICE_HISTORY_MAX_CHARS }
       : { maxMessages: CHAT_HISTORY_MAX_MESSAGES, maxChars: CHAT_HISTORY_MAX_CHARS },
@@ -1216,6 +1238,7 @@ async function _prepareConverse(workspaceId, agentId, messages, { voiceMode = fa
     supportsChatHistory: Boolean(llm.supportsChatHistory),
     transfer,
     spokenWelcome,
+    holdPauseSec: allowHold && voiceMode ? holdPauseSecFor(safeJson(agent.settings, {})) : null,
   });
   // Brevity in voice mode is enforced by the prompt, not the token cap —
   // Gemini 2.5's internal "thinking" tokens count against maxTokens, so a
@@ -1266,12 +1289,16 @@ export const isRateLimited = (err) =>
  */
 const VOICE_MODEL_FALLBACKS = ['gemini-3.5-flash-lite', 'gemini-3.1-flash-lite'];
 
-export async function converse(workspaceId, agentId, messages, { voiceMode = false, affect = null, transfer = null, spokenWelcome = null } = {}) {
+export async function converse(workspaceId, agentId, messages, { voiceMode = false, affect = null, transfer = null, spokenWelcome = null, allowHold = false } = {}) {
   const { agent, message, llm, provider, model, config, options, ragMs } =
-    await _prepareConverse(workspaceId, agentId, messages, { voiceMode, affect, transfer, spokenWelcome });
+    await _prepareConverse(workspaceId, agentId, messages, { voiceMode, affect, transfer, spokenWelcome, allowHold });
 
   const raw = await llm.generateResponse(message, config, options);
   let reply = (typeof raw === 'object' ? raw.message : raw) || '';
+  // Kept for the one caller that can act on it (voiceTurnStream's buffered
+  // fallback splits the reply there). Every other reply — the text chat, the
+  // legacy voiceTurn — would show or speak it, so it comes off here.
+  if (!allowHold) reply = stripHoldMarkers(reply);
   if (voiceMode) reply = stripForVoice(reply);
 
   return { reply, provider, model, agent, ragMs };
@@ -1290,9 +1317,9 @@ export async function converse(workspaceId, agentId, messages, { voiceMode = fal
  * rate-limit fallback below.
  * @returns {AsyncGenerator<string, { provider: string, model: string, ragMs: number }>}
  */
-export async function* converseStream(workspaceId, agentId, messages, { voiceMode = false, affect = null, signal = null, transfer = null, spokenWelcome = null } = {}) {
+export async function* converseStream(workspaceId, agentId, messages, { voiceMode = false, affect = null, signal = null, transfer = null, spokenWelcome = null, allowHold = false } = {}) {
   const { message, llm, provider, model, config, options: prepared, ragMs } =
-    await _prepareConverse(workspaceId, agentId, messages, { voiceMode, affect, transfer, spokenWelcome });
+    await _prepareConverse(workspaceId, agentId, messages, { voiceMode, affect, transfer, spokenWelcome, allowHold });
   // `signal` lets a speculative turn cancel a superseded request at the
   // provider socket (see voice/speculativeTurn.js). Providers that ignore it
   // still stop being consumed when the generator is returned; they just finish
@@ -1760,7 +1787,7 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
   let specConsumed = false;
   const startLlmStream = () => {
     if (specHit) { specConsumed = true; return specHit.iterator; }
-    return converseStream(workspaceId, agentId, messages, { voiceMode: true, affect, transfer, spokenWelcome });
+    return converseStream(workspaceId, agentId, messages, { voiceMode: true, affect, transfer, spokenWelcome, allowHold: true });
   };
   // ── Human handover (see voice/transferIntent.js) ─────────────────────────
   // Two signals: the pre-filter on the caller's words, and the model's marker
@@ -2109,6 +2136,34 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
   // the middle of every reply (see streamTtsForText).
   const segmentOrder = createSegmentOrder();
 
+  // ── Timed hold (see voice/holdPause.js) ──────────────────────────────────
+  // Every path below does the same three things: speak the text before the
+  // reply's [[HOLD]], take a place in segmentOrder for the pause once there is
+  // text AFTER it (a hold with nothing to follow is dropped), then speak that
+  // text. The pause is an ordered event rather than a server-side wait: the
+  // transports own the playout clock, and the continuation's synthesis runs
+  // during the silence instead of after it. With no hold length configured the
+  // scanner still strips markers — it just never reports one.
+  const holdSec = holdPauseSecFor(settings);
+  const holdMs = holdSec ? holdSec * 1000 : 0;
+  const holdScanner = createHoldMarkerScanner({ enabled: holdMs > 0 });
+  let holdEmitted = false;
+  /** Raw LLM delta → { before, hold, after }, handover marker already removed. */
+  const scanDelta = (delta) => holdScanner.push(transferScanner.push(delta));
+  const emitPauseInOrder = () => {
+    if (!holdMs || aborted()) return Promise.resolve();
+    const slot = segmentOrder.claim();
+    return slot.floor.then(() => {
+      // A barge between claiming and reaching the wire cancels the hold with
+      // the rest of the reply: nothing after it will be spoken.
+      if (!aborted()) {
+        holdEmitted = true;
+        emit({ type: 'pause', ms: holdMs });
+      }
+      slot.release();
+    });
+  };
+
   // Synthesize one text chunk and forward its bytes as ONE audio SEGMENT
   // (its own audio-start … chunks … audio-end). Segments never share a
   // MediaSource client-side, so independently-encoded MP3s can't corrupt each
@@ -2188,11 +2243,16 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
         counted = true;
 
         // The stream finished before this segment reached the front of the
-        // queue — wait for the floor, then emit everything at once.
+        // queue — wait for the floor, then emit everything at once. Asked
+        // again after the wait: the segments ahead (a timed hold's among them)
+        // can take long enough for the caller to have cut the reply off, and a
+        // barged reply must not open a new segment behind the barge.
         if (!aborted()) {
           await floor;
-          if (!opened) open(contentType);
-          for (const held of buffered.splice(0)) push(held);
+          if (!aborted()) {
+            if (!opened) open(contentType);
+            for (const held of buffered.splice(0)) push(held);
+          }
         }
         if (opened) emit({ type: 'audio-end' });
       } catch (err) {
@@ -2293,34 +2353,60 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
       if (first) {
         llmTtftMs = Math.round(performance.now() - llmStartedAt);
         const filter = createReplyTextFilter(replyFilterOpts);
+        // Where in `reply` the hold sits, once seen. The socket is ENDED there:
+        // one continuous stream has no seam to put a timed silence in, so the
+        // text after the hold is spoken as its own segment once the socket's
+        // audio is out — it has the whole hold to be synthesized in.
+        let holdAt = -1;
+        const speak = (piece) => {
+          if (!piece) return;
+          // Filtered text is what gets spoken AND what `reply` accumulates, so
+          // the transcript can never claim the agent said something it didn't.
+          reply += piece;
+          if (holdAt >= 0) return;
+          if (firstTtsTextAt == null) firstTtsTextAt = performance.now();
+          tts.pushText(piece); // stream the token straight into TTS
+        };
+        const feed = ({ before, hold, after }) => {
+          speak(filter.push(before));
+          if (hold) {
+            // The head filter may still be holding the last words before the
+            // silence; they belong on this side of it.
+            speak(filter.flush());
+            holdAt = reply.length;
+            tts.end();
+          }
+          speak(filter.push(after));
+        };
         let result = first;
         while (result && !result.done) {
           if (aborted()) { await iterator.return?.(); break; }
-          // Filtered text is what gets spoken AND what `reply` accumulates, so
-          // the transcript can never claim the agent said something it didn't.
-          const piece = filter.push(transferScanner.push(result.value));
-          if (piece) {
-            reply += piece;
-            if (firstTtsTextAt == null) firstTtsTextAt = performance.now();
-            tts.pushText(piece); // stream the token straight into TTS
-          }
+          feed(scanDelta(result.value));
           result = await nextOrStall(iterator);
         }
         if (!aborted()) {
-          const tail = filter.push(transferScanner.flush()) + filter.flush(); // opener held back on a very short reply
-          if (tail) { reply += tail; tts.pushText(tail); }
+          feed(holdScanner.push(transferScanner.flush()));
+          speak(filter.push(holdScanner.flush()) + filter.flush()); // opener held back on a very short reply
         }
         if (result?.done) ({ provider, model, ragMs } = result.value || {});
         llmMs = Math.round(performance.now() - llmStartedAt); // LLM done (audio may still be arriving)
-        if (aborted()) tts.close(); else tts.end();
+        if (aborted()) tts.close(); else if (holdAt < 0) tts.end();
         await withTimeout(audioDone, TTS_DRAIN_TIMEOUT_MS, 'tts-drain').catch(() => {
           logger.warn(`${ttsProvider} WS TTS never finished (>${TTS_DRAIN_TIMEOUT_MS}ms) — closing it`);
           tts.close();
         });
         if (wsSegmentOpen) emit({ type: 'audio-end' });
+        const beforeHold = holdAt >= 0 ? reply.slice(0, holdAt) : reply;
+        const afterHold = holdAt >= 0 ? reply.slice(holdAt) : '';
         // If the WS produced no audio (connect/protocol issue), speak the reply
         // we already have via the single-call path — no extra LLM call.
-        if (!audioStarted && reply && !aborted()) await streamTtsForText(reply);
+        if (!audioStarted && beforeHold && !aborted()) await streamTtsForText(beforeHold);
+        if (afterHold.trim() && !aborted()) {
+          const pause = emitPauseInOrder();
+          const rest = streamTtsForText(afterHold);
+          await pause;
+          await rest;
+        }
         ttsMs = Math.round(performance.now() - ttsStart);
         reply = stripForVoice(reply);
         handled = true;
@@ -2392,7 +2478,7 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
       // The hedge must be built from the SAME prompt as the stream it races —
       // it used to omit transfer too, so a hedged reply answered from a system
       // prompt with no handover rules and a different cached prefix.
-      const hedge = converseStream(workspaceId, agentId, messages, { voiceMode: true, affect, transfer, spokenWelcome });
+      const hedge = converseStream(workspaceId, agentId, messages, { voiceMode: true, affect, transfer, spokenWelcome, allowHold: true });
       // Each side swallows its OWN failure into null rather than rejecting, so
       // one stream erroring fast cannot lose the race for a healthy one that is
       // simply a moment behind — the exact case the hedge exists to survive.
@@ -2416,13 +2502,29 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
       // cut). Includes the Hindi danda for Devanagari replies.
       const boundary = /[.!?…।॥]["')\]]?\s/g;
       let splitIdx = -1;
-      let firstSegment = null; // in-flight synthesis of sentence 1
+      // Where the hold sits in `reply`, once seen. The hold is a seam of its own:
+      // everything before it is handed to synthesis at that moment, and
+      // splitIdx moves to it so the remainder below is exactly the text after.
+      let holdAt = -1;
+      // In-flight synthesis (and the hold's pause), in emission order.
+      const segments = [];
       const filter = createReplyTextFilter(replyFilterOpts);
+      const feed = ({ before, hold, after }) => {
+        reply += filter.push(before);
+        if (hold) {
+          reply += filter.flush();
+          holdAt = reply.length;
+          const from = splitIdx > 0 ? splitIdx : 0;
+          if (reply.slice(from, holdAt).trim() && !aborted()) segments.push(streamTtsForText(reply.slice(from, holdAt)));
+          splitIdx = holdAt;
+        }
+        reply += filter.push(after);
+      };
       let result = first;
       while (result && !result.done) {
         // `reply` holds FILTERED text, so splitIdx and the slices below all
         // index the same string the caller will hear.
-        reply += filter.push(transferScanner.push(result.value));
+        feed(scanDelta(result.value));
         if (aborted()) { await iterator.return?.(); break; }
         if (splitIdx < 0) {
           boundary.lastIndex = 0;
@@ -2430,29 +2532,33 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
           while ((m = boundary.exec(reply)) !== null) {
             if (m.index + m[0].length >= 25) { splitIdx = m.index + m[0].length; break; }
           }
-          if (splitIdx > 0) firstSegment = streamTtsForText(reply.slice(0, splitIdx));
+          if (splitIdx > 0) segments.push(streamTtsForText(reply.slice(0, splitIdx)));
         }
         result = await nextOrStall(iterator);
       }
-      if (!aborted()) reply += filter.push(transferScanner.flush()) + filter.flush();
+      if (!aborted()) {
+        feed(holdScanner.push(transferScanner.flush()));
+        reply += filter.push(holdScanner.flush()) + filter.flush();
+      }
       if (result?.done) ({ provider, model, ragMs } = result.value || {});
       llmMs = Math.round(performance.now() - llmStartedAt);
       // splitIdx indexes the RAW reply — take the remainder before stripping,
-      // or the seam would duplicate/drop characters.
-      const rest = splitIdx > 0 ? reply.slice(splitIdx) : '';
+      // or the seam would duplicate/drop characters. With no split at all the
+      // remainder is the whole reply.
+      const rest = splitIdx > 0 ? reply.slice(splitIdx) : reply;
+      const holdAnnounced = holdAt > 0 && Boolean(reply.slice(0, holdAt).trim());
       reply = stripForVoice(reply);
-      if (firstSegment) {
-        // NOT `await firstSegment` first. streamTtsForText now issues its
-        // request immediately and waits its turn only to EMIT, so starting the
-        // remainder here overlaps its synthesis with the tail of sentence one's
-        // playback. Awaiting sentence one first is what made every reply pay a
-        // second time-to-first-byte as an audible mid-sentence gap.
-        const restSegment = rest.trim() && !aborted() ? streamTtsForText(rest) : null;
-        await firstSegment;
-        if (restSegment) await restSegment;
-      } else if (reply && !aborted()) {
-        await streamTtsForText(reply); // no boundary found — speak it whole
+      // NOT `await` sentence one before starting the rest. streamTtsForText
+      // issues its request immediately and waits its turn only to EMIT, so
+      // starting the remainder here overlaps its synthesis with the tail of
+      // sentence one's playback (or with the hold). Awaiting sentence one first
+      // is what made every reply pay a second time-to-first-byte as an audible
+      // mid-sentence gap.
+      if (rest.trim() && !aborted()) {
+        if (holdAnnounced) segments.push(emitPauseInOrder());
+        segments.push(streamTtsForText(rest));
       }
+      for (const segment of segments) await segment;
       handled = true;
       ttsMode = 'split';
     }
@@ -2468,7 +2574,7 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
     // this reply was built from a system prompt with no handover rules and the
     // configured direction's greeting — a different cached prefix, and a model
     // that could promise a transfer nothing would carry out.
-    const runConverse = () => converse(workspaceId, agentId, messages, { voiceMode: true, affect, transfer, spokenWelcome });
+    const runConverse = () => converse(workspaceId, agentId, messages, { voiceMode: true, affect, transfer, spokenWelcome, allowHold: true });
     let converseResult;
     try {
       converseResult = await withTimeout(runConverse(), LLM_SPIKE_TIMEOUT_MS);
@@ -2486,10 +2592,24 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
     ({ provider, model, ragMs } = converseResult);
     const bufferedScan = stripTransferMarker(converseResult.reply || '');
     if (bufferedScan.transfer) transferScanner.push(TRANSFER_MARKER_LITERAL);
-    reply = stripForVoice(filterReplyText(bufferedScan.text, replyFilterOpts));
+    // One filter across both halves, as on the streaming paths: the head rules
+    // apply to the start of the REPLY, not again after the hold.
+    const held = splitAtHold(bufferedScan.text, { enabled: holdMs > 0 });
+    const filter = createReplyTextFilter(replyFilterOpts);
+    const beforeHold = stripForVoice(filter.push(held.before) + filter.flush());
+    const afterHold = held.hold ? stripForVoice(filter.push(held.after) + filter.flush()) : '';
+    reply = [beforeHold, afterHold].filter(Boolean).join(' ');
     llmMs = Math.round(performance.now() - llmStartedAt);
     llmTtftMs = llmMs; // buffered call: first token only exists once the reply is done
-    if (reply && !aborted()) await streamTtsForText(reply);
+    if (reply && !aborted()) {
+      const segments = [];
+      if (beforeHold) segments.push(streamTtsForText(beforeHold));
+      if (afterHold) {
+        if (beforeHold) segments.push(emitPauseInOrder());
+        segments.push(streamTtsForText(afterHold));
+      }
+      for (const segment of segments) await segment;
+    }
   }
 
   // Segments close themselves (audio-end is emitted per segment above); the
@@ -2541,6 +2661,9 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
     sttMs, voiceWaitMs, ragMs, llmMs, llmTtftMs, llmTtftAbsMs, ttsMs, ttsTtfaMs, ttfaMs, waitMs, totalMs,
     streamed: true, mode: ttsMode, delivery: ttsDelivery, filler: fillerPlayed, natural: naturalMode,
     transfer: transferScanner.found() ? 'marker' : (transferPre.requested ? 'regex' : null),
+    // The silence this reply asked for. The transport plays it, so no timing
+    // above includes it — this says why the caller's wait was longer.
+    holdMs: holdEmitted ? holdMs : null,
     speculative, specMode, specTrigger: specHit?.trigger ?? null, specLeadMs,
     specBufferedChars: specHit?.bufferedChars ?? null,
     specStarted: specTurn?.started ?? 0, specWasted: specTurn?.wasted ?? 0, specWastedChars: specTurn?.wastedChars ?? 0,
