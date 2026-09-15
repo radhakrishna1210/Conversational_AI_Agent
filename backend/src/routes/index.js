@@ -154,11 +154,20 @@ router.get('/config/airtel-verified-calling-guide', (_req, res) => {
 
 // Public AI Assistant chat — marketing-site helper. No auth, but strictly
 // rate-limited per IP so it can't be used for free compute.
+//
+// The system prompt is fixed here. It used to be taken from the request body,
+// which made this an open, unauthenticated proxy to the platform's Gemini key
+// for any instructions at all. No client sends one (nothing in client/ calls
+// this route), so ignoring it changes nothing legitimate.
+const ASSISTANT_MAX_MESSAGE_CHARS = 2000;
 router.post('/assistant/chat', rateLimit({ windowMs: 60_000, max: 8, keyPrefix: 'assistant' }), async (req, res) => {
   try {
-    const { message, systemPrompt } = req.body;
+    const { message } = req.body ?? {};
     if (!message || typeof message !== 'string' || !message.trim()) {
       return res.status(400).json({ error: 'Message is required' });
+    }
+    if (message.length > ASSISTANT_MAX_MESSAGE_CHARS) {
+      return res.status(400).json({ error: `Message must be at most ${ASSISTANT_MAX_MESSAGE_CHARS} characters` });
     }
 
     // Try real LLM provider with fallback, ultimately falls back to mock
@@ -167,7 +176,7 @@ router.post('/assistant/chat', rateLimit({ windowMs: 60_000, max: 8, keyPrefix: 
       message,
       { model: 'gemini-2.5-flash', temperature: 0.7 },
       {
-        systemPrompt: systemPrompt || "You are a helpful AI assistant representing the OmniDimension Conversational Voice AI platform. Your job is to answer the user's questions about configuring their agent, setting up integrations (like N8N, Genesys, Twilio), setting up speech-to-text / text-to-speech, and configuring languages. Be concise, professional, and friendly.",
+        systemPrompt: "You are a helpful AI assistant representing the OmniDimension Conversational Voice AI platform. Your job is to answer the user's questions about configuring their agent, setting up integrations (like N8N, Genesys, Twilio), setting up speech-to-text / text-to-speech, and configuring languages. Be concise, professional, and friendly.",
         maxTokens: 2000,
       }
     );
