@@ -1,12 +1,12 @@
 import * as workspaceService from '../services/workspace.service.js';
 
 export const getWorkspace = async (req, res) => {
-  res.json(req.workspace);
+  res.json(workspaceService.toCustomerWorkspace(req.workspace));
 };
 
 export const updateWorkspace = async (req, res) => {
   const workspace = await workspaceService.updateWorkspace(req.params.workspaceId, req.body);
-  res.json(workspace);
+  res.json(workspaceService.toCustomerWorkspace(workspace));
 };
 
 export const listMembers = async (req, res) => {
@@ -22,12 +22,12 @@ export const inviteMember = async (req, res) => {
 
 export const updateMemberRole = async (req, res) => {
   const member = await workspaceService.updateMemberRole(
-    req.params.workspaceId, req.params.userId, req.body.role
+    req.params.workspaceId, req.params.userId, req.body.role, req.user?.role
   );
   res.json(member);
 };
 
 export const removeMember = async (req, res) => {
-  await workspaceService.removeMember(req.params.workspaceId, req.params.userId);
+  await workspaceService.removeMember(req.params.workspaceId, req.params.userId, req.user?.role);
   res.json({ message: 'Member removed' });
 };

@@ -8,10 +8,14 @@ export const notificationPrefsSchema = z.object({
   notifyOnRateLimit: z.boolean().optional(),
 });
 
+const isTimeZone = (tz) => {
+  try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return true; } catch { return false; }
+};
+
 export const workspaceUpdateSchema = z.object({
   name: z.string().min(2).max(80).optional(),
   logoUrl: z.string().url().optional().or(z.literal('')),
-  timezone: z.string().optional(),
+  timezone: z.string().refine(isTimeZone, { message: 'Unknown timezone' }).optional(),
 });
 
 export const inviteMemberSchema = z.object({

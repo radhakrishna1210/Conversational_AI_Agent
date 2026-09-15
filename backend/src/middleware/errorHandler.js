@@ -49,6 +49,11 @@ export const errorHandler = (err, req, res, next) => {
     return res.status(status).json({ error: err.message });
   }
 
-  // Unknown error
-  res.status(500).json({ error: 'Internal server error', message: err.message });
+  // Unknown error. The detail is in the log line above; in production it stays
+  // there. Returning `err.message` handed clients raw Prisma errors — table and
+  // column names, argument lists, sometimes the offending values.
+  res.status(500).json({
+    error: 'Internal server error',
+    ...(process.env.NODE_ENV === 'production' ? {} : { message: err.message }),
+  });
 };
