@@ -72,7 +72,65 @@ const REPORTED = [
   /\b(bola|boli|kaha|kehna|bataya)\b/i,
 ];
 
+// ── A human-word and an action-word are only a REQUEST when they belong together ──
+//
+// Both appearing somewhere in the turn used to be enough for HIGH confidence,
+// and a high match moves a live call to a person without the model agreeing.
+// "Give me an appointment for someone" has `give me` and `someone` and asks
+// for nothing of the kind. So a Latin-script pair must be ADJACENT: nothing
+// between the two phrases but the small words that join a request together
+// ("speak TO A manager", "connect ME WITH someone", "manager SE baat karo").
+const JOINING_WORDS = new Set([
+  'to', 'with', 'a', 'an', 'the', 'your', 'some', 'one', 'of', 'me', 'us', 'my', 'this', 'call', 'through',
+  'over', 'real', 'actual', 'live', 'any', 'another', 'please', 'just',
+  'se', 'ko', 'ki', 'ka', 'ek', 'kisi', 'sath', 'saath', 'mujhe', 'meri', 'humari', 'hamari', 'aapke',
+]);
+const MAX_JOINING_WORDS = 4;
+// And when the human-word comes LAST, the word after it must not turn it into a
+// modifier: "is there a staff DISCOUNT", "give me the agent NUMBER". Only these
+// (or the end of the clause) may follow it.
+const AFTER_HUMAN_WORD = new Set([
+  'please', 'who', 'that', 'which', 'now', 'right', 'here', 'there', 'available', 'immediately', 'asap',
+  'sir', 'madam', 'maam', 'ji', 'se', 'ko', 'about', 'regarding', 'on', 'from', 'at', 'in', 'i', 'because',
+  'so', 'and', 'or', 'for', 'real', 'instead', 'directly', 'today', 'urgently', 'can', 'to', 'if',
+]);
+
 const norm = (t) => String(t ?? '').toLowerCase().replace(/[’']/g, "'").replace(/[^\p{L}\p{N}' ]+/gu, ' ').replace(/\s+/g, ' ').trim();
+
+const occurrences = (tokens, phraseTokens) => {
+  const at = [];
+  for (let i = 0; i + phraseTokens.length <= tokens.length; i++) {
+    if (phraseTokens.every((p, k) => tokens[i + k] === p)) at.push(i);
+  }
+  return at;
+};
+
+/** Is this human-word/action-word pair one request, inside one clause? */
+function formsRequest(clause, human, action) {
+  // Devanagari and other scripts: the normaliser splits combining marks, so
+  // tokens are meaningless there, and those phrasings never carried the
+  // English false positives this guards against. Containment, as before.
+  if (/[^\x00-\x7f]/.test(human + action)) return has(clause, human) && has(clause, action);
+
+  const tokens = clause.split(' ');
+  const h = human.split(' ');
+  const a = action.split(' ');
+  for (const hi of occurrences(tokens, h)) {
+    for (const ai of occurrences(tokens, a)) {
+      const humanFirst = hi + h.length <= ai;
+      const actionFirst = ai + a.length <= hi;
+      if (!humanFirst && !actionFirst) continue; // the phrases overlap
+      const gap = humanFirst ? tokens.slice(hi + h.length, ai) : tokens.slice(ai + a.length, hi);
+      if (gap.length > MAX_JOINING_WORDS || !gap.every((t) => JOINING_WORDS.has(t))) continue;
+      if (actionFirst) {
+        const next = tokens[hi + h.length];
+        if (next !== undefined && !AFTER_HUMAN_WORD.has(next)) continue;
+      }
+      return true;
+    }
+  }
+  return false;
+}
 const has = (text, phrase) => {
   const p = phrase.toLowerCase();
   // Devanagari has no reliable \b; use plain containment for non-Latin.
@@ -111,13 +169,30 @@ export function detectTransferRequest(text) {
       : { requested: true, confidence: 'high', matched: standalone, negated: false };
   }
 
+  // Every human-word/action-word pair, not just the first of each: "can I talk
+  // to someone real" must find `someone real`, and a turn can hold a harmless
+  // pair and a real one.
+  const pairClauses = clauses.length ? clauses : [t];
+  for (const clause of pairClauses) {
+    for (const hw of HUMAN_WORDS) {
+      const h = norm(hw);
+      if (!has(clause, h)) continue;
+      for (const aw of ACTION_WORDS) {
+        const a = norm(aw);
+        if (!has(clause, a) || !formsRequest(clause, h, a)) continue;
+        const negated = isNegated(h) || isNegated(a);
+        return negated
+          ? { requested: false, confidence: 'medium', matched: `${aw} … ${hw}`, negated: true }
+          : { requested: true, confidence: 'high', matched: `${aw} … ${hw}`, negated: false };
+      }
+    }
+  }
+
   const human = HUMAN_WORDS.find((w) => has(t, norm(w)));
   const action = ACTION_WORDS.find((w) => has(t, norm(w)));
   if (human && action) {
-    const negated = isNegated(norm(human)) || isNegated(norm(action));
-    return negated
-      ? { requested: false, confidence: 'medium', matched: `${action} … ${human}`, negated: true }
-      : { requested: true, confidence: 'high', matched: `${action} … ${human}`, negated: false };
+    // Both present but not as one request — a hint for the model, never a trigger.
+    return { requested: false, confidence: 'medium', matched: `${action} … ${human}`, negated: isNegated(norm(human)) || isNegated(norm(action)) };
   }
   if (human || action) {
     return { requested: false, confidence: 'medium', matched: human || action, negated: isNegated(norm(human || action)) };

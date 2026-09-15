@@ -55,6 +55,28 @@ describe('detectTransferRequest — negatives', () => {
       'Someone said you have a discount, is that true?',
     ]) no(t);
   });
+  // A high match dials a person on a LIVE call without the model's agreement,
+  // so a human-word and an action-word merely sharing a sentence must not count.
+  test('the words must form the request, not just appear in the same turn', () => {
+    for (const t of [
+      'Can you give me an appointment for someone in my family?',
+      'Give me an appointment for someone.',
+      'Is there a staff discount?',
+      'Can you give me the agent number for my policy?',
+      'Can I talk to you about the staff parking?',
+      'Please connect my booking with the manager\'s account.',
+    ]) {
+      const r = detectTransferRequest(t);
+      assert.equal(r.requested, false, `${JSON.stringify(t)} → ${JSON.stringify(r)}`);
+    }
+    for (const t of [
+      'I need to speak with someone in billing.',
+      'Get me someone who can actually fix this.',
+      'Can you connect my call to the front desk?',
+      'Let me speak to your manager about this charge.',
+    ]) yes(t);
+  });
+
   test('ordinary turns do not fire; a lone human-word is only a medium hint', () => {
     no('What are your business hours on weekends?');
     no('Okay, can you book me an appointment for tomorrow morning at ten?');
