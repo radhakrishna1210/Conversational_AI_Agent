@@ -92,7 +92,9 @@ import {
   playableWithFormat,
   PHONE_SAMPLE_RATE,
   FRAME_MS,
+  ULAW_FRAME_BYTES,
 } from '../services/voice/telephonyAudio.js';
+import { holdPauseSecFor, MAX_HOLD_SEC } from '../services/voice/holdPause.js';
 import {
   telephonyFormatForVoice,
   synthesisProviderForVoice,
@@ -277,6 +279,9 @@ const ARM_POLL_MS = 20;
  */
 const MAX_ARM_WAIT_MS = 20_000;
 
+/** One 20ms frame of mu-law silence (0xFF is mu-law zero). A timed hold is a run of these. */
+const SILENCE_FRAME = Buffer.alloc(ULAW_FRAME_BYTES, 0xff);
+
 /** RMS of one already-decoded frame. */
 function pcmRms(pcm) {
   if (!pcm.length) return 0;
@@ -411,6 +416,36 @@ export function runModularMediaBridge(ws, {
    * which is the only thing that should care about it.
    */
   let overlapTurnEnded = false;
+
+  /**
+   * The timed hold this reply queued (voice/holdPause.js), as wall-clock bounds
+   * of its silence. Inside them the caller is waiting on the agent BY DESIGN —
+   * "line par rahiye" — and the answer they are waiting for is queued right
+   * behind the silence, so their "hello?" must not cut it. What they say is
+   * still transcribed and recovered as over-talk, like any speech over a reply.
+   * Cleared by clearPlayback(): a flushed queue has no hold left in it.
+   */
+  let holdWindow = null;
+  /** Hold time queued by the current turn, added to armNextTurn's ceiling. */
+  let turnHoldMs = 0;
+  const inHold = () => {
+    if (!holdWindow) return false;
+    const now = Date.now();
+    return now >= holdWindow.from && now < holdWindow.until;
+  };
+  /**
+   * The one barge-block hook. Returns the new `cutNow` (always false) and
+   * restarts the run of loud frames, so a caller still talking as the answer
+   * begins needs a fresh BARGE_FRAMES to cut it rather than one frame.
+   */
+  const holdBarge = () => {
+    bargeCount = 0;
+    if (!holdWindow.bargeHeld) {
+      holdWindow.bargeHeld = true;
+      logger.info(`${carrier.label}: barge held — the caller spoke during a timed hold`);
+    }
+    return false;
+  };
 
   /** Pending "answer the carried text if the line stays quiet". See armNextTurn. */
   let settleTimer = null;
@@ -643,10 +678,33 @@ export function runModularMediaBridge(ws, {
    */
   const clearPlayback = () => {
     pacer?.flush();
+    // The hold's silence went with the queue. Left set, its window would shield
+    // the NEXT reply from barge-in for however long the dropped hold had left.
+    holdWindow = null;
     // The canceller queues what the carrier will play; after a clear it won't,
     // and subtracting that phantom echo would eat the words that caused the barge.
     aec.flush();
     if (ws.readyState === ws.OPEN && streamId) carrier.clearAudio(ws, streamId);
+  };
+
+  /**
+   * Queue `ms` of silence exactly where the next frame of speech would go.
+   *
+   * The SAME path sendFrame() gives TTS audio, on purpose: those frames are
+   * what playout counts as speaking (so listening is not re-armed and the
+   * no-input prompt cannot fire mid-hold), what the recording taps, and — with
+   * an ambience bed — what the pump mixes into the bed, so the hold sounds like
+   * the room rather than a dead line. On a pacer it goes in as one buffer: the
+   * queue is the same either way, and 500 single-frame appends would copy it
+   * 500 times.
+   * @returns {number} ms actually queued
+   */
+  const sendSilence = (ms) => {
+    const frames = Math.round(Math.min(Math.max(0, Number(ms) || 0), MAX_HOLD_SEC * 1000) / FRAME_MS);
+    if (!frames) return 0;
+    if (pacer) pacer.push(Buffer.alloc(frames * ULAW_FRAME_BYTES, 0xff));
+    else for (let i = 0; i < frames; i++) sendFrameNow(SILENCE_FRAME);
+    return frames * FRAME_MS;
   };
 
   /**
@@ -805,6 +863,7 @@ export function runModularMediaBridge(ws, {
     turnSeq += 1;
     turnId = `${callTag}:${turnSeq}`;
     turnFirstFrameAt = null;
+    turnHoldMs = 0;
     // Drained here, not after the silence gate below: every path out of this
     // function must leave an empty buffer, or a discarded turn's audio would be
     // analysed as part of the next one.
@@ -1048,6 +1107,22 @@ export function runModularMediaBridge(ws, {
                 pendingPcm = null;
                 break;
               }
+              case 'pause': {
+                // A timed hold between two segments of this reply. Always after
+                // an audio-end (the runtime orders it like a segment), so no
+                // segment's bytes can straddle it.
+                if (abortTurn || closed) break;
+                // Measured before queueing: the silence starts once everything
+                // already sent or queued has played.
+                const from = Date.now() + playout.remainingMs();
+                const queued = sendSilence(ev.ms);
+                if (!queued) break;
+                // Plus the echo grace: the answer starts from silence, and its
+                // onset echoes as loudly as a reply's first words do.
+                holdWindow = { from, until: from + queued + BARGE_GRACE_MS, bargeHeld: false };
+                turnHoldMs += queued;
+                break;
+              }
               case 'transfer':
                 // The caller asked for a person (or the model decided the
                 // configured condition was met). Acted on AFTER this turn's
@@ -1111,8 +1186,10 @@ export function runModularMediaBridge(ws, {
       // Listening resumes when the caller can be heard over us, NOT here —
       // generation ending is not the same event as the carrier finishing
       // playback, and treating them as one fed our own echo into the caller's
-      // next turn. See armNextTurn.
-      armNextTurn();
+      // next turn. See armNextTurn. Its ceiling is sized for speech; a hold is
+      // silence we queued on purpose, so it extends the wait rather than
+      // counting against it.
+      armNextTurn(Date.now() + MAX_ARM_WAIT_MS + turnHoldMs);
     }
   };
 
@@ -1917,7 +1994,8 @@ export function runModularMediaBridge(ws, {
             // so it names the greeting once rendered (a few ms after `start`).
             // A speculation racing ahead of that falls back to the configured
             // direction's greeting, as every call did before.
-            start: (messages, { signal, affect }) => converseStream(workspaceId, agentId, messages, { voiceMode: true, signal, transfer: transferOpts(), spokenWelcome, affect }),
+            // allowHold too: a hit built without the hold rule would never pause.
+            start: (messages, { signal, affect }) => converseStream(workspaceId, agentId, messages, { voiceMode: true, signal, transfer: transferOpts(), spokenWelcome, affect, allowHold: true }),
           });
 
           // ── Wallet gate ───────────────────────────────────────────────────
@@ -2038,11 +2116,16 @@ export function runModularMediaBridge(ws, {
           // The three-state switch (off / manual bed / Fish-native). Only
           // 'manual' mixes a bed here; 'native' rides on the synthesis request
           // (see ambienceTagFor) and 'off' is exactly the old no-preset path.
+          //
+          // Either queue gets room for a timed hold on top of its speech budget:
+          // the hold is queued whole, between the speech either side of it.
+          const extraQueueFrames = ((holdPauseSecFor(settings) ?? 0) * 1000) / FRAME_MS;
           if (resolveAmbientMode(settings) === 'manual' && settings.ambientSound && settings.ambientSound !== 'None') {
             pacer = createAmbiencePump({
               presetName: settings.ambientSound,
               send: sendFrameNow,
               onError: (err) => logger.warn(`${carrier.label}: ambience pump: ${err.message}`),
+              extraQueueFrames,
             });
             if (!pacer) {
               logger.warn(`${carrier.label}: unknown ambience preset "${settings.ambientSound}" — no background bed`);
@@ -2052,6 +2135,7 @@ export function runModularMediaBridge(ws, {
             pacer = createUlawPacer({
               send: sendFrameNow,
               onError: (err) => logger.warn(`${carrier.label}: outbound pacer: ${err.message}`),
+              extraQueueFrames,
             });
           }
           pacer?.start();
@@ -2443,6 +2527,8 @@ export function runModularMediaBridge(ws, {
             );
           }
         }
+        // A timed hold is the reply waiting for its own second half: see holdWindow.
+        if (cutNow && inHold()) cutNow = holdBarge();
 
         if (cutNow) {
           bargeCount = 0;

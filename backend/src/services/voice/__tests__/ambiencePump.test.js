@@ -77,6 +77,32 @@ describe('ambiencePump', () => {
     assert.ok(s.dropped > 0, 'expected overflow to be counted');
   });
 
+  it('extraQueueFrames makes room for a timed hold on top of the speech budget', () => {
+    const pump = createAmbiencePump({ presetName: 'Office', send: () => {}, extraQueueFrames: 500 });
+    pump.start();
+    pump.push(speechFrames(400));                               // 8s before the hold
+    pump.push(Buffer.alloc(500 * ULAW_FRAME_BYTES, 0xff));      // a 10s hold
+    pump.push(speechFrames(100));                               // the answer
+    pump.stop();
+    assert.equal(pump.stats().dropped, 0);
+  });
+
+  it('a queued hold plays as the bed, and still counts as the agent speaking', async () => {
+    const sent = [];
+    const pump = createAmbiencePump({ presetName: 'Office', send: (f, meta) => sent.push({ f, speech: meta?.speech }) });
+    pump.start();
+    pump.push(Buffer.alloc(10 * ULAW_FRAME_BYTES, 0xff)); // 200ms of hold
+    await sleep(150);
+    pump.stop();
+    const held = sent.filter((s) => s.speech);
+    assert.ok(held.length >= 3, `expected hold frames flagged as speech, got ${held.length}`);
+    for (const { f } of held) {
+      const level = rmsDbfs(decodeUlaw(f));
+      assert.ok(level > -70, 'the hold cut the bed to silence');
+      assert.ok(level < -25, 'a hold frame came out at speech level');
+    }
+  });
+
   it('stop() is idempotent and silences the pump', async () => {
     let count = 0;
     const pump = createAmbiencePump({ presetName: 'Office', send: () => { count += 1; } });

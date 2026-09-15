@@ -37,13 +37,16 @@ const MAX_CONSECUTIVE_SEND_FAILURES = 3;
  * @param {string} opts.presetName  ambience preset; must be a real one
  * @param {(frame: Buffer) => void} opts.send  emits one 160-byte µ-law frame
  * @param {(err: Error) => void} [opts.onError]
+ * @param {number} [opts.extraQueueFrames] room for deliberate silence on top of
+ *   the speech budget — see the same option on ulawPacer.js.
  * @returns {{ start(): void, push(buf: Buffer): void, flush(): void,
  *             stop(): void, isRunning(): boolean, stats(): object }|null}
  *   null when the preset is not synthesizable — caller should keep passthrough.
  */
-export function createAmbiencePump({ presetName, send, onError }) {
+export function createAmbiencePump({ presetName, send, onError, extraQueueFrames = 0 }) {
   const bed = createAmbienceSource(presetName);
   if (!bed) return null;
+  const cap = (MAX_QUEUE_FRAMES + Math.max(0, Math.floor(Number(extraQueueFrames) || 0))) * ULAW_FRAME_BYTES;
 
   let timer = null;
   let nextFrameAt = 0;
@@ -134,7 +137,6 @@ export function createAmbiencePump({ presetName, send, onError }) {
     push(buf) {
       if (!timer || !buf?.length) return;
       queue = queue.length ? Buffer.concat([queue, buf]) : Buffer.from(buf);
-      const cap = MAX_QUEUE_FRAMES * ULAW_FRAME_BYTES;
       if (queue.length > cap) {
         dropped += Math.ceil((queue.length - cap) / ULAW_FRAME_BYTES);
         queue = queue.subarray(queue.length - cap);  // keep the freshest audio

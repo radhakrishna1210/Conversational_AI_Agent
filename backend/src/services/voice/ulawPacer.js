@@ -57,10 +57,15 @@ const MAX_CONSECUTIVE_SEND_FAILURES = 3;
  * @param {object} opts
  * @param {(frame: Buffer) => void} opts.send  emits one 160-byte mu-law frame
  * @param {(err: Error) => void} [opts.onError]
+ * @param {number} [opts.extraQueueFrames] room for deliberate silence ON TOP of
+ *   the speech budget. A timed hold (voice/holdPause.js) is queued in one go
+ *   between two stretches of speech; without the room, the silence alone would
+ *   push the start of the reply off the front of the queue.
  * @returns {{ start(): void, push(buf: Buffer): void, flush(): void,
  *             stop(): void, isRunning(): boolean, stats(): object }}
  */
-export function createUlawPacer({ send, onError }) {
+export function createUlawPacer({ send, onError, extraQueueFrames = 0 }) {
+  const cap = (MAX_QUEUE_FRAMES + Math.max(0, Math.floor(Number(extraQueueFrames) || 0))) * ULAW_FRAME_BYTES;
   let timer = null;
   let nextFrameAt = 0;
   let queue = Buffer.alloc(0);
@@ -159,7 +164,6 @@ export function createUlawPacer({ send, onError }) {
     push(buf) {
       if (!timer || !buf?.length) return;
       queue = queue.length ? Buffer.concat([queue, buf]) : Buffer.from(buf);
-      const cap = MAX_QUEUE_FRAMES * ULAW_FRAME_BYTES;
       if (queue.length > cap) {
         dropped += Math.ceil((queue.length - cap) / ULAW_FRAME_BYTES);
         queue = queue.subarray(queue.length - cap);   // keep the freshest audio

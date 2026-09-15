@@ -244,6 +244,26 @@ test('the queue is bounded, and drops the oldest audio rather than the newest', 
   });
 });
 
+// A timed hold is queued in one go between two stretches of speech. Without
+// room for it, 8s of speech + a 10s hold + the answer overflowed the ~10s cap
+// and the start of the reply was dropped before the caller heard it.
+test('extraQueueFrames makes room for a hold on top of the speech budget', () => {
+  withFakeClock(({ advance }) => {
+    const sent = [];
+    const pacer = createUlawPacer({ send: (f) => sent.push(f), extraQueueFrames: 500 });
+    pacer.start();
+
+    pacer.push(Buffer.alloc(400 * FRAME, 0x11));   // 8s: the words before the hold
+    pacer.push(Buffer.alloc(500 * FRAME, 0xff));   // 10s of hold
+    pacer.push(Buffer.alloc(100 * FRAME, 0x22));   // the answer
+
+    assert.equal(pacer.stats().dropped, 0);
+    advance(FRAME_MS);
+    assert.equal(sent[0][0], 0x11, 'the reply still starts at its first word');
+    pacer.stop();
+  });
+});
+
 // playoutWindow counts this as audio the caller has not heard. A cached
 // greeting pushed in one burst must read as the full greeting, and the answer
 // must fall to zero exactly as the queue drains — not stay up forever.
