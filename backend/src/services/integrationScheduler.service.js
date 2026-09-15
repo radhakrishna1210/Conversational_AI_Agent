@@ -8,6 +8,28 @@ import {
   backingOffIds,
 } from './integrationBackoff.js';
 
+const DEFAULT_SYNC_INTERVAL_MINUTES = 30;
+/** A tenant-set interval below this would sync on nearly every 60s tick. */
+const MIN_SYNC_INTERVAL_MINUTES = 5;
+
+/**
+ * How often this integration auto-syncs, from its saved settings.
+ *
+ * `settingsJson` is a String column. Reading `.syncIntervalMinutes` straight off
+ * it was always undefined, so every integration synced on the 30-minute default
+ * whatever it was configured to.
+ */
+export const syncIntervalMinutes = (integration) => {
+  const raw = integration?.settings?.settingsJson;
+  let settings = raw;
+  if (typeof raw === 'string') {
+    try { settings = JSON.parse(raw); } catch { settings = null; }
+  }
+  const n = Number(settings?.syncIntervalMinutes);
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_SYNC_INTERVAL_MINUTES;
+  return Math.max(n, MIN_SYNC_INTERVAL_MINUTES);
+};
+
 /**
  * Integration auto-sync.
  *
@@ -95,7 +117,7 @@ export const startIntegrationScheduler = () => {
 
         if (isBackingOff(integration.id, nowMs)) continue;
 
-        const intervalMinutes = Number(integration.settings?.settingsJson?.syncIntervalMinutes ?? 30);
+        const intervalMinutes = syncIntervalMinutes(integration);
         const lastSync = integration.lastSyncAt ? new Date(integration.lastSyncAt).getTime() : 0;
         if (!lastSync || nowMs - lastSync >= intervalMinutes * 60 * 1000) {
           await createSyncJob(integration.workspaceId, integration.provider, 'scheduled', integration.id);
