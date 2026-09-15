@@ -2,8 +2,8 @@
 //
 // Public carrier endpoint — mounted OUTSIDE the authenticated router because
 // PIOPIY is a carrier and cannot hold a session. PIOPIY signs nothing, so the
-// only protection is the optional shared secret on the URL
-// (PIOPIY_WEBHOOK_TOKEN); see controllers/piopiy.controller.js.
+// only protection is the shared secret on the URL (PIOPIY_WEBHOOK_TOKEN), and
+// without it every request is refused; see controllers/piopiy.controller.js.
 //
 // There is no answer endpoint here, unlike plivo.routes.js: PIOPIY takes its
 // PCMO document inline on the dial request, so nothing is served at pickup.

@@ -21,11 +21,12 @@
  * authentication available is a shared secret we put on the URL ourselves
  * (PIOPIY_WEBHOOK_TOKEN), the only authentication a carrier callback can carry.
  *
- * That makes the token the whole of the protection, which is worth stating
- * plainly: unset, this endpoint is open, and anyone who learns a call log id can
- * close out a call. It is best-effort-idempotent (a log already past INITIATED /
- * IN_PROGRESS is left alone), so the blast radius is a call finalized early
- * rather than corrupted state — but set the token.
+ * That makes the token the whole of the protection, so an unset token refuses
+ * every request rather than opening the endpoint. It used to fail open, which
+ * was harmless only because this route was never mounted: a CDR settles a
+ * broadcast with the duration it carries, so an open endpoint would let anyone
+ * holding a recipient id charge a customer's wallet for a call that never
+ * happened.
  *
  * ── Where the call's identity comes from ─────────────────────────────────────
  *
@@ -35,9 +36,10 @@
  * changes, so readExtraParams tolerates both.
  */
 
+import { timingSafeEqual } from 'crypto';
 import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
-import { createCallFinalizer } from '../ws/callFinalizer.js';
+import { closeOutCarrierCall } from '../services/telephony/carrierCloseOut.js';
 import { releaseSlot } from '../services/telephony/concurrency.js';
 import { settleBroadcastCall } from '../services/broadcast/broadcastSettlement.service.js';
 import { syncProgress } from '../services/broadcast/broadcastRunner.service.js';
@@ -54,14 +56,23 @@ import { syncProgress } from '../services/broadcast/broadcastRunner.service.js';
 const ANSWERED_STATES = new Set(['answered', 'completed']);
 
 /**
- * Unset means open, and says so once at boot rather than failing silently at
- * 2am. The trade-off is deliberate: a deployment
- * that forgets the token gets a working integration and a warning.
+ * Unset means CLOSED, and says so in the log the first time a CDR is refused —
+ * a PIOPIY deployment without a token has nowhere safe to post its CDRs.
+ * Constant-time, so the token cannot be recovered a byte at a time.
  */
-const tokenOk = (req) => {
+let warnedNoToken = false;
+export const tokenOk = (req) => {
   const expected = process.env.PIOPIY_WEBHOOK_TOKEN;
-  if (!expected) return true;
-  return String(req.query?.token || req.body?.token || '') === expected;
+  if (!expected) {
+    if (!warnedNoToken) {
+      warnedNoToken = true;
+      logger.error('PIOPIY CDR refused: PIOPIY_WEBHOOK_TOKEN is not set. Set it and register the webhook as /api/v1/piopiy/cdr?token=<value>.');
+    }
+    return false;
+  }
+  const given = Buffer.from(String(req.query?.token || req.body?.token || ''));
+  const want = Buffer.from(expected);
+  return given.length === want.length && timingSafeEqual(given, want);
 };
 
 /**
@@ -133,29 +144,19 @@ export async function cdr(req, res) {
   if (!callLogId) return;
 
   try {
-    const log = await prisma.agentCallLog.findUnique({
-      where: { id: callLogId },
-      select: { status: true },
-    });
-    // The media bridge already closed this out on socket close. Re-finalizing
-    // would duplicate the Sheets row / webhook / email for one call — the exact
-    // thing callFinalizer's once-only guard exists to prevent, except that guard
-    // is per-bridge-instance and this is a different process path.
-    if (!log || (log.status !== 'INITIATED' && log.status !== 'IN_PROGRESS')) return;
-
-    const finalize = createCallFinalizer({
-      workspaceId: extra.workspaceId,
-      agentId: extra.agentId,
+    // A call the media bridge closes itself is left to it — that path has the
+    // transcript — and the finalizer's claim makes a double close-out
+    // impossible either way. See services/telephony/carrierCloseOut.js.
+    const outcome = await closeOutCarrierCall({
+      callLogId,
+      answered,
+      durationSec: seconds,
       label: 'PIOPIY phone call',
-    });
-    await finalize(callLogId, answered ? 'COMPLETED' : 'FAILED', {
-      transcript: [],
-      startedAt: Date.now() - seconds * 1000,
     });
 
     logger.info(
-      { callLogId, status, cmiuuid, duration: seconds },
-      `PIOPIY CDR closed out a call as ${answered ? 'COMPLETED' : 'FAILED'}`,
+      { callLogId, status, cmiuuid, duration: seconds, outcome },
+      'PIOPIY CDR handled',
     );
   } catch (e) {
     logger.warn(`PIOPIY CDR could not close out ${callLogId}: ${e.message}`);

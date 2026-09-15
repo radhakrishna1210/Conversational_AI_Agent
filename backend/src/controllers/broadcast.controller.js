@@ -166,7 +166,10 @@ export const estimate = async (req, res) => {
 
 /** GET /broadcasts/caller-readiness — can these numbers broadcast at all? */
 export const callerReadiness = async (req, res) => {
-  res.json(await broadcastService.checkCallerReadiness(parseJsonArray(req.query.fromNumbers, 'fromNumbers')));
+  res.json(await broadcastService.checkCallerReadiness(
+    parseJsonArray(req.query.fromNumbers, 'fromNumbers'),
+    { workspaceId: req.params.workspaceId },
+  ));
 };
 
 /** GET /broadcasts/rate — the ₹/min a broadcast call is charged at. */

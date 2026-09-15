@@ -28,6 +28,7 @@ const { default: prisma } = await import('../../../config/prisma.js');
 const { answer, hangup, hangupTiming } = await import('../../../controllers/plivo.controller.js');
 const { inboundCallLogId, openInboundCallLog } = await import('../inbound.service.js');
 const { createCallFinalizer } = await import('../../../ws/callFinalizer.js');
+const { closeOutTiming } = await import('../../telephony/carrierCloseOut.js');
 const { directionOf, partiesOf } = await import('../../analytics.service.js');
 
 // ── Stubbing ────────────────────────────────────────────────────────────────
@@ -204,8 +205,16 @@ describe('hangup() — an inbound call is closed out and billed', () => {
       return { id: where.id, billingStatus: 'BILLED' };
     });
     stub(prisma.agentCallLog, 'update', async (args) => { db.updated.push(args); return {}; });
+    // The finalizer's claim on endedAt.
+    stub(prisma.agentCallLog, 'updateMany', async (args) => { db.updatedMany.push(args); return { count: 1 }; });
     stub(prisma.agentCallLog, 'findFirst', async () => null); // extraction finds nothing; the finalizer tolerates it
     stub(prisma.agent, 'findFirst', async () => null);
+  };
+  const claimWrite = () => db.updatedMany.find((u) => u.where?.endedAt === null);
+  const shortBridgeGrace = () => {
+    const original = closeOutTiming.BRIDGE_GRACE_MS;
+    closeOutTiming.BRIDGE_GRACE_MS = 5;
+    restores.push(() => { closeOutTiming.BRIDGE_GRACE_MS = original; });
   };
 
   const inboundHangup = (overrides = {}) => req({
@@ -214,16 +223,20 @@ describe('hangup() — an inbound call is closed out and billed', () => {
   });
 
   test('found by its CallUUID, finalized under the row\'s own workspace and agent, and settled', async () => {
-    const row = { status: 'IN_PROGRESS', workspaceId: 'ws_1', agentId: 'agent_1' };
-    callLogTable({ rowsBySelect: [row] });
+    shortBridgeGrace();
+    // IN_PROGRESS: a bridge was attached, so the hangup gives it the grace window
+    // first — and on the second look nothing has closed the call.
+    const row = { status: 'IN_PROGRESS', endedAt: null, transcript: '[]', workspaceId: 'ws_1', agentId: 'agent_1' };
+    callLogTable({ rowsBySelect: [row, { ...row }] });
 
     await hangup(inboundHangup(), res());
 
-    const finalizeWrite = db.updated.find((u) => u.data?.status);
+    const finalizeWrite = claimWrite();
     assert.ok(finalizeWrite, 'the call log was closed out');
     assert.equal(finalizeWrite.where.id, `plivo-in-${CALL_UUID}`);
     assert.equal(finalizeWrite.data.status, 'COMPLETED');
     assert.equal(finalizeWrite.data.durationSec, 94);
+    assert.equal('transcript' in finalizeWrite.data, false, 'a carrier callback never writes the transcript');
     assert.deepEqual(db.settleLookups, [`plivo-in-${CALL_UUID}`], 'settleCall was reached for this call');
   });
 
@@ -231,12 +244,27 @@ describe('hangup() — an inbound call is closed out and billed', () => {
     const original = hangupTiming.INBOUND_INSERT_GRACE_MS;
     hangupTiming.INBOUND_INSERT_GRACE_MS = 5;
     restores.push(() => { hangupTiming.INBOUND_INSERT_GRACE_MS = original; });
-    callLogTable({ rowsBySelect: [null, { status: 'INITIATED', workspaceId: 'ws_1', agentId: 'agent_1' }] });
+    shortBridgeGrace();
+    const row = { status: 'INITIATED', endedAt: null, transcript: '[]', workspaceId: 'ws_1', agentId: 'agent_1' };
+    callLogTable({ rowsBySelect: [null, row, { ...row }] });
 
     await hangup(inboundHangup(), res());
 
-    assert.ok(db.updated.find((u) => u.data?.status), 'closed out on the second look');
+    assert.ok(claimWrite(), 'closed out on the second look');
     assert.deepEqual(db.settleLookups, [`plivo-in-${CALL_UUID}`]);
+  });
+
+  test('a call the media bridge closes during the grace window is left to it', async () => {
+    shortBridgeGrace();
+    callLogTable({ rowsBySelect: [
+      { status: 'IN_PROGRESS', endedAt: null, transcript: '[]', workspaceId: 'ws_1', agentId: 'agent_1' },
+      { status: 'COMPLETED', endedAt: new Date(), transcript: '[{"role":"user","content":"hi"}]', workspaceId: 'ws_1', agentId: 'agent_1' },
+    ] });
+
+    await hangup(inboundHangup(), res());
+
+    assert.equal(claimWrite(), undefined);
+    assert.equal(db.settleLookups.length, 0, 'no second settlement, no second post-call delivery');
   });
 
   test('a call that was never routed has no row, and nothing is written', async () => {
@@ -252,14 +280,15 @@ describe('hangup() — an inbound call is closed out and billed', () => {
   });
 
   test('a call the bridge already closed out is left alone', async () => {
-    callLogTable({ rowsBySelect: [{ status: 'COMPLETED', workspaceId: 'ws_1', agentId: 'agent_1' }] });
+    callLogTable({ rowsBySelect: [{ status: 'COMPLETED', endedAt: new Date(), workspaceId: 'ws_1', agentId: 'agent_1' }] });
     await hangup(inboundHangup(), res());
     assert.equal(db.updated.length, 0);
+    assert.equal(db.updatedMany.length, 0);
     assert.equal(db.settleLookups.length, 0);
   });
 
   test('an OUTBOUND hangup still records the CallUUID on the call the dialler named', async () => {
-    callLogTable({ rowsBySelect: [{ status: 'COMPLETED', workspaceId: 'ws_1', agentId: 'agent_1' }] });
+    callLogTable({ rowsBySelect: [{ status: 'COMPLETED', endedAt: new Date(), workspaceId: 'ws_1', agentId: 'agent_1' }] });
     await hangup(req({ query: { callLogId: 'cl_dialled', workspaceId: 'ws_1', agentId: 'agent_1' }, body: { CallUUID: CALL_UUID, CallStatus: 'completed', Duration: '30' } }), res());
     await new Promise((resolve) => setImmediate(resolve)); // that write is deliberately not awaited
     assert.deepEqual(db.updated.find((u) => u.data?.providerCallId), { where: { id: 'cl_dialled' }, data: { providerCallId: CALL_UUID } });
@@ -269,12 +298,15 @@ describe('hangup() — an inbound call is closed out and billed', () => {
 describe('a call refused for an empty wallet is not charged for the refusal', () => {
   const settleTable = () => {
     let written = null;
-    stub(prisma.agentCallLog, 'update', async (args) => { written = args.data; db.updated.push(args); return {}; });
-    // settleCall reads back what the finalizer just wrote.
+    stub(prisma.agentCallLog, 'update', async (args) => { db.updated.push(args); return {}; });
+    // settleCall reads back what the finalizer's claim just wrote.
     stub(prisma.agentCallLog, 'findUnique', async ({ where }) => ({
       id: where.id, workspaceId: 'ws_1', agentId: 'agent_1', type: 'PHONE_CALL', billingStatus: 'PENDING', durationSec: written?.durationSec ?? 0,
     }));
-    stub(prisma.agentCallLog, 'updateMany', async (args) => { db.updatedMany.push(args); return { count: 1 }; });
+    stub(prisma.agentCallLog, 'updateMany', async (args) => {
+      if (args.where?.endedAt === null) { written = args.data; db.claims = [...(db.claims ?? []), args]; } else db.updatedMany.push(args);
+      return { count: 1 };
+    });
     stub(prisma.agentCallLog, 'findFirst', async () => null);
     stub(prisma.agent, 'findFirst', async () => null);
   };
@@ -286,7 +318,7 @@ describe('a call refused for an empty wallet is not charged for the refusal', ()
     // The socket opened 2.4s ago; the wallet check alone ate that.
     await finalize('cl_1', 'FAILED', { transcript: [], startedAt: Date.now() - 2400, durationSec: 0 });
 
-    assert.equal(db.updated[0].data.durationSec, 0);
+    assert.equal(db.claims[0].data.durationSec, 0);
     assert.equal(db.updatedMany.length, 1);
     assert.equal(db.updatedMany[0].data.billingStatus, 'SKIPPED');
   });
@@ -295,7 +327,7 @@ describe('a call refused for an empty wallet is not charged for the refusal', ()
     settleTable();
     const finalize = createCallFinalizer({ workspaceId: 'ws_1', agentId: 'agent_1', label: 'test' });
     await finalize('cl_2', 'COMPLETED', { transcript: [], startedAt: Date.now() - 90_000 });
-    assert.equal(db.updated[0].data.durationSec, 90);
+    assert.equal(db.claims[0].data.durationSec, 90);
   });
 });
 

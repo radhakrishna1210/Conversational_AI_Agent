@@ -15,7 +15,7 @@ import logger from '../../lib/logger.js';
 import { resolveProvider } from '../telephony/index.js';
 import { acquireSlot } from '../telephony/concurrency.js';
 import { resolveDialCredentials } from '../telephony/dialCredentials.js';
-import { resolveNumberRouting, resolveProviderIdForNumber } from '../outboundCall.service.js';
+import { resolveNumberRouting } from '../outboundCall.service.js';
 import { publicHttpBase } from '../../lib/publicUrl.js';
 import { publicAudioUrl } from './broadcastRecording.service.js';
 import { signToken } from './signedToken.js';
@@ -51,10 +51,15 @@ export function twilioStatusCallbackUrl(recipientId) {
  * recipient 4,000 that this one cannot play audio — are both failures that cost
  * a whole send.
  *
+ * @param {string} fromNumber
+ * @param {object} [opts]
+ * @param {string} [opts.workspaceId]  enables the "is this number yours" refusal
  * @returns {Promise<{ready: boolean, error?: string, provider?: string}>}
  */
-export async function broadcastReadiness(fromNumber) {
-  const provider = resolveProvider(await resolveProviderIdForNumber(fromNumber));
+export async function broadcastReadiness(fromNumber, { workspaceId } = {}) {
+  const routing = await resolveNumberRouting(fromNumber, { workspaceId });
+  const provider = resolveProvider(routing.providerId);
+  if (routing.blocked) return { ready: false, provider: provider.id, error: routing.blocked };
 
   if (provider.supportsBroadcast === false || typeof provider.buildBroadcastDoc !== 'function') {
     return {
@@ -97,8 +102,14 @@ export async function broadcastReadiness(fromNumber) {
 export async function placeBroadcastCall({
   recording, recipientId, toNumber, fromNumber, repeat = 1, workspaceId = null,
 }) {
-  const routing = await resolveNumberRouting(fromNumber);
+  // The same refusal a conversational dial gets: another workspace's number, a
+  // released one, or one suspended for non-payment. This path used to read only
+  // the carrier off the row, so a broadcast dialled from all three.
+  const routing = await resolveNumberRouting(fromNumber, { workspaceId });
   const provider = resolveProvider(routing.providerId);
+  if (routing.blocked) {
+    return { ok: false, provider: provider.id, status: routing.blockedStatus, code: routing.blockedCode, error: routing.blocked };
+  }
 
   if (provider.supportsBroadcast === false || typeof provider.buildBroadcastDoc !== 'function') {
     return { ok: false, provider: provider.id, status: 400,

@@ -202,8 +202,10 @@ export function handlePlivoMediaUpgrade(ws, { workspaceId, agentId, callLogId = 
           pump?.start();
 
           if (callLogId) {
-            await prisma.agentCallLog.update({
-              where: { id: callLogId },
+            // Only from INITIATED: a caller who hung up during connect() may
+            // already have been closed out, and must not be reopened.
+            await prisma.agentCallLog.updateMany({
+              where: { id: callLogId, status: 'INITIATED' },
               data: { status: 'IN_PROGRESS' },
             }).catch(() => {});
           }

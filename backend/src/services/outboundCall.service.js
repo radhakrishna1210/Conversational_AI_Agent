@@ -26,6 +26,7 @@ import { VOICE_NUMBER_STATUS } from '../constants/compliance.js';
 import { resolveProvider } from './telephony/index.js';
 import { acquireSlot } from './telephony/concurrency.js';
 import { resolveDialCredentials } from './telephony/dialCredentials.js';
+import { twilioCallStatusUrl } from './telephony/carrierCloseOut.js';
 import { xmlSafe } from './telephony/provider.interface.js';
 import { isDeepgramConfigured } from './stt/deepgramStream.service.js';
 import { supportsTelephony } from './voice/telephonyAudio.js';
@@ -309,11 +310,19 @@ export function telephonyStatus(fromNumber, providerId) {
  * Async because the routing lives in a `VoiceNumber` row. Worth the round trip:
  * it is one query per campaign, not per call.
  *
+ * Given the workspace, it also answers "may THIS workspace dial from it" — the
+ * same refusal placeOutboundCall applies — so a campaign from another client's
+ * or a released number fails before it starts, not once per recipient.
+ *
  * @param {string} [fromNumber]
+ * @param {object} [opts]
+ * @param {string} [opts.workspaceId]
  * @returns {Promise<{ready: boolean, error?: string}>}
  */
-export async function telephonyStatusForNumber(fromNumber) {
-  return resolveProvider(await resolveProviderIdForNumber(fromNumber)).status(fromNumber);
+export async function telephonyStatusForNumber(fromNumber, { workspaceId } = {}) {
+  const routing = await resolveNumberRouting(fromNumber, { workspaceId });
+  if (routing.blocked) return { ready: false, error: routing.blocked, code: routing.blockedCode };
+  return resolveProvider(routing.providerId).status(fromNumber);
 }
 
 /**
@@ -344,26 +353,29 @@ export async function resolveProviderIdForNumber(fromNumber) {
  * query would add a round trip to every single call — this deployment measures
  * ~490ms to its Postgres, which is audible on the line.
  *
- * `blocked` carries a customer-facing message when the number is suspended for
- * non-payment. Unknown numbers are NOT blocked: a caller ID with no VoiceNumber
- * row is a Twilio number or a verified BYO number, neither of which this table
- * governs.
+ * `blocked` carries a customer-facing message when the number may not dial:
+ * suspended for non-payment, released, or — when `workspaceId` is given — held
+ * by a different workspace. Unknown numbers are NOT blocked: a caller ID with
+ * no VoiceNumber row is a Twilio number or a verified BYO number, neither of
+ * which this table governs.
+ *
+ * @param {string} [fromNumber]
+ * @param {object} [opts]
+ * @param {string} [opts.workspaceId]  the workspace about to dial; enables the ownership check
  */
-export async function resolveNumberRouting(fromNumber) {
+export async function resolveNumberRouting(fromNumber, { workspaceId } = {}) {
   if (!fromNumber) return { providerId: undefined, blocked: null };
   try {
     const row = await prisma.voiceNumber.findUnique({
       where: { phoneNumber: String(fromNumber) },
-      select: { provider: true, status: true, subaccountId: true },
+      select: { provider: true, status: true, subaccountId: true, workspaceId: true },
     });
     return {
       providerId: row?.provider || undefined,
       // Which carrier subaccount holds this caller ID — the account the call is
       // dialled AS. See telephony/dialCredentials.js.
       subaccountId: row?.subaccountId || undefined,
-      blocked: row?.status === VOICE_NUMBER_STATUS.SUSPENDED_NONPAYMENT
-        ? `${fromNumber} is suspended because its monthly rental could not be taken from your wallet. Top up and it reactivates automatically — the number has not been given up.`
-        : null,
+      ...callerIdRefusal(row, fromNumber, workspaceId),
     };
   } catch (e) {
     // A lookup failure must not take the dialer down: the default carrier is a
@@ -374,6 +386,44 @@ export async function resolveNumberRouting(fromNumber) {
     logger.warn(`Could not resolve carrier for ${fromNumber}: ${e.message}`);
     return { providerId: undefined, blocked: null };
   }
+}
+
+/**
+ * Why a caller ID's own row forbids dialling from it, if it does.
+ *
+ * A VoiceNumber row is a tenancy record as much as a routing one: a number
+ * rented to one client carries that client's DLT header and caller-ID
+ * reputation. The dial path used to read only the row's carrier, so any
+ * workspace that typed another client's number into "Call from" dialled out as
+ * them — on a Plivo main-account number with nothing else to stop it — and a
+ * RELEASED number, given back to the carrier, was still dialled from.
+ *
+ * @returns {{blocked: string|null, blockedStatus?: number, blockedCode?: string}}
+ */
+export function callerIdRefusal(row, fromNumber, workspaceId) {
+  if (!row) return { blocked: null };
+  if (workspaceId && row.workspaceId && row.workspaceId !== workspaceId) {
+    return {
+      blocked: `${fromNumber} is not one of this workspace's numbers, so calls cannot be placed from it.`,
+      blockedStatus: 403,
+      blockedCode: 'CALLER_ID_NOT_OWNED',
+    };
+  }
+  if (row.status === VOICE_NUMBER_STATUS.RELEASED) {
+    return {
+      blocked: `${fromNumber} has been released and can no longer be used as a caller ID. Pick another number.`,
+      blockedStatus: 409,
+      blockedCode: 'NUMBER_RELEASED',
+    };
+  }
+  if (row.status === VOICE_NUMBER_STATUS.SUSPENDED_NONPAYMENT) {
+    return {
+      blocked: `${fromNumber} is suspended because its monthly rental could not be taken from your wallet. Top up and it reactivates automatically — the number has not been given up.`,
+      blockedStatus: 402,
+      blockedCode: 'NUMBER_SUSPENDED_NONPAYMENT',
+    };
+  }
+  return { blocked: null };
 }
 
 /**
@@ -409,9 +459,9 @@ export async function placeOutboundCall({
   // has to be refused on EVERY path — a test call from a suspended number is
   // still a call we pay the carrier for. Nothing else in this module gates, and
   // this stays the exception: it costs no extra query.
-  const routing = await resolveNumberRouting(fromNumber);
+  const routing = await resolveNumberRouting(fromNumber, { workspaceId });
   if (routing.blocked) {
-    return { ok: false, mode: 'none', error: routing.blocked, status: 402, code: 'NUMBER_SUSPENDED_NONPAYMENT' };
+    return { ok: false, mode: 'none', error: routing.blocked, status: routing.blockedStatus, code: routing.blockedCode };
   }
   const provider = resolveProvider(providerId || routing.providerId);
   const tw = provider.status(fromNumber);
@@ -567,6 +617,12 @@ export async function placeOutboundCall({
         callLogId: logId,
         direction: 'OUTBOUND',
         engine: isBundledEngine(engine) ? 'bundled' : 'modular',
+        // Twilio's completed-call callback. Without it a Twilio agent call nobody
+        // answered — and every greeting-only one, which opens no socket — was
+        // never closed: INITIATED and unbilled forever, its slot held for an
+        // hour. Plivo and PIOPIY have their own end-of-call callbacks and ignore
+        // this. See services/telephony/carrierCloseOut.js.
+        statusCallbackUrl: provider.id === 'TWILIO' ? twilioCallStatusUrl(logId) : '',
       },
     });
 
@@ -614,14 +670,16 @@ export async function placeOutboundCall({
       }).catch((e) => logger.warn(`Could not record the carrier call id for ${logId}: ${e.message}`));
     }
 
-    // Nothing else will update a greeting-only log — the media bridge finalizes
-    // the streamed ones.
+    // A greeting-only call has no bridge to record what was said, so record it
+    // here. NOT endedAt: the call has not ended — it is only now ringing — and
+    // endedAt is the claim the carrier's end-of-call callback finalizes on
+    // (ws/callFinalizer.js). Stamping it here made the call look finished
+    // before anyone picked up.
     if (!streamsMedia && logId) {
       await prisma.agentCallLog.update({
         where: { id: logId },
         data: {
           transcript: JSON.stringify([{ role: 'assistant', content: greeting }]),
-          endedAt: new Date(),
         },
       }).catch((e) => logger.warn(`Could not log phone call: ${e.message}`));
     }

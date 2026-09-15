@@ -27,6 +27,7 @@ import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
 import { env } from '../config/env.js';
 import { createCallFinalizer } from '../ws/callFinalizer.js';
+import { TWILIO_TERMINAL } from '../services/telephony/carrierCloseOut.js';
 import {
   verifyTransferToken, parseDialOutcome, buildHangupDocument, buildResumeDocument, buildDialDocument,
   takePendingTransfer, peekPendingTransfer, transferCallbackUrl,
@@ -117,7 +118,9 @@ export async function callStatus(req, res) {
   if (!auth) return;
   res.json({ ok: true });
   const status = String(field(req, 'CallStatus')).toLowerCase();
-  if (status && status !== 'completed' && status !== 'busy' && status !== 'failed' && status !== 'no-answer' && status !== 'canceled') return;
+  // Only a terminal status ends the call. An EMPTY one used to pass this check
+  // and close out — and bill — a call whose human leg was still talking.
+  if (!TWILIO_TERMINAL.has(status)) return;
   const pending = takePendingTransfer(auth.callLogId);
   await finalizeWholeCall(auth, pending, 'COMPLETED').catch(() => {});
 }

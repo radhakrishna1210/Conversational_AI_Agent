@@ -47,7 +47,7 @@ import { releaseSlot } from '../services/telephony/concurrency.js';
 import { syncProgress } from '../services/broadcast/broadcastRunner.service.js';
 import { getRenderedWelcome, loadAgent, neutralGreeting } from '../services/agentRuntime.service.js';
 import { isBundledEngine } from '../services/outboundCall.service.js';
-import { createCallFinalizer } from '../ws/callFinalizer.js';
+import { closeOutCarrierCall } from '../services/telephony/carrierCloseOut.js';
 
 /**
  * The exact URL Plivo signed.
@@ -491,7 +491,7 @@ export async function hangup(req, res) {
       // inbound call's hangup URL carries neither, and finalizing with empty ids
       // would bill the call but silently skip extraction and post-call delivery
       // (both look the row up scoped by workspace and agent).
-      select: { status: true, workspaceId: true, agentId: true },
+      select: { status: true, endedAt: true, transcript: true, workspaceId: true, agentId: true },
     });
     let log = await findLog();
     // answer() does not await an inbound call's insert (it would be dead air on
@@ -503,26 +503,23 @@ export async function hangup(req, res) {
       await new Promise((resolve) => { setTimeout(resolve, hangupTiming.INBOUND_INSERT_GRACE_MS).unref?.(); });
       log = await findLog();
     }
-    // The media bridge already closed this out on socket close. Re-finalizing
-    // would duplicate the Sheets row / webhook / email for one call — the exact
-    // thing callFinalizer's once-only guard exists to prevent, except that guard
-    // is per-bridge-instance and this is a different process path.
-    if (!log || (log.status !== 'INITIATED' && log.status !== 'IN_PROGRESS')) return;
+    if (!log) return;
 
-    const answered = ANSWERED_STATES.has(callState) && duration > 0;
-    const finalize = createCallFinalizer({
-      workspaceId: log.workspaceId,
-      agentId: log.agentId,
+    // Who closes the call — this callback or the media bridge — and the
+    // guarantee that only one of them does, live in carrierCloseOut. It never
+    // writes the transcript: this used to finalize with an empty one, which
+    // erased the greeting a greeting-only call had stored at dial time.
+    const outcome = await closeOutCarrierCall({
+      callLogId,
+      answered: ANSWERED_STATES.has(callState) && duration > 0,
+      durationSec: duration,
       label: 'Plivo phone call',
-    });
-    await finalize(callLogId, answered ? 'COMPLETED' : 'FAILED', {
-      transcript: [],
-      startedAt: Date.now() - duration * 1000,
+      log,
     });
 
     logger.info(
-      { callLogId, callState, hangupCause, duration },
-      `Plivo hangup closed out a call as ${answered ? 'COMPLETED' : 'FAILED'}`,
+      { callLogId, callState, hangupCause, duration, outcome },
+      'Plivo hangup handled',
     );
   } catch (e) {
     logger.warn(`Plivo hangup callback could not close out ${callLogId}: ${e.message}`);

@@ -54,8 +54,9 @@ export async function extractWhenLlmHasHeadroom(workspaceId, agentId, callLogId,
  * @param {string} p.workspaceId
  * @param {string} p.agentId
  * @param {string} p.label       names the bridge in log lines, e.g. 'Plivo phone call'
- * @returns {(callLogId: string|null, status: string, ctx: {transcript: Array,
- *            startedAt: number, durationSec?: number}) => Promise<void>}  safe to call repeatedly
+ * @returns {(callLogId: string|null, status: string, ctx: {transcript: Array|null,
+ *            startedAt: number, durationSec?: number}) => Promise<boolean>}  safe to call
+ *   repeatedly; true when THIS call closed the log out
  */
 export function createCallFinalizer({ workspaceId, agentId, label }) {
   let finalized = false;
@@ -66,8 +67,12 @@ export function createCallFinalizer({ workspaceId, agentId, label }) {
   // so the elapsed time is a second or more — and settleCall bills any duration
   // above zero as a full increment. A call refused for an empty wallet was being
   // charged for being refused. The bridges pass 0 there; nothing else passes it.
+  //
+  // `transcript: null` means "not mine to write". A carrier's hangup callback has
+  // no transcript of its own; writing its empty array wiped the greeting a
+  // greeting-only call had already stored, and could wipe a bridge's too.
   return async function finalizeCallLog(callLogId, status, { transcript = [], startedAt, durationSec = null }) {
-    if (!callLogId || finalized) return;
+    if (!callLogId || finalized) return false;
     finalized = true;
 
     // Give the carrier concurrency slot back FIRST, before any of the awaits
@@ -76,20 +81,47 @@ export function createCallFinalizer({ workspaceId, agentId, label }) {
     // effective ceiling a function of how slow the customer's webhook is.
     releaseSlot(callLogId);
 
+    const hasTranscript = Array.isArray(transcript);
+    const data = {
+      status,
+      durationSec: Number.isFinite(durationSec)
+        ? Math.max(0, Math.round(durationSec))
+        : Math.round((Date.now() - startedAt) / 1000),
+      endedAt: new Date(),
+    };
+    if (hasTranscript) data.transcript = JSON.stringify(transcript.slice(-200));
+
+    // ── The claim ────────────────────────────────────────────────────────────
+    // `finalized` above only stops THIS instance running twice. A phone call is
+    // also reachable from the carrier's own end-of-call callback (Plivo hangup,
+    // PIOPIY CDR, Twilio status), a different code path with its own finalizer,
+    // and the two land within a database round trip of each other. Both used to
+    // run: the Sheets row, webhook and email went out twice, and whichever write
+    // landed last decided the transcript. `endedAt` is null for exactly as long
+    // as the call is open, so a conditional write on it lets one path win — the
+    // same lock finalizeAbandonedCall uses for web calls.
     try {
-      await prisma.agentCallLog.update({
-        where: { id: callLogId },
-        data: {
-          status,
-          transcript: JSON.stringify(transcript.slice(-200)),
-          durationSec: Number.isFinite(durationSec)
-            ? Math.max(0, Math.round(durationSec))
-            : Math.round((Date.now() - startedAt) / 1000),
-          endedAt: new Date(),
-        },
+      const claimed = await prisma.agentCallLog.updateMany({
+        where: { id: callLogId, endedAt: null },
+        data,
       });
+      if (claimed.count === 0) {
+        // Someone else closed this call. What the loser may still hold is the
+        // better transcript — a bridge beaten by a hangup callback that had none —
+        // so keep that, and leave the money and the post-call delivery to the
+        // winner, which already ran them.
+        if (hasTranscript && transcript.length) {
+          await prisma.agentCallLog.update({
+            where: { id: callLogId },
+            data: { transcript: data.transcript },
+          }).catch((e) => logger.warn(`Could not keep the ${label} transcript: ${e.message}`));
+        }
+        logger.info({ callLogId }, `${label} was already closed out by another path — not finalizing twice`);
+        return false;
+      }
     } catch (e) {
       // Fall through to settlement rather than returning — see the header.
+      // settleCall has its own compare-and-set, so this cannot charge twice.
       logger.warn(`Could not finalize ${label} log: ${e.message}`);
     }
 
@@ -107,6 +139,7 @@ export function createCallFinalizer({ workspaceId, agentId, label }) {
     } catch (e) {
       logger.warn(`Post-call extraction/delivery failed for ${label} ${callLogId}: ${e.message}`);
     }
+    return true;
   };
 }
 

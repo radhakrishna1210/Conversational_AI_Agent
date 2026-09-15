@@ -44,6 +44,8 @@ import contactFormRoutes from './contactForm.routes.js';
 import appointmentRoutes from './appointment.routes.js';
 import reportIssueRoutes from './reportIssue.routes.js';
 import plivoRoutes from './plivo.routes.js';
+import piopiyRoutes from './piopiy.routes.js';
+import twilioRoutes from './twilio.routes.js';
 import transferRoutes from './transfer.routes.js';
 
 import { getHealth as getGeminiHealth, getMetrics as getGeminiMetrics } from '../controllers/gemini.controller.js';
@@ -70,6 +72,13 @@ router.use('/integrations', integrationsPublicRoutes);
 // callback. Public because a carrier cannot authenticate; the V3 request
 // signature is what protects them. See plivo.routes.js.
 router.use('/plivo', plivoRoutes);
+// PIOPIY's CDR webhook — for its greeting-only and broadcast calls the only
+// end-of-call signal there is. It existed and was never mounted, so those calls
+// sat INITIATED with their slots held. Guarded by PIOPIY_WEBHOOK_TOKEN.
+router.use('/piopiy', piopiyRoutes);
+// Twilio's completed-call callback for agent calls (broadcasts have their own,
+// below). HMAC token in the URL; see services/telephony/carrierCloseOut.js.
+router.use('/twilio', twilioRoutes);
 // Live human-transfer callbacks (Twilio and Plivo <Dial> outcomes). Public
 // for the same reason; authorised by a per-call HMAC token in the URL.
 router.use('/telephony/transfer', transferRoutes);

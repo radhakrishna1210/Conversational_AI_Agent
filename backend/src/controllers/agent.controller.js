@@ -6,7 +6,8 @@ import { geminiService } from '../services/gemini.service.js';
 import { invalidateAgentRuntimeCaches } from '../services/agentRuntime.service.js';
 import logger from '../lib/logger.js';
 import { assertCanStartCall } from '../services/billing/settlement.service.js';
-import { placeOutboundCall, resolveCallMode, telephonyStatus, warmInboundGreetingIfAnswering } from '../services/outboundCall.service.js';
+import { placeOutboundCall, resolveCallMode, telephonyStatusForNumber, warmInboundGreetingIfAnswering } from '../services/outboundCall.service.js';
+import { assertComplianceReady } from '../services/compliance/compliance.service.js';
 import fetch from 'node-fetch';
 import { env } from '../config/env.js';
 import { isModelAllowed, labelFor } from '../services/platform/modelCatalog.js';
@@ -432,8 +433,16 @@ export const testCall = async (req, res) => {
   }
 
   // Honest behavior: if telephony isn't configured, say so — never fake success.
-  const tw = telephonyStatus(fromNumber);
-  if (!tw.ready) return res.status(503).json({ success: false, error: tw.error });
+  //
+  // Asked of the carrier THIS caller ID dials through, and whether this
+  // workspace may dial from it at all — the same pre-flight the campaign runner
+  // uses. It asked the platform default carrier, so a Plivo number on a box with
+  // Twilio configured passed here and then failed at the dial.
+  const tw = await telephonyStatusForNumber(fromNumber, { workspaceId });
+  if (!tw.ready) {
+    const status = tw.code === 'CALLER_ID_NOT_OWNED' ? 403 : 503;
+    return res.status(status).json({ success: false, error: tw.error, code: tw.code });
+  }
 
   const agent = await prisma.agent.findFirst({ where: { id: agentId, workspaceId } });
   if (!agent) return res.status(404).json({ error: 'Agent not found in this workspace' });
@@ -453,6 +462,16 @@ export const testCall = async (req, res) => {
   if (!gate.allowed) {
     logger.info({ workspaceId, agentId, code: gate.code }, `Phone call blocked: ${gate.code}`);
     return res.status(402).json({ error: gate.message, code: gate.code });
+  }
+
+  // DLT, as the campaign runner applies it. A test call to your own phone is
+  // still a call from that caller ID: a suspended workspace must not place it,
+  // and under DLT_COMPLIANCE_MODE=enforce neither may an unregistered one. In the
+  // default `warn` mode this refuses only a suspended workspace or number.
+  const dlt = await assertComplianceReady(workspaceId, { fromNumber });
+  if (!dlt.allowed) {
+    logger.info({ workspaceId, agentId, code: dlt.code }, `Phone call blocked: ${dlt.code}`);
+    return res.status(403).json({ success: false, error: dlt.message, code: dlt.code });
   }
 
   const result = await placeOutboundCall({

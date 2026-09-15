@@ -61,6 +61,7 @@ import {
   transferAvailability, transferLiveCall, registerPendingTransfer, failureLineFor,
 } from '../services/telephony/transfer.service.js';
 import { subaccountCredentials } from '../services/plivo/subaccount.service.js';
+import { transferCredentialsFor } from '../services/telephony/transferCredentials.js';
 import { resolveAgentVoice, streamSynthesizeVoice } from '../services/voice.service.js';
 import {
   DeepgramStreamSession,
@@ -1559,16 +1560,21 @@ export function runModularMediaBridge(ws, {
     await updateTransfer(row, { status: 'DIALING', dialedAt: new Date() });
     // The account that PLACED this call has to be the one that redirects it: a
     // call dialled as a subaccount is owned by that subaccount, and the main
-    // account cannot see it at all — `/Account/{MAIN}/Call/{uuid}/` 404s, so the
-    // transfer would fail for exactly the Indian calls that use subaccounts.
-    // Null (no subaccount, or the lookup failed) falls back to the main account,
-    // which is right for every Twilio call and any Plivo number we hold directly.
-    const carrierCreds = carrier.id === 'PLIVO'
-      ? await subaccountCredentials(workspaceId).catch((e) => {
-        logger.warn({ callLogId, err: e.message }, 'transfer: could not read subaccount credentials');
-        return null;
-      })
-      : null;
+    // account cannot see it at all — `/Account/{MAIN}/Call/{uuid}/` 404s. Which
+    // one that is follows OUR number, not the workspace: a call on a number the
+    // main account holds must be redirected as the main account, even in a
+    // workspace that also has a subaccount. Null means the main account.
+    const carrierCreds = await transferCredentialsFor(
+      { carrierId: carrier.id, workspaceId, callLogId, ourNumber: ourNumber ?? null },
+      {
+        findNumber: (phoneNumber) => prisma.voiceNumber.findUnique({ where: { phoneNumber }, select: { subaccountId: true } }),
+        findCallLog: (id) => prisma.agentCallLog.findUnique({ where: { id }, select: { fromNumber: true } }),
+        subaccountCredentials,
+      },
+    ).catch((e) => {
+      logger.warn({ callLogId, err: e.message }, 'transfer: could not resolve carrier credentials');
+      return null;
+    });
     const result = await transferLiveCall({
       carrierId: carrier.id, carrierCallId, callLogId, workspaceId, agentId,
       config: avail.config, callerId: ourNumber ?? null, credentials: carrierCreds,
@@ -1926,8 +1932,10 @@ export function runModularMediaBridge(ws, {
           // Fire and forget, see (3) above: a status write the greeting waits on
           // is a status write the CALLER waits on.
           if (callLogId) {
-            prisma.agentCallLog.update({
-              where: { id: callLogId },
+            // Only from INITIATED: this write is not awaited, so on a short call
+            // it can land after the call was closed out — and must not reopen it.
+            prisma.agentCallLog.updateMany({
+              where: { id: callLogId, status: 'INITIATED' },
               data: { status: 'IN_PROGRESS' },
             }).catch(() => {});
           }
