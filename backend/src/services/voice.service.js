@@ -186,11 +186,14 @@ export const invalidatePickerLibraryCache = () => { pickerLibraryCache = null; }
 
 const PICKER_SELECT = {
   id: true, name: true, language: true, accent: true, metadata: true, workspaceId: true,
+  // The picker's "Conversational · Female" line (voicePicker.voiceCategoryLabel).
+  gender: true, category: true,
   provider: { select: { name: true } },
 };
 
 /**
- * One agent's voice picker: names only, mixed across providers, limited to
+ * One agent's voice picker: a name and a use-case/gender line per voice (never
+ * the provider), mixed across providers, limited to
  * voices that can speak the agent's language, the current voice first.
  *
  * @param {{ workspaceId: string, agentId: string, q?: string, page?: number,

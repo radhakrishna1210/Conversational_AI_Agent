@@ -84,7 +84,8 @@ export const list = async (req, res) => {
 };
 
 // ─── GET /voices/picker?agentId=...&q=...&page=1 ─────────────────────────────
-// The client's Voice picker: names only, one mixed list, no provider anywhere.
+// The client's Voice picker: a name and a "Conversational · Female" line per
+// voice, one mixed list, no provider anywhere.
 export const pickerList = async (req, res) => {
   try {
     const { agentId, q, page = '1', limit = '24' } = req.query;

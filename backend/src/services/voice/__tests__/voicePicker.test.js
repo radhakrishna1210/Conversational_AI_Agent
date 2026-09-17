@@ -11,6 +11,7 @@ import {
   voiceDisplayName,
   voiceNameFromLabel,
   voiceServesLanguage,
+  voiceCategoryLabel,
 } from '../voicePicker.js';
 
 const v = (id, provider, name, language = null, accent = null, metadata = null) => ({
@@ -85,9 +86,12 @@ describe('buildPickerList', () => {
     v('clone', 'Custom', 'Owner voice', null, null, JSON.stringify({ clonedProvider: 'elevenlabs' })),
   ];
 
-  test('entries are names only — no provider anywhere', () => {
+  test('entries are a name and a category line — no provider anywhere', () => {
     const list = buildPickerList(voices, { languages: ['Hindi'] });
-    for (const entry of list) assert.deepEqual(Object.keys(entry).sort(), ['id', 'name']);
+    for (const entry of list) {
+      assert.deepEqual(Object.keys(entry).sort(), ['category', 'id', 'name']);
+      assert.doesNotMatch(entry.category, /Google|Sarvam|ElevenLabs|FishAudio|Fish|Cartesia/);
+    }
   });
 
   test('one entry per voice: a locale copy in the primary language wins', () => {
@@ -128,5 +132,55 @@ describe('buildPickerList', () => {
   test('never empty just because tags were thin', () => {
     const list = buildPickerList([v('x', 'Google', 'ja-JP-Chirp3-HD-Aoede', 'Japanese')], { languages: ['Hindi'] });
     assert.equal(list.length, 1);
+  });
+});
+
+describe('category line', () => {
+  const voice = (provider, { gender = null, category = null, metadata = null } = {}) => ({
+    id: 'x', name: 'x', gender, category, metadata, provider: { name: provider },
+  });
+
+  test('use case and gender, joined', () => {
+    const sarvam = voice('Sarvam', { gender: 'female', category: 'conversational', metadata: JSON.stringify({ style: null }) });
+    assert.equal(voiceCategoryLabel(sarvam), 'Conversational · Female');
+  });
+
+  test('Fish tags: the use case a voice agent cares about wins, style words are ignored', () => {
+    const fish = voice('FishAudio', {
+      gender: 'male',
+      category: 'premade',
+      metadata: JSON.stringify({ tags: ['male', 'energetic', 'entertainment', 'narration', 'middle-aged'] }),
+    });
+    assert.equal(voiceCategoryLabel(fish), 'Narration · Male');
+    const both = voice('FishAudio', { metadata: JSON.stringify({ tags: ['narration', 'Conversational'] }) });
+    assert.equal(voiceCategoryLabel(both), 'Conversational');
+  });
+
+  test('ElevenLabs use_case labels are normalised', () => {
+    const el = voice('ElevenLabs', { gender: 'Female', metadata: { labels: { use_case: 'narrative_story' } } });
+    assert.equal(voiceCategoryLabel(el), 'Storytelling · Female');
+  });
+
+  test('a stored category that is not a use case is not shown', () => {
+    assert.equal(voiceCategoryLabel(voice('Cartesia', { gender: 'feminine', category: 'premade' })), 'Female');
+    assert.equal(voiceCategoryLabel(voice('Google', { gender: 'MALE', category: 'WaveNet' })), 'Male');
+    assert.equal(voiceCategoryLabel(voice('ElevenLabs', { category: 'professional' })), '');
+  });
+
+  test('a workspace clone is just "Cloned"', () => {
+    const clone = voice('Custom', { gender: 'female', metadata: JSON.stringify({ clonedProvider: 'fishaudio', tags: ['conversational'] }) });
+    assert.equal(voiceCategoryLabel(clone), 'Cloned');
+  });
+
+  test('nothing known and broken metadata give an empty line, not an error', () => {
+    assert.equal(voiceCategoryLabel(voice('FishAudio', { metadata: '{not json' })), '');
+    assert.equal(voiceCategoryLabel(null), '');
+  });
+
+  test('the picker list carries the line', () => {
+    const list = buildPickerList([
+      { id: 's', name: 'ritu', language: 'Hindi', gender: 'female', category: 'conversational', provider: { name: 'Sarvam' } },
+    ], { languages: ['Hindi'] });
+    assert.equal(list[0].category, 'Conversational · Female');
   });
 });

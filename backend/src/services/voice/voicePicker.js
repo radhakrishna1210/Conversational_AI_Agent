@@ -14,7 +14,7 @@
  *   3. WHAT ORDER. Mixed across providers, but stable, so paging and reopening
  *      the picker show the same list.
  */
-import { normalizeLanguage, normalizeAccent } from './voice.dto.js';
+import { normalizeLanguage, normalizeAccent, normalizeGender } from './voice.dto.js';
 
 /** Languages Sarvam's speakers all serve — its catalogue is Indian locales. */
 const SARVAM_LANGUAGES = new Set([
@@ -91,6 +91,70 @@ export function voiceDisplayName(name, providerName = null) {
   return out.charAt(0).toUpperCase() + out.slice(1);
 }
 
+/**
+ * What a voice is made for, as a client reads it — in the order a voice agent
+ * cares: a voice tagged both "conversational" and "narration" is offered as a
+ * conversational voice. Keys are provider words normalised to lower-case with
+ * hyphens (ElevenLabs "narrative_story" → "narrative-story").
+ *
+ * The stored `category` column is deliberately NOT shown as it stands: it holds
+ * "premade" for almost every voice, and Google's tiers ("WaveNet", "Neural2").
+ * It only counts when it names a use case, as Sarvam's style does. Free-text
+ * descriptions are not keyword-matched either — "not suited for narration"
+ * would read as a narration voice.
+ */
+const USE_CASES = [
+  ['conversational', 'Conversational'],
+  ['customer-support', 'Customer support'],
+  ['customer-service', 'Customer support'],
+  ['narration', 'Narration'],
+  ['narrator', 'Narration'],
+  ['storytelling', 'Storytelling'],
+  ['narrative-story', 'Storytelling'],
+  ['educational', 'Educational'],
+  ['informative-educational', 'Educational'],
+  ['news', 'News'],
+  ['audiobook', 'Audiobook'],
+  ['podcast', 'Podcast'],
+  ['advertisement', 'Advertising'],
+  ['advertising', 'Advertising'],
+  ['meditation', 'Meditation'],
+  ['social-media', 'Social media'],
+  ['entertainment', 'Entertainment'],
+  ['entertainment-tv', 'Entertainment'],
+  ['gaming', 'Gaming'],
+  ['character-voice', 'Character'],
+  ['characters', 'Character'],
+];
+
+const GENDER_LABELS = { female: 'Female', male: 'Male', neutral: 'Neutral' };
+
+/**
+ * The line under a voice's name in the picker: its use case and gender, as far
+ * as the provider said — "Conversational · Female", "Female", or "" when
+ * neither is known. A workspace's own clone is simply "Cloned".
+ *
+ * @param {object} voice a Voice row with `provider.name`, `gender`, `category`, `metadata`
+ * @returns {string}
+ */
+export function voiceCategoryLabel(voice) {
+  if ((voice?.provider?.name ?? voice?.providerName) === 'Custom') return 'Cloned';
+
+  const meta = parseJson(voice?.metadata) ?? {};
+  const words = new Set();
+  const add = (value) => {
+    if (typeof value === 'string' && value.trim()) words.add(value.trim().toLowerCase().replace(/[\s_]+/g, '-'));
+  };
+  add(meta.labels?.use_case);   // ElevenLabs
+  if (Array.isArray(meta.tags)) meta.tags.forEach(add); // Fish Audio
+  add(meta.style);              // Sarvam
+  add(voice?.category);
+
+  const useCase = USE_CASES.find(([word]) => words.has(word))?.[1] ?? null;
+  const gender = GENDER_LABELS[normalizeGender(voice?.gender)] ?? null;
+  return [useCase, gender].filter(Boolean).join(' · ');
+}
+
 /** The display name for an agent's stored voice label ("Provider - Name"). */
 export function voiceNameFromLabel(label) {
   const text = String(label ?? '').trim();
@@ -115,7 +179,7 @@ function orderKey(id) {
  * @param {object[]} voices    candidate Voice rows (provider gating already applied)
  * @param {{ languages?: string[], currentVoiceId?: string|null, q?: string }} opts
  *        `languages` are the agent's labels, primary first
- * @returns {{ id: string, name: string }[]}
+ * @returns {{ id: string, name: string, category: string }[]}
  */
 export function buildPickerList(voices, { languages = [], currentVoiceId = null, q = '' } = {}) {
   const wanted = languages.map(parseAgentLanguage).filter((l) => l.language);
@@ -157,5 +221,5 @@ export function buildPickerList(voices, { languages = [], currentVoiceId = null,
     return orderKey(a.voice.id) - orderKey(b.voice.id);
   });
 
-  return list.map((e) => ({ id: e.voice.id, name: e.name }));
+  return list.map((e) => ({ id: e.voice.id, name: e.name, category: voiceCategoryLabel(e.voice) }));
 }

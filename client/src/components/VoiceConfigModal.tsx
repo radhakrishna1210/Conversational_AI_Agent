@@ -2,7 +2,9 @@
 /**
  * Voice picker.
  *
- * One list of voices — a name and a play button each. There are no provider
+ * One list of voices — a name, what it is made for ("Conversational · Female",
+ * worked out server-side in voicePicker.voiceCategoryLabel) and a play button
+ * each. There are no provider
  * tabs, provider names, gender/language filters or sync buttons: which company
  * synthesizes a voice is not the client's concern, and the server already
  * limits the list to voices that can speak this agent's language
@@ -26,6 +28,8 @@ import { authFetch } from '@/lib/authFetch';
 interface PickerVoice {
   id: string;
   name: string;
+  /** Use case and gender, e.g. "Conversational · Female"; empty when unknown. */
+  category?: string;
 }
 
 interface PickerPage {
@@ -246,7 +250,9 @@ export default function VoiceConfigModal({ agentId, onClose, onSaved }: VoiceCon
         }
         .vp-play:hover { border-color: var(--cyan-fg); color: var(--cyan-fg); }
         .vp-play.is-playing { border-color: var(--cyan-fg); color: var(--cyan-fg); }
-        .vp-name { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .vp-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+        .vp-name { font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .vp-cat { font-size: 11.5px; color: var(--tx-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .vp-check { color: var(--cyan-fg); display: flex; flex-shrink: 0; }
         .vp-note { font-size: 11px; color: var(--warn, #d6ac46); flex-shrink: 0; }
         .vp-empty { padding: 48px 12px; text-align: center; color: var(--tx-3); font-size: 13px; }
@@ -326,7 +332,10 @@ export default function VoiceConfigModal({ agentId, onClose, onSaved }: VoiceCon
                       >
                         {loadingPreviewId === v.id ? <SpinnerIcon /> : playing ? <StopIcon /> : <PlayIcon />}
                       </button>
-                      <span className="vp-name" title={v.name}>{v.name}</span>
+                      <span className="vp-text">
+                        <span className="vp-name" title={v.name}>{v.name}</span>
+                        {v.category && <span className="vp-cat" title={v.category}>{v.category}</span>}
+                      </span>
                       {previewFailedId === v.id && <span className="vp-note">Can&apos;t play</span>}
                       {active && <span className="vp-check"><CheckIcon /></span>}
                     </div>
