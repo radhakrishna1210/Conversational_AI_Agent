@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { getWorkspaceId, getToken } from '@/lib/authStorage';
 import { whapi } from '../lib/whapi';
+import { canPlaceCalls, directionOf } from '../lib/callDirection';
 
 type BulkCampaign = {
   id: string;
@@ -25,6 +26,8 @@ type BulkCampaign = {
 type Agent = {
   id: string;
   name: string;
+  callDirection?: string;
+  callDirectionLocked?: boolean;
 };
 
 // A saved contact list. Campaigns dial these, not files — a CSV uploaded below
@@ -719,10 +722,19 @@ export default function BulkCall() {
                   style={{ width: '100%', padding: '12px 14px', borderRadius: '12px', border: '1px solid var(--line)', background: 'var(--s2)', color: 'var(--tx)' }}
                 >
                   <option value="">Choose an agent</option>
-                  {agents.map((agent) => (
-                    <option key={agent.id} value={agent.id}>{agent.name}</option>
+                  {/* Only agents built to place calls — the server refuses an
+                      Inbound agent on a campaign. */}
+                  {agents.filter(canPlaceCalls).map((agent) => (
+                    <option key={agent.id} value={agent.id}>
+                      {agent.name}{directionOf(agent) ? '' : ' (direction not set)'}
+                    </option>
                   ))}
                 </select>
+                <span style={{ fontSize: '12px', color: 'var(--tx-3)' }}>
+                  {agents.length > 0 && !agents.some(canPlaceCalls)
+                    ? <>None of your agents make calls. <Link to="/dashboard" style={{ color: 'var(--cyan-fg)' }}>Create an Outbound agent</Link>.</>
+                    : 'Only Outbound agents can run a campaign.'}
+                </span>
               </label>
 
               {/* What the calls will actually be. Shown as soon as an agent is
