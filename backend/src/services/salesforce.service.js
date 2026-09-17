@@ -27,6 +27,7 @@
  */
 
 import logger from '../lib/logger.js';
+import { resolveTimestamp } from '../lib/dates.js';
 import { salesforceFetch, getApiVersion } from './salesforceAuth.service.js';
 
 const dataApi = async (workspaceId) => `/services/data/${await getApiVersion(workspaceId)}`;
@@ -105,7 +106,7 @@ export async function logCallActivity(workspaceId, contactId, { summary, directi
   }
 
   const api = await dataApi(workspaceId);
-  const activityDate = new Date(timestamp ?? Date.now()).toISOString().slice(0, 10);
+  const activityDate = resolveTimestamp(timestamp).toISOString().slice(0, 10);
 
   const created = await salesforceFetch(workspaceId, `${api}/sobjects/Task`, {
     method: 'POST',
