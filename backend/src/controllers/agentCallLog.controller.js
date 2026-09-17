@@ -23,6 +23,7 @@ import { env } from '../config/env.js';
 import { extractAndStoreCallVariables, appointmentTimeZone } from '../services/postCallExtraction.service.js';
 import { withCallFacts } from '../services/postCallExtraction.utils.js';
 import { recordingFilename } from '../services/callRecordingStore.js';
+import { addLog } from '../services/integrations.service.js';
 
 const RECORDINGS_DIR = path.resolve(env.UPLOAD_DIR || 'uploads', 'call-recordings');
 fs.mkdirSync(RECORDINGS_DIR, { recursive: true });
@@ -85,12 +86,25 @@ const isTerminalStatus = (status) => status === 'COMPLETED' || status === 'FAILE
 /**
  * Run the agent's Post-Call deliveries for a finished call.
  *
- * Called once per call, immediately after extraction, so the configured
- * destinations (webhook / email / Google Sheets) receive the extracted
- * variables. Delivery is best-effort: a failing webhook must never make the
- * call-logging request fail, since the call itself already succeeded.
+ * Idempotent per call via the same atomic postCallDeliveredAt claim pattern
+ * as the endedAt claim below — safe to call from more than one place.
+ * Delivery itself is best-effort: a failing webhook must never fail the
+ * call-logging request, since the call itself already succeeded.
  */
 export const deliverPostCall = async (workspaceId, agentId, row) => {
+  const claim = await prisma.agentCallLog.updateMany({
+    where: { id: row.id, postCallDeliveredAt: null },
+    data: { postCallDeliveredAt: new Date() },
+  });
+  if (claim.count === 0) {
+    await addLog({
+      workspaceId, provider: 'system', event: 'postcall_delivery_skipped',
+      message: 'Post-call delivery already completed for this call — skipped',
+      metadata: { callId: row.id },
+    }).catch(() => {});
+    return;
+  }
+
   try {
     const { executePostCall } = await import('./platform.controller.js');
     const extracted = (() => { try { return JSON.parse(row.extractedData); } catch { return {}; } })();
@@ -359,11 +373,9 @@ export const extractCallVariables = async (req, res) => {
     await extractAndStoreCallVariables(workspaceId, agentId, callId, {
       force: req.body?.force === true,
     });
+    // Re-extraction only fixes the extracted variables — it doesn't imply the
+    // CRM contact/calendar event/webhook should be created again, so delivery isn't re-run here.
     const updated = await findCall(workspaceId, agentId, callId);
-    // A manual re-extract must also re-run the configured Post-Call
-    // deliveries (webhook / email / Google Sheets) so the freshly extracted
-    // variables reach their destinations, just like the end-of-call path does.
-    await deliverPostCall(workspaceId, agentId, updated);
     res.json({ success: true, call: toApi(updated) });
   } catch (err) {
     sendError(res, err, 'Failed to extract conversation variables');
