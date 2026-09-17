@@ -5,6 +5,7 @@ import { REFRESH_TOKEN_EXPIRY_MS, INVITE_TOKEN_BYTES } from '../constants/limits
 import { env } from '../config/env.js';
 import { ROLES } from '../constants/roles.js';
 import logger from '../lib/logger.js';
+import { normalizeEmail } from '../lib/email.js';
 import { writeAudit, AUDIT_ACTIONS, AUDIT_CATEGORIES } from './audit.service.js';
 
 const resolveRole = (email) =>
@@ -109,7 +110,29 @@ const resolveGoogleName = (name, email) => {
   return localPart || 'Google User';
 };
 
-export const registerUser = async ({ name, email, password, workspaceName }) => {
+export { normalizeEmail };
+
+/**
+ * The account for an address, matched without regard to case.
+ *
+ * New rows are stored lower-cased, so the exact lookup on the unique index is
+ * the normal path. Rows written before normalisation may hold capitals; those
+ * are found by `lower(email)`. Deliberately raw SQL rather than Prisma's
+ * `mode: 'insensitive'`, which can compile to ILIKE, where `_` in an address
+ * like `john_doe@x.co` is a wildcard that would also match `johnXdoe@x.co`.
+ * If two legacy rows differ only by case, the oldest wins.
+ */
+export const findUserByEmail = async (email) => {
+  const normalized = normalizeEmail(email);
+  if (!normalized) return null;
+  const exact = await prisma.user.findUnique({ where: { email: normalized } });
+  if (exact) return exact;
+  const rows = await prisma.$queryRaw`SELECT "id" FROM "User" WHERE lower("email") = ${normalized} ORDER BY "createdAt" ASC LIMIT 1`;
+  return rows[0] ? prisma.user.findUnique({ where: { id: rows[0].id } }) : null;
+};
+
+export const registerUser = async ({ name, email: rawEmail, password, workspaceName }) => {
+  const email = normalizeEmail(rawEmail);
   const passwordHash = await hashPassword(password);
 
   const user = await prisma.user.create({ data: { name, email, passwordHash } });
@@ -130,10 +153,25 @@ export const registerUser = async ({ name, email, password, workspaceName }) => 
 };
 
 export const loginUser = async ({ email, password }) => {
-  const user = await prisma.user.findUnique({ where: { email } });
+  const user = await findUserByEmail(email);
   if (!user) throw Object.assign(new Error('Invalid credentials'), { statusCode: 401 });
 
-  if (!user.passwordHash) throw Object.assign(new Error('Invalid credentials'), { statusCode: 401 });
+  // An account created with Google has no password until its owner sets one.
+  // "Invalid credentials" left them retyping a password that never existed;
+  // say what is actually going on and let the page offer both ways in —
+  // Google, or an emailed code to set a password (POST /auth/forgot-password).
+  // This does tell a caller the address has an account, which /register's 409
+  // already did.
+  if (!user.passwordHash) {
+    throw Object.assign(
+      new Error(
+        user.googleId
+          ? 'This account was created with Google and has no password yet. Continue with Google, or set a password.'
+          : 'This account has no password yet. Set one to sign in.',
+      ),
+      { statusCode: 401, code: 'PASSWORD_NOT_SET', hasGoogle: Boolean(user.googleId) },
+    );
+  }
   const valid = await comparePassword(password, user.passwordHash);
   if (!valid) throw Object.assign(new Error('Invalid credentials'), { statusCode: 401 });
   // After the password check, so a wrong password never reveals that an
@@ -232,7 +270,8 @@ export const logout = async (rawToken) => {
   });
 };
 
-export const loginOrRegisterWithGoogle = async ({ googleId, email, name, avatarUrl, emailVerified = false }) => {
+export const loginOrRegisterWithGoogle = async ({ googleId, email: rawEmail, name, avatarUrl, emailVerified = false }) => {
+  const email = normalizeEmail(rawEmail);
   const resolvedName = resolveGoogleName(name, email);
 
   let user = await prisma.user.findUnique({ where: { googleId } });
@@ -250,19 +289,40 @@ export const loginOrRegisterWithGoogle = async ({ googleId, email, name, avatarU
       );
     }
     // Try to link to existing account with same email
-    user = await prisma.user.findUnique({ where: { email } });
+    user = await findUserByEmail(email);
     if (user) {
       assertNotBanned(user);
+      // A password nobody proved the mailbox for may not be the owner's.
+      // An invite link is handed to the INVITER (POST /workspaces/:id/invites
+      // returns the token), and a server without SMTP creates password
+      // accounts with no email check — either way someone else can create
+      // `victim@gmail.com` with a password they know. Linking Google to that
+      // row as it stood would hand them the real owner's account. Google has
+      // just proved who owns the address, so that password is dropped and its
+      // sessions ended; the owner can set their own with an emailed code.
+      const untrustedPassword = Boolean(user.passwordHash) && !user.emailVerifiedAt;
       user = await prisma.user.update({
         where: { id: user.id },
         data: {
           googleId,
           name: user.name?.trim() ? user.name : resolvedName,
           avatarUrl: avatarUrl ?? user.avatarUrl,
+          emailVerifiedAt: user.emailVerifiedAt ?? new Date(),
+          ...(untrustedPassword ? { passwordHash: null } : {}),
         },
       });
+      if (untrustedPassword) {
+        await prisma.refreshToken.updateMany({
+          where: { userId: user.id, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+        logger.warn(
+          { userId: user.id, email: user.email },
+          'Google linked to an account whose email was never verified: dropped its password and revoked its sessions',
+        );
+      }
     } else {
-      user = await prisma.user.create({ data: { googleId, email, name: resolvedName, avatarUrl } });
+      user = await prisma.user.create({ data: { googleId, email, name: resolvedName, avatarUrl, emailVerifiedAt: new Date() } });
       // Auto-create a workspace for new Google users
       await prisma.workspace.create({
         data: {
@@ -312,9 +372,11 @@ export const acceptInvite = async ({ token, name, password }) => {
 
   const passwordHash = await hashPassword(password);
 
-  let user = await prisma.user.findUnique({ where: { email: invite.email } });
+  let user = await findUserByEmail(invite.email);
   if (!user) {
-    user = await prisma.user.create({ data: { name, email: invite.email, passwordHash } });
+    // No `emailVerifiedAt`: the invite token is returned to whoever sent the
+    // invite, so accepting it proves nothing about who owns the mailbox.
+    user = await prisma.user.create({ data: { name, email: normalizeEmail(invite.email), passwordHash } });
   }
 
   await prisma.$transaction([

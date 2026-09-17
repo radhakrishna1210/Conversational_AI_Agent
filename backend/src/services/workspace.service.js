@@ -1,5 +1,6 @@
 import prisma from '../config/prisma.js';
 import { generateSecureToken } from '../lib/hash.js';
+import { normalizeEmail } from '../lib/email.js';
 import { INVITE_EXPIRY_MS, INVITE_TOKEN_BYTES } from '../constants/limits.js';
 import { ROLES } from '../constants/roles.js';
 
@@ -47,7 +48,9 @@ export const listMembers = (workspaceId) =>
     orderBy: { joinedAt: 'asc' },
   });
 
-export const createInvite = async (workspaceId, email, role) => {
+export const createInvite = async (workspaceId, rawEmail, role) => {
+  // Stored the way accounts are, so one address cannot hold two invites by case.
+  const email = normalizeEmail(rawEmail);
   const token = generateSecureToken(INVITE_TOKEN_BYTES);
   const expiresAt = new Date(Date.now() + INVITE_EXPIRY_MS);
 

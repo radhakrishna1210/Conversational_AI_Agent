@@ -14,6 +14,9 @@ const genOtp = () => String(crypto.randomInt(100000, 1000000)); // 6 digits
 
 const emailOk = (e) => typeof e === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e);
 
+/** The mail transport, held in an object so tests can replace it (an ES module export cannot be reassigned). */
+export const mailer = { send: sendMail, isConfigured: isMailerConfigured };
+
 /** Codes a single token may be tried with before the user must ask for a new one. */
 export const MAX_OTP_ATTEMPTS = 5;
 
@@ -40,14 +43,23 @@ const TOO_MANY_ATTEMPTS = 'Too many incorrect codes. Request a new code and try 
 
 // ── POST /auth/register  (now: validate → email OTP → account created on verify)
 export const requestSignupOtp = async (req, res) => {
-  const { name, email, password, workspaceName } = req.body ?? {};
+  const { name, password, workspaceName } = req.body ?? {};
+  const email = authService.normalizeEmail(req.body?.email);
   if (!name || !emailOk(email) || !password || password.length < 8) {
     return res.status(400).json({ error: 'Valid name, email, and a password of at least 8 characters are required' });
   }
-  const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing) return res.status(409).json({ error: 'Email already registered' });
+  const existing = await authService.findUserByEmail(email);
+  if (existing) {
+    // A second account for the same address is never the answer — point at
+    // the ways into the one that exists. An account made with Google has no
+    // password yet; "Forgot password" is how its owner adds one.
+    return res.status(409).json({
+      error: 'An account with this email already exists. Sign in instead — with Google, or with "Forgot password?" to set or reset a password.',
+      code: 'EMAIL_TAKEN',
+    });
+  }
 
-  if (!isMailerConfigured()) {
+  if (!mailer.isConfigured()) {
     // No SMTP → we cannot verify email ownership.
     //  - In production: verified signup is required, refuse honestly.
     //  - Outside production (or with ALLOW_UNVERIFIED_SIGNUP=true): create the
@@ -97,7 +109,7 @@ export const requestSignupOtp = async (req, res) => {
     },
   });
 
-  await sendMail({
+  await mailer.send({
     to: email,
     subject: 'Your verification code',
     text: `Your verification code is ${otp}. It expires in 10 minutes.`,
@@ -109,7 +121,8 @@ export const requestSignupOtp = async (req, res) => {
 
 // ── POST /auth/verify-otp  { email, otp } → creates the account
 export const verifySignupOtp = async (req, res) => {
-  const { email, otp } = req.body ?? {};
+  const { otp } = req.body ?? {};
+  const email = authService.normalizeEmail(req.body?.email);
   if (!emailOk(email) || !otp) return res.status(400).json({ error: 'Email and code are required' });
 
   const token = await prisma.verificationToken.findFirst({
@@ -121,9 +134,22 @@ export const verifySignupOtp = async (req, res) => {
   if (verdict === 'exhausted') return res.status(400).json({ error: TOO_MANY_ATTEMPTS });
   if (verdict !== 'ok') return res.status(400).json({ error: 'Invalid or expired verification code' });
 
+  // The address may have gained an account while the code sat in the inbox —
+  // most often by the same person pressing "Continue with Google". Creating
+  // another would fail on the unique email (a bare 500) or, for a differently
+  // cased legacy row, succeed as a duplicate.
+  if (await authService.findUserByEmail(email)) {
+    await prisma.verificationToken.update({ where: { id: token.id }, data: { consumedAt: new Date() } });
+    return res.status(409).json({
+      error: 'An account with this email already exists. Sign in instead — with Google, or with "Forgot password?" to set or reset a password.',
+      code: 'EMAIL_TAKEN',
+    });
+  }
+
   const pending = JSON.parse(token.payload);
   const user = await prisma.user.create({
-    data: { name: pending.name, email, passwordHash: pending.passwordHash },
+    // The code just proved this person reads the mailbox.
+    data: { name: pending.name, email, passwordHash: pending.passwordHash, emailVerifiedAt: new Date() },
   });
   const workspace = await prisma.workspace.create({
     data: {
@@ -140,28 +166,25 @@ export const verifySignupOtp = async (req, res) => {
 };
 
 // ── POST /auth/forgot-password  { email }
+// Resets a password, or sets the first one on an account created with Google.
 export const forgotPassword = async (req, res) => {
-  const { email } = req.body ?? {};
+  const email = authService.normalizeEmail(req.body?.email);
   if (!emailOk(email)) return res.status(400).json({ error: 'A valid email is required' });
 
-  const user = await prisma.user.findUnique({ where: { email } });
+  const user = await authService.findUserByEmail(email);
 
   // Always respond identically to avoid account enumeration…
-  const genericOk = () => res.json({ message: 'If an account exists for that email, a reset code has been sent.' });
+  const genericOk = () => res.json({ message: 'If an account exists for that email, a code has been sent.' });
 
   if (!user) return genericOk();
 
-  // Google-only account (no password set): tell them to use Google instead of
-  // issuing a useless reset token. This is intentionally revealed only after a
-  // legitimate mailbox-owner-style request; the tradeoff favors UX here.
-  if (!user.passwordHash) {
-    return res.json({
-      message: 'This account uses Google Sign-In. Use "Continue with Google" to log in.',
-      googleOnly: true,
-    });
-  }
+  // An account created with Google gets a code too. This used to answer "use
+  // Continue with Google" and send nothing, so such an account could never
+  // gain a password at all. Reading the code proves the same thing Google
+  // does — that this person owns the mailbox — so it is as safe a way in.
+  const hasPassword = Boolean(user.passwordHash);
 
-  if (!isMailerConfigured()) {
+  if (!mailer.isConfigured()) {
     return res.status(503).json({
       error: 'Password reset requires the email service, which is not configured on this server (SMTP_HOST/SMTP_USER/SMTP_PASSWORD/EMAIL_FROM in backend/.env). Ask the administrator to set it up.',
     });
@@ -176,11 +199,15 @@ export const forgotPassword = async (req, res) => {
     data: { email, purpose: 'password_reset', tokenHash: sha256(otp), expiresAt: new Date(Date.now() + RESET_TTL_MS) },
   });
 
-  await sendMail({
+  await mailer.send({
     to: email,
-    subject: 'Password reset code',
-    text: `Your password reset code is ${otp}. It expires in 30 minutes.`,
-    html: `<p>Your password reset code is:</p><h2 style="letter-spacing:4px">${otp}</h2><p>It expires in 30 minutes. If you didn't request this, you can safely ignore this email.</p>`,
+    subject: hasPassword ? 'Password reset code' : 'Set a password for your account',
+    text: hasPassword
+      ? `Your password reset code is ${otp}. It expires in 30 minutes.`
+      : `Your account signs in with Google. To also sign in with a password, use this code: ${otp}. It expires in 30 minutes.`,
+    html: hasPassword
+      ? `<p>Your password reset code is:</p><h2 style="letter-spacing:4px">${otp}</h2><p>It expires in 30 minutes. If you didn't request this, you can safely ignore this email.</p>`
+      : `<p>Your account signs in with Google. To also sign in with a password, enter this code:</p><h2 style="letter-spacing:4px">${otp}</h2><p>It expires in 30 minutes. Google sign-in keeps working either way. If you didn't request this, you can safely ignore this email.</p>`,
   });
 
   return genericOk();
@@ -188,7 +215,8 @@ export const forgotPassword = async (req, res) => {
 
 // ── POST /auth/reset-password  { email, otp, newPassword }
 export const resetPassword = async (req, res) => {
-  const { email, otp, newPassword } = req.body ?? {};
+  const { otp, newPassword } = req.body ?? {};
+  const email = authService.normalizeEmail(req.body?.email);
   if (!emailOk(email) || !otp || !newPassword || newPassword.length < 8) {
     return res.status(400).json({ error: 'Email, code, and a new password of at least 8 characters are required' });
   }
@@ -202,11 +230,16 @@ export const resetPassword = async (req, res) => {
   if (verdict === 'exhausted') return res.status(400).json({ error: TOO_MANY_ATTEMPTS });
   if (verdict !== 'ok') return res.status(400).json({ error: 'Invalid or expired reset code' });
 
-  const user = await prisma.user.findUnique({ where: { email } });
+  const user = await authService.findUserByEmail(email);
   if (!user) return res.status(400).json({ error: 'Invalid or expired reset code' });
 
   const passwordHash = await hashPassword(newPassword);
-  await prisma.user.update({ where: { id: user.id }, data: { passwordHash } });
+  await prisma.user.update({
+    where: { id: user.id },
+    // The code proved mailbox ownership, so this password is the owner's —
+    // a later Google link keeps it (see loginOrRegisterWithGoogle).
+    data: { passwordHash, emailVerifiedAt: user.emailVerifiedAt ?? new Date() },
+  });
   await prisma.verificationToken.update({ where: { id: token.id }, data: { consumedAt: new Date() } });
 
   // Revoke all existing sessions for safety
