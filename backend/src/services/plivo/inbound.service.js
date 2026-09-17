@@ -9,6 +9,7 @@
 
 import prisma from '../../config/prisma.js';
 import { VOICE_NUMBER_STATUS } from '../../constants/compliance.js';
+import { inboundRefusal } from '../agentDirection.js';
 
 /**
  * Plivo sends numbers as bare digits ("912269851741"); VoiceNumber stores E.164
@@ -146,8 +147,14 @@ export async function setInboundAgent(workspaceId, { numberId, agentId = null })
   }
 
   if (agentId) {
-    const agent = await prisma.agent.findFirst({ where: { id: agentId, workspaceId }, select: { id: true } });
+    const agent = await prisma.agent.findFirst({
+      where: { id: agentId, workspaceId },
+      select: { id: true, name: true, settings: true },
+    });
     if (!agent) return { ok: false, error: 'Agent not found in this workspace.' };
+    // Only an agent built to answer calls may answer this number.
+    const refusal = inboundRefusal(agent);
+    if (refusal) return { ok: false, status: 409, code: 'AGENT_IS_OUTBOUND', error: refusal };
   }
 
   const updated = await prisma.voiceNumber.update({

@@ -14,6 +14,7 @@ import {
 import prisma from "../config/prisma.js";
 import { providerHasCredentials } from "../services/voice.service.js";
 import { getEnabledCatalog } from "../services/platform/modelCatalog.js";
+import { normaliseDirection } from "../constants/callDirection.js";
 
 /** The set of LLM model ids Super Admin currently allows clients to see. */
 const allowedLlmValues = async () => {
@@ -370,6 +371,10 @@ export const validateLLMConfig = (req, res) => {
 
 export const generateAgentFlow = async (req, res) => {
   const { name, prompt: userPrompt, category, provider: reqProvider, model: reqModel } = req.body;
+  // Chosen by the person creating the agent. When present it is not the model's
+  // to infer: the greeting and every stage are written for this direction, and
+  // the agent will only ever be allowed to take calls in it.
+  const fixedDirection = normaliseDirection(req.body.callDirection);
   if (!name || typeof name !== "string") {
     logger.warn("Missing required field 'name' for generateAgentFlow");
     return res.status(400).json({
@@ -480,7 +485,12 @@ ${voiceOptions.length ? `  "voice": "<one voice label copied EXACTLY from AVAILA
 Configuration rules:
 - NEVER output bracketed placeholders such as [Healthcare Provider Name], [Company Name], [Your Name], [Agent Name], [Product], [Clinic], etc. ANYWHERE — not in the welcomeMessage and not in any flow item body. If the user's description does NOT name the company/clinic/brand, INVENT one realistic, specific, brandable name (e.g. "Sunrise Health", "Brightpath Clinic", "Northwind Insurance") and use that SAME name consistently everywhere. Likewise give the assistant a real human first name to introduce itself with (e.g. "Priya", "Sarah") — never "[Agent Name]" or "your assistant".
 - The welcomeMessage AND every flow item are the assistant TALKING TO ITS END CUSTOMER — never to whoever is building/configuring the assistant. The assistant must NEVER call itself an "onboarding agent" or "AI/virtual assistant", and NEVER offer to "help you configure / set up the ... system". That is setup-wizard language and is always wrong. BAD (never produce this): "Hello, this is your AI onboarding agent. I'm here to help you configure and set up the Patient Health Voice Assistant system. Is this a good time to begin?" GOOD: a warm greeting that speaks directly to the real caller and gets straight to serving them for this use case.
-- "callDirection": "OUTBOUND" when this agent CALLS customers (cold calling, lead generation, collections, appointment reminders, surveys, outreach); "INBOUND" when customers call the agent (support line, reception, booking hotline, helpdesk). The welcomeMessage MUST match this direction: an INBOUND greeting thanks the caller for calling (e.g. "Thank you for calling <company>, how can I help?"); an OUTBOUND greeting must OPEN by introducing the agent BY NAME and naming the company they are calling FROM — phrase it as "Hi, this is <agent name> calling from <company name>, …" — and only THEN briefly give the reason for the call. An OUTBOUND greeting must NEVER say "thank you for calling", and must NOT jump straight to the reason (e.g. "calling about your appointment") without first saying who is calling and which company they are calling from.
+${fixedDirection === 'OUTBOUND'
+    ? `- "callDirection" is FIXED to "OUTBOUND": the business chose this — the assistant CALLS the customer, who did not call in. Output "callDirection": "OUTBOUND" whatever the description suggests, and write the welcomeMessage and EVERY flow stage for a call the assistant placed.`
+    : fixedDirection === 'INBOUND'
+      ? `- "callDirection" is FIXED to "INBOUND": the business chose this — the CUSTOMER calls the assistant's number. Output "callDirection": "INBOUND" whatever the description suggests, and write the welcomeMessage and EVERY flow stage for a call the customer placed.`
+      : `- "callDirection": "OUTBOUND" when this agent CALLS customers (cold calling, lead generation, collections, appointment reminders, surveys, outreach); "INBOUND" when customers call the agent (support line, reception, booking hotline, helpdesk).`}
+  The welcomeMessage MUST match the direction: an INBOUND greeting thanks the caller for calling (e.g. "Thank you for calling <company>, how can I help?"); an OUTBOUND greeting must OPEN by introducing the agent BY NAME and naming the company they are calling FROM — phrase it as "Hi, this is <agent name> calling from <company name>, …" — and only THEN briefly give the reason for the call. An OUTBOUND greeting must NEVER say "thank you for calling", and must NOT jump straight to the reason (e.g. "calling about your appointment") without first saying who is calling and which company they are calling from.
 - "languages": 1-3 entries, each copied EXACTLY from this list: ${LANGUAGE_OPTIONS.join(', ')}. The FIRST entry is the language the assistant speaks in — infer it from the user's description (e.g. an agent for Indian customers speaking Hindi → ["Hindi"]). Default to "English (Indian)" only when the description gives no language hint.
 - "transcription": pick "Sarvam" when the primary language is Indian (Hindi, Bengali, Gujarati, Tamil, English (Indian)); otherwise "ElevenLabs".
 - "aiModel": pick the model best suited to the use case; "Gemini-Pro" is a good general default.
@@ -692,6 +702,7 @@ Provide 4 to 8 logical, structured conversational steps (flow items) that cover 
       .slice(0, 3);
     if (!sanitized.languages.length) delete sanitized.languages;
     if (sanitized.callDirection !== 'INBOUND' && sanitized.callDirection !== 'OUTBOUND') delete sanitized.callDirection;
+    if (fixedDirection) sanitized.callDirection = fixedDirection;
     if (!AI_MODEL_OPTIONS.includes(sanitized.aiModel)) delete sanitized.aiModel;
     if (!STT_OPTIONS.includes(sanitized.transcription)) delete sanitized.transcription;
     // The caller's phone number is captured automatically from the call and is a

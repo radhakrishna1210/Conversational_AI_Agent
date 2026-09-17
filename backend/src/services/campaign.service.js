@@ -4,6 +4,7 @@ import { CAMPAIGN_STATUS } from '../constants/campaignStatus.js';
 import { enqueueCampaign } from '../queues/campaign.queue.js';
 import { runCampaign, requestStop, requestResume } from './campaignRunner.service.js';
 import { resolveCallMode } from './outboundCall.service.js';
+import { outboundRefusal } from './agentDirection.js';
 import { resolveClusterContacts } from './contact.service.js';
 
 export const listCampaigns = (workspaceId) =>
@@ -17,8 +18,28 @@ export const getCampaign = (workspaceId, campaignId) =>
     where: { id: campaignId, workspaceId },
   });
 
-export const createCampaign = (workspaceId, data) =>
-  prisma.campaign.create({ data: { ...data, workspaceId, status: CAMPAIGN_STATUS.DRAFT } });
+/**
+ * Refuse an Inbound agent as a campaign's caller.
+ *
+ * Checked when the agent is chosen (create, edit) and again when dialling is
+ * asked for (launch, start), because a draft can sit for days while its agent
+ * is switched to Inbound. The dialler refuses it too; checking here says so on
+ * the button press instead of in a FAILED campaign's lastError.
+ */
+async function assertDialingAgent(workspaceId, botId) {
+  if (!botId) return;
+  const agent = await prisma.agent.findFirst({
+    where: { id: String(botId), workspaceId },
+    select: { id: true, name: true, settings: true },
+  });
+  const refusal = outboundRefusal(agent);
+  if (refusal) throw Object.assign(new Error(refusal), { statusCode: 409 });
+}
+
+export const createCampaign = async (workspaceId, data) => {
+  await assertDialingAgent(workspaceId, data?.botId);
+  return prisma.campaign.create({ data: { ...data, workspaceId, status: CAMPAIGN_STATUS.DRAFT } });
+};
 
 const RECIPIENT_CHUNK = 500;
 
@@ -39,6 +60,7 @@ const RECIPIENT_CHUNK = 500;
  */
 export const createBulkCampaign = async (workspaceId, data) => {
   const { clusterIds = [], ...rest } = data;
+  await assertDialingAgent(workspaceId, rest.botId);
   const contacts = await resolveClusterContacts(workspaceId, clusterIds);
   if (!contacts.length) {
     throw Object.assign(
@@ -130,8 +152,9 @@ export const syncCampaignList = async (workspaceId, campaignId) => {
 // request is how a campaign came to claim RUNNING with nothing dialling.
 const EDITABLE = ['name', 'botId', 'fromNumber', 'concurrentCalls'];
 
-export const updateCampaign = (workspaceId, campaignId, data = {}) => {
+export const updateCampaign = async (workspaceId, campaignId, data = {}) => {
   const patch = Object.fromEntries(EDITABLE.filter((k) => data[k] !== undefined).map((k) => [k, data[k]]));
+  await assertDialingAgent(workspaceId, patch.botId);
   return prisma.campaign.update({ where: { id: campaignId, workspaceId }, data: patch });
 };
 
@@ -183,6 +206,7 @@ export const launchCampaign = async (workspaceId, campaignId, scheduledAt) => {
   if (campaign.status !== CAMPAIGN_STATUS.DRAFT && campaign.status !== CAMPAIGN_STATUS.SCHEDULED) {
     throw Object.assign(new Error('Campaign cannot be launched in its current state'), { statusCode: 409 });
   }
+  if (campaign.channel === 'VOICE') await assertDialingAgent(workspaceId, campaign.botId);
 
   const status = scheduledAt ? CAMPAIGN_STATUS.SCHEDULED : CAMPAIGN_STATUS.RUNNING;
   const updated = await prisma.campaign.update({
@@ -305,6 +329,7 @@ export const startCampaign = async (workspaceId, campaignId) => {
   if (campaign.channel === 'VOICE' && !campaign.botId) {
     throw Object.assign(new Error('Select a voice agent before starting this campaign'), { statusCode: 400 });
   }
+  if (campaign.channel === 'VOICE') await assertDialingAgent(workspaceId, campaign.botId);
 
   const pending = await prisma.campaignRecipient.count({ where: { campaignId, status: 'pending' } });
   if (!pending) {

@@ -23,6 +23,7 @@ import prisma from '../config/prisma.js';
 import { env } from '../config/env.js';
 import logger from '../lib/logger.js';
 import { VOICE_NUMBER_STATUS } from '../constants/compliance.js';
+import { outboundRefusal } from './agentDirection.js';
 import { resolveProvider } from './telephony/index.js';
 import { acquireSlot } from './telephony/concurrency.js';
 import { resolveDialCredentials } from './telephony/dialCredentials.js';
@@ -450,6 +451,14 @@ export async function placeOutboundCall({
   callLogId = null,
   providerId,
 }) {
+  // Every path that dials goes through here, so this is the gate that holds
+  // whichever caller forgot to check: an Inbound agent never places a call.
+  // Refused before a call log exists or a carrier leg is spent.
+  const directionRefusal = outboundRefusal(agent);
+  if (directionRefusal) {
+    return { ok: false, mode: 'none', error: directionRefusal, status: 409, code: 'AGENT_IS_INBOUND' };
+  }
+
   // An explicit override wins; otherwise the caller ID's own row decides. Only
   // a number we have never seen falls through to the configured default.
   //

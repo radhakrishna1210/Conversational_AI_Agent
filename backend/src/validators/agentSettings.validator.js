@@ -12,6 +12,7 @@ import { e164, TRANSFER_MODES, OUT_OF_HOURS } from '../services/telephony/transf
 import { SPECULATION_MODES } from '../services/voice/speculativeTurn.js';
 import { AMBIENT_MODES, ALL_AMBIENT_PRESET_NAMES } from '../services/voice/ambience.js';
 import { MIN_HOLD_SEC, MAX_HOLD_SEC } from '../services/voice/holdPause.js';
+import { normaliseDirection } from '../constants/callDirection.js';
 
 const HHMM = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -80,6 +81,22 @@ export function validateAgentSettings(extras = {}) {
       return { ok: false, error: `Hold pause must be a whole number of seconds from ${MIN_HOLD_SEC} to ${MAX_HOLD_SEC}, or empty to turn it off.` };
     } else {
       out.holdPauseSec = n;
+    }
+  }
+  // Server-owned: set below when a save carries a direction, never taken from
+  // the request. See services/agentDirection.js for what the lock enables.
+  delete out.callDirectionLocked;
+  if ('callDirection' in extras) {
+    // Once chosen, a direction is changed, never cleared: an agent with no
+    // direction is allowed everywhere, so a save that blanked it would quietly
+    // lift every restriction on the agent.
+    if (extras.callDirection === null || extras.callDirection === undefined || String(extras.callDirection).trim() === '') {
+      delete out.callDirection;
+    } else {
+      const direction = normaliseDirection(extras.callDirection);
+      if (!direction) return { ok: false, error: 'Call direction must be Inbound or Outbound.' };
+      out.callDirection = direction;
+      out.callDirectionLocked = true;
     }
   }
   return { ok: true, extras: out };
