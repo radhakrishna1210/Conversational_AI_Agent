@@ -107,6 +107,10 @@ export const validateIntegrationCredentials = (providerKey, credentials = {}) =>
     requiredFields.push({ key: 'instanceUrl', label: 'Instance URL' });
     requiredFields.push({ key: 'accessToken', label: 'Access token' });
   }
+  if (providerKey === 'pipedrive') {
+    requiredFields.push({ key: 'apiDomain', label: 'API Domain' });
+    requiredFields.push({ key: 'accessToken', label: 'API token' });
+  }
   if (providerKey === 'twilio') {
     requiredFields.push({ key: 'accountSid', label: 'Account SID' });
     requiredFields.push({ key: 'authToken', label: 'Auth token' });

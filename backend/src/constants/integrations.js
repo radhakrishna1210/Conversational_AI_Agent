@@ -131,6 +131,31 @@ export const INTEGRATION_PROVIDERS = {
     // bumping off v60.0 separately.
     syncEndpoint: '/services/data/v60.0/query?q=SELECT%20Id,Name,Email%20FROM%20Lead%20LIMIT%20100',
   },
+  pipedrive: {
+    key: 'pipedrive',
+    name: 'Pipedrive',
+    category: 'Post Call',
+    connectType: 'oauth',
+    // Manual apiDomain + API token fields are the fallback when OAuth app
+    // credentials aren't configured on this server, same as Salesforce's.
+    oauth: {
+      authorizationUrl: 'https://oauth.pipedrive.com/oauth/authorize',
+      tokenUrl: 'https://oauth.pipedrive.com/oauth/token',
+      // Pipedrive's actual scope identifiers, not the Marketplace UI's
+      // "Contacts" / "Activities" permission labels.
+      scope: ['contacts:full', 'activities:full'],
+      clientIdEnv: 'PIPEDRIVE_CLIENT_ID',
+      clientSecretEnv: 'PIPEDRIVE_CLIENT_SECRET',
+      redirectUriEnv: 'PIPEDRIVE_REDIRECT_URI',
+      // Pipedrive's OAuth flow has no PKCE step, unlike Salesforce's.
+      pkce: false,
+    },
+    connectFields: [
+      { name: 'apiDomain', label: 'API Domain', placeholder: 'https://yourcompany.pipedrive.com', type: 'text', help: 'Only needed if OAuth is unavailable. Your Pipedrive company domain' },
+      { name: 'accessToken', label: 'API Token', placeholder: 'Paste your Pipedrive API token', type: 'password', help: 'From Settings → Personal preferences → API, or use OAuth', optional: true },
+    ],
+    syncEndpoint: '/api/v2/persons?limit=10',
+  },
   hubspot: {
     key: 'hubspot',
     name: 'HubSpot',
@@ -247,6 +272,7 @@ export const INTEGRATION_ORDER = [
   'calendly',
   'chatflow',
   'salesforce',
+  'pipedrive',
   'hubspot',
   'slack',
   'twilio',

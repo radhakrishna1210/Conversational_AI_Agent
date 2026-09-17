@@ -8,6 +8,7 @@ import { assertPublicHttpUrl } from '../lib/safeUrl.js';
 import { appendCallRow } from '../services/googleSheets.service.js';
 import { createEvent, resolveAppointmentStart } from '../services/googleCalendar.service.js';
 import { upsertContact as upsertSalesforceContact, logCallActivity } from '../services/salesforce.service.js';
+import { upsertContact as upsertPipedriveContact, logCallActivity as logPipedriveCallActivity } from '../services/pipedrive.service.js';
 import { addLog } from '../services/integrations.service.js';
 import { getBinding } from '../services/whatsappTemplates.service.js';
 import { sendWhatsAppConfirmation, buildPositionalVariables } from '../services/whatsappPostCall.service.js';
@@ -362,6 +363,32 @@ export const executePostCall = async (agentId, workspaceId, payload) => {
           message: `Salesforce contact synced (${contact.id})`,
           metadata: { callId: payload.callId, contactId: contact.id, email },
         }).catch(() => {});
+      } else if (method === 'pipedrive') {
+        const findVar = (key) => variables.find((v) => String(v.key).toLowerCase() === String(key ?? '').toLowerCase())?.value;
+        const email = cfg.emailVariable ? findVar(cfg.emailVariable) : undefined;
+        if (!email) {
+          throw new Error(
+            'No email address to sync to Pipedrive: could not find one among the extracted variables. '
+            + `Set this destination's email variable to one of: ${variables.map((v) => v.key).join(', ') || '(none extracted)'}.`,
+          );
+        }
+        const contact = await upsertPipedriveContact(workspaceId, {
+          email,
+          phone: cfg.phoneVariable ? findVar(cfg.phoneVariable) : undefined,
+          firstname: cfg.firstNameVariable ? findVar(cfg.firstNameVariable) : undefined,
+          lastname: cfg.lastNameVariable ? findVar(cfg.lastNameVariable) : undefined,
+        });
+        await logPipedriveCallActivity(workspaceId, contact.id, {
+          summary: `Call with ${agent.name}.\n\nExtracted information:\n${variableLines}\n\nSummary:\n${payload.summary ?? '(none)'}`,
+          direction: payload.direction,
+          timestamp: payload.endedAt,
+        });
+        results.push({ method: 'pipedrive', target: email, ok: true, contactId: contact.id });
+        await addLog({
+          workspaceId, provider: 'pipedrive', event: 'pipedrive_contact_synced',
+          message: `Pipedrive contact synced (${contact.id})`,
+          metadata: { callId: payload.callId, contactId: contact.id, email },
+        }).catch(() => {});
       } else if (method === 'whatsapp') {
         // A WhatsApp confirmation through the workspace's own ChatFlow account.
         //
@@ -454,6 +481,13 @@ export const executePostCall = async (agentId, workspaceId, payload) => {
         await addLog({
           workspaceId, provider: 'salesforce', level: 'error', event: 'salesforce_contact_sync_failed',
           message: `Salesforce contact sync failed: ${err.message}`,
+          metadata: { callId: payload.callId },
+        }).catch(() => {});
+      }
+      if (method === 'pipedrive') {
+        await addLog({
+          workspaceId, provider: 'pipedrive', level: 'error', event: 'pipedrive_contact_sync_failed',
+          message: `Pipedrive contact sync failed: ${err.message}`,
           metadata: { callId: payload.callId },
         }).catch(() => {});
       }
