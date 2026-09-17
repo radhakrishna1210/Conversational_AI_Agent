@@ -25,6 +25,18 @@ router.get('/:provider/callback', async (req, res) => {
     );
     return res.redirect(`${clientUrl}/integrations?provider=${provider}&connected=1`);
   } catch (err) {
+    // workspaceId is only known once completeOAuthCallback resolves the
+    // session — an unrecognized/garbled state never reaches that point, so there's nothing to log against.
+    if (err.workspaceId) {
+      await service.addLog({
+        workspaceId: err.workspaceId,
+        provider,
+        level: 'error',
+        event: 'oauth_failed',
+        message: err.message,
+        status: String(err.statusCode ?? ''),
+      }).catch(() => {});
+    }
     return res.redirect(`${clientUrl}/integrations?provider=${provider}&error=${encodeURIComponent(err.message)}`);
   }
 });

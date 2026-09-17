@@ -693,16 +693,34 @@ export const completeOAuthCallback = async (providerKey, code, state, callbackUr
 
   const session = await prisma.oAuthSession.findUnique({ where: { state } });
   if (!session)                             throw Object.assign(new Error('OAuth session not found — please try connecting again.'),             { statusCode: 400 });
-  if (session.provider !== p.key)           throw Object.assign(new Error(`Provider mismatch in OAuth session (${session.provider} vs ${p.key})`), { statusCode: 400 });
-  if (session.consumedAt)                   throw Object.assign(new Error('OAuth session already used — please try connecting again.'),          { statusCode: 400 });
-  if (session.expiresAt < now())            throw Object.assign(new Error('OAuth session expired — please try connecting again.'),               { statusCode: 400 });
+  if (session.provider !== p.key)           throw Object.assign(new Error(`Provider mismatch in OAuth session (${session.provider} vs ${p.key})`), { statusCode: 400, workspaceId: session.workspaceId });
+  if (session.consumedAt)                   throw Object.assign(new Error('OAuth session already used — please try connecting again.'),          { statusCode: 400, workspaceId: session.workspaceId });
+  if (session.expiresAt < now())            throw Object.assign(new Error('OAuth session expired — please try connecting again.'),               { statusCode: 400, workspaceId: session.workspaceId });
 
-  const cbUri       = callbackUri ?? session.redirectUri ?? redirectUri(p) ?? '';
-  const tokenPayload = await exchangeCode(p, code, cbUri, session.codeVerifier);
+  // Claimed atomically before the token exchange, not after — otherwise two
+  // concurrent requests for the same code both attempt the exchange, and the loser gets a confusing invalid_grant instead of a clear error.
+  const claim = await prisma.oAuthSession.updateMany({
+    where: { id: session.id, consumedAt: null },
+    data: { consumedAt: now() },
+  });
+  if (claim.count === 0) {
+    throw Object.assign(
+      new Error('This OAuth callback was already processed — please try connecting again.'),
+      { statusCode: 400, workspaceId: session.workspaceId },
+    );
+  }
+
+  let tokenPayload;
+  try {
+    const cbUri = callbackUri ?? session.redirectUri ?? redirectUri(p) ?? '';
+    tokenPayload = await exchangeCode(p, code, cbUri, session.codeVerifier);
+  } catch (err) {
+    err.workspaceId = session.workspaceId;
+    throw err;
+  }
 
   const connected = await markConnected(session.workspaceId, p.key, p, tokenPayload.expires_in);
   await upsertToken(connected.id, session.workspaceId, p.key, tokenPayload);
-  await prisma.oAuthSession.update({ where: { id: session.id }, data: { consumedAt: now() } });
 
   if (['google_calendar', 'google_meet', 'google_sheets'].includes(p.key)) {
     try {
