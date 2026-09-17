@@ -1,6 +1,7 @@
 import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
 import { resolveLlmForAgent } from './agentRuntime.service.js';
+import { resolveAgentModels } from './platform/modelAssignments.js';
 import {
   collectExtractionDefinitions,
   formatLocalIso,
@@ -84,7 +85,8 @@ export async function extractAndStoreCallVariables(workspaceId, agentId, callId,
   });
 
   try {
-    const { llm, provider, model } = resolveLlmForAgent(agent);
+    const models = await resolveAgentModels(agent);
+    const { llm, provider, model } = resolveLlmForAgent(agent, { assigned: models.llm.value });
     const requested = definitions.map(({ key, description }) => ({ key, description }));
     // The call's own timestamp anchors relative dates ("tomorrow", "next Monday
     // at 3pm") so any appointment variable resolves to an absolute ISO datetime

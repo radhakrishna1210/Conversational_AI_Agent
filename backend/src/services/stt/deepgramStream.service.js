@@ -356,11 +356,21 @@ export function maxEndpointCommitMs(endpointingMs) {
  * release — DEEPGRAM_MODEL_NON_ENGLISH=nova-2 restores the previous choice for
  * Hindi, for instance.
  *
+ * ── An assigned model wins ───────────────────────────────────────────────────
+ *
+ * Super Admin assigns the transcription model per client (Models → Client
+ * models). `deepgram-nova-3` pins Nova-3 on every call — safe on any language
+ * and either transport, which is exactly why it is the only pin offered.
+ * `deepgram-auto`, or nothing, is everything above.
+ *
  * @param {string} [language] - the Deepgram language code, or 'multi'
  * @param {string} [encoding] - the wire format the audio arrives in
+ * @param {string} [assigned] - the assigned STT model value, see modelCatalog.js
  * @returns {string}
  */
-export function resolveDeepgramModel(language, encoding) {
+export function resolveDeepgramModel(language, encoding, assigned) {
+  if (String(assigned || '').toLowerCase() === 'deepgram-nova-3') return 'nova-3';
+
   const lang = String(language || '').toLowerCase();
 
   if (lang === 'multi') return process.env.DEEPGRAM_MODEL_MULTI || 'nova-3';
@@ -401,15 +411,21 @@ export class DeepgramStreamSession {
    *   when the transcript ends mid-thought (see looksUnfinished).
    * @param {number} [opts.finishedGraceMs] - the SHORTER window used instead
    *   when the transcript has clearly handed over the floor (see looksFinished).
+   * @param {string} [opts.assignedModel] - the STT model value assigned for this
+   *   call ('deepgram-auto' | 'deepgram-nova-3'); see resolveDeepgramModel.
    */
   constructor({
     sampleRate = 24000, language, endpointingMs, onEndOfTurn, endpointGraceMs,
     unfinishedGraceMs, finishedGraceMs,
     onTranscript, onEndOfTurnCandidate, onCandidateCancelled,
     encoding = 'linear16',
+    assignedModel,
   } = {}) {
     this.sampleRate = sampleRate;
     this.language = language;
+    // The STT model Super Admin assigned for this call (resolveAgentModels).
+    // Absent means the per-language pick in resolveDeepgramModel.
+    this.assignedModel = assignedModel;
     // ── Interim-transcript hooks (speculative execution) ─────────────────────
     // Deepgram already transcribes DURING speech; until now those interims were
     // used for one thing only (looksUnfinished on the tail) and the LLM was not
@@ -554,7 +570,7 @@ export class DeepgramStreamSession {
     const key = process.env.DEEPGRAM_API_KEY;
     if (!key) throw new Error('DEEPGRAM_API_KEY not set');
 
-    const model = resolveDeepgramModel(this.language, this.encoding);
+    const model = resolveDeepgramModel(this.language, this.encoding, this.assignedModel);
 
     const params = new URLSearchParams({
       model,

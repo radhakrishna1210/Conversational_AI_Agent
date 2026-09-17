@@ -484,6 +484,27 @@ test('published commit budget covers the longest grace window', () => {
 // The expectations below are not read off a docs page: they are what Deepgram's
 // /v1/models reports and what real handshakes returned.
 
+test('an assigned Nova-3 pins Nova-3 on every language and line; auto changes nothing', () => {
+  const saved = { ...process.env };
+  delete process.env.DEEPGRAM_MODEL;
+  delete process.env.DEEPGRAM_MODEL_PHONE;
+  delete process.env.DEEPGRAM_MODEL_MULTI;
+  delete process.env.DEEPGRAM_MODEL_NON_ENGLISH;
+  try {
+    // Super Admin → Models → Transcription. Nova-3 serves every language we
+    // offer on both transports, which is why it is the one pin on offer.
+    for (const [lang, enc] of [['en', 'mulaw'], ['en', 'linear16'], ['hi', 'mulaw'], ['multi', 'linear16'], [undefined, 'mulaw']]) {
+      assert.equal(resolveDeepgramModel(lang, enc, 'deepgram-nova-3'), 'nova-3');
+    }
+    // "auto", or nothing assigned, is the per-language pick exactly as before.
+    assert.equal(resolveDeepgramModel('en', 'mulaw', 'deepgram-auto'), 'nova-2-phonecall');
+    assert.equal(resolveDeepgramModel('hi', 'mulaw', 'deepgram-auto'), 'nova-3');
+    assert.equal(resolveDeepgramModel('en', 'linear16', undefined), 'nova-2');
+  } finally {
+    process.env = saved;
+  }
+});
+
 test('phone audio gets the narrowband model, browser audio does not', () => {
   const saved = { ...process.env };
   delete process.env.DEEPGRAM_MODEL;

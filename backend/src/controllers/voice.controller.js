@@ -1,6 +1,8 @@
 // backend/src/controllers/voice.controller.js
 import {
   listVoices,
+  listPickerVoices,
+  invalidatePickerLibraryCache,
   getVoice,
   getProviderStatus,
   streamVoicePreview,
@@ -11,6 +13,7 @@ import {
   getAgentVoice,
 } from '../services/voice.service.js';
 import { getEnabledCatalog } from '../services/platform/modelCatalog.js';
+import { voiceNameFromLabel } from '../services/voice/voicePicker.js';
 
 /** TTS provider names Super Admin currently allows clients to use. */
 const enabledTtsProviders = async () => {
@@ -80,6 +83,27 @@ export const list = async (req, res) => {
   }
 };
 
+// ─── GET /voices/picker?agentId=...&q=...&page=1 ─────────────────────────────
+// The client's Voice picker: names only, one mixed list, no provider anywhere.
+export const pickerList = async (req, res) => {
+  try {
+    const { agentId, q, page = '1', limit = '24' } = req.query;
+    if (!agentId) return res.status(400).json({ error: 'agentId is required' });
+    const result = await listPickerVoices({
+      workspaceId: req.params.workspaceId,
+      agentId: String(agentId),
+      q: q ? String(q) : '',
+      page: parseInt(page, 10) || 1,
+      limit: parseInt(limit, 10) || 24,
+      allowedProviders: await enabledTtsProviders(),
+    });
+    res.json(result);
+  } catch (error) {
+    if (!error.status) console.error('Error listing picker voices:', error);
+    res.status(error.status ?? 500).json({ error: error.status ? error.message : 'Failed to list voices' });
+  }
+};
+
 // ─── GET /api/voices/library?provider=FishAudio&q=... ─────────────────────────
 // Live search of the PROVIDER's catalogue, for voices the sync never pulled.
 export const searchLibrary = async (req, res) => {
@@ -117,6 +141,7 @@ export const importLibraryVoice = async (req, res) => {
     if (!allowed.includes(provider)) return res.status(403).json({ error: `${provider} is not enabled` });
 
     const voice = await importProviderVoice({ provider, providerVoiceId });
+    invalidatePickerLibraryCache();
     res.json({ success: true, voice: toDTO(voice) });
   } catch (error) {
     console.error('Error importing library voice:', error);
@@ -156,6 +181,7 @@ export const sync = async (req, res) => {
   try {
     const { provider } = req.body;   // optional: restrict to one provider
     const results = await syncVoices(provider || undefined);
+    invalidatePickerLibraryCache();
     const summary = results.reduce(
       (acc, r) => ({ added: acc.added + r.added, updated: acc.updated + r.updated, total: acc.total + r.total }),
       { added: 0, updated: 0, total: 0 }
@@ -174,7 +200,7 @@ export const setVoice = async (req, res) => {
     const { voiceId } = req.body;
     if (!voiceId) return res.status(400).json({ error: 'voiceId is required' });
     const { voice, label } = await setAgentVoice(agentId, voiceId, workspaceId);
-    res.json({ success: true, voice: toDTO(voice), label });
+    res.json({ success: true, voice: toDTO(voice), label, voiceName: voiceNameFromLabel(label) });
   } catch (error) {
     console.error('Error setting agent voice:', error);
     // Not-found / cross-workspace are client errors; only anything else is a 500.

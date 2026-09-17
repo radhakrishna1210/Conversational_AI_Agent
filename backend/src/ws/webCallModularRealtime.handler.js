@@ -45,6 +45,7 @@ import { createFrameVad } from '../services/voice/frameVad.js';
 import { interruptedWelcome } from '../services/voice/welcomeBarge.js';
 import { transferAvailability } from '../services/telephony/transfer.service.js';
 import { DeepgramStreamSession, isDeepgramConfigured, toDeepgramLanguage } from '../services/stt/deepgramStream.service.js';
+import { resolveAgentModels } from '../services/platform/modelAssignments.js';
 import { turnEndProfileFor, maxCommitMsFor } from '../services/voice/turnEndProfile.js';
 import { analyzeSpeech, classifyCallerAffect, isEchoOfAgent } from '../services/stt/speechGate.js';
 import { createFillerBudget } from '../services/voice/disfluency.js';
@@ -157,6 +158,7 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
   // every turn and fell back to batch STT whenever that connect was slow.
   let dgSession = null;
   let dgLanguage;         // Deepgram language code derived from the agent (B3 Hindi fix)
+  let assignedSttModel;   // transcription model Super Admin assigned (modelAssignments.js)
   // Sequence number of the Deepgram turn currently capturing. Every finalize is
   // bound to it so a flush that resolves after the next turn has started can
   // neither steal that turn's words nor donate the previous turn's (BUG-001).
@@ -351,6 +353,7 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
       dgSession = new DeepgramStreamSession({
         sampleRate,
         language: dgLanguage,
+        assignedModel: assignedSttModel,
         // All three come from the agent's own turn-end profile, so two agents
         // on this deployment can wait for different lengths of silence.
         endpointingMs: turnProfile.endpointingMs,
@@ -743,6 +746,8 @@ export async function handleWebCallModularUpgrade(ws, { workspaceId, agentId }) 
       speculator = buildSpeculator(agentSettings);
       if (useDeepgram) {
         dgLanguage = toDeepgramLanguage(agentSettings.sttLanguage) || toDeepgramLanguage(agentLanguages[0]);
+        // Cached in-process and never throws.
+        assignedSttModel = (await resolveAgentModels(agent)).stt.value;
       }
 
       // ── Wallet gate ─────────────────────────────────────────────────────────

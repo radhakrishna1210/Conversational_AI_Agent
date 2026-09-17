@@ -30,6 +30,7 @@ import { handlePlivoMediaModularUpgrade } from './ws/plivoMediaModular.handler.j
 import { SAMPLE_RATES, DEFAULT_SAMPLE_RATE } from './services/telephony/piopiy.provider.js';
 import { isBundledEngine, warmAllInboundGreetings } from './services/outboundCall.service.js';
 import { loadAgent } from './services/agentRuntime.service.js';
+import { primeModelAssignments } from './services/platform/modelAssignments.js';
 import { resumeStuckKbJobs } from './services/kbChunking.service.js';
 import { startRecordingRetention } from './services/recordingRetention.service.js';
 
@@ -349,6 +350,9 @@ const server = httpServer.listen(env.PORT, () => {
   // it in the background once the server is taking traffic. Delayed so it does
   // not compete with boot; unref'd so it never holds the process open.
   setTimeout(() => { warmAllInboundGreetings(); }, 15_000).unref();
+  // Read on every voice turn; loading it now keeps that read off the first
+  // caller's turn after a deploy.
+  void primeModelAssignments();
 });
 
 // SSE keepalive heartbeat

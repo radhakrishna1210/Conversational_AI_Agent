@@ -88,6 +88,8 @@ export const AUDIT_ACTIONS = Object.freeze({
   VOICE_SAMPLE_DELETE: 'voice_sample.delete',
   // platform
   MODEL_CATALOG_UPDATE: 'model_catalog.update',
+  MODEL_DEFAULTS_UPDATE: 'model_defaults.update',
+  MODEL_WORKSPACE_OVERRIDE: 'model_assignment.workspace_override',
 });
 
 export const AUDIT_CATEGORIES = Object.freeze({

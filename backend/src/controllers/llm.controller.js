@@ -14,6 +14,8 @@ import {
 import prisma from "../config/prisma.js";
 import { providerHasCredentials } from "../services/voice.service.js";
 import { getEnabledCatalog } from "../services/platform/modelCatalog.js";
+import { resolveAgentModels } from "../services/platform/modelAssignments.js";
+import { isAdminRole } from "../middleware/authorize.js";
 import { normaliseDirection } from "../constants/callDirection.js";
 
 /** The set of LLM model ids Super Admin currently allows clients to see. */
@@ -92,8 +94,12 @@ export const generateResponse = async (req, res) => {
   const startTime = Date.now();
 
   try {
-    const { agentId, message, provider, model, temperature, systemPrompt, useFallback = true } =
-      req.body;
+    const { agentId, message, temperature, systemPrompt, useFallback = true } = req.body;
+    // A client does not choose the model — Super Admin assigns it — so a
+    // provider/model in the body is honoured only for a superadmin testing.
+    const bodyOverride = isAdminRole(req.user?.role);
+    const provider = bodyOverride ? req.body.provider : undefined;
+    const model = bodyOverride ? req.body.model : undefined;
 
     // Validate required fields
     if (!agentId || !message) {
@@ -112,9 +118,9 @@ export const generateResponse = async (req, res) => {
 
     logger.info(`[${requestId}] Processing LLM request for agent: ${agentId}`);
 
-    // Load the agent's stored configuration so agentId actually drives behavior.
-    // Request-body overrides still win (useful for testing), then agent config,
-    // then environment defaults.
+    // Load the agent so agentId actually drives behavior: a superadmin's body
+    // override wins, then the model assigned for this agent's calls, then the
+    // environment defaults.
     let agentRecord = null;
     try {
       const workspaceId = req.params?.workspaceId;
@@ -129,7 +135,9 @@ export const generateResponse = async (req, res) => {
       return res.status(404).json({ error: 'Agent not found in this workspace' });
     }
 
-    const fromAgent = mapAgentModel(agentRecord?.aiModel);
+    const fromAgent = agentRecord
+      ? mapAgentModel((await resolveAgentModels(agentRecord)).llm.value)
+      : {};
 
     const agentConfig = {
       provider:
@@ -408,8 +416,10 @@ export const generateAgentFlow = async (req, res) => {
     'Hindi', 'Bengali', 'Gujarati', 'Tamil', 'Spanish', 'French', 'German', 'Mandarin',
     'Japanese', 'Korean', 'Portuguese', 'Russian', 'Arabic', 'Italian',
   ];
-  const AI_MODEL_OPTIONS = ['GPT-4.1-Mini', 'GPT-4-Turbo', 'Claude-3-Opus', 'Gemini-Pro', 'Llama-2-70B'];
-  const STT_OPTIONS = ['Sarvam', 'ElevenLabs'];
+  // No AI model or transcription choice is generated any more: Super Admin
+  // assigns both (services/platform/modelAssignments.js). The lists that lived
+  // here also offered GPT-4-Turbo, Claude-3-Opus and Llama-2-70B, none of which
+  // the backend can route.
 
   // Real voices from the DB, restricted to providers whose API keys are
   // actually configured — the LLM must never pick a voice that can't speak.
@@ -461,8 +471,6 @@ The JSON must have this exact structure:
   "welcomeMessage": "The FIRST line the assistant SPEAKS to the real person on the other end of the call — the actual customer/patient/lead/caller it serves — tailored to this use case and its call direction, in the PRIMARY conversation language. It must sound like the assistant is already live and greeting that end user. Use concrete, specific names — NEVER bracketed placeholders like [Healthcare Provider Name] or [Company Name]. NEVER a meta 'setup wizard' message about onboarding, configuring, or 'setting up' the assistant/system, and never ask 'is this a good time to begin' setup talk.",
   "callDirection": "<INBOUND or OUTBOUND>",
   "languages": ["<primary conversation language first>"],
-  "aiModel": "<one of: ${AI_MODEL_OPTIONS.join(', ')}>",
-  "transcription": "<one of: ${STT_OPTIONS.join(', ')}>",
 ${voiceOptions.length ? `  "voice": "<one voice label copied EXACTLY from AVAILABLE VOICES below>",\n` : ''}  "postCallVariables": [
     { "key": "snake_case_variable_name", "description": "what to extract from each call transcript" }
   ],
@@ -492,8 +500,6 @@ ${fixedDirection === 'OUTBOUND'
       : `- "callDirection": "OUTBOUND" when this agent CALLS customers (cold calling, lead generation, collections, appointment reminders, surveys, outreach); "INBOUND" when customers call the agent (support line, reception, booking hotline, helpdesk).`}
   The welcomeMessage MUST match the direction: an INBOUND greeting thanks the caller for calling (e.g. "Thank you for calling <company>, how can I help?"); an OUTBOUND greeting must OPEN by introducing the agent BY NAME and naming the company they are calling FROM — phrase it as "Hi, this is <agent name> calling from <company name>, …" — and only THEN briefly give the reason for the call. An OUTBOUND greeting must NEVER say "thank you for calling", and must NOT jump straight to the reason (e.g. "calling about your appointment") without first saying who is calling and which company they are calling from.
 - "languages": 1-3 entries, each copied EXACTLY from this list: ${LANGUAGE_OPTIONS.join(', ')}. The FIRST entry is the language the assistant speaks in — infer it from the user's description (e.g. an agent for Indian customers speaking Hindi → ["Hindi"]). Default to "English (Indian)" only when the description gives no language hint.
-- "transcription": pick "Sarvam" when the primary language is Indian (Hindi, Bengali, Gujarati, Tamil, English (Indian)); otherwise "ElevenLabs".
-- "aiModel": pick the model best suited to the use case; "Gemini-Pro" is a good general default.
 - CALLER PHONE NUMBER — IMPORTANT: the assistant ALREADY has the caller's phone number (the call takes place on it) and it is recorded automatically as a pre-defined column in the connected Google Sheet. So the assistant must NEVER ask the caller for their phone, mobile, or WhatsApp number — not in the welcomeMessage and not in ANY flow item body — and a phone / mobile number must NEVER appear in postCallVariables.
 - "postCallVariables": the data points to capture from EVERY call, tailored to the use case. If the description EXPLICITLY lists fields/variables to capture, include those (up to 15, picking the most important). Otherwise infer 3-8 — e.g. an appointment-booking agent needs appointment_date, appointment_time, service_type; a lead-gen agent needs company_name, decision_maker, interest_level; a support agent needs issue_type, resolution_status. Include customer identity fields like customer_name or email when relevant, but NEVER include the caller's phone or mobile number — it is captured automatically from the call and is a pre-defined Google Sheet column, so it must NOT be a postCallVariable. Keys are snake_case; each description says exactly what to extract.
   ALWAYS include these two first, whatever the use case, because downstream delivery depends on them:
@@ -703,8 +709,9 @@ Provide 4 to 8 logical, structured conversational steps (flow items) that cover 
     if (!sanitized.languages.length) delete sanitized.languages;
     if (sanitized.callDirection !== 'INBOUND' && sanitized.callDirection !== 'OUTBOUND') delete sanitized.callDirection;
     if (fixedDirection) sanitized.callDirection = fixedDirection;
-    if (!AI_MODEL_OPTIONS.includes(sanitized.aiModel)) delete sanitized.aiModel;
-    if (!STT_OPTIONS.includes(sanitized.transcription)) delete sanitized.transcription;
+    // Assigned by Super Admin, never generated — drop them if the model adds them anyway.
+    delete sanitized.aiModel;
+    delete sanitized.transcription;
     // The caller's phone number is captured automatically from the call and is a
     // pre-defined column in the connected Google Sheet — it must never be a
     // post-call variable. Drop any phone/mobile key the model produced anyway.

@@ -56,6 +56,7 @@
 import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
 import { voiceTurnStream, getRenderedWelcome, warmVoiceTurn, loadAgent, converseStream, neutralGreeting } from '../services/agentRuntime.service.js';
+import { resolveAgentModels } from '../services/platform/modelAssignments.js';
 import { createSpeculator, speculationModeFor } from '../services/voice/speculativeTurn.js';
 import {
   transferAvailability, transferLiveCall, registerPendingTransfer, failureLineFor,
@@ -328,6 +329,10 @@ export function runModularMediaBridge(ws, {
     return { available: a.available, condition: a.config.condition, targetLabel: a.config.targetLabel };
   };
   let settings = {};
+  // The transcription model Super Admin assigned for this agent's calls,
+  // resolved when the agent loads. Undefined until then, which
+  // resolveDeepgramModel reads as its per-language pick.
+  let assignedSttModel;
   let voice = null;
   let ttsFormat = null;
 
@@ -1232,6 +1237,7 @@ export function runModularMediaBridge(ws, {
       encoding: 'mulaw',
       sampleRate: PHONE_SAMPLE_RATE,
       language: dgLanguage,
+      assignedModel: assignedSttModel,
       // The agent's own turn-end profile (Call Configuration → Response speed),
       // resolved from exactly the same module the web transport uses. Two
       // things this fixes at once: the phone path had its own 500ms default, so
@@ -1979,6 +1985,8 @@ export function runModularMediaBridge(ws, {
           if (closed) { budget?.stop(); return; }
           if (!agent) throw new Error('Agent not found in this workspace');
           settings = safeJson(agent.settings, {});
+          // Cached in-process and never throws — not a round trip on pickup.
+          assignedSttModel = (await resolveAgentModels(agent)).stt.value;
           speculator = createSpeculator({
             mode: speculationModeFor(settings),
             label: `${carrier.label} speculation`,

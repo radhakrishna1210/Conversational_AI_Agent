@@ -13,7 +13,6 @@ import * as billing from '../controllers/billing.controller.js';
 import * as kbCtrl from '../controllers/kbFile.controller.js';
 import * as callerCtrl from '../controllers/callerNumber.controller.js';
 import * as broadcastCtrl from '../controllers/broadcast.controller.js';
-import * as modelCatalog from '../controllers/modelCatalog.controller.js';
 import * as waTemplates from '../controllers/whatsappTemplates.controller.js';
 import * as chatflowWebhook from '../controllers/chatflowWebhook.controller.js';
 import { synthesizedBedWav } from '../services/voice/ambienceBed.js';
@@ -242,9 +241,10 @@ ws.get('/invoices', billing.getInvoices);
 // the wallet is topped up directly and spent per talk-minute; there is nothing
 // recurring to buy. The Razorpay webhook still accepts subscription.* events so
 // any legacy subscription on the gateway account is handled rather than 500ing.
-// The models this client is allowed to pick from — Super Admin → Models decides
-// what is in here. Every model picker in the product reads this.
-ws.get('/model-catalog', modelCatalog.clientGetCatalog);
+// A client-facing /model-catalog used to sit here, feeding the Model,
+// Transcription and Conversational Agent pickers. Clients no longer choose any
+// of those — Super Admin assigns the LLM and transcription model — so there is
+// no list to hand them, and the voice picker gates providers server-side.
 
 ws.get('/agents/:agentId/kb-text', kbCtrl.agentKbText);
 ws.post('/agents/:agentId/post-call/test', platform.testPostCall);

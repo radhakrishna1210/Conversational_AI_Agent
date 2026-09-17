@@ -5,14 +5,17 @@
  * all four surfaces:
  *
  *   conversational — bundled speech-to-speech engines (settings.voiceEngine)
- *   llm            — the reasoning model in the modular pipeline (agent.aiModel)
- *   stt            — transcription providers (agent.transcription / sttProvider)
+ *   llm            — the reasoning model in the modular pipeline
+ *   stt            — the streaming recogniser's model
  *   tts            — voice providers (the Voice picker)
  *
- * Super Admin → Models flips each entry on or off. Off means the entry is not
- * returned by any client-facing endpoint AND cannot be saved onto an agent, so
- * a client cannot reach it by hand-crafting a request either. The admin panel
- * is the only place that sees the full list.
+ * Super Admin → Models flips each entry on or off.
+ *
+ * LLM and STT are no longer the client's choice: Super Admin ASSIGNS them, as a
+ * platform default and per client (see modelAssignments.js). For those two
+ * groups "off" means "cannot be assigned". For voices it still means what it
+ * always did — the provider's voices vanish from the client's Voice picker and
+ * cannot be saved onto an agent.
  *
  * ── Why the state lives in a Plan row ────────────────────────────────────────
  * Same reason and same trade-off as services/billing/walletRate.js: there is no
@@ -90,13 +93,25 @@ export const MODEL_GROUPS = [
   {
     key: 'stt',
     label: 'Transcription (STT)',
-    description: 'Speech-to-text providers offered in the agent Transcription picker.',
+    // What this group used to list — Deepgram, Sarvam, Azure, Soniox, "Standard
+    // Providers" — was a set of labels, not a set of choices. Every live call,
+    // phone and browser alike, is transcribed by Deepgram's streaming socket
+    // whenever DEEPGRAM_API_KEY is set, whatever the agent said; the stored
+    // provider only reordered the batch FALLBACK, and Azure, Soniox and
+    // "Standard" had no implementation behind them at all. What genuinely varies
+    // per call is which Deepgram model listens, so that is what is assigned.
+    description: 'The model that transcribes live calls. Every call is transcribed by Deepgram as the caller speaks.',
     models: [
-      { id: 'stt:deepgram', value: 'deepgram_stream',     label: 'Deepgram (streaming)', provider: 'Deepgram', envKey: 'DEEPGRAM_API_KEY' },
-      { id: 'stt:sarvam',   value: 'Sarvam',              label: 'Sarvam AI',            provider: 'Sarvam',   envKey: 'SARVAM_API_KEY' },
-      { id: 'stt:azure',    value: 'Azure',               label: 'Azure Speech',         provider: 'Azure',    envKey: 'AZURE_SPEECH_KEY' },
-      { id: 'stt:soniox',   value: 'Soniox',              label: 'Soniox',               provider: 'Soniox',   envKey: 'SONIOX_API_KEY' },
-      { id: 'stt:standard', value: 'Standard Providers',  label: 'Standard Providers',   provider: 'Platform' },
+      // Today's behaviour, and what every existing agent keeps: the model is
+      // picked per call from the language and the line (resolveDeepgramModel) —
+      // the narrowband phone model for English on a phone line, Nova-3 for
+      // everything it does not serve.
+      { id: 'stt:deepgram:auto',   value: 'deepgram-auto',   label: 'Deepgram — best model per language and line', provider: 'Deepgram', envKey: 'DEEPGRAM_API_KEY' },
+      // Nova-3 is the one model that serves every language this product offers
+      // on both transports, so forcing it can never produce a pair Deepgram
+      // refuses. Nova-2 is deliberately NOT offered on its own: it rejects Tamil
+      // and Telugu outright, and its phone variant rejects everything but English.
+      { id: 'stt:deepgram:nova-3', value: 'deepgram-nova-3', label: 'Deepgram Nova-3 on every call',               provider: 'Deepgram', envKey: 'DEEPGRAM_API_KEY' },
     ],
   },
   {
@@ -274,17 +289,28 @@ export async function setModelsEnabled(updates) {
 export async function isModelAllowed(group, value) {
   if (value == null || value === '') return true;
   const overrides = await readOverrides();
-  const entry = MODEL_GROUPS.find((g) => g.key === group)?.models
-    .find((m) => String(m.value).toLowerCase() === String(value).toLowerCase());
+  const entry = findCatalogEntry(group, value);
   if (!entry) return true;
   return overrides[entry.id] !== false;
 }
 
+/**
+ * The catalogue entry a stored value refers to, or null when it matches none.
+ * Case-insensitive, because values written by older editors vary in case.
+ *
+ * @param {'conversational'|'llm'|'stt'|'tts'} group
+ * @param {string} value
+ */
+export function findCatalogEntry(group, value) {
+  if (value == null || value === '') return null;
+  const wanted = String(value).toLowerCase();
+  return MODEL_GROUPS.find((g) => g.key === group)?.models
+    .find((m) => String(m.value).toLowerCase() === wanted) ?? null;
+}
+
 /** Human label for a value, for error messages. Falls back to the value. */
 export function labelFor(group, value) {
-  const entry = MODEL_GROUPS.find((g) => g.key === group)?.models
-    .find((m) => String(m.value).toLowerCase() === String(value).toLowerCase());
-  return entry?.label ?? value;
+  return findCatalogEntry(group, value)?.label ?? value;
 }
 
 export { ALL_IDS };

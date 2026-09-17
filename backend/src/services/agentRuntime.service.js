@@ -21,6 +21,7 @@ import { logTurnLatency } from '../lib/latencyLog.js';
 import { isLlmUnderPressure, noteLlmRateLimited } from './llmPressure.js';
 import { getLLMProviderWithFallback } from './llm.factory.js';
 import { mapAgentModel } from '../controllers/llm.controller.js';
+import { resolveAgentModels } from './platform/modelAssignments.js';
 import { DEFAULT_TEMPERATURE } from '../constants/llmModels.js';
 import { resolveAgentVoice, streamSynthesizeVoice } from './voice.service.js';
 import { createTokenTtsStream, supportsTokenStreaming, synthesisProviderName, supportsSsmlBreaks } from './voice/ttsStreamFactory.js';
@@ -470,9 +471,16 @@ ${voiceMode
  * back to another provider when the requested one has no API key — but the
  * *model* name must switch with it, or the fallback provider rejects it
  * (e.g. Gemini refusing "gpt-4.1-mini").
+ *
+ * `assigned` is the model Super Admin assigned for this call, from
+ * resolveAgentModels() (services/platform/modelAssignments.js) — the agent's
+ * own `aiModel` column is only ever read through that, so a client override or
+ * platform default cannot be bypassed by a caller that forgets it. Pass null
+ * to run on the deployment's default. Left undefined, the agent's column is
+ * used as-is, which only a caller with no workspace context should rely on.
  */
-export function resolveLlmForAgent(agent, { lowLatency = false } = {}) {
-  const fromAgent = mapAgentModel(agent.aiModel);
+export function resolveLlmForAgent(agent, { lowLatency = false, assigned } = {}) {
+  const fromAgent = mapAgentModel(assigned !== undefined ? assigned : agent.aiModel);
   let provider = fromAgent.provider || process.env.DEFAULT_LLM_PROVIDER || 'gemini';
   let model = fromAgent.model || process.env.DEFAULT_LLM_MODEL || 'gemini-3.5-flash-lite';
 
@@ -1219,7 +1227,10 @@ async function _prepareConverse(workspaceId, agentId, messages, { voiceMode = fa
   const prior = history.slice(0, -1);
   const affectNote = voiceMode && affect && AFFECT_PROMPTS[affect] ? AFFECT_PROMPTS[affect] : '';
 
-  const { llm, provider, model } = resolveLlmForAgent(agent, { lowLatency: voiceMode });
+  // Cached in-process (modelAssignments.js), so after the first call since boot
+  // this is not a database round trip on the turn's critical path.
+  const models = await resolveAgentModels(agent);
+  const { llm, provider, model } = resolveLlmForAgent(agent, { lowLatency: voiceMode, assigned: models.llm.value });
 
   const ragChunks = await ragPromise;
   const ragMs = Math.round(performance.now() - ragStartedAt);
@@ -1518,6 +1529,19 @@ const mimeForAudioFormat = (format) => {
   return 'audio/mpeg';
 };
 
+/**
+ * The language hint for batch (fallback) transcription.
+ *
+ * A saved STT language is kept exactly as it was — including the old "Multi",
+ * which means auto-detect here. An agent with none saved (every agent created
+ * since clients stopped choosing transcription settings) is transcribed in its
+ * own first language, the rule the streaming bridges already follow.
+ */
+const batchSttLanguage = (settings, agent) => {
+  if (settings.sttLanguage) return settings.sttLanguage !== 'Multi' ? settings.sttLanguage : undefined;
+  try { return JSON.parse(agent.languages || '[]')[0] || undefined; } catch { return undefined; }
+};
+
 const fillerLangFor = (settings, agent) => {
   let langs = [];
   try { langs = JSON.parse(agent.languages || '[]'); } catch { /* ignore */ }
@@ -1650,9 +1674,7 @@ export async function voiceTurn(workspaceId, agentId, audioBuffer, mimeType, his
 
   const settings = safeJson(agent.settings, {});
   const preferredProvider = settings.sttProvider || agent.transcription;
-  const languageCode = settings.sttLanguage && settings.sttLanguage !== 'Multi'
-    ? settings.sttLanguage
-    : undefined;
+  const languageCode = batchSttLanguage(settings, agent);
 
   // Warm remote DB-backed context while the external STT request is running.
   // converse()/speakAsAgent() then hit their short-lived caches.
@@ -1813,9 +1835,7 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
   const prepMs = Math.round(performance.now() - turnStartedAt);
   const settings = safeJson(agent.settings, {});
   const preferredProvider = settings.sttProvider || agent.transcription;
-  const languageCode = settings.sttLanguage && settings.sttLanguage !== 'Multi'
-    ? settings.sttLanguage
-    : undefined;
+  const languageCode = batchSttLanguage(settings, agent);
   const baseRate = Number(settings.speakingRate) || 1.05;
   // Delivery-level adaptation: match the caller's energy slightly (rushed →
   // a touch quicker, hesitant/quiet → a touch calmer) plus ±0.02 per-turn

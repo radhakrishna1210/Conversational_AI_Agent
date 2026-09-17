@@ -97,6 +97,11 @@ router.get('/health', authenticate, isAdmin, platform.adminHealth);
 // Which models clients may see and use. Off here means invisible AND unsavable.
 router.get('/model-catalog', authenticate, isAdmin, modelCatalog.adminGetCatalog);
 router.put('/model-catalog', authenticate, isAdmin, modelCatalog.adminSetCatalog);
+// Which LLM and transcription model calls run on. Clients do not pick these:
+// a platform default, and a per-client override that beats it.
+router.get('/model-assignments', authenticate, isAdmin, modelCatalog.adminGetAssignments);
+router.put('/model-assignments/defaults', authenticate, isAdmin, modelCatalog.adminSetDefaults);
+router.put('/model-assignments/workspaces/:workspaceId', authenticate, isAdmin, modelCatalog.adminSetWorkspaceModels);
 
 // ─── Numbers & carrier ────────────────────────────────────────────────────────
 // The operator's side of the number business: carrier KYC review, the per-client

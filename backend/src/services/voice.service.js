@@ -12,6 +12,7 @@ import * as sarvamProvider from './voice/providers/sarvam.provider.js';
 import * as cartesiaProvider from './voice/providers/cartesia.provider.js';
 import * as fishAudioProvider from './voice/providers/fishaudio.provider.js';
 export { syncVoices } from './voice/voice.sync.service.js';
+import { buildPickerList } from './voice/voicePicker.js';
 
 const DEFAULT_PREVIEW_TEXT =
   'Hello, thank you for calling. How can I assist you today?';
@@ -168,6 +169,90 @@ export const getVoice = async (id) =>
     where: { id },
     include: { provider: { select: { name: true } } },
   });
+
+// ─── The client's voice picker ────────────────────────────────────────────────
+
+/**
+ * Every library voice of the offered providers, cached: the picker filters,
+ * names and orders in memory (voice/voicePicker.js), and the library changes
+ * only on a sync. Keyed by the provider set so switching a provider off in
+ * Super Admin → Models takes effect on the next open.
+ */
+let pickerLibraryCache = null; // { key, at, rows }
+const PICKER_LIBRARY_TTL_MS = 5 * 60_000;
+
+/** Drop the cached library — after a sync or an import added voices. */
+export const invalidatePickerLibraryCache = () => { pickerLibraryCache = null; };
+
+const PICKER_SELECT = {
+  id: true, name: true, language: true, accent: true, metadata: true, workspaceId: true,
+  provider: { select: { name: true } },
+};
+
+/**
+ * One agent's voice picker: names only, mixed across providers, limited to
+ * voices that can speak the agent's language, the current voice first.
+ *
+ * @param {{ workspaceId: string, agentId: string, q?: string, page?: number,
+ *           limit?: number, allowedProviders: string[] }} opts
+ *        `allowedProviders` — TTS providers Super Admin has switched on
+ * @returns {Promise<{ total: number, page: number, limit: number,
+ *                     voices: { id: string, name: string }[], selectedId: string|null }>}
+ */
+export const listPickerVoices = async ({ workspaceId, agentId, q, page = 1, limit = 24, allowedProviders = [] }) => {
+  const agent = await prisma.agent.findFirst({
+    where: { id: agentId, workspaceId },
+    select: { voice: true, languages: true },
+  });
+  if (!agent) throw Object.assign(new Error('Agent not found in this workspace'), { status: 404 });
+
+  // Only providers that are switched on AND can actually speak on this server —
+  // a voice without credentials would be picked and then silently replaced.
+  const providers = allowedProviders.filter((n) => n !== 'Custom' && providerHasCredentials(n));
+  const key = [...providers].sort().join(',');
+
+  let library;
+  if (pickerLibraryCache && pickerLibraryCache.key === key && Date.now() - pickerLibraryCache.at < PICKER_LIBRARY_TTL_MS) {
+    library = pickerLibraryCache.rows;
+  } else {
+    library = providers.length
+      ? await prisma.voice.findMany({ where: { provider: { name: { in: providers } } }, select: PICKER_SELECT })
+      : [];
+    pickerLibraryCache = { key, at: Date.now(), rows: library };
+  }
+
+  const clonedOnly = clonedVoiceFilter(providers.filter((n) => CLONE_HOST_ID[n]), workspaceId);
+  const clones = clonedOnly
+    ? await prisma.voice.findMany({
+        // A clone still holding only its raw sample cannot speak (#9 L5).
+        where: { ...clonedOnly, NOT: { metadata: { contains: '"status":"sample_only"' } } },
+        select: PICKER_SELECT,
+      })
+    : [];
+
+  let languages = [];
+  try { languages = JSON.parse(agent.languages || '[]'); } catch { /* none configured */ }
+  if (!Array.isArray(languages)) languages = [];
+
+  // What the agent speaks with now — shown first and marked selected, even if
+  // it would not otherwise be offered (its provider was switched off since).
+  const current = agent.voice ? await resolveAgentVoice(agent.voice) : null;
+  const candidates = [...clones, ...library];
+  if (current && !candidates.some((v) => v.id === current.id)) candidates.push(current);
+
+  const list = buildPickerList(candidates, { languages, currentVoiceId: current?.id ?? null, q });
+  const safeLimit = Math.min(100, Math.max(1, limit));
+  const safePage = Math.max(1, page);
+  const start = (safePage - 1) * safeLimit;
+
+  return {
+    total: list.length,
+    page: safePage,
+    limit: safeLimit,
+    voices: list.slice(start, start + safeLimit),
+    selectedId: current?.id ?? null,
+  };
+};
 
 // ─── Provider library (not-yet-synced voices) ─────────────────────────────────
 

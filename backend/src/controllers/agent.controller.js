@@ -15,6 +15,8 @@ import { isModelAllowed, labelFor } from '../services/platform/modelCatalog.js';
 import { AGENT_DIRECTION, agentDirection, directionChangeConflict, normaliseDirection } from '../services/agentDirection.js';
 import { VOICE_NUMBER_STATUS } from '../constants/compliance.js';
 import { validateAgentSettings } from '../validators/agentSettings.validator.js';
+import { inheritedModelFields, sameLanguages, stripClientModelFields } from '../validators/agentModelFields.js';
+import { voiceNameFromLabel } from '../services/voice/voicePicker.js';
 
 // Same storage locations the KB-file and call-log controllers write to —
 // needed so deleting an agent can also remove its files from disk.
@@ -55,18 +57,18 @@ const splitAgentPayload = (data = {}) => {
 };
 
 /**
- * Reject a save that selects a model Super Admin has switched off.
+ * Reject a save that selects a voice whose provider Super Admin has switched off.
  *
- * The pickers already hide disabled models, but hiding a control is not access
+ * The voice is the one model-backed choice a client still makes (the LLM and
+ * transcription are assigned, and stripClientModelFields removes them from the
+ * payload before this runs). Hiding a provider in the picker is not access
  * control: the same save can be issued straight at the API. This is the gate
  * that actually holds.
  *
- * It only rejects a value that is CHANGING. The agent editor re-sends every
- * field on every save, so gating on the payload alone would mean that disabling
- * a model an existing agent already uses makes that agent unsaveable — renaming
- * it would fail with a complaint about its LLM. An already-selected model is
- * left alone here; the runtime gate in the WS handlers is what stops a
- * withdrawn conversational engine from actually being used.
+ * It only rejects a voice that is CHANGING. The agent editor re-sends every
+ * field on every save, so gating on the payload alone would make an agent whose
+ * provider was switched off unsaveable — renaming it would fail with a
+ * complaint about its voice.
  *
  * @param {object} columns  agent-column fields from this request
  * @param {object} extras   settings-JSON fields from this request
@@ -74,36 +76,18 @@ const splitAgentPayload = (data = {}) => {
  * @returns {Promise<string|null>} an error message, or null when the save is fine
  */
 const findDisabledModel = async (columns, extras, existing = null) => {
-  const priorSettings = existing ? safeJson(existing.settings, {}) : {};
-  const prior = {
-    conversational: priorSettings.voiceEngine,
-    llm: existing?.aiModel,
-    stt: priorSettings.sttProvider ?? existing?.transcription,
-    tts: typeof existing?.voice === 'string' && existing.voice.includes(' - ')
-      ? existing.voice.split(' - ')[0].trim()
-      : null,
-  };
+  // The voice column is stored as "<Provider> - <Voice name>" — the provider is
+  // what the catalogue gates.
+  const providerOf = (label) => (typeof label === 'string' && label.includes(' - ')
+    ? label.split(' - ')[0].trim()
+    : null);
+  const prior = providerOf(existing?.voice);
+  const voiceProvider = extras.voiceProvider ?? providerOf(columns.voice);
 
-  // The voice column is stored as "<Provider> - <Voice name>" (see
-  // handleVoiceSelect in EditAgent) — the provider is what the catalogue gates.
-  const voiceProvider = extras.voiceProvider
-    ?? (typeof columns.voice === 'string' && columns.voice.includes(' - ')
-      ? columns.voice.split(' - ')[0].trim()
-      : null);
-
-  const checks = [
-    ['conversational', extras.voiceEngine === 'modular' ? null : extras.voiceEngine],
-    ['llm', columns.aiModel],
-    ['stt', extras.sttProvider ?? columns.transcription],
-    ['tts', voiceProvider],
-  ];
-  for (const [group, value] of checks) {
-    if (!value) continue;
-    // Unchanged from what is already stored — not this request's doing.
-    if (prior[group] && String(prior[group]).toLowerCase() === String(value).toLowerCase()) continue;
-    if (!(await isModelAllowed(group, value))) {
-      return `"${labelFor(group, value)}" is not available on this platform. Contact your administrator.`;
-    }
+  if (!voiceProvider) return null;
+  if (prior && prior.toLowerCase() === voiceProvider.toLowerCase()) return null;
+  if (!(await isModelAllowed('tts', voiceProvider))) {
+    return `"${labelFor('tts', voiceProvider)}" is not available on this platform. Contact your administrator.`;
   }
   return null;
 };
@@ -119,6 +103,9 @@ const serializeAgent = (agent) => {
     languages: safeJson(agent.languages, []),
     selectedLanguages: safeJson(agent.languages, []),
     flowItems: safeJson(agent.flowItems, null),
+    // What the client shows for the voice: its name, never the provider that
+    // `voice` ("Provider - Name") still carries for the runtime.
+    voiceName: voiceNameFromLabel(agent.voice),
   };
 };
 
@@ -127,7 +114,12 @@ export const createAgent = async (req, res) => {
   const data = req.body;
 
   try {
-    const { columns, extras: rawExtras, languages, flowItems } = splitAgentPayload(data);
+    // `copyOf` names an agent in this workspace whose models the new one keeps
+    // (EditAgent's "Create an Inbound/Outbound copy"). Not a stored field.
+    const { copyOf, ...body } = data ?? {};
+    const split = splitAgentPayload(body);
+    const { languages, flowItems } = split;
+    const { columns, extras: rawExtras } = stripClientModelFields(split);
     const validated = validateAgentSettings(rawExtras);
     if (!validated.ok) return res.status(400).json({ error: validated.error });
     const extras = validated.extras;
@@ -143,12 +135,28 @@ export const createAgent = async (req, res) => {
     const disabled = await findDisabledModel(columns, extras);
     if (disabled) return res.status(403).json({ error: disabled });
 
+    // A new agent is created with NO model of its own, so it runs whatever
+    // Super Admin assigned (client override, else platform default). Empty
+    // rather than omitted: `transcription` has a column default of "Azure",
+    // and a non-empty value is exactly what marks an agent as having kept its
+    // own model (modelAssignments.js).
+    let models = { columns: { aiModel: '', transcription: '' }, settings: {} };
+    if (copyOf) {
+      const source = await prisma.agent.findFirst({
+        where: { id: String(copyOf), workspaceId },
+        select: { aiModel: true, transcription: true, settings: true },
+      });
+      if (!source) return res.status(404).json({ error: 'The agent being copied was not found in this workspace' });
+      models = inheritedModelFields(source);
+    }
+
     const agent = await prisma.agent.create({
       data: {
         ...columns,
+        ...models.columns,
         languages: JSON.stringify(languages ?? []),
         flowItems: flowItems == null ? null : JSON.stringify(flowItems),
-        settings: JSON.stringify(extras),
+        settings: JSON.stringify({ ...extras, ...models.settings }),
         workspaceId,
       },
     });
@@ -202,7 +210,10 @@ export const updateAgent = async (req, res) => {
     const existing = await prisma.agent.findFirst({ where: { id: agentId, workspaceId: req.params.workspaceId } });
     if (!existing) return res.status(404).json({ error: 'Agent not found in this workspace' });
 
-    const { columns, extras: rawExtras, languages, flowItems } = splitAgentPayload(data);
+    const split = splitAgentPayload(data);
+    const { languages, flowItems } = split;
+    // Never written by a client save: the agent keeps whatever model it has.
+    const { columns, extras: rawExtras } = stripClientModelFields(split);
     const validated = validateAgentSettings(rawExtras);
     if (!validated.ok) return res.status(400).json({ error: validated.error });
     const extras = validated.extras;
@@ -215,6 +226,14 @@ export const updateAgent = async (req, res) => {
     if (conflict) return res.status(409).json({ error: conflict, code: 'AGENT_DIRECTION_IN_USE' });
 
     const mergedSettings = { ...safeJson(existing.settings, {}), ...extras };
+    // A saved STT language used to be set in the Transcription picker, which
+    // clients no longer have. Once they change the agent's languages, a value
+    // left behind would keep transcribing the OLD language with nothing on
+    // screen to fix it, so it goes and the recogniser follows the new first
+    // language. Unchanged languages leave an older agent's setting as it was.
+    if (languages != null && !sameLanguages(languages, existing.languages)) {
+      delete mergedSettings.sttLanguage;
+    }
 
     const agent = await prisma.agent.update({
       where: { id: agentId },
