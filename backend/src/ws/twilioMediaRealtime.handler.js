@@ -51,7 +51,7 @@ export function handleTwilioMediaUpgrade(ws, { workspaceId, agentId }) {
   });
 
   /** Both legs, mixed to one WAV at hangup. See callRecordingTap.js. */
-  const recording = createRecordingTap({ label: 'realtime phone call', startedAt });
+  const recording = createRecordingTap({ label: 'realtime phone call', startedAt, agentId });
 
   const cleanup = (status) => {
     // First: a leaked 20ms interval would outlive the call permanently.

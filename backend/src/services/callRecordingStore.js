@@ -20,6 +20,7 @@ import crypto from 'crypto';
 import prisma from '../config/prisma.js';
 import { env } from '../config/env.js';
 import logger from '../lib/logger.js';
+import { DEFAULT_RECORDING_FORMAT } from '../constants/recordingFormat.js';
 
 export const RECORDINGS_DIR = path.resolve(env.UPLOAD_DIR || 'uploads', 'call-recordings');
 
@@ -39,6 +40,24 @@ export const RECORDINGS_DIR = path.resolve(env.UPLOAD_DIR || 'uploads', 'call-re
  */
 export const recordingFilename = (callLogId, ext) =>
   `${callLogId}--${Date.now()}-${crypto.randomBytes(6).toString('hex')}${ext}`;
+
+/**
+ * The Superadmin-set format for this agent's recordings, straight off the
+ * `Agent` column (not `settings` — see schema.prisma). Defaults to FLAC on a
+ * missing agent or a DB hiccup, same as a brand-new row would: never let a
+ * lookup failure downgrade a recording to WAV when the platform default is
+ * lossless.
+ */
+export async function resolveRecordingFormat(agentId) {
+  if (!agentId) return DEFAULT_RECORDING_FORMAT;
+  try {
+    const agent = await prisma.agent.findUnique({ where: { id: agentId }, select: { recordingFormat: true } });
+    return agent?.recordingFormat || DEFAULT_RECORDING_FORMAT;
+  } catch (err) {
+    logger.warn({ agentId, err: err.message }, 'Could not resolve agent recording format — defaulting');
+    return DEFAULT_RECORDING_FORMAT;
+  }
+}
 
 /**
  * Inverse of recordingFilename(). Null for any name it did not produce, which

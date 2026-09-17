@@ -25,6 +25,11 @@ router.patch('/users/:id/unban',        authenticate, isAdmin, ctrl.unbanUser);
 router.delete('/users/:id',             authenticate, isAdmin, ctrl.deleteUser);
 router.post('/users/:id/force-logout',  authenticate, isAdmin, ctrl.forceLogoutUser);
 
+// ─── Agent Management ─────────────────────────────────────────────────────────
+// Per-agent, Superadmin-only — see agent.controller.js's AGENT_COLUMNS comment
+// for why a Member's own agent-save request can never reach this field.
+router.patch('/agents/:id/recording-format', authenticate, isAdmin, ctrl.setAgentRecordingFormat);
+
 // ─── Security & Audit ─────────────────────────────────────────────────────────
 router.get('/audit-logs',         authenticate, isAdmin, ctrl.getAuditLogs);
 router.get('/audit-logs/options', authenticate, isAdmin, ctrl.getAuditFilterOptions);

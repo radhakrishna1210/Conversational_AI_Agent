@@ -27,7 +27,8 @@
  */
 
 import { createCallRecorder } from '../services/voice/callRecorder.js';
-import { persistCallRecording } from '../services/callRecordingStore.js';
+import { persistCallRecording, resolveRecordingFormat } from '../services/callRecordingStore.js';
+import { transcodeRecording } from '../services/voice/audioTranscode.js';
 import { PHONE_SAMPLE_RATE } from '../services/voice/telephonyAudio.js';
 import logger from '../lib/logger.js';
 
@@ -45,6 +46,9 @@ const ulawDurationMs = (bytes) => (bytes / PHONE_SAMPLE_RATE) * 1000;
  * @param {object} p
  * @param {string} p.label      names the bridge in log lines
  * @param {number} p.startedAt  Date.now() at call start; all offsets are from here
+ * @param {string} [p.agentId]  whose recordingFormat decides FLAC vs Opus at
+ *   save() time — resolved there, not here, since no bridge has the Agent row
+ *   loaded yet this early in call setup.
  * @param {() => number} [p.now] injectable clock, for tests
  * @param {() => object} [p.createRecorder] injectable sink, for tests — the
  *   placement maths below is the whole point of this module and is otherwise
@@ -53,6 +57,7 @@ const ulawDurationMs = (bytes) => (bytes / PHONE_SAMPLE_RATE) * 1000;
 export function createRecordingTap({
   label,
   startedAt,
+  agentId = null,
   now = Date.now,
   createRecorder = createCallRecorder,
 }) {
@@ -112,10 +117,12 @@ export function createRecordingTap({
           const capped = recorder.wasCapped;
           recorder.discard();
           if (!wav) return;
-          const result = await persistCallRecording(callLogId, wav);
+          const format = await resolveRecordingFormat(agentId);
+          const { buffer, mime, ext } = await transcodeRecording(wav, format, { mime: 'audio/wav', ext: '.wav' });
+          const result = await persistCallRecording(callLogId, buffer, { mime, ext });
           if (result.saved) {
             logger.info(
-              { callLogId, bytes: result.bytes, ...(capped ? { capped: true } : {}) },
+              { callLogId, bytes: result.bytes, format, ...(capped ? { capped: true } : {}) },
               `${label}: call recording saved`,
             );
           }

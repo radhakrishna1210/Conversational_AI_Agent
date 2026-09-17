@@ -448,7 +448,7 @@ export function runModularMediaBridge(ws, {
   const aec = createEchoCanceller();
 
   /** Both legs of the call, mixed to one WAV at hangup. See callRecordingTap.js. */
-  const recording = createRecordingTap({ label: carrier.label, startedAt });
+  const recording = createRecordingTap({ label: carrier.label, startedAt, agentId });
 
   /**
    * One frame onto the wire, right now.
