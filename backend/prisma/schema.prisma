@@ -545,6 +545,8 @@ model AgentCallLog {
   extractionStatus String    @default("PENDING") // PENDING | PROCESSING | COMPLETED | SKIPPED | FAILED
   extractionError  String?
   extractedAt      DateTime?
+  // Idempotency claim: set once deliverPostCall has run for this call.
+  postCallDeliveredAt DateTime?
   startedAt        DateTime  @default(now())
   endedAt          DateTime?
   createdAt        DateTime  @default(now())
