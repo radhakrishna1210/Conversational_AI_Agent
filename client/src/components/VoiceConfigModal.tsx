@@ -1,979 +1,351 @@
 // client/src/components/VoiceConfigModal.tsx
 /**
- * Voice Configuration Modal
- * – Loads voices from the backend API (GET /api/voices)
- * – Provider tabs: Google, ElevenLabs, Sarvam, Cartesia, FishAudio (driven by real API data)
- * – This workspace's cloned voices lead the list, filed under the provider that
- *   actually speaks them (see providerLabel / backend resolveSynthesisTarget)
- * – Search by name
- * – Filter by gender and language
- * – Voice cards with Play/Preview button (real audio from backend)
- * – Select + Save persists to agent via PUT /api/agents/:agentId/voice
- * – Pagination (20 per page)
+ * Voice picker.
+ *
+ * One list of voices — a name and a play button each. There are no provider
+ * tabs, provider names, gender/language filters or sync buttons: which company
+ * synthesizes a voice is not the client's concern, and the server already
+ * limits the list to voices that can speak this agent's language
+ * (GET /voices/picker, backend services/voice/voicePicker.js). The agent's
+ * current voice comes first, then this workspace's cloned voices, then the rest
+ * in a stable mixed order.
+ *
+ * Choosing saves through PUT /agents/:agentId/voice, which stores the label the
+ * runtime reads; this component only ever handles the voice's id and name.
  */
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { getAuth } from '@/lib/authStorage';
-// Every request here goes through authFetch: the current token, plus a refresh
-// on 401, so the modal keeps working after the ~15-min access token expires.
+// authFetch: the current token, plus a refresh on 401, so the picker keeps
+// working after the ~15-min access token expires.
 import { authFetch } from '@/lib/authFetch';
-import { fetchModelCatalog, type ModelCatalog } from '@/lib/modelCatalog';
+
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-interface Voice {
+interface PickerVoice {
   id: string;
-  provider: string;
-  providerVoiceId: string;
   name: string;
-  language: string | null;
-  accent: string | null;
-  gender: string | null;
-  category: string | null;
-  metadata?: Record<string, unknown> | null;
 }
 
-/**
- * A hit from the PROVIDER's own library rather than our synced table. `id` is
- * null until it is imported — everything downstream (preview, assignment) keys
- * off a local row, so a null id means "not usable yet".
- */
-interface LibraryVoice extends Omit<Voice, 'id'> { id: string | null }
-
-interface ProviderHealth { healthy: boolean; latencyMs?: number; error?: string }
-interface ProviderStatus {
-  google: boolean;
-  elevenlabs: boolean;
-  sarvam?: boolean;
-  cartesia?: boolean;
-  fishaudio?: boolean;
-  details: {
-    google: ProviderHealth;
-    elevenlabs: ProviderHealth;
-    sarvam?: ProviderHealth;
-    cartesia?: ProviderHealth;
-    fishaudio?: ProviderHealth;
-  };
-}
-
-interface PaginatedVoices {
+interface PickerPage {
   total: number;
   page: number;
   limit: number;
-  voices: Voice[];
+  voices: PickerVoice[];
+  selectedId: string | null;
 }
 
 interface VoiceConfigModalProps {
   agentId: string;
-  currentVoiceId?: string | null;
   onClose: () => void;
-  onSaved: (voice: Voice) => void;
+  /** Called once the voice is stored. `label` is the stored value, `name` what to show. */
+  onSaved: (voice: { id: string; name: string; label: string }) => void;
 }
 
 // ─── Constants ────────────────────────────────────────────────────────────────
 
 const API_BASE = '/api/v1';
-// All voice/agent endpoints are workspace-scoped and authenticated.
 const wsBase = () => `${API_BASE}/workspaces/${getAuth().workspaceId}`;
-const LIMIT = 20;
-// NB: each label is sent verbatim as the ?provider= filter and must equal the
-// backend VoiceProvider.name exactly — that match is case-sensitive. Which of
-// these are actually offered comes from Super Admin → Models at runtime; this
-// list only fixes the tab ORDER.
-const PROVIDER_ORDER = ['Google', 'ElevenLabs', 'Sarvam', 'Cartesia', 'FishAudio'];
-// A voice cloned on the Clone Voice page is stored under the synthetic 'Custom'
-// provider, with the real one — ElevenLabs or Fish Audio — in its metadata. It
-// gets no tab of its own: the backend files each clone under the provider that
-// will actually speak it, and lists this workspace's clones ahead of the
-// library, so they are the first thing on the Fish Audio / ElevenLabs tab (and
-// on All) instead of a separate place to remember to look.
-const CLONED_PROVIDER = 'Custom';
-const GENDER_OPTIONS = ['All', 'MALE', 'FEMALE', 'NEUTRAL'];
-// Providers whose remote catalogue can be searched live, so a name typed here is
-// looked up at the source and not just in our synced table. Fish because its API
-// caps any listing query at 1000 results out of a much larger library; Sarvam
-// because its roster is only discoverable at call time and grows without notice.
-const LIBRARY_SEARCHABLE = ['FishAudio', 'Sarvam'];
-const DEFAULT_PREVIEW_TEXT = 'Hello, thank you for calling. How can I assist you today?';
+const LIMIT = 24;
+const PREVIEW_TEXT = 'Hello, thank you for calling. How can I assist you today?';
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function capitalize(s: string) {
-  return s.charAt(0).toUpperCase() + s.slice(1).toLowerCase();
-}
-
-function genderIcon(gender: string | null) {
-  if (!gender) return '◌';
-  if (gender === 'MALE') return '♂';
-  if (gender === 'FEMALE') return '♀';
-  return '⚥';
-}
-
-/**
- * What to print under a voice's name. A cloned voice's row says 'Custom', which
- * tells the user nothing — show the provider that actually holds the clone, the
- * same one resolveSynthesisTarget() will call at speak time.
- */
-function providerLabel(v: Voice): string {
-  if (v.provider !== CLONED_PROVIDER) return v.provider;
-  const host = (v.metadata as { clonedProvider?: string } | null | undefined)?.clonedProvider;
-  const pretty: Record<string, string> = { elevenlabs: 'ElevenLabs', fishaudio: 'Fish Audio' };
-  return host ? pretty[host] ?? host : 'Cloned';
-}
-
-function categoryColor(category: string | null): string {
-  const map: Record<string, string> = {
-    'Chirp HD': 'var(--violet)',
-    'Chirp': 'var(--violet)',
-    'Neural2': '#38bdf8',
-    'WaveNet': '#34d399',
-    'Studio': '#fb923c',
-    'News': '#f472b6',
-    'Standard': 'var(--tx-2)',
-    'premade': 'var(--cyan-fg)',
-    'cloned': 'var(--warn)',
-    'generated': '#4ade80',
-  };
-  return map[category ?? ''] ?? 'var(--tx-2)';
-}
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
+// ─── Icons ────────────────────────────────────────────────────────────────────
 
 const SpinnerIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
-    style={{ animation: 'voice-spin 0.8s linear infinite' }}>
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+    style={{ animation: 'voice-spin 0.8s linear infinite' }} aria-hidden="true">
     <circle cx="12" cy="12" r="10" strokeOpacity="0.2" />
     <path d="M12 2 a10 10 0 0 1 10 10" />
   </svg>
 );
 
 const PlayIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-    <polygon points="5,3 19,12 5,21" />
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <polygon points="6,3 20,12 6,21" />
   </svg>
 );
 
 const StopIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor">
-    <rect x="4" y="4" width="16" height="16" rx="2" />
+  <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+    <rect x="5" y="5" width="14" height="14" rx="2" />
   </svg>
 );
 
 const CheckIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3">
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" aria-hidden="true">
     <polyline points="20,6 9,17 4,12" />
   </svg>
 );
 
 const SearchIcon = () => (
-  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--tx-3)" strokeWidth="2">
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--tx-3)" strokeWidth="2" aria-hidden="true">
     <circle cx="11" cy="11" r="8" />
     <line x1="21" y1="21" x2="16.65" y2="16.65" />
   </svg>
 );
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+// ─── Component ────────────────────────────────────────────────────────────────
 
-export default function VoiceConfigModal({
-  agentId,
-  onClose,
-  onSaved,
-}: VoiceConfigModalProps) {
-  // ── State ──────────────────────────────────────────────────────────
-  const [activeProvider, setActiveProvider] = useState('All');
+export default function VoiceConfigModal({ agentId, onClose, onSaved }: VoiceConfigModalProps) {
   const [search, setSearch] = useState('');
-  const [genderFilter, setGenderFilter] = useState('All');
-  const [languageFilter, setLanguageFilter] = useState('All');
+  const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
 
-  const [voices, setVoices] = useState<Voice[]>([]);
+  const [voices, setVoices] = useState<PickerVoice[]>([]);
   const [total, setTotal] = useState(0);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const [providerStatus, setProviderStatus] = useState<ProviderStatus | null>(null);
-  const [languages, setLanguages] = useState<string[]>([]);
+  // The agent's saved voice, and the one chosen in this session (not yet saved).
+  const [savedId, setSavedId] = useState<string | null>(null);
+  const [chosen, setChosen] = useState<PickerVoice | null>(null);
+  const [saving, setSaving] = useState(false);
 
-  const [selectedVoice, setSelectedVoice] = useState<Voice | null>(null);
   const [playingId, setPlayingId] = useState<string | null>(null);
-  const [savingId, setSavingId] = useState<string | null>(null);
-  const [saveSuccess, setSaveSuccess] = useState<string | null>(null);
-
-  // Provider-library search (voices not in our table yet)
-  const [libraryVoices, setLibraryVoices] = useState<LibraryVoice[]>([]);
-  const [librarySearching, setLibrarySearching] = useState(false);
-  const [libraryError, setLibraryError] = useState<string | null>(null);
-  const [importingId, setImportingId] = useState<string | null>(null);
-
+  const [loadingPreviewId, setLoadingPreviewId] = useState<string | null>(null);
+  const [previewFailedId, setPreviewFailedId] = useState<string | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
-  const searchTimeout = useRef<ReturnType<typeof setTimeout>>();
-  const libraryTimeout = useRef<ReturnType<typeof setTimeout>>();
+  const objectUrlRef = useRef<string | null>(null);
 
-  // ── Load provider status ───────────────────────────────────────────
+  // Debounce typing into the query the server sees.
   useEffect(() => {
-    authFetch(`${wsBase()}/voices/providers/status`)
-      .then(r => r.json())
-      .then(setProviderStatus)
-      .catch(() => null);
-  }, []);
+    const t = setTimeout(() => { setQuery(search.trim()); setPage(1); }, 250);
+    return () => clearTimeout(t);
+  }, [search]);
 
-  // ── Which voice providers this platform offers ─────────────────────
-  // Super Admin can switch a provider off; its tab then disappears and the
-  // backend stops returning its voices, so the list and the tabs agree.
-  const [catalog, setCatalog] = useState<ModelCatalog | null>(null);
-  useEffect(() => { fetchModelCatalog().then(setCatalog).catch(() => setCatalog(null)); }, []);
-
-  const enabledProviders = catalog
-    ? PROVIDER_ORDER.filter(p => catalog.tts.some(m => m.value.toLowerCase() === p.toLowerCase()))
-    : PROVIDER_ORDER;
-  const providerTabs = ['All', ...enabledProviders];
-
-  // If the tab that was open belongs to a provider that has since been switched
-  // off, fall back to All rather than leaving a filter no tab can clear.
-  useEffect(() => {
-    if (activeProvider !== 'All' && !providerTabs.includes(activeProvider)) setActiveProvider('All');
-    // Keyed on the joined list, not the array: it is rebuilt every render.
-  }, [activeProvider, providerTabs.join(',')]);
-
-  // ── Load languages for filter dropdown ─────────────────────────────
-  useEffect(() => {
-    // pull unique languages from the current page results
-    const unique = Array.from(new Set(voices.map(v => v.language).filter(Boolean) as string[])).sort();
-    setLanguages(unique);
-  }, [voices]);
-
-  // ── Fetch voices ───────────────────────────────────────────────────
-  const [syncing, setSyncing] = useState(false);
-  const handleSyncNow = async () => {
-    setSyncing(true);
-    try {
-      const res = await authFetch(`${wsBase()}/voices/sync`, { method: 'POST' });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || `Sync failed (${res.status})`);
-      await fetchVoices();
-      await new Promise(r => setTimeout(r, 300));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Voice sync failed — check provider API keys in backend/.env');
-    } finally {
-      setSyncing(false);
-    }
-  };
-
-  const fetchVoices = useCallback(async () => {
+  const load = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({ page: String(page), limit: String(LIMIT) });
-      if (activeProvider !== 'All') params.set('provider', activeProvider);
-      if (genderFilter !== 'All') params.set('gender', genderFilter.toLowerCase());
-      if (languageFilter !== 'All') params.set('language', languageFilter);
-      // Search server-side. Filtering the fetched page here instead meant the
-      // term was only ever matched against the 20 rows already on screen, so a
-      // voice on any other page was unfindable — and the result count and
-      // pagination disagreed with what was actually shown.
-      if (search.trim()) params.set('q', search.trim());
-
-      const data: PaginatedVoices = await authFetch(`${wsBase()}/voices?${params}`).then(r => r.json());
-
-      setVoices(data.voices ?? []);
-      setTotal(data.total ?? 0);
-    } catch (err) {
-      setError('Failed to load voices. Check API connection.');
+      const params = new URLSearchParams({ agentId, page: String(page), limit: String(LIMIT) });
+      if (query) params.set('q', query);
+      const res = await authFetch(`${wsBase()}/voices/picker?${params}`);
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as { error?: string }).error || `Could not load voices (${res.status})`);
+      const pageData = data as PickerPage;
+      setVoices(pageData.voices ?? []);
+      setTotal(pageData.total ?? 0);
+      setSavedId(pageData.selectedId ?? null);
+    } catch (e) {
       setVoices([]);
+      setTotal(0);
+      setError(e instanceof Error ? e.message : 'Could not load voices');
     } finally {
       setLoading(false);
     }
-  }, [page, activeProvider, search, genderFilter, languageFilter]);
+  }, [agentId, page, query]);
 
-  useEffect(() => {
-    clearTimeout(searchTimeout.current);
-    searchTimeout.current = setTimeout(fetchVoices, 300);
-    return () => clearTimeout(searchTimeout.current);
-  }, [fetchVoices]);
+  useEffect(() => { void load(); }, [load]);
 
-  // Reset page on filter changes
-  useEffect(() => { setPage(1); }, [activeProvider, search, genderFilter, languageFilter]);
-
-  // ── Provider library search ────────────────────────────────────────
-  // Runs alongside the local list: the synced table is a slice of the provider's
-  // catalogue, so "not in our table" must not mean "does not exist".
-  const libraryProvider = LIBRARY_SEARCHABLE.includes(activeProvider) ? activeProvider : null;
-
-  useEffect(() => {
-    clearTimeout(libraryTimeout.current);
-    if (!libraryProvider || !search.trim()) {
-      setLibraryVoices([]);
-      setLibraryError(null);
-      setLibrarySearching(false);
-      return;
-    }
-    // Longer than the local debounce: this leaves for a third-party API.
-    libraryTimeout.current = setTimeout(async () => {
-      setLibrarySearching(true);
-      setLibraryError(null);
-      try {
-        const params = new URLSearchParams({ provider: libraryProvider, q: search.trim(), limit: '24' });
-        const res = await authFetch(`${wsBase()}/voices/library?${params}`);
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || `Library search failed (${res.status})`);
-        setLibraryVoices(data.voices ?? []);
-      } catch (e) {
-        setLibraryVoices([]);
-        setLibraryError(e instanceof Error ? e.message : 'Library search failed');
-      } finally {
-        setLibrarySearching(false);
-      }
-    }, 500);
-    return () => clearTimeout(libraryTimeout.current);
-  }, [libraryProvider, search]);
-
-  /**
-   * Persist a library hit and hand back the real row. Preview and assignment
-   * both need a local voice id, so nothing can be done with a hit until it is
-   * imported; the import is idempotent, and the row is patched in place so a
-   * second click skips it.
-   */
-  const ensureImported = async (v: LibraryVoice): Promise<Voice | null> => {
-    if (v.id) return v as Voice;
-    setImportingId(v.providerVoiceId);
-    setLibraryError(null);
-    try {
-      const res = await authFetch(`${wsBase()}/voices/library/import`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ provider: v.provider, providerVoiceId: v.providerVoiceId }),
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data.error || `Could not add this voice (${res.status})`);
-      const voice = data.voice as Voice;
-      setLibraryVoices(prev => prev.map(x => (
-        x.providerVoiceId === v.providerVoiceId ? { ...x, id: voice.id } : x
-      )));
-      return voice;
-    } catch (e) {
-      setLibraryError(e instanceof Error ? e.message : 'Could not add this voice');
-      return null;
-    } finally {
-      setImportingId(null);
-    }
-  };
-
-  const handleLibraryPreview = async (v: LibraryVoice, e: React.MouseEvent) => {
-    e.stopPropagation();
-    const voice = await ensureImported(v);
-    if (voice) void playPreview(voice);
-  };
-
-  const handleLibrarySelect = async (v: LibraryVoice, e: React.MouseEvent) => {
-    e.stopPropagation();
-    // Toggle, like the local cards: a second click on the chosen voice clears it.
-    if (v.id && selectedVoice?.id === v.id) { setSelectedVoice(null); return; }
-    const voice = await ensureImported(v);
-    if (voice) setSelectedVoice(voice);
-  };
-
-  // ── Audio preview ──────────────────────────────────────────────────
-  const playPreview = async (voice: Voice) => {
-    if (playingId === voice.id) {
-      audioRef.current?.pause();
-      setPlayingId(null);
-      return;
-    }
+  const stopPreview = useCallback(() => {
     audioRef.current?.pause();
-    setPlayingId(voice.id);
+    audioRef.current = null;
+    if (objectUrlRef.current) { URL.revokeObjectURL(objectUrlRef.current); objectUrlRef.current = null; }
+    setPlayingId(null);
+  }, []);
+
+  // Never leave a preview playing after the picker closes.
+  useEffect(() => stopPreview, [stopPreview]);
+
+  const togglePreview = async (voice: PickerVoice) => {
+    if (playingId === voice.id) { stopPreview(); return; }
+    stopPreview();
+    setPreviewFailedId(null);
+    setLoadingPreviewId(voice.id);
     try {
-      // Audio elements can't send Authorization headers, so fetch the preview
-      // as a blob with proper auth and play it from an object URL.
-      const url = `${wsBase()}/voices/${voice.id}/preview?text=${encodeURIComponent(DEFAULT_PREVIEW_TEXT)}`;
-      const res = await authFetch(url);
+      // An <audio> element cannot send the Authorization header, so fetch the
+      // preview as a blob and play it from an object URL.
+      const res = await authFetch(`${wsBase()}/voices/${voice.id}/preview?text=${encodeURIComponent(PREVIEW_TEXT)}`);
       if (!res.ok) throw new Error(`Preview failed (${res.status})`);
-      const blob = await res.blob();
-      const objectUrl = URL.createObjectURL(blob);
+      const objectUrl = URL.createObjectURL(await res.blob());
+      objectUrlRef.current = objectUrl;
       const audio = new Audio(objectUrl);
       audioRef.current = audio;
-      audio.onended = () => { setPlayingId(null); URL.revokeObjectURL(objectUrl); };
-      audio.onerror = () => { setPlayingId(null); URL.revokeObjectURL(objectUrl); };
+      audio.onended = stopPreview;
+      audio.onerror = () => { stopPreview(); setPreviewFailedId(voice.id); };
+      setPlayingId(voice.id);
       await audio.play();
     } catch {
-      setPlayingId(null);
+      stopPreview();
+      setPreviewFailedId(voice.id);
+    } finally {
+      setLoadingPreviewId(null);
     }
   };
 
-  const handlePreview = (voice: Voice, e: React.MouseEvent) => {
-    e.stopPropagation();
-    void playPreview(voice);
-  };
-
-  // ── Save voice ─────────────────────────────────────────────────────
-  const handleSave = async () => {
-    if (!selectedVoice) return;
-    setSavingId(selectedVoice.id);
+  const save = async () => {
+    if (!chosen) return;
+    setSaving(true);
+    setError(null);
     try {
       const res = await authFetch(`${wsBase()}/agents/${agentId}/voice`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ voiceId: selectedVoice.id }),
+        body: JSON.stringify({ voiceId: chosen.id }),
       });
-      // fetch only rejects on a network error, so an unchecked call reported
-      // success for every server-side failure — the tick appeared and the voice
-      // was never saved.
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.error ?? 'Failed to save voice');
-      }
-      setSaveSuccess(selectedVoice.id);
-      setTimeout(() => setSaveSuccess(null), 2000);
-      onSaved(selectedVoice);
-    } catch (err) {
-      alert(err instanceof Error ? err.message : 'Failed to save voice. Please try again.');
+      const body = await res.json().catch(() => ({}));
+      // fetch only rejects on a network error; a server-side failure must not
+      // look like a saved voice.
+      if (!res.ok) throw new Error((body as { error?: string }).error ?? 'Could not save the voice');
+      const { label, voiceName } = body as { label?: string; voiceName?: string };
+      stopPreview();
+      onSaved({ id: chosen.id, name: voiceName || chosen.name, label: label ?? '' });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Could not save the voice');
     } finally {
-      setSavingId(null);
+      setSaving(false);
     }
   };
 
-  // ── Pagination ─────────────────────────────────────────────────────
   const totalPages = Math.max(1, Math.ceil(total / LIMIT));
-
-  // ── Render ─────────────────────────────────────────────────────────
-  const noVoices = !loading && voices.length === 0;
-  const isDbEmpty = total === 0 && !loading && !error && activeProvider === 'All' && !search;
+  const activeId = chosen?.id ?? savedId;
+  const canSave = Boolean(chosen && chosen.id !== savedId) && !saving;
 
   return (
     <>
       <style>{`
         @keyframes voice-spin { to { transform: rotate(360deg); } }
-        @keyframes voice-fadein { from { opacity: 0; transform: translateY(16px); } to { opacity: 1; transform: translateY(0); } }
-        .voice-modal-overlay {
-          position: fixed; inset: 0;
-          background: rgba(0,0,0,0.75);
-          backdrop-filter: blur(4px);
+        .vp-overlay {
+          position: fixed; inset: 0; background: rgba(0,0,0,0.72); backdrop-filter: blur(4px);
+          display: flex; align-items: center; justify-content: center; z-index: 9000; padding: 16px;
+        }
+        .vp-modal {
+          background: var(--s1); border: 1px solid var(--line); border-radius: 16px;
+          width: min(760px, 100%); max-height: 88vh; display: flex; flex-direction: column;
+          overflow: hidden; box-shadow: 0 40px 80px rgba(0,0,0,0.6);
+        }
+        .vp-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 22px 24px 0; }
+        .vp-title { font-size: 17px; font-weight: 700; color: var(--tx); margin: 0; }
+        .vp-sub { font-size: 12px; color: var(--tx-3); margin: 4px 0 0; }
+        .vp-close {
+          background: none; border: none; color: var(--tx-3); cursor: pointer; font-size: 22px;
+          line-height: 1; padding: 4px 8px; border-radius: 6px;
+        }
+        .vp-close:hover { color: var(--tx); background: var(--s2); }
+        .vp-search-wrap { position: relative; margin: 16px 24px 0; }
+        .vp-search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; display: flex; }
+        .vp-search {
+          width: 100%; box-sizing: border-box; padding: 10px 12px 10px 38px; font-size: 13px;
+          background: var(--bg-primary); border: 1px solid var(--line-2); border-radius: 8px; color: var(--tx); outline: none;
+        }
+        .vp-search:focus { border-color: var(--cyan-fg); }
+        .vp-body { flex: 1; overflow-y: auto; padding: 16px 24px; }
+        .vp-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 10px; }
+        .vp-row {
+          display: flex; align-items: center; gap: 10px; padding: 10px 12px; min-height: 48px;
+          background: var(--bg-primary); border: 1px solid var(--line-2); border-radius: 10px;
+          cursor: pointer; text-align: left; color: var(--tx); font: inherit;
+        }
+        .vp-row:hover { border-color: var(--tx-3); }
+        .vp-row.is-active { border-color: var(--cyan-fg); box-shadow: 0 0 0 1px var(--cyan-fg); }
+        .vp-play {
+          width: 30px; height: 30px; flex-shrink: 0; border-radius: 50%;
           display: flex; align-items: center; justify-content: center;
-          z-index: 9000;
-          animation: voice-fadein 0.2s ease;
+          background: var(--s2); border: 1px solid var(--line-2); color: var(--tx); cursor: pointer;
         }
-        .voice-modal {
-          background: var(--s1);
-          border: 1px solid var(--s2);
-          border-radius: 16px;
-          width: min(960px, 94vw);
-          max-height: 88vh;
-          display: flex; flex-direction: column;
-          overflow: hidden;
-          box-shadow: 0 40px 80px rgba(0,0,0,0.7);
-          animation: voice-fadein 0.25s ease;
+        .vp-play:hover { border-color: var(--cyan-fg); color: var(--cyan-fg); }
+        .vp-play.is-playing { border-color: var(--cyan-fg); color: var(--cyan-fg); }
+        .vp-name { flex: 1; min-width: 0; font-size: 13px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .vp-check { color: var(--cyan-fg); display: flex; flex-shrink: 0; }
+        .vp-note { font-size: 11px; color: var(--warn, #d6ac46); flex-shrink: 0; }
+        .vp-empty { padding: 48px 12px; text-align: center; color: var(--tx-3); font-size: 13px; }
+        .vp-error {
+          margin: 12px 24px 0; padding: 10px 14px; border-radius: 8px; font-size: 12.5px;
+          color: #f87171; background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.28);
         }
-        .voice-modal-header {
-          display: flex; align-items: center; justify-content: space-between;
-          padding: 22px 28px 0;
-          flex-shrink: 0;
+        .vp-foot {
+          display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+          padding: 14px 24px; border-top: 1px solid var(--line);
         }
-        .voice-modal-title { font-size: 17px; font-weight: 700; color: var(--tx); margin: 0; }
-        .voice-modal-close {
-          background: none; border: none; color: var(--tx-3); cursor: pointer;
-          font-size: 22px; line-height: 1; padding: 4px;
-          border-radius: 6px; transition: color 0.15s, background 0.15s;
+        .vp-pages { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--tx-3); }
+        .vp-btn {
+          padding: 8px 14px; border-radius: 8px; font-size: 13px; cursor: pointer;
+          background: transparent; border: 1px solid var(--line-2); color: var(--tx-2);
         }
-        .voice-modal-close:hover { color: var(--tx); background: var(--s2); }
-        .voice-modal-controls { padding: 20px 28px 0; flex-shrink: 0; }
-        .provider-tabs { display: flex; gap: 6px; margin-bottom: 16px; }
-        .provider-tab {
-          display: flex; align-items: center; gap: 6px;
-          padding: 7px 16px; border-radius: 8px; border: none; cursor: pointer;
-          font-size: 13px; font-weight: 500;
-          transition: all 0.15s;
-        }
-        .provider-tab-active { background: var(--cyan-fg); color: #000; }
-        .provider-tab-inactive { background: var(--s1); color: var(--tx-2); border: 1px solid var(--s3); }
-        .provider-tab-inactive:hover { background: var(--s2); color: var(--tx); }
-        .provider-status-dot {
-          width: 7px; height: 7px; border-radius: 50%;
-          display: inline-block; flex-shrink: 0;
-        }
-        .voice-filters { display: flex; gap: 10px; align-items: center; }
-        .voice-library-section {
-          margin-top: 22px; padding-top: 18px; border-top: 1px dashed var(--s3);
-        }
-        .voice-library-head {
-          display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; margin-bottom: 12px;
-        }
-        .voice-library-title { font-size: 13px; font-weight: 600; color: var(--tx); }
-        .voice-library-sub { font-size: 12px; color: var(--tx-3); }
-        .voice-tag-library {
-          background: rgba(167,139,250,0.13); color: var(--violet); border: 1px solid rgba(167,139,250,0.3);
-        }
-        .voice-search-wrap {
-          position: relative; flex: 1; min-width: 0;
-        }
-        .voice-search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; }
-        .voice-search {
-          width: 100%; padding: 9px 12px 9px 38px;
-          background: var(--s1); border: 1px solid var(--s3); border-radius: 8px;
-          color: var(--tx); font-size: 13px; outline: none; box-sizing: border-box;
-          transition: border-color 0.15s;
-        }
-        .voice-search::placeholder { color: var(--tx-3); }
-        .voice-search:focus { border-color: var(--cyan-fg); }
-        .voice-filter-select {
-          padding: 9px 12px; background: var(--s1); border: 1px solid var(--s3);
-          border-radius: 8px; color: var(--tx-2); font-size: 12px; cursor: pointer;
-          outline: none; transition: border-color 0.15s;
-        }
-        .voice-filter-select:focus { border-color: var(--cyan-fg); color: var(--tx); }
-        .voice-filter-select option { background: var(--s1); }
-        /* Scrollbar deliberately unstyled: the global SCROLLBARS block in
-           styles.css themes every scroll surface off the --sb-* tokens, and the
-           local override here painted its track --bg, which read as a groove cut
-           into the modal rather than part of it. */
-        .voice-modal-body {
-          flex: 1; overflow-y: auto; padding: 20px 28px;
-        }
-        .voice-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-          gap: 12px;
-        }
-        .voice-card {
-          background: var(--s1); border: 1px solid var(--line-2); border-radius: 12px;
-          padding: 16px; cursor: pointer; transition: all 0.15s; position: relative;
-        }
-        .voice-card:hover { border-color: var(--line-2); background: var(--s1); }
-        .voice-card-selected { border-color: var(--cyan-fg) !important; background: #0d2226 !important; box-shadow: 0 0 0 1px var(--cyan-fg); }
-        .voice-card-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 10px; }
-        .voice-card-name { font-size: 13px; font-weight: 600; color: #f0f0f0; line-height: 1.3; word-break: break-all; }
-        .voice-card-provider { font-size: 11px; color: var(--tx-3); margin-top: 2px; }
-        .voice-card-tags { display: flex; flex-wrap: wrap; gap: 5px; margin-bottom: 12px; }
-        .voice-tag {
-          font-size: 10px; padding: 2px 8px; border-radius: 4px;
-          font-weight: 500; color: #000; display: inline-block;
-        }
-        .voice-tag-gender { background: #334155; color: #94a3b8; }
-        .voice-card-actions { display: flex; gap: 8px; align-items: center; }
-        .voice-btn-preview {
-          display: flex; align-items: center; gap: 5px;
-          padding: 6px 12px; border-radius: 6px; border: 1px solid var(--s3);
-          background: var(--s1); color: var(--tx-2); font-size: 11px; font-weight: 500;
-          cursor: pointer; transition: all 0.15s; flex-shrink: 0;
-        }
-        .voice-btn-preview:hover { border-color: var(--line-2); color: var(--tx); }
-        .voice-btn-preview-active { border-color: #ef4444 !important; color: #ef4444 !important; }
-        .voice-btn-select {
-          flex: 1; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--s3);
-          background: transparent; color: var(--tx-2); font-size: 11px; font-weight: 500;
-          cursor: pointer; transition: all 0.15s;
-        }
-        .voice-btn-select-active { border-color: var(--cyan-fg) !important; color: var(--cyan-fg) !important; background: rgba(0,188,212,0.08) !important; }
-        .voice-btn-select:hover { border-color: var(--line-2); color: var(--tx); }
-        .voice-modal-footer {
-          flex-shrink: 0;
-          padding: 16px 28px;
-          border-top: 1px solid var(--s1);
-          display: flex; align-items: center; justify-content: space-between; gap: 12px;
-        }
-        .voice-pagination { display: flex; align-items: center; gap: 8px; }
-        .voice-page-btn {
-          padding: 6px 12px; background: var(--s1); border: 1px solid var(--s3);
-          border-radius: 6px; color: var(--tx-2); font-size: 12px; cursor: pointer;
-          transition: all 0.15s;
-        }
-        .voice-page-btn:hover:not(:disabled) { background: var(--s2); color: var(--tx); }
-        .voice-page-btn:disabled { opacity: 0.4; cursor: default; }
-        .voice-page-info { font-size: 12px; color: var(--tx-3); white-space: nowrap; }
-        .voice-footer-right { display: flex; gap: 10px; align-items: center; }
-        .voice-btn-cancel {
-          padding: 9px 20px; background: transparent; border: 1px solid var(--s3);
-          border-radius: 8px; color: var(--tx-2); font-size: 13px; cursor: pointer;
-          transition: all 0.15s;
-        }
-        .voice-btn-cancel:hover { border-color: var(--line-2); color: var(--tx); }
-        .voice-btn-save {
-          padding: 9px 24px; background: var(--cyan-fg); border: none; border-radius: 8px;
-          color: #000; font-size: 13px; font-weight: 700; cursor: pointer;
-          transition: all 0.15s; display: flex; align-items: center; gap: 6px;
-        }
-        .voice-btn-save:hover:not(:disabled) { background: #00d4f0; }
-        .voice-btn-save:disabled { opacity: 0.5; cursor: default; }
-        .voice-empty {
-          display: flex; flex-direction: column; align-items: center; justify-content: center;
-          padding: 60px 20px; color: var(--tx-3); text-align: center; gap: 12px;
-        }
-        .voice-empty-icon { font-size: 40px; }
-        .voice-empty-title { font-size: 14px; font-weight: 600; color: var(--tx-3); }
-        .voice-empty-desc { font-size: 12px; line-height: 1.6; max-width: 380px; }
-        .voice-loading-grid {
-          display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-          gap: 12px;
-        }
-        .voice-skeleton {
-          background: var(--s1); border: 1px solid #1e1e1e; border-radius: 12px;
-          padding: 16px; height: 120px;
-          background: linear-gradient(90deg, var(--s1) 25%, #1e1e1e 50%, var(--s1) 75%);
-          background-size: 200% 100%;
-          animation: voice-shimmer 1.4s infinite;
-        }
-        @keyframes voice-shimmer {
-          0% { background-position: 200% 0; }
-          100% { background-position: -200% 0; }
-        }
-        .voice-selected-info {
-          font-size: 12px; color: var(--tx-3);
-          display: flex; align-items: center; gap: 6px;
-        }
-        .voice-selected-name { color: var(--cyan-fg); font-weight: 600; }
-        .voice-error {
-          display: flex; align-items: center; gap: 8px;
-          padding: 14px 18px; background: rgba(248,113,113,0.08); border: 1px solid rgba(248,113,113,0.28);
-          border-radius: 10px; color: #f87171; font-size: 13px; margin-bottom: 16px;
+        .vp-btn:hover:not(:disabled) { color: var(--tx); border-color: var(--tx-3); }
+        .vp-btn:disabled { opacity: 0.45; cursor: default; }
+        .vp-btn-primary { background: var(--cyan); border-color: var(--cyan); color: #000; font-weight: 700; display: flex; align-items: center; gap: 6px; }
+        .vp-btn-primary:hover:not(:disabled) { color: #000; border-color: var(--cyan); }
+        @media (max-width: 520px) {
+          .vp-head, .vp-body, .vp-foot { padding-left: 16px; padding-right: 16px; }
+          .vp-search-wrap, .vp-error { margin-left: 16px; margin-right: 16px; }
+          .vp-grid { grid-template-columns: 1fr; }
         }
       `}</style>
 
-      <div className="voice-modal-overlay" onClick={e => e.target === e.currentTarget && onClose()}>
-        <div className="voice-modal" role="dialog" aria-modal="true" aria-label="Voice Configuration">
-
-          {/* Header */}
-          <div className="voice-modal-header">
+      <div className="vp-overlay" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
+        <div className="vp-modal" role="dialog" aria-modal="true" aria-labelledby="vp-title">
+          <div className="vp-head">
             <div>
-              <h2 className="voice-modal-title">🎙 Voice Configuration</h2>
-              <p style={{ fontSize: '12px', color: 'var(--tx-3)', margin: '4px 0 0' }}>
-                {total > 0 ? `${total} voices available` : 'Select a voice for your agent'}
-              </p>
+              <h2 id="vp-title" className="vp-title">Choose a voice</h2>
+              <p className="vp-sub">Press play to hear a voice. Only voices that speak your agent&apos;s language are listed.</p>
             </div>
-            <button className="voice-modal-close" onClick={onClose} aria-label="Close">✕</button>
+            <button type="button" className="vp-close" onClick={onClose} aria-label="Close">×</button>
           </div>
 
-          {/* Controls */}
-          <div className="voice-modal-controls">
-            {/* Provider Tabs */}
-            <div className="provider-tabs">
-              {providerTabs.map(p => {
-                const isActive = activeProvider === p;
-                // Until the status request resolves, providerStatus is null —
-                // show a neutral "checking" dot rather than a misleading red
-                // "not connected" one that flickers on every page refresh.
-                const loaded = providerStatus !== null;
-                const healthy = !loaded ? undefined
-                  : p === 'Google' ? providerStatus!.google
-                  : p === 'ElevenLabs' ? providerStatus!.elevenlabs
-                  : p === 'Sarvam' ? providerStatus!.sarvam
-                  : p === 'Cartesia' ? providerStatus!.cartesia
-                  : p === 'FishAudio' ? providerStatus!.fishaudio
-                  : undefined; // 'All' has no provider dot
-                const showDot = p !== 'All';
-                const dotColor = !loaded ? '#9ca3af' : healthy ? '#22c55e' : 'var(--err)';
-                const dotTitle = !loaded ? 'Checking provider…' : healthy ? 'Provider connected' : 'Provider not connected';
-                return (
-                  <button
-                    key={p}
-                    className={`provider-tab ${isActive ? 'provider-tab-active' : 'provider-tab-inactive'}`}
-                    onClick={() => setActiveProvider(p)}
-                  >
-                    {showDot && (
-                      <span
-                        className="provider-status-dot"
-                        style={{ background: dotColor }}
-                        title={dotTitle}
-                      />
-                    )}
-                    {p}
-                  </button>
-                );
-              })}
-            </div>
-
-            {/* Filters */}
-            <div className="voice-filters">
-              <div className="voice-search-wrap">
-                <div className="voice-search-icon"><SearchIcon /></div>
-                <input
-                  className="voice-search"
-                  type="text"
-                  placeholder="Search voices by name, language, accent…"
-                  value={search}
-                  onChange={e => setSearch(e.target.value)}
-                  id="voice-search-input"
-                />
-              </div>
-              <select
-                className="voice-filter-select"
-                value={genderFilter}
-                onChange={e => setGenderFilter(e.target.value)}
-                id="voice-gender-filter"
-              >
-                {GENDER_OPTIONS.map(g => (
-                  <option key={g} value={g}>{g === 'All' ? 'All Genders' : capitalize(g)}</option>
-                ))}
-              </select>
-              <select
-                className="voice-filter-select"
-                value={languageFilter}
-                onChange={e => setLanguageFilter(e.target.value)}
-                id="voice-language-filter"
-                style={{ maxWidth: '140px' }}
-              >
-                <option value="All">All Languages</option>
-                {languages.map(l => <option key={l} value={l}>{l}</option>)}
-              </select>
-              {/* Always available — voices added to a provider's library after the
-                  last sync (e.g. ElevenLabs Voice Library additions) only appear
-                  once re-synced, and that isn't only an empty-library situation. */}
-              <button
-                className="voice-filter-select"
-                style={{ cursor: syncing ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
-                disabled={syncing}
-                onClick={handleSyncNow}
-                title="Re-pull voices from the providers configured in backend/.env"
-              >
-                {syncing ? 'Syncing…' : '⟳ Sync'}
-              </button>
-            </div>
+          <div className="vp-search-wrap">
+            <span className="vp-search-icon"><SearchIcon /></span>
+            <input
+              className="vp-search"
+              type="search"
+              placeholder="Search voices by name"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              aria-label="Search voices by name"
+            />
           </div>
 
-          {/* Body */}
-          <div className="voice-modal-body">
-            {error && (
-              <div className="voice-error">
-                ⚠ {error}
-                {isDbEmpty && <span style={{ marginLeft: '8px' }}>— use the “Sync voices now” button below.</span>}
-              </div>
-            )}
+          {error && <div className="vp-error" role="alert">{error}</div>}
 
+          <div className="vp-body">
             {loading ? (
-              <div className="voice-loading-grid">
-                {Array.from({ length: 8 }).map((_, i) => (
-                  <div key={i} className="voice-skeleton" />
-                ))}
-              </div>
-            ) : noVoices ? (
-              <div className="voice-empty">
-                <div className="voice-empty-icon">🎤</div>
-                <div className="voice-empty-title">
-                  {isDbEmpty ? 'No voices synced yet' : 'No voices match your filters'}
-                </div>
-                <div className="voice-empty-desc">
-                  {isDbEmpty
-                    ? 'Your voice library is empty. Click "Sync voices now" to pull voices from the providers configured in backend/.env (Sarvam, ElevenLabs, Google TTS, Cartesia, Fish Audio).'
-                    : 'Try adjusting your search term or filters to find more voices.'}
-                </div>
-                {isDbEmpty && (
-                  <button
-                    className="voice-btn-save"
-                    style={{ marginTop: '8px' }}
-                    disabled={syncing}
-                    onClick={handleSyncNow}
-                  >
-                    {syncing ? 'Syncing…' : '⟳ Sync voices now'}
-                  </button>
-                )}
-                {!isDbEmpty && (
-                  <button
-                    className="voice-btn-cancel"
-                    style={{ marginTop: '8px' }}
-                    onClick={() => { setSearch(''); setGenderFilter('All'); setLanguageFilter('All'); }}
-                  >
-                    Clear filters
-                  </button>
-                )}
-              </div>
+              <div className="vp-empty"><SpinnerIcon /> Loading voices…</div>
+            ) : voices.length === 0 ? (
+              <div className="vp-empty">{query ? `No voices match "${query}".` : 'No voices are available right now.'}</div>
             ) : (
-              <div className="voice-grid">
-                {voices.map(v => {
-                  const isSelected = selectedVoice?.id === v.id;
-                  const isPlaying = playingId === v.id;
+              <div className="vp-grid">
+                {voices.map((v) => {
+                  const active = v.id === activeId;
+                  const playing = playingId === v.id;
                   return (
                     <div
                       key={v.id}
-                      className={`voice-card ${isSelected ? 'voice-card-selected' : ''}`}
-                      onClick={() => setSelectedVoice(isSelected ? null : v)}
-                      id={`voice-card-${v.id}`}
+                      className={`vp-row${active ? ' is-active' : ''}`}
+                      role="button"
+                      tabIndex={0}
+                      aria-pressed={active}
+                      onClick={() => setChosen(v)}
+                      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setChosen(v); } }}
                     >
-                      <div className="voice-card-header">
-                        <div>
-                          <div className="voice-card-name">{v.name}</div>
-                          <div className="voice-card-provider">{providerLabel(v)}</div>
-                        </div>
-                        {isSelected && (
-                          <div style={{ color: 'var(--cyan-fg)', flexShrink: 0, marginTop: '2px' }}>
-                            <CheckIcon />
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="voice-card-tags">
-                        {v.category && (
-                          <span className="voice-tag" style={{ background: categoryColor(v.category) + '22', color: categoryColor(v.category), border: `1px solid ${categoryColor(v.category)}44` }}>
-                            {v.category}
-                          </span>
-                        )}
-                        {v.gender && (
-                          <span className="voice-tag voice-tag-gender">
-                            {genderIcon(v.gender)} {capitalize(v.gender)}
-                          </span>
-                        )}
-                        {v.language && (
-                          <span className="voice-tag" style={{ background: '#1e293b', color: '#64748b', border: '1px solid #334155' }}>
-                            {v.language}
-                          </span>
-                        )}
-                        {v.accent && v.accent !== v.language && (
-                          <span className="voice-tag" style={{ background: '#1e1a2e', color: 'var(--violet)', border: '1px solid #3730a3' }}>
-                            {v.accent}
-                          </span>
-                        )}
-                      </div>
-
-                      <div className="voice-card-actions">
-                        <button
-                          className={`voice-btn-preview ${isPlaying ? 'voice-btn-preview-active' : ''}`}
-                          onClick={e => handlePreview(v, e)}
-                          title={isPlaying ? 'Stop preview' : 'Play preview'}
-                          id={`voice-preview-${v.id}`}
-                        >
-                          {isPlaying ? <StopIcon /> : <PlayIcon />}
-                          {isPlaying ? 'Stop' : 'Preview'}
-                        </button>
-                        <button
-                          className={`voice-btn-select ${isSelected ? 'voice-btn-select-active' : ''}`}
-                          onClick={e => { e.stopPropagation(); setSelectedVoice(isSelected ? null : v); }}
-                        >
-                          {isSelected ? '✓ Selected' : 'Select'}
-                        </button>
-                      </div>
+                      <button
+                        type="button"
+                        className={`vp-play${playing ? ' is-playing' : ''}`}
+                        onClick={(e) => { e.stopPropagation(); void togglePreview(v); }}
+                        aria-label={playing ? `Stop ${v.name}` : `Play ${v.name}`}
+                      >
+                        {loadingPreviewId === v.id ? <SpinnerIcon /> : playing ? <StopIcon /> : <PlayIcon />}
+                      </button>
+                      <span className="vp-name" title={v.name}>{v.name}</span>
+                      {previewFailedId === v.id && <span className="vp-note">Can&apos;t play</span>}
+                      {active && <span className="vp-check"><CheckIcon /></span>}
                     </div>
                   );
                 })}
               </div>
             )}
-
-            {/* Provider library results — voices the sync never pulled. Shown
-                under the local grid so the synced catalogue still leads. */}
-            {libraryProvider && search.trim() && (
-              <div className="voice-library-section">
-                <div className="voice-library-head">
-                  <span className="voice-library-title">
-                    From the {libraryProvider === 'FishAudio' ? 'Fish Audio' : libraryProvider} catalogue
-                  </span>
-                  <span className="voice-library-sub">
-                    {librarySearching
-                      ? 'Searching…'
-                      : libraryVoices.length
-                        ? `${libraryVoices.length} match${libraryVoices.length === 1 ? '' : 'es'} — not synced yet`
-                        : 'No matches in the provider library'}
-                  </span>
-                </div>
-
-                {libraryError && <div className="voice-error">⚠ {libraryError}</div>}
-
-                {librarySearching ? (
-                  <div className="voice-loading-grid">
-                    {Array.from({ length: 3 }).map((_, i) => <div key={i} className="voice-skeleton" />)}
-                  </div>
-                ) : (
-                  <div className="voice-grid">
-                    {libraryVoices.map(v => {
-                      const isSelected = !!v.id && selectedVoice?.id === v.id;
-                      const isPlaying = !!v.id && playingId === v.id;
-                      const isImporting = importingId === v.providerVoiceId;
-                      return (
-                        <div
-                          key={v.providerVoiceId}
-                          className={`voice-card ${isSelected ? 'voice-card-selected' : ''}`}
-                          onClick={e => { void handleLibrarySelect(v, e); }}
-                          id={`voice-library-card-${v.providerVoiceId}`}
-                        >
-                          <div className="voice-card-header">
-                            <div>
-                              <div className="voice-card-name">{v.name}</div>
-                              <div className="voice-card-provider">{v.provider}</div>
-                            </div>
-                            {isSelected && (
-                              <div style={{ color: 'var(--cyan-fg)', flexShrink: 0, marginTop: '2px' }}>
-                                <CheckIcon />
-                              </div>
-                            )}
-                          </div>
-
-                          <div className="voice-card-tags">
-                            <span className="voice-tag voice-tag-library">
-                              {v.id ? 'in library' : 'not added'}
-                            </span>
-                            {v.gender && (
-                              <span className="voice-tag voice-tag-gender">
-                                {genderIcon(v.gender)} {capitalize(v.gender)}
-                              </span>
-                            )}
-                            {v.language && (
-                              <span className="voice-tag" style={{ background: '#1e293b', color: '#64748b', border: '1px solid #334155' }}>
-                                {v.language}
-                              </span>
-                            )}
-                          </div>
-
-                          <div className="voice-card-actions">
-                            <button
-                              className={`voice-btn-preview ${isPlaying ? 'voice-btn-preview-active' : ''}`}
-                              onClick={e => { void handleLibraryPreview(v, e); }}
-                              disabled={isImporting}
-                              title={v.id ? 'Play preview' : 'Adds this voice, then plays a preview'}
-                              id={`voice-library-preview-${v.providerVoiceId}`}
-                            >
-                              {isImporting ? <SpinnerIcon /> : isPlaying ? <StopIcon /> : <PlayIcon />}
-                              {isImporting ? 'Adding…' : isPlaying ? 'Stop' : 'Preview'}
-                            </button>
-                            <button
-                              className={`voice-btn-select ${isSelected ? 'voice-btn-select-active' : ''}`}
-                              onClick={e => { void handleLibrarySelect(v, e); }}
-                              disabled={isImporting}
-                            >
-                              {isSelected ? '✓ Selected' : v.id ? 'Select' : '+ Add'}
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            )}
           </div>
 
-          {/* Footer */}
-          <div className="voice-modal-footer">
-            {/* Pagination */}
-            <div className="voice-pagination">
-              <button
-                className="voice-page-btn"
-                disabled={page <= 1}
-                onClick={() => setPage(p => Math.max(1, p - 1))}
-                id="voice-prev-page"
-              >← Prev</button>
-              <span className="voice-page-info">Page {page} / {totalPages}</span>
-              <button
-                className="voice-page-btn"
-                disabled={page >= totalPages}
-                onClick={() => setPage(p => Math.min(totalPages, p + 1))}
-                id="voice-next-page"
-              >Next →</button>
+          <div className="vp-foot">
+            <div className="vp-pages">
+              <button type="button" className="vp-btn" disabled={page <= 1 || loading} onClick={() => setPage((p) => p - 1)}>Previous</button>
+              <span>Page {page} of {totalPages}</span>
+              <button type="button" className="vp-btn" disabled={page >= totalPages || loading} onClick={() => setPage((p) => p + 1)}>Next</button>
             </div>
-
-            {/* Right: selection info + actions */}
-            <div className="voice-footer-right">
-              {selectedVoice && (
-                <div className="voice-selected-info">
-                  Selected: <span className="voice-selected-name">{selectedVoice.name}</span>
-                  <span style={{ color: 'var(--line-2)' }}>({selectedVoice.provider})</span>
-                </div>
-              )}
-              <button className="voice-btn-cancel" onClick={onClose} id="voice-cancel-btn">
-                Cancel
-              </button>
-              <button
-                className="voice-btn-save"
-                disabled={!selectedVoice || !!savingId}
-                onClick={handleSave}
-                id="voice-save-btn"
-              >
-                {savingId ? <SpinnerIcon /> : saveSuccess ? <CheckIcon /> : null}
-                {saveSuccess ? 'Saved!' : 'Save Voice'}
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button type="button" className="vp-btn" onClick={onClose}>Cancel</button>
+              <button type="button" className="vp-btn vp-btn-primary" disabled={!canSave} onClick={() => void save()}>
+                {saving && <SpinnerIcon />} Use this voice
               </button>
             </div>
           </div>

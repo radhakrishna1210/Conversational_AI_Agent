@@ -1476,13 +1476,20 @@ interface CatalogGroup {
   models: CatalogModel[];
 }
 
+/** The conversational engines stay in the backend catalogue but are not offered anywhere yet. */
+const visibleGroups = (groups: CatalogGroup[] = []) => groups.filter((g) => g.key !== 'conversational');
+
 /**
- * Which models clients can use.
+ * Which models exist on this platform.
  *
- * Every model the platform can run, in one list. Off means the model does not
- * appear in any client-side picker AND cannot be saved onto an agent even by
- * calling the API directly — the same toggle drives both, so what a client can
- * see and what a client can use never drift apart.
+ * AI and transcription models are assigned by Super Admin (ModelAssignmentsTab),
+ * so for them "off" means "cannot be assigned" — the backend refuses to switch
+ * off one that is still a default or a client's override. For voice providers
+ * "off" still means their voices disappear from every client's Voice picker and
+ * cannot be saved onto an agent, even by calling the API directly.
+ *
+ * The bundled conversational engines are not listed: they are kept in the
+ * backend only for now, with nothing in the product to choose them.
  *
  * Toggles save immediately and one at a time: two admins editing different
  * groups cannot overwrite each other, and there is no unsaved state to lose.
@@ -1498,7 +1505,7 @@ export function ModelAccessTab() {
       const res = await authFetch(API('/model-catalog'));
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || `Failed (${res.status})`);
-      setGroups(data.groups);
+      setGroups(visibleGroups(data.groups));
     } catch (e) { setErr(e instanceof Error ? e.message : 'Failed'); }
   };
   useEffect(() => { load(); }, []);
@@ -1513,8 +1520,11 @@ export function ModelAccessTab() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Save failed');
-      setGroups(data.groups);
-      setMsg(`${model.label} is now ${next ? 'available to clients' : 'hidden from clients'}.`);
+      setGroups(visibleGroups(data.groups));
+      const assignable = model.id.startsWith('llm:') || model.id.startsWith('stt:');
+      setMsg(assignable
+        ? `${model.label} ${next ? 'can now be assigned' : 'can no longer be assigned'}.`
+        : `${model.label} is now ${next ? 'available to clients' : 'hidden from clients'}.`);
     } catch (e) {
       setMsg(e instanceof Error ? e.message : 'Save failed');
     } finally { setSaving(null); }
@@ -1529,9 +1539,9 @@ export function ModelAccessTab() {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 22, maxWidth: 860 }}>
       <p style={{ color: 'var(--tx-3)', fontSize: 13, lineHeight: 1.6, margin: 0 }}>
-        A model is offered to clients only while its toggle is on. Turning one off removes it from
-        every picker in the product and refuses any attempt to save it onto an agent — including
-        requests made directly against the API. {totalOn} of {total} models are currently available.
+        An AI or transcription model that is off cannot be assigned above. A voice provider that is off
+        disappears from every client&apos;s Voice picker and cannot be saved onto an agent — including
+        requests made directly against the API. {totalOn} of {total} are currently on.
       </p>
 
       {msg && (

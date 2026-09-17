@@ -11,7 +11,10 @@ export interface AgentConfig {
   name: string;
   language: string;
   llm: string;
+  /** The stored label — it names the provider, so it is never displayed. */
   voice: string;
+  /** What the client sees for the voice (the API derives it from `voice`). */
+  voiceName?: string;
   kbFiles: number;
   search: string;
   postCall: string;

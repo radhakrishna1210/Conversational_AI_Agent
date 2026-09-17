@@ -2787,6 +2787,10 @@ html.light .topbar-icon-btn:hover {
   gap: 0;
   align-items: stretch;
 }
+/* Edit Agent: only Language and Voice are the client's to set. */
+.pipeline.pipeline--two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
 
 .pipeline-stage {
   position: relative;

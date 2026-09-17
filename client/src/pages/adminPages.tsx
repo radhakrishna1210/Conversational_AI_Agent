@@ -9,6 +9,7 @@
  */
 import { useState } from 'react';
 import PricingBucketsTab from './PricingBucketsTab';
+import ModelAssignmentsTab from './ModelAssignmentsTab';
 import BroadcastRateTab from './BroadcastRateTab';
 import { Users, Bug, CreditCard, TrendingUp, Activity, CalendarDays, Cpu, Mail } from 'lucide-react';
 import {
@@ -155,9 +156,11 @@ export function AdminModelsPage() {
     <>
       <AdminPageHeader
         title="Models"
-        subtitle="Which models clients can see and use — conversational engines, LLMs, transcription and voices"
+        subtitle="The AI and transcription models calls run on — for the platform and per client — and which models exist at all"
         icon={<Cpu size={21} />}
       />
+      <ModelAssignmentsTab />
+      <h2 style={{ ...sectionTitle, marginTop: 34 }}>Model access</h2>
       <ModelAccessTab />
     </>
   );

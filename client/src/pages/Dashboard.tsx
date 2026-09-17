@@ -203,12 +203,11 @@ export default function Dashboard() {
     let welcomeIsForDirection = false;
     let defaultFlow: any[] = [];
     // Full config generated from the user's ACTUAL description + category:
-    // welcome + flow, plus languages, voice (TTS), AI model and STT provider.
+    // welcome + flow, plus languages and voice. The AI model and transcription
+    // are not generated or chosen here — Super Admin assigns them.
     let genConfig: {
       name?: string;
       languages?: string[];
-      aiModel?: string;
-      transcription?: string;
       voice?: string;
       callDirection?: string;
       // Human first name the agent speaks, separate from the display `name`.
@@ -255,14 +254,8 @@ export default function Dashboard() {
         name: agentTitle || genConfig.name || name,
         welcomeMessage: welcomeMsg,
         flowItems: defaultFlow,
-        aiModel: genConfig.aiModel || 'GPT-4.1-Mini',
         voice: genConfig.voice || 'Google - Aoede (female)',
         ...(genConfig.languages?.length ? { languages: genConfig.languages } : {}),
-        // `transcription` is the Agent column; `sttProvider` is what the live
-        // web-call runtime reads from settings — keep them in sync.
-        ...(genConfig.transcription
-          ? { transcription: genConfig.transcription, sttProvider: genConfig.transcription }
-          : {}),
         // Chosen above, not inferred: the agent will only ever take calls in
         // this direction (the backend refuses to create one without it).
         callDirection: direction,
@@ -317,12 +310,16 @@ export default function Dashboard() {
 
 
 
-  const filteredAgents = agents.filter(agent =>
-    (directionFilter === 'ALL' || directionOf(agent) === directionFilter) && (
-    agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    agent.language.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    agent.llm.toLowerCase().includes(searchQuery.toLowerCase()))
-  );
+  // Matches the name, the languages and the voice name. Not the model — clients
+  // do not choose it. `language` and `llm` were read here before, and the API
+  // returns neither, so any search that missed an agent's name threw.
+  const filteredAgents = agents.filter(agent => {
+    if (directionFilter !== 'ALL' && directionOf(agent) !== directionFilter) return false;
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return true;
+    return [agent.name, ...(agent.selectedLanguages ?? []), agent.voiceName]
+      .some((field) => String(field ?? '').toLowerCase().includes(q));
+  });
 
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const useCases = {
@@ -1606,7 +1603,7 @@ Goals:
               </div>
               <div className="omni-suggestions">
                 <span>Suggested:</span>
-                {['English', 'GPT-4', 'Moon', 'Support'].map(tag => (
+                {['English', 'Hindi', 'Support'].map(tag => (
                   <button key={tag} onClick={() => setSearchQuery(tag)}>
                     {tag}
                   </button>
@@ -1659,9 +1656,10 @@ Goals:
                     rather than the old six-cell grid.
                   */}
                   <div className="omni-row-meta">
-                    <span>◷ {assistant.language || '—'}</span>
-                    <span>◈ {assistant.llm || assistant.aiModel || '—'}</span>
-                    <span>♪ {assistant.voice || '—'}</span>
+                    <span>◷ {assistant.selectedLanguages?.join(', ') || '—'}</span>
+                    {/* No model, and the voice by name only: clients do not
+                        choose the model, and are not shown who provides the voice. */}
+                    <span>♪ {assistant.voiceName || '—'}</span>
                     <span>▤ {assistant.kbFiles ?? 0} KB</span>
                     <span>⌕ {assistant.search || 'Off'}</span>
                     <span>⇲ {assistant.integrations || 'None'}</span>

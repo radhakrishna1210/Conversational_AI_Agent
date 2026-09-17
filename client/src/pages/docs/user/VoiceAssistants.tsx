@@ -109,8 +109,8 @@ export default function UserVoiceAssistants() {
         description="All configured assistants are presented as interactive cards displaying model metadata, voice identity, configured languages, and direct action triggers."
         routePath="/dashboard"
         elements={[
-          { label: 'Search Filter', value: 'Instant search by assistant name or model', type: 'input' },
-          { label: 'Assistant Card', value: 'Name, AI Model, Voice Profile, Language, Duration Limit', type: 'text' },
+          { label: 'Search Filter', value: 'Instant search by assistant name, language or voice', type: 'input' },
+          { label: 'Assistant Card', value: 'Name, Language, Voice, Knowledge base', type: 'text' },
           { label: 'Edit & Configure', value: 'Opens full 7-tab workbench', type: 'button' },
           { label: 'Delete Assistant', value: 'Permanently deletes agent and associated logs', type: 'button' }
         ]}
@@ -119,8 +119,8 @@ export default function UserVoiceAssistants() {
       <h3 style={{ fontSize: 17, fontWeight: 600, color: 'var(--text-primary)', marginTop: 24, marginBottom: 12 }}>Assistant Card Elements</h3>
       <ul style={{ paddingLeft: 22, color: 'var(--text-secondary)', marginBottom: 20, lineHeight: 1.8 }}>
         <li><strong>Assistant Name:</strong> Clear label identifying the role (e.g., <em>"Mortgage Lead Qualifier"</em>).</li>
-        <li><strong>AI Model Badge:</strong> The active intelligence engine (e.g., <code>Gemini-2.5-Flash</code>, <code>GPT-4.1-Mini</code>).</li>
-        <li><strong>Voice Profile:</strong> Gender, accent, and provider (e.g., <em>Google - Aoede (female)</em>).</li>
+        <li><strong>Languages:</strong> The languages the agent speaks, primary first.</li>
+        <li><strong>Voice:</strong> The name of the voice the agent speaks in (e.g., <em>Aoede</em>).</li>
         <li><strong>Call Parameters:</strong> Configured maximum call duration (default 30 mins) and silence timeout threshold.</li>
         <li><strong>DLT Header Status:</strong> Indicates whether a TRAI-approved telecom header template is linked for Indian outbound calls.</li>
       </ul>

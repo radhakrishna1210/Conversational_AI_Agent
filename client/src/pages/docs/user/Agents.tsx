@@ -22,7 +22,7 @@ export default function UserAgents() {
           {
             badge: 'TAB 01',
             title: 'Define Persona & Voice',
-            description: 'Set assistant name, welcome greeting, LLM model, voice identity, and system prompt.',
+            description: 'Set assistant name, welcome greeting, language, voice, and system prompt.',
             icon: <Bot size={16} />
           },
           {
@@ -58,7 +58,7 @@ export default function UserAgents() {
       </p>
 
       <ul style={{ paddingLeft: 22, color: 'var(--text-secondary)', marginBottom: 24, lineHeight: 1.8 }}>
-        <li><strong>1. Assistant details:</strong> Persona identity, welcome greeting, LLM model selection, voice provider, transcription service, language options, and flow instructions.</li>
+        <li><strong>1. Assistant details:</strong> Persona identity, welcome greeting, language, voice, and flow instructions.</li>
         <li><strong>2. Call configuration:</strong> Telephony boundaries, maximum call length, silence detection timeout, conversational interruption toggle, dynamic variable injection, and ambient room noise.</li>
         <li><strong>3. Knowledge base:</strong> Grounding attachments from your workspace file repository to answer complex domain queries.</li>
         <li><strong>4. Integrations:</strong> Active calendar (Cal.com, Google Calendar), CRM (Salesforce, HubSpot), and custom API webhook tools callable by the agent during calls.</li>
@@ -90,19 +90,11 @@ export default function UserAgents() {
         For outbound campaigns, avoid saying <em>"Thank you for calling"</em> because your agent initiated the call. Instead use: <em>"Hello, this is Priya calling from Apex Realty regarding your property inquiry. Am I speaking with {`{user_name}`}?"</em>
       </DocsCallout>
 
-      <h3 style={{ fontSize: 17, fontWeight: 600, color: 'var(--text-primary)', marginTop: 24, marginBottom: 12 }}>AI Model & Model Catalog</h3>
+      <h3 style={{ fontSize: 17, fontWeight: 600, color: 'var(--text-primary)', marginTop: 24, marginBottom: 12 }}>Language & Voice</h3>
       <p style={{ color: 'var(--text-secondary)', marginBottom: 14 }}>
-        Select the underlying LLM that powers conversational reasoning. Available models are populated from the workspace model catalog:
-      </p>
-      <ul style={{ paddingLeft: 22, color: 'var(--text-secondary)', marginBottom: 20, lineHeight: 1.8 }}>
-        <li><strong>Gemini 2.5 Flash:</strong> Ultra-fast, highly contextual model optimized for sub-second conversational turn-taking.</li>
-        <li><strong>GPT-4.1 Mini:</strong> Exceptional instruction-following capabilities for structured data extraction and compliance workflows.</li>
-        <li><strong>Azure OpenAI:</strong> Dedicated enterprise hosting with data sovereignty guarantees.</li>
-      </ul>
-
-      <h3 style={{ fontSize: 17, fontWeight: 600, color: 'var(--text-primary)', marginTop: 24, marginBottom: 12 }}>Voice & Transcription Selection</h3>
-      <p style={{ color: 'var(--text-secondary)', marginBottom: 14 }}>
-        Choose a natural voice profile from Google, ElevenLabs, or Cartesia. The voice picker allows you to preview voice audio before saving. Pair it with <strong>Azure Speech</strong> or <strong>Deepgram Nova-2</strong> for real-time speech-to-text recognition.
+        Choose the languages your agent speaks, primary language first, then pick its voice. The voice list shows only
+        voices that can speak your agent&apos;s language — press play to hear one before choosing it. The AI model and
+        speech recognition behind your agent are managed for you by the platform, so there is nothing to configure there.
       </p>
 
       {/* Tab 2: Call Configuration */}

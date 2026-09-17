@@ -15,12 +15,11 @@ import CallerNumberPicker from '../components/CallerNumberPicker';
 import { xaiCallSocket } from '../services/xaiCallSocket';
 import { AMBIENT_OPTIONS, startAmbientSound } from '../services/ambientSound';
 import { modularCallSocket, type ModularCallEvent } from '../services/modularCallSocket';
-import { fetchModelCatalog, type ModelCatalog } from '../lib/modelCatalog';
 import { type CallDirection, DIRECTION_LABEL, DIRECTION_SUMMARY, directionOf, suggestedDirectionOf } from '../lib/callDirection';
 import { CallDirectionBadge } from '../components/CallDirectionBadge';
 import {
   ArrowLeft, Sparkles, Rocket, Save, Link2, MessageSquare, Globe, Phone,
-  PhoneIncoming, PhoneOutgoing, Languages as LanguagesIcon, AudioLines, Cpu,
+  PhoneIncoming, PhoneOutgoing, Languages as LanguagesIcon, AudioLines,
   Volume2, MessageSquareText, ChevronDown, Loader2, Check, X
 } from 'lucide-react';
 
@@ -399,15 +398,6 @@ const OUTBOUND_PHRASING_RE = new RegExp(
 const announcesCall = (text: string) => OUTBOUND_PHRASING_RE.test(text.replace(/\bfor\s+calling\b/gi, 'for thanks'));
 
 
-const MicIcon = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--lime)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
-    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
-    <line x1="12" y1="19" x2="12" y2="23"></line>
-    <line x1="8" y1="23" x2="16" y2="23"></line>
-  </svg>
-);
-
 const InfoIcon = () => (
   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--tx-2)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: '6px', cursor: 'pointer' }}>
     <circle cx="12" cy="12" r="10"></circle>
@@ -453,24 +443,20 @@ export default function EditAgent() {
   const [flowItems, setFlowItems] = useState<FlowItem[]>([]);
 
   const [selectedLanguages, setSelectedLanguages] = useState<string[]>([]);
-  const [voice, setVoice] = useState('Google - Aoede (female)');
-  const [aiModel, setAiModel] = useState('GPT-4.1-Mini');
-  const [transcription, setTranscription] = useState('Azure');
-  // 'xai' / 'elevenlabs' = a bundled speech-to-speech Conversational Agent
-  // replaces the modular Languages/Voice/AI Model/Transcription pipeline
-  // entirely for this agent's Web Call + Phone Call.
+  // `voice` is the stored label, which still names the provider for the
+  // runtime ("Sarvam - ritu"). Nothing on screen shows it — `voiceName` is what
+  // the client sees.
+  const [voice, setVoice] = useState('');
+  const [voiceName, setVoiceName] = useState('');
+  // The LLM, the transcription model and any bundled speech-to-speech engine
+  // are not the client's choice: Super Admin assigns them. The engine is still
+  // READ, because the browser test call has to open the matching transport for
+  // an older agent saved with one.
   const [voiceEngine, setVoiceEngine] = useState<'modular' | 'xai' | 'elevenlabs'>('modular');
-  const [showXaiModal, setShowXaiModal] = useState(false);
-
-  // What this platform currently offers. Super Admin → Models owns this list;
-  // every picker below renders from it instead of a hardcoded array.
-  const [modelCatalog, setModelCatalog] = useState<ModelCatalog | null>(null);
-  useEffect(() => { fetchModelCatalog().then(setModelCatalog).catch(() => setModelCatalog(null)); }, []);
 
   // Modal states
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [showVoiceModal, setShowVoiceModal] = useState(false);
-  const [selectedVoiceId, setSelectedVoiceId] = useState<string | null>(null);
   
   // Call Configuration states
   const [expandedConfigSection, setExpandedConfigSection] = useState<string | null>(null);
@@ -515,20 +501,11 @@ export default function EditAgent() {
   // between turns; Fish voices only). New agents default to off; an existing
   // agent with a preset keeps behaving as before (see resolveAmbientMode).
   const [ambientMode, setAmbientMode] = useState('off');
-  const [showModelModal, setShowModelModal] = useState(false);
-  // Filter text for the model picker. Lives here rather than inside the modal
-  // so opening it can reset the box — a stale query from last time reads as an
-  // empty catalogue.
-  const [modelQuery, setModelQuery] = useState('');
-  const [showTranscriptionModal, setShowTranscriptionModal] = useState(false);
-  const [sttProvider, setSttProvider] = useState('Sarvam');
+  // The browser test call's silence window. Read from an older agent that had
+  // one saved; no longer editable, since it lived in the removed Transcription
+  // picker.
   const [sttSilenceTimeoutMs, setSttSilenceTimeoutMs] = useState(470);
-  const [sttLanguage, setSttLanguage] = useState('Multi');
-  const [isSttProviderDropdownOpen, setIsSttProviderDropdownOpen] = useState(false);
-  const [sttAdvancedSettingsOpen, setSttAdvancedSettingsOpen] = useState(false);
-  const [isSttLanguageDropdownOpen, setIsSttLanguageDropdownOpen] = useState(false);
-  
-  const [, setVoiceProvider] = useState('google'); // provider tracked for future UI filtering
+
   const [agentName, setAgentName] = useState('');
   // INBOUND = customers call the agent; OUTBOUND = the agent calls customers.
   // An agent works for ONE of them (the backend enforces it). Null for an agent
@@ -595,6 +572,9 @@ export default function EditAgent() {
         ...copy,
         name: `${String(source.name ?? agentName)} (${DIRECTION_LABEL[dir]})`,
         callDirection: dir,
+        // The copy keeps this agent's AI and transcription models. The server
+        // reads them off this agent; a client cannot name models itself.
+        copyOf: agentId,
       });
       setShowDirectionModal(false);
       toast.success(`Created an ${DIRECTION_LABEL[dir]} copy. Knowledge-base files were not copied — add them to the new agent.`);
@@ -1016,35 +996,6 @@ export default function EditAgent() {
   };
   useEffect(() => { refreshKb(); /* eslint-disable-line react-hooks/exhaustive-deps */ }, [agentId]);
 
-  // Escape closes the model picker. It matters more here than on a typical
-  // modal: the panel can outgrow a short viewport, and the close button is the
-  // first thing to leave the screen when it does.
-  useEffect(() => {
-    if (!showModelModal) return;
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setShowModelModal(false); };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [showModelModal]);
-
-  // Opening the picker starts from a clean search box.
-  useEffect(() => { if (showModelModal) setModelQuery(''); }, [showModelModal]);
-
-  // Models grouped by the provider that serves them, filtered by the search
-  // box. Catalogue order is preserved inside each group, and a group only
-  // appears when it still has a match — so an empty result is one clear message
-  // rather than five empty headings.
-  const visibleModelGroups = useMemo(() => {
-    const q = modelQuery.trim().toLowerCase();
-    const groups = new Map<string, ModelCatalog['llm']>();
-    for (const m of modelCatalog?.llm ?? []) {
-      if (q && !`${m.label} ${m.provider}`.toLowerCase().includes(q)) continue;
-      const key = m.provider || 'Other';
-      if (!groups.has(key)) groups.set(key, []);
-      groups.get(key)!.push(m);
-    }
-    return [...groups.entries()];
-  }, [modelCatalog, modelQuery]);
-
   // What the response-speed controls can actually deliver for this agent.
   //
   // Re-runs when the selected VOICE changes, and asks about that voice rather
@@ -1427,8 +1378,7 @@ export default function EditAgent() {
           // Open the tab the agent actually is, not a hardcoded side.
           setWelcomeTab((agent as any).callDirection === 'OUTBOUND' ? 'OUTBOUND' : 'INBOUND');
           setVoice(agent.voice || 'Google - Aoede (female)');
-          setAiModel(agent.aiModel || 'GPT-4.1-Mini');
-          setTranscription(agent.transcription || 'Azure');
+          setVoiceName((agent as { voiceName?: string }).voiceName || 'Not set');
           {
             const savedEngine = (agent as any).voiceEngine;
             setVoiceEngine(savedEngine === 'xai' || savedEngine === 'elevenlabs' ? savedEngine : 'modular');
@@ -1506,19 +1456,7 @@ export default function EditAgent() {
           // Integrations tab
           setCallDirection(directionOf(agent as any));
           setSuggestedDirection(suggestedDirectionOf(agent as any));
-          // STT settings
-          setSttProvider((agent as any).sttProvider ?? 'Sarvam');
           setSttSilenceTimeoutMs((agent as any).sttSilenceTimeoutMs ?? 470);
-          setSttLanguage((agent as any).sttLanguage ?? 'Multi');
-          if (agent.voice?.toLowerCase().startsWith('google')) {
-            setVoiceProvider('google');
-          } else if (agent.voice?.toLowerCase().startsWith('eleven')) {
-            setVoiceProvider('elevenlabs');
-          } else if (agent.voice?.toLowerCase().startsWith('cartesia')) {
-            setVoiceProvider('cartesia');
-          } else if (agent.voice?.toLowerCase().startsWith('fish')) {
-            setVoiceProvider('fishaudio');
-          }
           setIsLoading(false);
           return;
         }
@@ -1548,10 +1486,10 @@ export default function EditAgent() {
       welcomeMessage: activeWelcome,
       welcomeInbound,
       welcomeOutbound,
-      aiModel,
-      voice,
-      transcription,
-      voiceEngine,
+      // No aiModel, transcription, STT settings or voiceEngine: Super Admin
+      // assigns those and the API ignores them from a client. No `voice`
+      // either — it is saved by the voice picker (PUT .../voice), and its label
+      // names the provider, which the Code view must not show.
       languages: selectedLanguages,
       flowItems,
       maxDuration,
@@ -1578,10 +1516,6 @@ export default function EditAgent() {
       postCallConfigs: postCallConfigsForSave,
       kbUrls,
       kbFiles: kbFiles.map(f => f.fileName),
-      // STT settings
-      sttProvider,
-      sttSilenceTimeoutMs,
-      sttLanguage,
       // Integrations
       callDirection,
       ...overrides,
@@ -1795,17 +1729,19 @@ export default function EditAgent() {
     );
   };
 
-  const handleVoiceSelect = async (v: { id: string; name: string; provider: string | null }) => {
-    const displayName = `${v.provider ?? 'Unknown'} - ${v.name}`;
-    setVoice(displayName);
-    setSelectedVoiceId(v.id);
+  // The picker has already stored the voice (PUT .../voice) by the time this
+  // runs; `label` is what the server stored, `name` is what the client sees.
+  const handleVoiceSelect = async (v: { id: string; name: string; label: string }) => {
+    setVoice(v.label);
+    setVoiceName(v.name);
     setShowVoiceModal(false);
     // The prefetched welcome audio was synthesized with the PREVIOUS voice —
     // drop it now so a call started before the save/re-prefetch finishes falls
     // back to fetching fresh audio instead of speaking in the old voice.
     welcomeAudioRef.current = null;
     welcomePrefetchSeq.current++;
-    await handleSave({ voice: displayName }); // persist immediately — refresh must not lose it
+    // Saves the rest of the editor too, and re-warms the greeting for the new voice.
+    await handleSave({ voice: v.label });
   };
 
   /** Why a config can't be tested/delivered yet, or null when it's ready. */
@@ -1840,7 +1776,6 @@ export default function EditAgent() {
         welcomeMessage: activeWelcome,
         callDirection,
         welcomeInbound, welcomeOutbound,
-        aiModel, voice, transcription,
         languages: selectedLanguages, flowItems, maxDuration, silenceTimeout,
         maxSilenceBeforeHangup, endCallMessage, transferNumber, transferCondition,
         transferLabel, transferMode, transferTimeoutSec, transferOutOfHours, transferHours, speculation,
@@ -3271,9 +3206,10 @@ export default function EditAgent() {
           // A TTS failure shouldn't kill the call, but the caller must know WHY
           // the agent is silent — otherwise it looks like a broken agent.
           console.error('[web-call] welcome TTS failed:', e?.message || e);
+          // The reason goes to the console above, not on screen: it names the
+          // voice provider, which clients are not shown.
           setWebCallError(
-            `Voice is unavailable — the agent is running text-only. ${e?.message || 'TTS synthesis failed.'} ` +
-            `Check that a voice-provider API key (e.g. SARVAM_API_KEY / ELEVENLABS_API_KEY) is set in backend/.env and that voices are synced.`
+            'Voice is unavailable right now — the agent is running text-only. Try another voice, or try again in a moment.'
           );
         }
       })();
@@ -3812,346 +3748,15 @@ export default function EditAgent() {
       {showVoiceModal && agentId && (
         <VoiceConfigModal
           agentId={agentId}
-          currentVoiceId={selectedVoiceId}
           onClose={() => setShowVoiceModal(false)}
           onSaved={handleVoiceSelect}
         />
       )}
 
-      {/* Conversational Agent Modal — 3-way choice: Off / xAI / ElevenLabs */}
-      {showXaiModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: 'var(--s1)', borderRadius: '8px', padding: '30px', maxWidth: '560px', width: '90%' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h2 style={{ fontSize: '18px', fontWeight: '600', margin: 0 }}>Conversational Agent</h2>
-              <button onClick={() => setShowXaiModal(false)} style={{ background: 'none', border: 'none', color: 'var(--tx-2)', cursor: 'pointer', fontSize: '24px' }}>X</button>
-            </div>
-            <p style={{ fontSize: '13px', color: 'var(--tx-2)', lineHeight: 1.6, marginBottom: '20px' }}>
-              Routes this agent's Web Call and Phone Call through a single bundled speech-to-speech
-              engine that replaces Languages, Voice (TTS), AI Model (LLM) and Transcription (STT).
-              Those four settings are disabled while one is active; choose Off to configure them
-              individually again.
-            </p>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              {/* "Off" is always offered — it is the absence of an engine, not a
-                  model an admin can withdraw. The engines themselves come from
-                  the platform catalogue. */}
-              {([
-                { value: 'modular' as const, label: 'Off (modular pipeline)' },
-                ...(modelCatalog?.conversational ?? []).map((m) => ({
-                  value: m.value as 'xai' | 'elevenlabs',
-                  label: m.label,
-                })),
-              ]).map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() => { setVoiceEngine(opt.value); setShowXaiModal(false); handleSave({ voiceEngine: opt.value }); }}
-                  style={{ padding: '12px', background: voiceEngine === opt.value ? 'var(--cyan)' : 'var(--bg-primary)', color: voiceEngine === opt.value ? '#000' : 'var(--tx)', border: voiceEngine === opt.value ? 'none' : '1px solid var(--line-2)', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: voiceEngine === opt.value ? 600 : 400, textAlign: 'left' }}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* AI Model Configuration Modal */}
-      {showModelModal && (
-        // Backdrop closes the picker. It has to, because the panel can be taller
-        // than the viewport on a short window and the close button is then the
-        // first thing to go off-screen — which is how this became a trap rather
-        // than just an ugly list.
-        <div
-          onClick={() => setShowModelModal(false)}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '24px' }}
-        >
-          <div
-            onClick={e => e.stopPropagation()}
-            style={{
-              background: 'var(--s1)',
-              borderRadius: '8px',
-              maxWidth: '520px',
-              width: '100%',
-              // THE BUG. Without a ceiling the panel grew to fit every model in
-              // the catalogue, and a flex container centring an over-tall child
-              // pushes half the overflow ABOVE the top of the screen, where it
-              // cannot be scrolled to. The title and the close button were up
-              // there. Cap the panel and scroll the LIST instead, so the header
-              // stays put no matter how many models the platform enables.
-              maxHeight: 'min(85vh, 680px)',
-              display: 'flex',
-              flexDirection: 'column',
-              overflow: 'hidden',
-            }}
-          >
-            <div style={{ flex: 'none', padding: '24px 24px 0' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '16px', marginBottom: '4px' }}>
-                <h2 style={{ fontSize: '18px', fontWeight: '600', margin: 0 }}>AI Model</h2>
-                <button
-                  onClick={() => setShowModelModal(false)}
-                  aria-label="Close"
-                  style={{ background: 'none', border: 'none', color: 'var(--tx-2)', cursor: 'pointer', padding: '2px', display: 'flex', lineHeight: 0 }}
-                >
-                  <X size={20} />
-                </button>
-              </div>
-              <p style={{ fontSize: '12px', color: 'var(--tx-2)', margin: '0 0 16px' }}>
-                The model that writes this agent&apos;s replies. Currently <span style={{ color: 'var(--tx)', fontWeight: 600 }}>{aiModel || 'not set'}</span>.
-              </p>
-              {/* Worth its place at seventeen models across five providers — the
-                  flat alphabetical-ish list meant hunting for a known name. */}
-              {(modelCatalog?.llm.length ?? 0) > 8 && (
-                <input
-                  autoFocus
-                  value={modelQuery}
-                  onChange={e => setModelQuery(e.target.value)}
-                  placeholder="Search models"
-                  style={{ width: '100%', padding: '9px 12px', background: 'var(--bg-primary)', border: '1px solid var(--line-2)', borderRadius: '6px', color: 'var(--tx)', outline: 'none', fontSize: '13px', marginBottom: '16px' }}
-                />
-              )}
-            </div>
-
-            <div style={{ overflowY: 'auto', padding: '0 24px 24px', display: 'flex', flexDirection: 'column', gap: '18px' }}>
-              {!modelCatalog && <p style={{ fontSize: '13px', color: 'var(--tx-2)', margin: 0 }}>Loading available models…</p>}
-              {modelCatalog?.llm.length === 0 && (
-                <p style={{ fontSize: '13px', color: 'var(--tx-2)', margin: 0, lineHeight: 1.6 }}>
-                  No AI models are available on this platform right now. Contact your administrator.
-                </p>
-              )}
-              {modelCatalog && modelCatalog.llm.length > 0 && visibleModelGroups.length === 0 && (
-                <p style={{ fontSize: '13px', color: 'var(--tx-2)', margin: 0 }}>
-                  No models match “{modelQuery}”.
-                </p>
-              )}
-              {visibleModelGroups.map(([provider, models]) => (
-                <div key={provider}>
-                  {/* Grouping is the information, not decoration: which provider
-                      serves a model decides its cost, its latency and which API
-                      key has to be configured for it to work at all. */}
-                  <div style={{ fontSize: '10.5px', fontWeight: 700, letterSpacing: '0.08em', textTransform: 'uppercase', color: 'var(--tx-2)', marginBottom: '8px' }}>
-                    {provider}
-                  </div>
-                  <div style={{ display: 'grid', gap: '8px' }}>
-                    {models.map(model => {
-                      const selected = aiModel.toLowerCase() === model.value.toLowerCase();
-                      return (
-                        <button
-                          key={model.value}
-                          onClick={() => { setAiModel(model.value); setShowModelModal(false); handleSave({ aiModel: model.value }); }}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            gap: '12px',
-                            padding: '11px 13px',
-                            background: selected ? '#0a2e30' : 'var(--bg-primary)',
-                            color: 'var(--tx)',
-                            border: `1px solid ${selected ? 'var(--cyan)' : 'var(--line-2)'}`,
-                            borderRadius: '6px',
-                            cursor: 'pointer',
-                            fontSize: '13px',
-                            textAlign: 'left',
-                            fontWeight: selected ? 600 : 400,
-                            width: '100%',
-                          }}
-                        >
-                          <span>{model.label}</span>
-                          {/* Colour alone carried the selected state before. A
-                              check reads at a glance and survives a colourblind
-                              viewer. */}
-                          {selected && <Check size={16} style={{ color: 'var(--cyan)', flex: 'none' }} />}
-                        </button>
-                      );
-                    })}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Transcription Configuration Modal (Speech-to-Text) */}
-      {showTranscriptionModal && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
-          <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--s1)', borderRadius: '8px', padding: '30px', maxWidth: '900px', width: '90%', maxHeight: '85vh', overflowY: 'auto' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '30px' }}>
-              <h2 style={{ fontSize: '18px', fontWeight: '600', margin: 0 }}>Speech-to-Text Configuration</h2>
-              <button onClick={() => setShowTranscriptionModal(false)} style={{ background: 'none', border: 'none', color: 'var(--tx-2)', cursor: 'pointer', fontSize: '24px' }}>X</button>
-            </div>
-            
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '30px', marginBottom: '30px' }}>
-              {/* Left Column */}
-              <div>
-                <div style={{ marginBottom: '24px', position: 'relative' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '8px' }}>
-                    <label style={{ fontSize: '13px', fontWeight: '500' }}>Provider</label>
-                    <InfoIcon />
-                  </div>
-                  <div 
-                    onClick={() => setIsSttProviderDropdownOpen(!isSttProviderDropdownOpen)}
-                    style={{ 
-                      display: 'flex', 
-                      alignItems: 'center', 
-                      justifyContent: 'space-between', 
-                      padding: '10px 14px', 
-                      background: 'var(--bg-primary)', 
-                      border: '1px solid var(--line-2)', 
-                      borderRadius: '6px', 
-                      cursor: 'pointer',
-                      fontSize: '13px',
-                      color: 'var(--tx)'
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <MicIcon />
-                      <span>{sttProvider}</span>
-                    </div>
-                    <span style={{ fontSize: '10px', color: 'var(--tx-2)', transform: isSttProviderDropdownOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>v</span>
-                  </div>
-                  {isSttProviderDropdownOpen && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--bg-primary)', border: '1px solid var(--line-2)', borderRadius: '6px', marginTop: '4px', zIndex: 10 }}>
-                      {!modelCatalog && (
-                        <div style={{ padding: '10px 14px', fontSize: '13px', color: 'var(--tx-2)' }}>Loading providers…</div>
-                      )}
-                      {modelCatalog?.stt.length === 0 && (
-                        <div style={{ padding: '10px 14px', fontSize: '13px', color: 'var(--tx-2)' }}>
-                          No transcription providers are available. Contact your administrator.
-                        </div>
-                      )}
-                      {modelCatalog?.stt.map(({ value: provider, label }) => (
-                        <div
-                          key={provider}
-                          onClick={() => { setSttProvider(provider); setIsSttProviderDropdownOpen(false); }}
-                          style={{
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'space-between',
-                            padding: '10px 14px',
-                            cursor: 'pointer',
-                            fontSize: '13px',
-                            color: 'var(--tx)',
-                            background: sttProvider === provider ? 'var(--s1)' : 'transparent'
-                          }}
-                          onMouseEnter={(e) => e.currentTarget.style.background = 'var(--s1)'}
-                          onMouseLeave={(e) => e.currentTarget.style.background = sttProvider === provider ? 'var(--s1)' : 'transparent'}
-                        >
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                            <MicIcon />
-                            <span>{label}</span>
-                          </div>
-                          {sttProvider === provider && <span style={{ color: 'var(--tx)', fontSize: '12px' }}>OK</span>}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-
-                <div style={{ marginBottom: '24px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', marginBottom: '12px' }}>
-                    <label style={{ fontSize: '13px', fontWeight: '500' }}>Silence Timeout</label>
-                    <InfoIcon />
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', position: 'relative' }}>
-                    <input 
-                      type="range" 
-                      min="0" 
-                      max="1500" 
-                      value={sttSilenceTimeoutMs} 
-                      onChange={(e) => setSttSilenceTimeoutMs(Number(e.target.value))}
-                      style={{ 
-                        flex: 1, 
-                        accentColor: 'var(--cyan)', 
-                        height: '4px', 
-                        background: 'var(--s2)',
-                        borderRadius: '2px',
-                        appearance: 'none',
-                        cursor: 'pointer'
-                      }} 
-                    />
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '8px', fontSize: '11px', color: 'var(--tx-2)' }}>
-                    <span>0ms</span>
-                    <span style={{ color: 'var(--tx)' }}>{sttSilenceTimeoutMs}ms</span>
-                    <span>1500ms</span>
-                  </div>
-                </div>
-
-                {/* "Apply Noise Reducer" lived here. Nothing read
-                    sttNoiseReducer on either channel. */}
-                <div 
-                  onClick={() => setSttAdvancedSettingsOpen(!sttAdvancedSettingsOpen)}
-                  style={{ 
-                    display: 'flex', 
-                    alignItems: 'center', 
-                    justifyContent: 'space-between', 
-                    padding: '14px', 
-                    background: 'var(--bg-primary)', 
-                    border: '1px solid var(--line)', 
-                    borderRadius: '6px', 
-                    cursor: 'pointer' 
-                  }}
-                >
-                  <span style={{ fontSize: '13px', fontWeight: '500' }}>Advanced Settings</span>
-                  <span style={{ fontSize: '10px', color: 'var(--tx-2)', transform: sttAdvancedSettingsOpen ? 'rotate(180deg)' : 'none', transition: 'transform 0.2s' }}>v</span>
-                </div>
-              </div>
-
-              {/* Right Column */}
-              <div style={{ paddingLeft: '30px', borderLeft: '1px solid var(--s1)' }}>
-                <div style={{ fontSize: '13px', fontWeight: '600', marginBottom: '20px' }}>
-                  {sttProvider === 'Sarvam' ? 'Sarvam AI Configuration' : `${sttProvider} Configuration`}
-                </div>
-                
-                {/* An STT "Model" picker lived here. Nothing read sttModel:
-                    the model is chosen by deepgramStream.service.js from the
-                    language and encoding. Removed rather than left misleading. */}
-
-                <div style={{ marginBottom: '16px', position: 'relative' }}>
-                  <label style={{ display: 'block', fontSize: '13px', fontWeight: '500', marginBottom: '8px' }}>Language</label>
-                  <div 
-                    onClick={() => setIsSttLanguageDropdownOpen(!isSttLanguageDropdownOpen)}
-                    style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: 'var(--bg-primary)', border: '1px solid var(--line-2)', borderRadius: '6px', fontSize: '13px', cursor: 'pointer' }}
-                  >
-                    <span>{sttLanguage}</span>
-                    <span style={{ fontSize: '10px', color: 'var(--tx-2)' }}>v</span>
-                  </div>
-                  {isSttLanguageDropdownOpen && (
-                    <div style={{ position: 'absolute', top: '100%', left: 0, right: 0, background: 'var(--bg-primary)', border: '1px solid var(--line-2)', borderRadius: '6px', marginTop: '4px', zIndex: 10 }}>
-                      {['Multi', 'English', 'Hindi', 'Tamil'].map(lang => (
-                        <div 
-                          key={lang} 
-                          onClick={() => { setSttLanguage(lang); setIsSttLanguageDropdownOpen(false); }}
-                          style={{ padding: '10px 14px', cursor: 'pointer', fontSize: '13px', color: 'var(--tx)', background: sttLanguage === lang ? 'var(--s1)' : 'transparent' }}
-                          onMouseEnter={(e) => e.currentTarget.style.background = 'var(--s1)'}
-                          onMouseLeave={(e) => e.currentTarget.style.background = sttLanguage === lang ? 'var(--s1)' : 'transparent'}
-                        >
-                          {lang}
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '10px' }}>
-              <button 
-                onClick={() => {
-                  setTranscription(sttProvider);
-                  setShowTranscriptionModal(false);
-                  handleSave({ transcription: sttProvider });
-                }}
-                style={{ padding: '10px 24px', background: 'var(--cyan)', color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: '600' }}
-              >
-                Done
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
+      {/* The Conversational Agent, AI Model and Transcription pickers lived here.
+          Clients no longer choose any of those: Super Admin assigns the LLM and
+          transcription model (Models → Platform defaults / Client models), and the
+          bundled speech-to-speech engines are kept in the backend only for now. */}
 
 
       {/* Web Call Modal */}
@@ -4590,85 +4195,39 @@ export default function EditAgent() {
       <div style={{ padding: '30px 24px' }}>
         {activeTab === 'details' && (
           <>
-            {/* Assistant Settings — rendered as the signal chain it actually is */}
+            {/* Assistant settings. A client chooses two things here: the language the
+                agent speaks and the voice it speaks in. Transcription, the AI model
+                and any bundled conversational engine are assigned by Super Admin,
+                so they are neither shown nor editable — see Models in the admin
+                console. */}
             <div style={{ display: 'flex', alignItems: 'baseline', gap: '12px', marginBottom: '14px' }}>
               <h2 className="font-display" style={{ fontSize: '15px', fontWeight: 700, margin: 0, color: 'var(--tx)' }}>
                 Assistant settings
               </h2>
               <span style={{ fontSize: '12px', color: 'var(--tx-3)' }}>
-                How a call flows through your agent, left to right
+                The language your agent speaks, and the voice it speaks in
               </span>
             </div>
 
             <div style={{ background: 'var(--bg-secondary)', border: '1px solid var(--line)', borderRadius: '16px', padding: '20px', marginBottom: '20px' }}>
-              <div className="pipeline">
-                {/*
-                  Ordered by how audio actually moves: the caller speaks a
-                  language, it is transcribed, a model reasons over it, and a
-                  voice speaks the reply. The previous order put TTS second,
-                  which made the row look arbitrary.
-                */}
+              <div className="pipeline pipeline--two">
                 {[
                   { Icon: LanguagesIcon, label: 'Language', value: selectedLanguages.length > 0 ? selectedLanguages.join(', ') : 'Not set', onClick: () => setShowLanguageModal(true), key: 'lang' },
-                  { Icon: AudioLines, label: 'Transcription', value: transcription, onClick: () => setShowTranscriptionModal(true), key: 'stt' },
-                  { Icon: Cpu, label: 'Model', value: aiModel, onClick: () => setShowModelModal(true), key: 'llm' },
-                  { Icon: Volume2, label: 'Voice', value: voice, onClick: () => setShowVoiceModal(true), key: 'tts' },
-                ].map(({ Icon, label, value, onClick, key }) => {
-                  // A bundled Conversational Agent replaces STT + LLM entirely,
-                  // but still takes a Language and a Voice — so only those two
-                  // stages lock.
-                  const superseded = voiceEngine !== 'modular' && (key === 'llm' || key === 'stt');
-                  const engineLabel = voiceEngine === 'xai' ? 'xAI' : voiceEngine === 'elevenlabs' ? 'ElevenLabs' : '';
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      className={`pipeline-stage${superseded ? ' is-superseded' : ''}`}
-                      aria-disabled={superseded}
-                      title={superseded ? `Handled by the ${engineLabel} Conversational Agent` : `Change ${label.toLowerCase()}`}
-                      onClick={() => {
-                        if (superseded) {
-                          toast.info(`Handled automatically by the ${engineLabel} Conversational Agent. Turn it off to configure this manually.`);
-                          return;
-                        }
-                        onClick();
-                      }}
-                    >
-                      <span className="pipeline-stage-icon"><Icon size={16} /></span>
-                      <span className="pipeline-stage-label">{label}</span>
-                      <span className="pipeline-stage-value" title={superseded ? `Handled by ${engineLabel}` : value}>
-                        {superseded ? `Handled by ${engineLabel}` : value}
-                      </span>
-                    </button>
-                  );
-                })}
+                  { Icon: Volume2, label: 'Voice', value: voiceName || 'Not set', onClick: () => setShowVoiceModal(true), key: 'voice' },
+                ].map(({ Icon, label, value, onClick, key }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className="pipeline-stage"
+                    title={`Change ${label.toLowerCase()}`}
+                    onClick={onClick}
+                  >
+                    <span className="pipeline-stage-icon"><Icon size={16} /></span>
+                    <span className="pipeline-stage-label">{label}</span>
+                    <span className="pipeline-stage-value" title={value}>{value}</span>
+                  </button>
+                ))}
               </div>
-
-              {/* The override rail: one bundled speech-to-speech engine standing
-                  in for the transcription and model stages above. */}
-              <button
-                type="button"
-                className={`pipeline-override${voiceEngine !== 'modular' ? ' is-active' : ''}`}
-                onClick={() => setShowXaiModal(true)}
-                aria-pressed={voiceEngine !== 'modular'}
-              >
-                <span className="pipeline-stage-icon"><Sparkles size={16} /></span>
-                <span style={{ flex: 1, minWidth: 0 }}>
-                  <span style={{ display: 'block', fontSize: '14px', fontWeight: 600, color: 'var(--tx)' }}>
-                    Conversational agent
-                  </span>
-                  <span style={{ display: 'block', fontSize: '12px', color: 'var(--tx-2)' }}>
-                    {voiceEngine === 'xai'
-                      ? 'xAI Grok is handling transcription and reasoning'
-                      : voiceEngine === 'elevenlabs'
-                        ? 'ElevenLabs is handling transcription and reasoning'
-                        : 'Off — the four stages above run separately'}
-                  </span>
-                </span>
-                <span style={{ fontSize: '12px', fontWeight: 600, color: voiceEngine !== 'modular' ? 'var(--cyan-fg)' : 'var(--tx-3)', whiteSpace: 'nowrap' }}>
-                  {voiceEngine !== 'modular' ? 'On' : 'Off'}
-                </span>
-              </button>
             </div>
 
             {/* Welcome Message */}
@@ -5409,7 +4968,7 @@ export default function EditAgent() {
                                 ) : responseProfile.ttsDelivery.voice?.tokenStreaming ? (
                                   <>
                                     <span style={{ color: 'var(--cyan)', fontWeight: 700 }}>
-                                      {responseProfile.ttsDelivery.voice.providerName} can stream.
+                                      This voice can stream.
                                     </span>{' '}
                                     {ttsDelivery === 'http'
                                       ? 'This agent is set to sentence-by-sentence, so it is not using it.'
@@ -5483,7 +5042,7 @@ export default function EditAgent() {
                             {[
                               { id: 'off', label: 'Off', hint: 'No background at all.' },
                               { id: 'manual', label: 'Manual bed', hint: 'A pre-rendered loop, continuous, free per turn.' },
-                              { id: 'native', label: 'Fish Audio native', hint: 'Generated with the speech; stops between turns.' },
+                              { id: 'native', label: 'Voice-generated', hint: 'Generated with the speech; stops between turns.' },
                             ].map(opt => {
                               const nativeBlocked = opt.id === 'native' && responseProfile?.ambience && responseProfile.ambience.nativeAvailable === false;
                               const active = ambientMode === opt.id;
@@ -5499,7 +5058,7 @@ export default function EditAgent() {
                           </div>
                           {ambientMode !== 'off' && (
                           <label style={{ display: 'block', color: 'var(--tx)', fontSize: '14px', fontWeight: '600' }}>
-                            {ambientMode === 'native' ? 'Room to ask Fish Audio for' : 'Select Background Sound'}
+                            {ambientMode === 'native' ? 'Room to generate' : 'Select Background Sound'}
                           </label>
                           )}
                           {ambientMode !== 'off' && (
@@ -5528,7 +5087,7 @@ export default function EditAgent() {
                           {ambientMode !== 'off' && (
                             <div style={{ fontSize: '11.5px', color: 'var(--tx-2)', lineHeight: 1.55 }}>
                               {ambientMode === 'native'
-                                ? 'Fish Audio generates the room with each reply. It only exists while the agent is speaking, and its level cannot be controlled. Use the manual bed for a continuous room.'
+                                ? 'The voice generates the room with each reply. It only exists while the agent is speaking, and its level cannot be controlled. Use the manual bed for a continuous room.'
                                 : 'The bed is mixed under the agent at about 42 dB below speech, runs through silence and caller speech, and costs nothing per turn. "Office Chatter" and "Call Center Chatter" are pre-rendered voices, unintelligible by construction.'}
                               {' '}Not available on PIOPIY phone calls.
                             </div>
