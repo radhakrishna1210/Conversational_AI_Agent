@@ -47,6 +47,7 @@ import { releaseSlot } from '../services/telephony/concurrency.js';
 import { syncProgress } from '../services/broadcast/broadcastRunner.service.js';
 import { getRenderedWelcome, loadAgent, neutralGreeting } from '../services/agentRuntime.service.js';
 import { isBundledEngine } from '../services/outboundCall.service.js';
+import { inboundRefusal } from '../services/agentDirection.js';
 import { closeOutCarrierCall } from '../services/telephony/carrierCloseOut.js';
 
 /**
@@ -282,6 +283,17 @@ export async function answer(req, res) {
   const agent = await loadAgent(workspaceId, agentId);
   if (!agent) {
     return failXml(res, 404, `agent ${agentId} not found in workspace ${workspaceId}`);
+  }
+
+  // setInboundAgent no longer lets an Outbound agent onto a number, but a number
+  // assigned before that rule existed still routes here. Answered anyway: the
+  // person on the line is a real customer who rang us, and "not in service" is a
+  // worse call than one with the wrong opening. Logged so it gets reassigned.
+  if (routedInbound && inboundRefusal(agent)) {
+    logger.warn(
+      { callUuid, workspaceId, agentId, to: field(req, 'To') },
+      'Plivo inbound call answered by an Outbound agent — reassign this number to an Inbound agent',
+    );
   }
 
   // Set by placeCall() on calls this platform dialled. Normalised to the casing

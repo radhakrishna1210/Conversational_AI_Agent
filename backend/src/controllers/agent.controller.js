@@ -12,6 +12,8 @@ import { assertComplianceReady } from '../services/compliance/compliance.service
 import fetch from 'node-fetch';
 import { env } from '../config/env.js';
 import { isModelAllowed, labelFor } from '../services/platform/modelCatalog.js';
+import { AGENT_DIRECTION, agentDirection, directionChangeConflict, normaliseDirection } from '../services/agentDirection.js';
+import { VOICE_NUMBER_STATUS } from '../constants/compliance.js';
 import { validateAgentSettings } from '../validators/agentSettings.validator.js';
 
 // Same storage locations the KB-file and call-log controllers write to —
@@ -130,6 +132,14 @@ export const createAgent = async (req, res) => {
     if (!validated.ok) return res.status(400).json({ error: validated.error });
     const extras = validated.extras;
 
+    // Every new agent is built for one direction, chosen when it is created.
+    // Agents without one predate the choice; see services/agentDirection.js.
+    if (!normaliseDirection(extras.callDirection)) {
+      return res.status(400).json({
+        error: 'Choose whether this agent answers calls (Inbound) or places them (Outbound).',
+      });
+    }
+
     const disabled = await findDisabledModel(columns, extras);
     if (disabled) return res.status(403).json({ error: disabled });
 
@@ -199,6 +209,10 @@ export const updateAgent = async (req, res) => {
 
     const disabled = await findDisabledModel(columns, extras, existing);
     if (disabled) return res.status(403).json({ error: disabled });
+
+    // A direction cannot change under a number or a campaign still using it.
+    const conflict = await directionChangeConflict(existing, extras.callDirection);
+    if (conflict) return res.status(409).json({ error: conflict, code: 'AGENT_DIRECTION_IN_USE' });
 
     const mergedSettings = { ...safeJson(existing.settings, {}), ...extras };
 
@@ -452,6 +466,24 @@ export const testCall = async (req, res) => {
 
   const agent = await prisma.agent.findFirst({ where: { id: agentId, workspaceId } });
   if (!agent) return res.status(404).json({ error: 'Agent not found in this workspace' });
+
+  // A test call DIALS the tester, so on an Inbound agent it would test an
+  // outbound conversation the agent is never allowed to have. Point at the two
+  // tests that do exercise it. placeOutboundCall refuses it too; this is here
+  // for the more useful message.
+  if (agentDirection(agent) === AGENT_DIRECTION.INBOUND) {
+    const number = await prisma.voiceNumber.findFirst({
+      where: { workspaceId, inboundAgentId: agent.id, status: VOICE_NUMBER_STATUS.ACTIVE },
+      select: { phoneNumber: true },
+    }).catch(() => null);
+    return res.status(409).json({
+      success: false,
+      code: 'AGENT_IS_INBOUND',
+      error: number
+        ? `"${agent.name}" is an Inbound agent, so it can't call you. Test it by calling ${number.phoneNumber}, or with a web call.`
+        : `"${agent.name}" is an Inbound agent, so it can't call you. Test it with a web call, or assign it a number on the Phone Numbers page and call that.`,
+    });
+  }
 
   logger.info({ agentId, phoneNumber }, 'Initiating REAL test call');
 

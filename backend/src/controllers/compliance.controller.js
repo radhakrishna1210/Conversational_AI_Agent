@@ -305,7 +305,7 @@ export const putInboundAgent = async (req, res) => {
     numberId: req.params.numberId,
     agentId: req.body?.agentId ?? null,
   });
-  if (!result.ok) return fail(res, result, 404);
+  if (!result.ok) return fail(res, result, result.status ?? 404);
   res.json(await compliance.getComplianceState(wsId(req)));
   // Warm the greeting this number's callers will hear, before the first one
   // rings. Never throws; see warmInboundGreeting.

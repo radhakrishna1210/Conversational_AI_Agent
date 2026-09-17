@@ -17,6 +17,7 @@ import { assertCanStartCall } from './billing/settlement.service.js';
 import { isSlotHeld, releaseSlot, slotTakenAt } from './telephony/concurrency.js';
 import { assertRotationCompliant } from './compliance/compliance.service.js';
 import { placeOutboundCall, resolveCallMode, telephonyStatusForNumber } from './outboundCall.service.js';
+import { outboundRefusal } from './agentDirection.js';
 
 /** The agent's configured closing line, from settings (where the editor saves it). Exported for tests. */
 export const closingLineOf = (agent) => {
@@ -323,6 +324,13 @@ export async function runCampaign(campaignId, workspaceId, deps = {}) {
     if (!agent) {
       await finish(campaignId, CAMPAIGN_STATUS.FAILED, 'The selected voice agent no longer exists.');
       return { started: false, reason: 'agent-missing' };
+    }
+    // Before the first dial, not per recipient: placeOutboundCall would refuse
+    // every one of them, marking the whole list failed one call at a time.
+    const directionRefusal = outboundRefusal(agent);
+    if (directionRefusal) {
+      await finish(campaignId, CAMPAIGN_STATUS.FAILED, directionRefusal);
+      return { started: false, reason: 'agent-direction' };
     }
 
     const rotation = callerRotation(campaign);
