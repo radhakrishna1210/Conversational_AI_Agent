@@ -230,7 +230,7 @@ interface PostCallConfig {
   dateVariable?: string;
   /** event length in minutes when only a start time is extracted (default 30) */
   durationMin?: number;
-  /** extracted-variable key holding the contact's email — required when deliveryMethod === 'Salesforce' */
+  /** extracted-variable key holding the contact's email — required when deliveryMethod === 'Salesforce' or 'Pipedrive' */
   emailVariable?: string;
   /** extracted-variable key holding the contact's phone — optional; see emailVariable */
   phoneVariable?: string;
@@ -1760,6 +1760,7 @@ export default function EditAgent() {
     if (config.deliveryMethod === 'Google Sheets' && !config.spreadsheetId) return 'Select a target spreadsheet first';
     if (config.deliveryMethod === 'Google Calendar' && !config.dateVariable) return 'Choose which extracted variable holds the appointment date/time first';
     if (config.deliveryMethod === 'Salesforce' && !config.emailVariable) return 'Choose which extracted variable holds the contact\'s email first';
+    if (config.deliveryMethod === 'Pipedrive' && !config.emailVariable) return 'Choose which extracted variable holds the contact\'s email first';
     return null;
   };
 
@@ -5260,6 +5261,13 @@ export default function EditAgent() {
               external: true
             },
             {
+              provider: 'pipedrive',
+              name: 'Pipedrive',
+              mode: 'Post Call',
+              description: 'Sync callers as Persons and log calls as Activities in your pipeline.',
+              external: true
+            },
+            {
               provider: 'hubspot',
               name: 'HubSpot',
               mode: 'Post Call',
@@ -5636,6 +5644,7 @@ export default function EditAgent() {
                       <option value="Google Sheets">Google Sheets</option>
                       <option value="Google Calendar">Google Calendar</option>
                       <option value="Salesforce">Salesforce</option>
+                      <option value="Pipedrive">Pipedrive</option>
                       <option value="CRM" disabled>CRM (coming soon)</option>
                       <option value="Slack" disabled>Slack (coming soon)</option>
                       <option value="WhatsApp">WhatsApp</option>
@@ -5781,6 +5790,107 @@ export default function EditAgent() {
                           The caller is upserted as a Salesforce Contact keyed on this variable's value, then the call is
                           logged as a Task on their record. Make sure the variable's description tells the agent to capture
                           an email address.
+                        </div>
+
+                        <div style={{ fontSize: '13px', color: 'var(--tx-2)', margin: '14px 0 8px' }}>Phone variable</div>
+                        <select
+                          value={config.phoneVariable || ''}
+                          onChange={(e) => updatePostCallConfigAndSave(config.id, { phoneVariable: e.target.value })}
+                          style={{
+                            width: '400px',
+                            height: '42px',
+                            padding: '0 16px',
+                            background: 'var(--bg-secondary)',
+                            border: '1px solid var(--line-2)',
+                            borderRadius: '9px',
+                            color: config.phoneVariable ? 'var(--tx)' : 'var(--tx-2)',
+                            fontSize: '14px',
+                            outline: 'none',
+                            boxSizing: 'border-box'
+                          }}
+                        >
+                          <option value="">(optional) Select an extracted variable</option>
+                          {config.extractedVariables.map((v) => (
+                            <option key={v.id} value={v.key}>{v.key}</option>
+                          ))}
+                        </select>
+
+                        <div style={{ fontSize: '13px', color: 'var(--tx-2)', margin: '14px 0 8px' }}>First name variable</div>
+                        <select
+                          value={config.firstNameVariable || ''}
+                          onChange={(e) => updatePostCallConfigAndSave(config.id, { firstNameVariable: e.target.value })}
+                          style={{
+                            width: '400px',
+                            height: '42px',
+                            padding: '0 16px',
+                            background: 'var(--bg-secondary)',
+                            border: '1px solid var(--line-2)',
+                            borderRadius: '9px',
+                            color: config.firstNameVariable ? 'var(--tx)' : 'var(--tx-2)',
+                            fontSize: '14px',
+                            outline: 'none',
+                            boxSizing: 'border-box'
+                          }}
+                        >
+                          <option value="">(optional) Select an extracted variable</option>
+                          {config.extractedVariables.map((v) => (
+                            <option key={v.id} value={v.key}>{v.key}</option>
+                          ))}
+                        </select>
+
+                        <div style={{ fontSize: '13px', color: 'var(--tx-2)', margin: '14px 0 8px' }}>Last name variable</div>
+                        <select
+                          value={config.lastNameVariable || ''}
+                          onChange={(e) => updatePostCallConfigAndSave(config.id, { lastNameVariable: e.target.value })}
+                          style={{
+                            width: '400px',
+                            height: '42px',
+                            padding: '0 16px',
+                            background: 'var(--bg-secondary)',
+                            border: '1px solid var(--line-2)',
+                            borderRadius: '9px',
+                            color: config.lastNameVariable ? 'var(--tx)' : 'var(--tx-2)',
+                            fontSize: '14px',
+                            outline: 'none',
+                            boxSizing: 'border-box'
+                          }}
+                        >
+                          <option value="">(optional) Select an extracted variable</option>
+                          {config.extractedVariables.map((v) => (
+                            <option key={v.id} value={v.key}>{v.key}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+
+                    {config.deliveryMethod === 'Pipedrive' && (
+                      <div style={{ marginTop: '14px' }}>
+                        <div style={{ fontSize: '13px', color: 'var(--tx-2)', marginBottom: '8px' }}>Email variable <span style={{ color: 'var(--err)' }}>*</span></div>
+                        <select
+                          value={config.emailVariable || ''}
+                          onChange={(e) => updatePostCallConfigAndSave(config.id, { emailVariable: e.target.value })}
+                          style={{
+                            width: '400px',
+                            height: '42px',
+                            padding: '0 16px',
+                            background: 'var(--bg-secondary)',
+                            border: '1px solid var(--line-2)',
+                            borderRadius: '9px',
+                            color: config.emailVariable ? 'var(--tx)' : 'var(--tx-2)',
+                            fontSize: '14px',
+                            outline: 'none',
+                            boxSizing: 'border-box'
+                          }}
+                        >
+                          <option value="">Select an extracted variable</option>
+                          {config.extractedVariables.map((v) => (
+                            <option key={v.id} value={v.key}>{v.key}</option>
+                          ))}
+                        </select>
+                        <div style={{ fontSize: '12px', color: '#808080', marginTop: '6px', maxWidth: '400px' }}>
+                          The caller is upserted as a Pipedrive Person keyed on this variable's value, then the call is
+                          logged as an Activity on their record. Make sure the variable's description tells the agent to
+                          capture an email address.
                         </div>
 
                         <div style={{ fontSize: '13px', color: 'var(--tx-2)', margin: '14px 0 8px' }}>Phone variable</div>

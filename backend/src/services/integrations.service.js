@@ -239,6 +239,7 @@ const parseSnapshotResponse = (providerKey, data, fallbackLabel, fallbackCount) 
   if (providerKey === 'slack')            label = data.team ?? label;
   else if (providerKey === 'calendly')    label = data.resource?.name ?? data.resource?.email ?? label;
   else if (providerKey === 'salesforce')  { count = data.totalSize ?? count; label = data.records?.[0]?.Name ?? label; }
+  else if (providerKey === 'pipedrive')   { count = data.data?.length ?? count; label = data.data?.[0]?.name ?? label; }
   else if (providerKey === 'genesys')     label = data.name ?? data.email ?? label;
   else if (providerKey === 'hubspot')     { count = data.results?.length ?? count; label = data.results?.[0]?.properties?.email ?? label; }
   else if (providerKey === 'cal')         { label = data.data?.username ?? data.data?.email ?? label; count = data.data?.eventTypes?.length ?? count; }
@@ -297,6 +298,18 @@ const fetchSnapshot = async (integration) => {
     });
     const data = await res.json().catch(() => ({}));
     if (!res.ok) throw new Error(data.message || data.error || `Salesforce sync failed (${res.status})`);
+    return parseSnapshotResponse(p.key, data, fallbackLabel, fallbackCount);
+  }
+
+  if (p.key === 'pipedrive') {
+    const apiDomain = metadata.apiDomain;
+    const endpoint = p.syncEndpoint ?? '';
+    if (!apiDomain || !endpoint) return { accountLabel: fallbackLabel, lastSyncedCount: fallbackCount };
+    const res = await fetch(`${apiDomain}${endpoint}`, {
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `Pipedrive sync failed (${res.status})`);
     return parseSnapshotResponse(p.key, data, fallbackLabel, fallbackCount);
   }
 
@@ -478,6 +491,18 @@ export const connectWithCredentials = async (workspaceId, providerKey, credentia
       if (!res.ok) throw Object.assign(new Error('Invalid Salesforce token or instance URL'), { statusCode: 400 });
       accountLabel = instanceUrl.replace('https://', '').split('.')[0];
       extraMeta = { instanceUrl };
+    }
+    else if (providerKey === 'pipedrive') {
+      accessToken = sanitizedCredentials.accessToken;
+      const apiDomain = sanitizedCredentials.apiDomain?.replace(/\/$/, '');
+      // NEEDS VERIFICATION: cheapest call to prove the token+domain pair
+      // works, mirroring Salesforce's /limits check — not yet exercised live.
+      const res = await fetch(`${apiDomain}/api/v2/users/me`, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+      });
+      if (!res.ok) throw Object.assign(new Error('Invalid Pipedrive token or API domain'), { statusCode: 400 });
+      accountLabel = apiDomain.replace('https://', '').split('.')[0];
+      extraMeta = { apiDomain };
     }
     else if (providerKey === 'twilio') {
       const sid = sanitizedCredentials.accountSid;
@@ -704,6 +729,16 @@ export const completeOAuthCallback = async (providerKey, code, state, callbackUr
     await prisma.integration.update({
       where: { id: connected.id },
       data: { metadata: jsonStr({ ...existingMetadata, instanceUrl: tokenPayload.instance_url }) },
+    });
+  }
+
+  if (p.key === 'pipedrive' && tokenPayload.api_domain) {
+    // Same reasoning as Salesforce's instance_url above: api_domain is the
+    // per-company host for every subsequent Pipedrive API call.
+    const existingMetadata = safeJson(connected.metadata, {});
+    await prisma.integration.update({
+      where: { id: connected.id },
+      data: { metadata: jsonStr({ ...existingMetadata, apiDomain: tokenPayload.api_domain }) },
     });
   }
 

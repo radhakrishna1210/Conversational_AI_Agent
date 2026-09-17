@@ -125,6 +125,21 @@ const PROVIDERS: ProviderMeta[] = [
     docsUrl: 'https://omnidim.io/docs/guides/salesforce-integration',
   },
   {
+    key: 'pipedrive', name: 'Pipedrive', category: 'Post Call', tab: 'calendar', connectType: 'oauth',
+    logo: '📈', accent: '#25AF61', tint: 'rgba(37,175,97,0.12)',
+    description: 'Sync callers as Persons and log calls as Activities in your pipeline.',
+    modalDescription: 'Connect Pipedrive to automatically sync contacts and log call activity post-call.',
+    connectLabel: 'Connect with Pipedrive',
+    dashboardUrl: 'https://app.pipedrive.com',
+    connectFields: [
+      { name: 'integrationName', label: 'Integration Name', placeholder: 'My Pipedrive Integration', type: 'text' },
+      { name: 'apiDomain', label: 'API Domain', placeholder: 'https://yourcompany.pipedrive.com', type: 'url', help: 'Only needed if OAuth is unavailable. Your Pipedrive company domain', optional: true },
+      { name: 'accessToken', label: 'API Token', placeholder: 'Paste your Pipedrive API token', type: 'password', help: 'Only needed if OAuth is unavailable. Settings → Personal preferences → API', optional: true },
+      { name: 'description', label: 'Description', placeholder: 'Sync contacts and log call activity automatically.', type: 'textarea', optional: true },
+    ],
+    docsUrl: 'https://omnidim.io/docs/guides/pipedrive-integration',
+  },
+  {
     key: 'hubspot', name: 'HubSpot', category: 'Post Call', tab: 'calendar', connectType: 'apikey',
     logo: '🔶', accent: '#FF7A59', tint: 'rgba(255,122,89,0.12)',
     description: 'Sync contacts, notes, and follow-up workflows post-call.',
