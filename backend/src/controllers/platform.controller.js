@@ -498,6 +498,16 @@ export const executePostCall = async (agentId, workspaceId, payload) => {
   return { executed: results.length, results };
 };
 
+// A bare '(sample)' fails any destination that parses the value (a CRM's
+// email field, Calendar's date) — these heuristics infer a plausible shape from the variable's key/description instead.
+const sampleValueFor = ({ key, description }) => {
+  const hint = `${key} ${description}`.toLowerCase();
+  if (/email/.test(hint)) return 'sample.contact@example.com';
+  if (/phone|mobile/.test(hint)) return '+15555550100';
+  if (/date|time|appointment|schedule/.test(hint)) return new Date().toISOString();
+  return '(sample)';
+};
+
 // POST /workspaces/:workspaceId/agents/:agentId/post-call/test
 export const testPostCall = async (req, res) => {
   const { workspaceId, agentId } = req.params;
@@ -511,7 +521,7 @@ export const testPostCall = async (req, res) => {
     variables = collectExtractionDefinitions(agent?.settings).map((d) => ({
       key: d.key,
       description: d.description,
-      value: '(sample)',
+      value: sampleValueFor(d),
     }));
   } catch { /* a test without variables is still a valid connectivity check */ }
 
