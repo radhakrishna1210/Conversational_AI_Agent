@@ -25,6 +25,9 @@ export interface AgentConfig {
   interruptibleEnabled: boolean;
   aiModel: string;
   transcription: string;
+  /** INBOUND | OUTBOUND. Only binding when callDirectionLocked — see lib/callDirection.ts. */
+  callDirection?: string;
+  callDirectionLocked?: boolean;
   createdAt: string;
   updatedAt: string;
 }

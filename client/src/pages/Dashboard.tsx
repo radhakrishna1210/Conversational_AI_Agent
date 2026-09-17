@@ -4,6 +4,9 @@ import { AgentConfig, getDefaultFlowItems, getDefaultWelcomeMessage } from '../l
 import { toast } from 'sonner';
 import { whapi } from '../lib/whapi';
 import { BRAND } from '../lib/brand';
+import { PhoneIncoming, PhoneOutgoing } from 'lucide-react';
+import { CallDirection, DIRECTION_SUMMARY, directionOf } from '../lib/callDirection';
+import { CallDirectionBadge } from '../components/CallDirectionBadge';
 
 
 /**
@@ -49,6 +52,10 @@ function templateDescription(prompt: string): string {
 export default function Dashboard() {
   const [prompt, setPrompt] = useState('');
   const [agentTitle, setAgentTitle] = useState('');
+  // No default on purpose: an agent works for one direction only, for good, so
+  // the person creating it says which rather than inheriting a pre-selected one.
+  const [createDirection, setCreateDirection] = useState<CallDirection | null>(null);
+  const [directionFilter, setDirectionFilter] = useState<'ALL' | CallDirection>('ALL');
   const [creating, setCreating] = useState(false);
   const [enhancing, setEnhancing] = useState(false);
   const [success, setSuccess] = useState(false);
@@ -178,6 +185,11 @@ export default function Dashboard() {
 
   const handleCreate = async () => {
     if (!prompt.trim()) return;
+    if (!createDirection) {
+      toast.error('Choose whether this agent answers calls (Inbound) or makes calls (Outbound).');
+      return;
+    }
+    const direction = createDirection;
     setCreating(true);
 
     const name =
@@ -185,6 +197,10 @@ export default function Dashboard() {
       generateAgentName(prompt);
 
     let welcomeMsg = '';
+    // True only for a greeting the generator wrote for `direction`. The generic
+    // fallback below is not direction-aware, so it goes to the legacy column,
+    // whose runtime guards keep a wrong-direction line off the call.
+    let welcomeIsForDirection = false;
     let defaultFlow: any[] = [];
     // Full config generated from the user's ACTUAL description + category:
     // welcome + flow, plus languages, voice (TTS), AI model and STT provider.
@@ -204,6 +220,8 @@ export default function Dashboard() {
         name,
         prompt,
         category: selectedCategory || undefined,
+        // The greeting and every stage are written for this direction.
+        callDirection: direction,
       });
       // A tailored flow is the valuable part — keep it (and voice/languages/
       // variables) even when the backend dropped a bad welcome. The welcome
@@ -211,6 +229,7 @@ export default function Dashboard() {
       if (generated && Array.isArray(generated.flowItems) && generated.flowItems.length) {
         if (typeof generated.welcomeMessage === 'string' && generated.welcomeMessage.trim()) {
           welcomeMsg = generated.welcomeMessage;
+          welcomeIsForDirection = true;
         }
         defaultFlow = generated.flowItems;
         genConfig = generated;
@@ -244,9 +263,12 @@ export default function Dashboard() {
         ...(genConfig.transcription
           ? { transcription: genConfig.transcription, sttProvider: genConfig.transcription }
           : {}),
-        // Inferred from the prompt: does this agent place calls (OUTBOUND)
-        // or receive them (INBOUND)? Drives the greeting style.
-        ...(genConfig.callDirection ? { callDirection: genConfig.callDirection } : {}),
+        // Chosen above, not inferred: the agent will only ever take calls in
+        // this direction (the backend refuses to create one without it).
+        callDirection: direction,
+        ...(welcomeIsForDirection
+          ? (direction === 'OUTBOUND' ? { welcomeOutbound: welcomeMsg } : { welcomeInbound: welcomeMsg })
+          : {}),
         // The human first name the agent SPEAKS ("Purva"), kept separate from
         // the display label ("Purva - Hospital Receptionist"), which is a 2-5
         // word title and cannot be said aloud. Without this the runtime had to
@@ -281,6 +303,7 @@ export default function Dashboard() {
       setAgents(prev => [newAgent, ...prev]);
       setPrompt('');
       setAgentTitle('');
+      setCreateDirection(null);
       setSuccess(true);
       setTimeout(() => setSuccess(false), 2000);
     } catch (err) {
@@ -295,9 +318,10 @@ export default function Dashboard() {
 
 
   const filteredAgents = agents.filter(agent =>
+    (directionFilter === 'ALL' || directionOf(agent) === directionFilter) && (
     agent.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
     agent.language.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    agent.llm.toLowerCase().includes(searchQuery.toLowerCase())
+    agent.llm.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -1410,6 +1434,35 @@ Goals:
         {/* Create Agent Card */}
         <div className="omni-create-card">
           {/*
+            The first decision, and a permanent-feeling one: an agent works for
+            one direction only. It picks where the agent can be used (a number
+            for Inbound, calls and campaigns for Outbound) and how its greeting
+            and flow are written.
+          */}
+          <div className="omni-direction" role="radiogroup" aria-label="Call direction">
+            <span className="omni-direction-label">This agent will</span>
+            {(['INBOUND', 'OUTBOUND'] as const).map((dir) => {
+              const Icon = dir === 'OUTBOUND' ? PhoneOutgoing : PhoneIncoming;
+              const selected = createDirection === dir;
+              return (
+                <button
+                  key={dir}
+                  type="button"
+                  role="radio"
+                  aria-checked={selected}
+                  className={`omni-direction-option is-${dir.toLowerCase()}${selected ? ' is-selected' : ''}`}
+                  onClick={() => setCreateDirection(dir)}
+                >
+                  <Icon size={16} aria-hidden="true" />
+                  <span>
+                    <span className="omni-direction-title">{dir === 'OUTBOUND' ? 'Make calls' : 'Answer calls'}</span>
+                    <span className="omni-direction-sub">{dir === 'OUTBOUND' ? 'Outbound' : 'Inbound'} · {DIRECTION_SUMMARY[dir]}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+          {/*
             Naming the agent up front is optional — left blank, generation names
             it from the prompt (see handleCreate). It sits above the prompt
             rather than in a separate dialog so the whole act of creating an
@@ -1440,11 +1493,14 @@ Goals:
             </button>
             {/* A live reading of what will be sent — an instrument, so mono. */}
             <span className="omni-char-count sp-num">{prompt.length} chars</span>
+            {!createDirection && prompt.trim() && (
+              <span className="omni-direction-hint">Choose Answer calls or Make calls above</span>
+            )}
             <button
               className="omni-btn omni-btn-primary"
               style={{ background: success ? "var(--lime)" : "" }}
               onClick={handleCreate}
-              disabled={creating || success || !prompt.trim()}
+              disabled={creating || success || !prompt.trim() || !createDirection}
             >
               {creating ? "Creating..." : success ? "✓ Created!" : "Create Voice AI Assistant"}
             </button>
@@ -1536,6 +1592,18 @@ Goals:
                   onChange={(e) => setSearchQuery(e.target.value)}
                 />
               </div>
+              <div className="omni-cat-row" role="group" aria-label="Filter by call direction">
+                {(['ALL', 'INBOUND', 'OUTBOUND'] as const).map((f) => (
+                  <button
+                    key={f}
+                    className={`omni-cat${directionFilter === f ? ' is-active' : ''}`}
+                    onClick={() => setDirectionFilter(f)}
+                    aria-pressed={directionFilter === f}
+                  >
+                    {f === 'ALL' ? 'All' : f === 'INBOUND' ? 'Inbound' : 'Outbound'}
+                  </button>
+                ))}
+              </div>
               <div className="omni-suggestions">
                 <span>Suggested:</span>
                 {['English', 'GPT-4', 'Moon', 'Support'].map(tag => (
@@ -1549,7 +1617,13 @@ Goals:
 
           <div className="omni-assistants-grid">
             {/* Dynamic Agents only — no hardcoded demo card */}
-            {agentsError ? null : agentsLoading ? null : filteredAgents.length === 0 ? (
+            {agentsError ? null : agentsLoading ? null : filteredAgents.length === 0 && agents.length > 0 ? (
+              <div style={{ padding: '32px', textAlign: 'center', color: 'var(--tx-3)', background: 'var(--s1)', border: '1px dashed var(--line-2)', borderRadius: '14px' }}>
+                <p style={{ fontSize: '14px', color: 'var(--tx-2)', margin: 0 }}>
+                  No {directionFilter === 'INBOUND' ? 'Inbound ' : directionFilter === 'OUTBOUND' ? 'Outbound ' : ''}assistants match this filter.
+                </p>
+              </div>
+            ) : filteredAgents.length === 0 ? (
               <div style={{ padding: '48px', textAlign: 'center', color: 'var(--tx-3)', background: 'var(--s1)', border: '1px dashed var(--line-2)', borderRadius: '14px' }}>
                 <div style={{ fontSize: '40px', marginBottom: '12px' }}>🤖</div>
                 <p style={{ fontSize: '15px', marginBottom: '6px', color: 'var(--tx-2)' }}>No assistants yet</p>
@@ -1577,6 +1651,7 @@ Goals:
                 <div className="omni-row-body">
                   <div className="omni-row-title-line">
                     <div className="omni-row-name" title={assistant.name}>{displayName}</div>
+                    <CallDirectionBadge direction={directionOf(assistant)} />
                   </div>
                   {/*
                     Config summary in mono — these are instrument readings, not
@@ -1695,6 +1770,65 @@ Goals:
           box-sizing: border-box;
         }
         .omni-create-title::placeholder { color: var(--tx-3); }
+
+        /* ── Call direction choice ── */
+        .omni-direction {
+          display: flex;
+          align-items: stretch;
+          gap: 10px;
+          flex-wrap: wrap;
+          margin-bottom: 16px;
+        }
+        .omni-direction-label {
+          align-self: center;
+          font-family: var(--ff-m);
+          font-size: 11px;
+          letter-spacing: 1.5px;
+          text-transform: uppercase;
+          color: var(--tx-3);
+          margin-right: 4px;
+        }
+        .omni-direction-option {
+          flex: 1 1 220px;
+          display: flex;
+          align-items: flex-start;
+          gap: 10px;
+          text-align: left;
+          padding: 10px 14px;
+          background: var(--s2);
+          border: 1px solid var(--line-2);
+          border-radius: 12px;
+          color: var(--tx-2);
+          cursor: pointer;
+          transition: border-color .15s, background .15s, color .15s;
+        }
+        .omni-direction-option svg { margin-top: 2px; flex-shrink: 0; }
+        .omni-direction-option:hover { border-color: var(--tx-3); color: var(--tx); }
+        .omni-direction-option.is-inbound.is-selected {
+          background: rgba(14,179,158,.12);
+          border-color: rgba(14,179,158,.55);
+          color: var(--cyan-fg);
+        }
+        .omni-direction-option.is-outbound.is-selected {
+          background: rgba(249,115,22,.12);
+          border-color: rgba(249,115,22,.55);
+          color: var(--orange);
+        }
+        .omni-direction-title {
+          display: block;
+          font-weight: 600;
+          font-size: 14px;
+        }
+        .omni-direction-sub {
+          display: block;
+          font-size: 12px;
+          color: var(--tx-3);
+          margin-top: 2px;
+        }
+        .omni-direction-hint {
+          font-size: 12px;
+          color: var(--warn);
+        }
         .omni-create-textarea {
           width: 100%;
           min-height: 140px;
@@ -2054,6 +2188,8 @@ Goals:
           gap: 10px;
         }
         .omni-row-name {
+          /* Shrinks to make room for the direction badge beside it. */
+          min-width: 0;
           font-family: var(--ff-d);
           font-weight: 600;
           font-size: 15px;

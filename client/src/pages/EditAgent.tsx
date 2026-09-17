@@ -16,6 +16,8 @@ import { xaiCallSocket } from '../services/xaiCallSocket';
 import { AMBIENT_OPTIONS, startAmbientSound } from '../services/ambientSound';
 import { modularCallSocket, type ModularCallEvent } from '../services/modularCallSocket';
 import { fetchModelCatalog, type ModelCatalog } from '../lib/modelCatalog';
+import { type CallDirection, DIRECTION_LABEL, DIRECTION_SUMMARY, directionOf, suggestedDirectionOf } from '../lib/callDirection';
+import { CallDirectionBadge } from '../components/CallDirectionBadge';
 import {
   ArrowLeft, Sparkles, Rocket, Save, Link2, MessageSquare, Globe, Phone,
   PhoneIncoming, PhoneOutgoing, Languages as LanguagesIcon, AudioLines, Cpu,
@@ -433,13 +435,11 @@ export default function EditAgent() {
   // the words that were actually spoken. Both are now spoken verbatim by TTS.
   const [welcomeInbound, setWelcomeInbound] = useState('');
   const [welcomeOutbound, setWelcomeOutbound] = useState('');
-  // Which greeting is on screen. Both must stay editable — a campaign routinely
-  // dials OUT through an agent saved as INBOUND, which is the case that produced
-  // "thank you for calling" on calls the platform itself placed — but showing
-  // both full-size boxes at once next to a direction toggle reads as though the
-  // toggle should be filtering them, and it does not: the toggle sets what the
-  // agent is FOR. One at a time, behind its own tabs, keeps the two controls
-  // from looking like one control.
+  // Which greeting is on screen, and which direction the browser test call runs
+  // as. For an agent with a call direction this simply IS that direction (see
+  // the effect beside callDirection) and there are no tabs. Only an older agent
+  // with no direction — which may still take calls both ways — gets both
+  // greetings, one at a time behind tabs.
   const [welcomeTab, setWelcomeTab] = useState<'INBOUND' | 'OUTBOUND'>('INBOUND');
   // What a call going the viewed tab's way opens with, resolved by the server
   // from the SAVED agent — shown under an empty greeting box. `source` says
@@ -531,7 +531,80 @@ export default function EditAgent() {
   const [, setVoiceProvider] = useState('google'); // provider tracked for future UI filtering
   const [agentName, setAgentName] = useState('');
   // INBOUND = customers call the agent; OUTBOUND = the agent calls customers.
-  const [callDirection, setCallDirection] = useState('INBOUND');
+  // An agent works for ONE of them (the backend enforces it). Null for an agent
+  // whose direction was never chosen under that rule — it is never defaulted to
+  // INBOUND here, because every save sends this value, and a silent default
+  // would fail the save of any older agent still running a campaign.
+  const [callDirection, setCallDirection] = useState<CallDirection | null>(null);
+  // What an older agent has stored, which the old editor wrote by default: only
+  // pre-selected in the dialog, never applied.
+  const [suggestedDirection, setSuggestedDirection] = useState<CallDirection | null>(null);
+  const [showDirectionModal, setShowDirectionModal] = useState(false);
+  const [directionDraft, setDirectionDraft] = useState<CallDirection | null>(null);
+  const [directionSaving, setDirectionSaving] = useState(false);
+  const [directionError, setDirectionError] = useState<string | null>(null);
+  const [duplicating, setDuplicating] = useState(false);
+
+  // Once an agent has a direction, the greeting being edited is that
+  // direction's, and the browser test call runs as that direction (both follow
+  // welcomeTab). The tab strip only remains for an agent with no direction yet.
+  useEffect(() => {
+    if (callDirection) setWelcomeTab(callDirection);
+  }, [callDirection]);
+
+  const openDirectionModal = () => {
+    setDirectionDraft(callDirection ?? suggestedDirection);
+    setDirectionError(null);
+    setShowDirectionModal(true);
+  };
+
+  // Saved on its own, straight away, rather than with the rest of the page: the
+  // server refuses a change while a number or a live campaign uses this agent,
+  // and that refusal belongs next to the choice that caused it.
+  const saveDirection = async () => {
+    if (!agentId || !directionDraft) return;
+    if (directionDraft === callDirection) { setShowDirectionModal(false); return; }
+    setDirectionSaving(true);
+    setDirectionError(null);
+    try {
+      await whapi.put(`/agents/${agentId}`, { callDirection: directionDraft });
+      setCallDirection(directionDraft);
+      setWelcomeSavedTick((t) => t + 1);
+      setShowDirectionModal(false);
+      toast.success(`This is now an ${DIRECTION_LABEL[directionDraft]} agent.`);
+    } catch (err) {
+      setDirectionError(err instanceof Error ? err.message : 'Could not change the call direction.');
+    } finally {
+      setDirectionSaving(false);
+    }
+  };
+
+  // For an agent that has to work both ways: a second agent, built for the
+  // other direction, from this one's SAVED configuration. Knowledge-base files
+  // belong to the agent they were uploaded to, so they are not carried over.
+  const duplicateForDirection = async (dir: CallDirection) => {
+    if (!agentId) return;
+    setDuplicating(true);
+    try {
+      const source = await whapi.get<Record<string, unknown>>(`/agents/${agentId}`);
+      const copy: Record<string, unknown> = { ...source };
+      for (const key of ['id', 'createdAt', 'updatedAt', 'workspaceId', 'workspace', 'settings', 'dltTemplateId', 'dltTemplate', 'kbFiles', 'kbUrls']) {
+        delete copy[key];
+      }
+      const created = await whapi.post<{ id: string }>('/agents', {
+        ...copy,
+        name: `${String(source.name ?? agentName)} (${DIRECTION_LABEL[dir]})`,
+        callDirection: dir,
+      });
+      setShowDirectionModal(false);
+      toast.success(`Created an ${DIRECTION_LABEL[dir]} copy. Knowledge-base files were not copied — add them to the new agent.`);
+      navigate(`/agent/${created.id}`);
+    } catch (err) {
+      setDirectionError(err instanceof Error ? err.message : 'Could not create the copy.');
+    } finally {
+      setDuplicating(false);
+    }
+  };
 
   // The greeting this agent leads with, derived rather than stored: the two
   // per-direction fields are the source of truth and `welcomeMessage` is only
@@ -544,7 +617,8 @@ export default function EditAgent() {
   // is what every older reader and the server-side fallback chain still use.
   // Letting it save as '' would delete the agent's only greeting the first time
   // someone flipped the direction toggle.
-  const activeWelcome = (callDirection === 'OUTBOUND'
+  // An older agent's stored direction still decides the mirror, as it always did.
+  const activeWelcome = ((callDirection ?? suggestedDirection) === 'OUTBOUND'
     ? (welcomeOutbound.trim() || welcomeInbound)
     : (welcomeInbound.trim() || welcomeOutbound));
   const [agentNotFound, setAgentNotFound] = useState(false);
@@ -1430,7 +1504,8 @@ export default function EditAgent() {
           // KB URLs saved in agent settings
           setKbUrls((agent as any).kbUrls ?? []);
           // Integrations tab
-          setCallDirection((agent as any).callDirection ?? 'INBOUND');
+          setCallDirection(directionOf(agent as any));
+          setSuggestedDirection(suggestedDirectionOf(agent as any));
           // STT settings
           setSttProvider((agent as any).sttProvider ?? 'Sarvam');
           setSttSilenceTimeoutMs((agent as any).sttSilenceTimeoutMs ?? 470);
@@ -4134,8 +4209,122 @@ export default function EditAgent() {
         </div>
       )}
 
+      {/* Call Direction Modal */}
+      {showDirectionModal && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="Call direction"
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '16px' }}
+        >
+          <div style={{ background: 'var(--s1)', borderRadius: '12px', padding: '26px', maxWidth: '520px', width: '100%', border: '1px solid var(--line-2)', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <h2 style={{ fontSize: '18px', fontWeight: 600, margin: 0 }}>Call direction</h2>
+              <button onClick={() => setShowDirectionModal(false)} aria-label="Close" style={{ background: 'none', border: 'none', color: 'var(--tx-2)', cursor: 'pointer', padding: 4 }}><X size={20} /></button>
+            </div>
+            <p style={{ fontSize: '13px', color: 'var(--tx-2)', margin: '0 0 16px', lineHeight: 1.5 }}>
+              An agent works for one direction only. Its greeting and conversation are written for that side of the call, and it can only be used there.
+            </p>
+
+            <div role="radiogroup" aria-label="Call direction" style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginBottom: '16px' }}>
+              {(['INBOUND', 'OUTBOUND'] as const).map((dir) => {
+                const selected = directionDraft === dir;
+                const tone = dir === 'OUTBOUND'
+                  ? { fg: 'var(--orange)', bg: 'rgba(249,115,22,0.10)', border: 'rgba(249,115,22,0.55)' }
+                  : { fg: 'var(--cyan-fg)', bg: 'rgba(14,179,158,0.10)', border: 'rgba(14,179,158,0.55)' };
+                const Icon = dir === 'OUTBOUND' ? PhoneOutgoing : PhoneIncoming;
+                return (
+                  <button
+                    key={dir}
+                    type="button"
+                    role="radio"
+                    aria-checked={selected}
+                    onClick={() => { setDirectionDraft(dir); setDirectionError(null); }}
+                    style={{
+                      display: 'flex', gap: '12px', alignItems: 'flex-start', textAlign: 'left',
+                      padding: '12px 14px', borderRadius: '10px', cursor: 'pointer',
+                      background: selected ? tone.bg : 'var(--s2)',
+                      border: `1px solid ${selected ? tone.border : 'var(--line-2)'}`,
+                      color: 'var(--tx)',
+                    }}
+                  >
+                    <Icon size={18} style={{ color: tone.fg, marginTop: 2, flexShrink: 0 }} aria-hidden="true" />
+                    <span>
+                      <span style={{ display: 'block', fontWeight: 600, fontSize: '14px', color: selected ? tone.fg : 'var(--tx)' }}>
+                        {dir === 'OUTBOUND' ? 'Outbound — makes calls' : 'Inbound — answers calls'}
+                      </span>
+                      <span style={{ display: 'block', fontSize: '12px', color: 'var(--tx-3)', marginTop: 3, lineHeight: 1.45 }}>
+                        {dir === 'OUTBOUND'
+                          ? 'Can place test calls and run Bulk Call campaigns. Cannot be assigned to a phone number.'
+                          : 'Can be assigned to your phone number to answer customers. Cannot place calls or run campaigns.'}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {directionError && (
+              <div role="alert" style={{ padding: '10px 12px', marginBottom: '14px', borderRadius: '8px', background: 'rgba(239,68,68,0.08)', border: '1px solid rgba(239,68,68,0.35)', color: 'var(--err)', fontSize: '12.5px', lineHeight: 1.5 }}>
+                {directionError}
+              </div>
+            )}
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+              <button onClick={() => setShowDirectionModal(false)} style={{ padding: '9px 18px', background: 'transparent', border: '1px solid var(--line-2)', color: 'var(--tx)', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>Cancel</button>
+              <button
+                onClick={saveDirection}
+                disabled={!directionDraft || directionSaving || duplicating}
+                style={{ padding: '9px 18px', background: 'var(--cyan)', color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 600, opacity: !directionDraft || directionSaving ? 0.6 : 1 }}
+              >
+                {directionSaving ? 'Saving…' : 'Save direction'}
+              </button>
+            </div>
+
+            {/* Only meaningful once the agent is one direction: the copy is the
+                OTHER one. An agent that must work both ways becomes two. */}
+            {callDirection && (() => {
+              const other: CallDirection = callDirection === 'OUTBOUND' ? 'INBOUND' : 'OUTBOUND';
+              return (
+                <div style={{ marginTop: '18px', paddingTop: '14px', borderTop: '1px solid var(--line)', fontSize: '12.5px', color: 'var(--tx-3)', lineHeight: 1.5 }}>
+                  Need this agent for {other === 'OUTBOUND' ? 'outbound calls' : 'incoming calls'} too?{' '}
+                  <button
+                    type="button"
+                    onClick={() => duplicateForDirection(other)}
+                    disabled={duplicating || directionSaving}
+                    style={{ background: 'none', border: 'none', padding: 0, color: 'var(--cyan-fg)', cursor: 'pointer', fontSize: '12.5px', fontWeight: 600, textDecoration: 'underline', textUnderlineOffset: '3px' }}
+                  >
+                    {duplicating ? 'Creating copy…' : `Create an ${DIRECTION_LABEL[other]} copy`}
+                  </button>
+                  {' '}— copies the saved settings, not knowledge-base files.
+                </div>
+              );
+            })()}
+          </div>
+        </div>
+      )}
+
       {/* Phone Call Modal */}
-      {showPhoneCallModal && (
+      {showPhoneCallModal && callDirection === 'INBOUND' && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, padding: '16px' }}>
+          <div style={{ background: 'var(--s1)', borderRadius: '12px', padding: '26px', maxWidth: '440px', width: '100%', border: '1px solid var(--line-2)' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <h2 style={{ fontSize: '18px', fontWeight: 600, margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}><PhoneIncoming size={18} /> Test an Inbound agent</h2>
+              <button onClick={() => setShowPhoneCallModal(false)} aria-label="Close" style={{ background: 'none', border: 'none', color: 'var(--tx-2)', cursor: 'pointer', padding: 4 }}><X size={20} /></button>
+            </div>
+            {/* A phone test DIALS you, which is an outbound call — something an
+                Inbound agent never makes. The server refuses it; say so first. */}
+            <p style={{ fontSize: '13px', color: 'var(--tx-2)', lineHeight: 1.55, margin: '0 0 18px' }}>
+              "{agentName}" answers calls, so it can't call you. To hear it on a real phone line, assign it to one of your numbers on the Phone Numbers page and call that number. Or test it right here with a web call.
+            </p>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+              <button onClick={() => { setShowPhoneCallModal(false); navigate('/phone_numbers'); }} style={{ padding: '9px 18px', background: 'transparent', border: '1px solid var(--line-2)', color: 'var(--tx)', borderRadius: '6px', cursor: 'pointer', fontSize: '13px' }}>Phone Numbers</button>
+              <button onClick={() => { setShowPhoneCallModal(false); setShowWebCallModal(true); }} style={{ padding: '9px 18px', background: 'var(--cyan)', color: '#000', border: 'none', borderRadius: '6px', cursor: 'pointer', fontSize: '13px', fontWeight: 600 }}>Start a web call</button>
+            </div>
+          </div>
+        </div>
+      )}
+      {showPhoneCallModal && callDirection !== 'INBOUND' && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.7)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 }}>
           <div style={{ background: 'var(--s1)', borderRadius: '12px', padding: '30px', maxWidth: '440px', width: '90%', border: '1px solid var(--line-2)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
@@ -4197,13 +4386,32 @@ export default function EditAgent() {
           placeholder="Agent Name"
         />
 
-        <div
-          onClick={() => setCallDirection(callDirection === 'OUTBOUND' ? 'INBOUND' : 'OUTBOUND')}
-          title="Call direction — click to switch. Incoming: customers call your agent (thanking them for calling is fine). Outgoing: your agent dials the customer (never say 'thank you for calling')."
-          style={{ display: 'flex', alignItems: 'center', gap: '7px', padding: '5px 12px', background: callDirection === 'OUTBOUND' ? 'rgba(249,115,22,0.12)' : 'var(--teal-light)', border: `1px solid ${callDirection === 'OUTBOUND' ? 'rgba(249,115,22,0.35)' : 'rgba(14,179,158,0.35)'}`, borderRadius: 'var(--radius-full)', fontSize: '12px', color: callDirection === 'OUTBOUND' ? 'var(--orange)' : 'var(--cyan-fg)', fontWeight: 600, cursor: 'pointer', userSelect: 'none' }}>
-          {callDirection === 'OUTBOUND' ? <PhoneOutgoing size={13} /> : <PhoneIncoming size={13} />}
-          {callDirection === 'OUTBOUND' ? 'Outgoing' : 'Incoming'}
-        </div>
+        {/*
+          What this agent is FOR, shown as a fact rather than a toggle. It used
+          to flip on a single click and only chose the default greeting; it now
+          decides where the agent may be used, so changing it goes through a
+          dialog that says so.
+        */}
+        {callDirection ? (
+          <button
+            type="button"
+            onClick={openDirectionModal}
+            title={`${DIRECTION_SUMMARY[callDirection]}. Click to change.`}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '8px', background: 'none', border: 'none', padding: 0, cursor: 'pointer' }}
+          >
+            <CallDirectionBadge direction={callDirection} size="md" />
+            <span style={{ fontSize: '12px', color: 'var(--tx-3)', textDecoration: 'underline', textUnderlineOffset: '3px' }}>Change</span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={openDirectionModal}
+            style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', padding: '5px 12px', background: 'rgba(255,183,77,0.1)', border: '1px solid rgba(255,183,77,0.45)', borderRadius: 'var(--radius-full)', fontSize: '12px', color: 'var(--warn)', fontWeight: 600, cursor: 'pointer' }}
+          >
+            <PhoneIncoming size={13} aria-hidden="true" />
+            Choose Inbound or Outbound
+          </button>
+        )}
 
         <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '12px' }}>
           {/*
@@ -4516,7 +4724,11 @@ export default function EditAgent() {
                     from two boxes to one. Each tab carries a dot when ITS
                     greeting has something wrong with it, so the warning is
                     visible from the tab strip whichever side you are editing. */}
-                {(() => {
+                {/* An agent with a direction only ever takes calls that way, so
+                    only that greeting is shown — the tab strip stays for an
+                    older agent with no direction, which can still be used both
+                    ways. The other field is left as saved, not erased. */}
+                {!callDirection && (() => {
                   const problem = (dir: 'INBOUND' | 'OUTBOUND') => {
                     const v = dir === 'OUTBOUND' ? welcomeOutbound : welcomeInbound;
                     if (!v.trim()) return null;                      // empty is a choice, not a fault
@@ -4547,11 +4759,6 @@ export default function EditAgent() {
                             }}
                           >
                             {dir === 'OUTBOUND' ? 'Outgoing' : 'Incoming'}
-                            {callDirection === dir && (
-                              <span style={{ fontSize: '9px', fontWeight: 700, letterSpacing: '0.06em', textTransform: 'uppercase', color: dir === 'OUTBOUND' ? 'var(--orange)' : 'var(--cyan-fg)' }}>
-                                default
-                              </span>
-                            )}
                             {flag && <span aria-label="needs attention" style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#ffb74d', flexShrink: 0 }} />}
                           </button>
                         );

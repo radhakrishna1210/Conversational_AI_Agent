@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { whapi } from '../lib/whapi';
+import { canAnswerNumber, directionOf } from '../lib/callDirection';
 import { RzCard, RzEmpty, RzPill, RzSkeleton, RzStat } from '@/components/rz';
 
 /**
@@ -59,7 +60,7 @@ interface CarrierNumber {
   nextRenewalAt: string | null;
 }
 
-interface Agent { id: string; name: string }
+interface Agent { id: string; name: string; callDirection?: string; callDirectionLocked?: boolean }
 
 interface NumberRequest {
   id: string;
@@ -383,24 +384,53 @@ export default function PhoneNumbers() {
                         </div>
                       </div>
 
-                      <div>
-                        <div className="rz-label" style={{ marginBottom: 6 }}>WHO ANSWERS CALLS TO THIS NUMBER</div>
-                        <div className="rz-cluster-sm" style={{ gap: 10, flexWrap: 'wrap' }}>
-                          <select
-                            className="rz-input"
-                            style={{ maxWidth: 260 }}
-                            value={c.inboundAgentId ?? ''}
-                            disabled={busy === c.id || agents.length === 0}
-                            onChange={e => void setInboundAgent(c.id, e.target.value)}
-                          >
-                            <option value="">Nobody — callers hear "not in service"</option>
-                            {agents.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
-                          </select>
-                          {agents.length === 0 && (
-                            <Link className="rz-btn rz-btn-ghost rz-btn-sm" to="/dashboard">Create an agent first</Link>
-                          )}
-                        </div>
-                      </div>
+                      {(() => {
+                        // Only an agent built to answer calls may answer a number
+                        // (the server refuses the rest). An Outbound agent already
+                        // on the number from before that rule stays visible, so
+                        // the select shows the truth and says what to change.
+                        const answering = agents.filter(canAnswerNumber);
+                        const current = agents.find(a => a.id === c.inboundAgentId) ?? null;
+                        const currentIsOutbound = !!current && !canAnswerNumber(current);
+                        return (
+                          <div>
+                            <div className="rz-label" style={{ marginBottom: 6 }}>WHO ANSWERS CALLS TO THIS NUMBER</div>
+                            <div className="rz-cluster-sm" style={{ gap: 10, flexWrap: 'wrap' }}>
+                              <select
+                                className="rz-input"
+                                style={{ maxWidth: 260 }}
+                                value={c.inboundAgentId ?? ''}
+                                disabled={busy === c.id || (answering.length === 0 && !current)}
+                                onChange={e => void setInboundAgent(c.id, e.target.value)}
+                              >
+                                <option value="">Nobody — callers hear "not in service"</option>
+                                {currentIsOutbound && current && (
+                                  <option value={current.id} disabled>{current.name} (Outbound — choose another)</option>
+                                )}
+                                {answering.map(a => (
+                                  <option key={a.id} value={a.id}>
+                                    {a.name}{directionOf(a) ? '' : ' (direction not set)'}
+                                  </option>
+                                ))}
+                              </select>
+                              {answering.length === 0 && (
+                                <Link className="rz-btn rz-btn-ghost rz-btn-sm" to="/dashboard">
+                                  {agents.length === 0 ? 'Create an agent first' : 'Create an Inbound agent'}
+                                </Link>
+                              )}
+                            </div>
+                            {currentIsOutbound ? (
+                              <div className="rz-sub" style={{ fontSize: 12, marginTop: 6, color: 'var(--warn)' }}>
+                                {current?.name} is an Outbound agent. It is still answering this number for now — assign an Inbound agent.
+                              </div>
+                            ) : (
+                              <div className="rz-sub" style={{ fontSize: 12, marginTop: 6 }}>
+                                Only Inbound agents can answer a number.
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })()}
 
                       {/* The way out of a recurring charge. Deliberately a
                           request: releasing is irreversible and takes the DLT
