@@ -1,40 +1,58 @@
-import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import AuthShell, { AuthField } from '@/components/AuthShell';
 
 // Two-step password reset backed by /auth/forgot-password + /auth/reset-password.
-// Handles the Google-only-account case (backend signals googleOnly: true).
+// The same flow SETS the first password on an account created with Google: the
+// emailed code proves mailbox ownership either way. The sign-in page hands over
+// `{ email, sendCode: true }` in router state when it finds such an account.
 export default function ForgotPassword() {
   const navigate = useNavigate();
+  const location = useLocation();
+  // Read once: the state is cleared below, and the page must keep its title.
+  const [handoff] = useState(() => (location.state ?? {}) as { email?: string; sendCode?: boolean });
+  const settingFirst = Boolean(handoff.sendCode);
   const [step, setStep] = useState<'request' | 'reset'>('request');
-  const [email, setEmail] = useState('');
+  const [email, setEmail] = useState(handoff.email ?? '');
   const [otp, setOtp] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirm, setConfirm] = useState('');
   const [msg, setMsg] = useState<{ kind: 'info' | 'error' | 'success'; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
 
-  const requestCode = async (e: React.FormEvent) => {
-    e.preventDefault();
+  const sendCode = async (address: string) => {
     setMsg(null);
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) { setMsg({ kind: 'error', text: 'Enter a valid email address.' }); return; }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) { setMsg({ kind: 'error', text: 'Enter a valid email address.' }); return; }
     setBusy(true);
     try {
       const res = await fetch('/api/v1/auth/forgot-password', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email: address }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `Request failed (${res.status})`);
-      if (data.googleOnly) {
-        setMsg({ kind: 'info', text: 'This account uses Google Sign-In — use “Continue with Google” on the sign-in page instead.' });
-      } else {
-        setMsg({ kind: 'info', text: data.message || 'If an account exists, a code has been sent.' });
-        setStep('reset');
-      }
+      setMsg({ kind: 'info', text: data.message || 'If an account exists, a code has been sent.' });
+      setStep('reset');
     } catch (err) {
       setMsg({ kind: 'error', text: err instanceof Error ? err.message : 'Request failed' });
     } finally { setBusy(false); }
   };
+
+  const requestCode = (e: React.FormEvent) => {
+    e.preventDefault();
+    void sendCode(email);
+  };
+
+  // Arriving from the sign-in page's "Email me a code": send it straight away.
+  // The ref keeps StrictMode's second effect run from mailing a second code,
+  // and the state is cleared so a reload doesn't send another.
+  const handoffSent = useRef(false);
+  useEffect(() => {
+    if (handoffSent.current || !handoff.sendCode || !handoff.email) return;
+    handoffSent.current = true;
+    void sendCode(handoff.email);
+    navigate(location.pathname, { replace: true, state: null });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const doReset = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -49,7 +67,7 @@ export default function ForgotPassword() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || `Reset failed (${res.status})`);
-      setMsg({ kind: 'success', text: 'Password updated — all old sessions were signed out. Redirecting to sign in…' });
+      setMsg({ kind: 'success', text: 'Password saved — all old sessions were signed out. Redirecting to sign in…' });
       setTimeout(() => navigate('/login'), 1500);
     } catch (err) {
       setMsg({ kind: 'error', text: err instanceof Error ? err.message : 'Reset failed' });
@@ -65,12 +83,12 @@ export default function ForgotPassword() {
 
   return (
     <AuthShell
-      kicker="Reset"
-      title="Reset your password"
+      kicker={settingFirst ? 'Password' : 'Reset'}
+      title={settingFirst ? 'Set a password' : 'Reset your password'}
       subtitle={
         step === 'request'
-          ? 'Enter your account email and we’ll send a 6-digit reset code.'
-          : `Enter the code we sent to ${email} and choose a new password.`
+          ? 'Enter your account email and we’ll send a 6-digit code. Accounts created with Google can set a password this way too.'
+          : `Enter the code we sent to ${email} and choose a password.`
       }
       footer={
         <div style={{ marginTop: 22, textAlign: 'center', fontSize: 13.5, color: 'var(--tx-2)' }}>

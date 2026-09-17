@@ -42,6 +42,11 @@ model User {
   email         String            @unique
   passwordHash  String?
   googleId      String?           @unique
+  // When this account's owner last proved they read `email`: a signup code,
+  // a password-reset code, or Google saying email_verified. Null means a
+  // password may have been chosen by someone else (an invite accepted by the
+  // inviter, a signup on a server without SMTP), so linking Google drops it.
+  emailVerifiedAt DateTime?
   name          String
   avatarUrl     String?
   banned        Boolean           @default(false)

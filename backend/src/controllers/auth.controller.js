@@ -43,6 +43,12 @@ export const login = async (req, res) => {
       workspace: workspace ? { id: workspace.id, name: workspace.name, slug: workspace.slug } : null,
     });
   } catch (err) {
+    // The shared error handler sends only `error`; the login page needs the
+    // code to offer "Continue with Google" / "Set a password" instead of a
+    // bare refusal.
+    if (err?.code === 'PASSWORD_NOT_SET') {
+      return res.status(401).json({ error: err.message, code: err.code, hasGoogle: Boolean(err.hasGoogle) });
+    }
     if (shouldFallbackToMockAuth(err) && service === authService) {
       const { accessToken, refreshToken, user, workspace } = await mockAuthService.loginUser(req.body);
       return res.json({
