@@ -83,6 +83,7 @@ export const AUDIT_ACTIONS = Object.freeze({
   // agent
   AGENT_DISABLE: 'agent.disable',
   AGENT_FLAG: 'agent.flag',
+  AGENT_RECORDING_FORMAT_UPDATE: 'agent.recording_format_update',
   // voice
   VOICE_CLONE_DELETE: 'voice_clone.delete',
   VOICE_SAMPLE_DELETE: 'voice_sample.delete',

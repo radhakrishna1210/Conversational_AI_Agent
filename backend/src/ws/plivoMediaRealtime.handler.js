@@ -68,7 +68,7 @@ export function handlePlivoMediaUpgrade(ws, { workspaceId, agentId, callLogId = 
   });
 
   /** Both legs, mixed to one WAV at hangup. See callRecordingTap.js. */
-  const recording = createRecordingTap({ label: 'Plivo phone call', startedAt });
+  const recording = createRecordingTap({ label: 'Plivo phone call', startedAt, agentId });
 
   /** `refused`: turned away by the wallet gate — closed out as 0 seconds served. */
   const cleanup = (status, { refused = false } = {}) => {

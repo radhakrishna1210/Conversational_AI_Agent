@@ -375,7 +375,7 @@ interface UserDetail extends UserRow {
     role: string;
     workspace: {
       id: string; name: string; slug: string;
-      agents: { id: string; name: string; aiModel: string; createdAt: string }[];
+      agents: { id: string; name: string; aiModel: string; createdAt: string; recordingFormat: 'FLAC' | 'OPUS' }[];
       _count: { agents: number; campaigns: number };
     };
   }[];
@@ -407,6 +407,28 @@ function UserDetailModal({ userId, onClose, onAction }: {
   const act = async (fn: () => Promise<unknown>, msg: string) => {
     try { await fn(); toast(msg, 'ok'); onAction(); onClose(); }
     catch (e: unknown) { toast(e instanceof Error ? e.message : 'Failed', 'err'); }
+  };
+
+  // Updates in place rather than via `act()`: `act()` closes the modal on
+  // success, which would be a jarring response to flipping one dropdown while
+  // reviewing a user's other agents.
+  const changeRecordingFormat = async (agentId: string, recordingFormat: 'FLAC' | 'OPUS') => {
+    try {
+      await apiFetch(`/agents/${agentId}/recording-format`, { method: 'PATCH', body: JSON.stringify({ recordingFormat }) });
+      setUser((prev) => prev && {
+        ...prev,
+        memberships: prev.memberships.map((m) => ({
+          ...m,
+          workspace: {
+            ...m.workspace,
+            agents: m.workspace.agents.map((a) => (a.id === agentId ? { ...a, recordingFormat } : a)),
+          },
+        })),
+      });
+      toast('Recording format updated', 'ok');
+    } catch (e: unknown) {
+      toast(e instanceof Error ? e.message : 'Failed to update recording format', 'err');
+    }
   };
 
   return (
@@ -460,8 +482,18 @@ function UserDetailModal({ userId, onClose, onAction }: {
                 {m.workspace.agents.length > 0 && (
                   <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                     {m.workspace.agents.map(a => (
-                      <span key={a.id} style={{ padding: '4px 12px', background: 'rgba(14,179,158,0.08)', border: '1px solid rgba(14,179,158,0.2)', borderRadius: 6, fontSize: 12, color: 'var(--cyan-fg)' }}>
+                      <span key={a.id} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 8px 4px 12px', background: 'rgba(14,179,158,0.08)', border: '1px solid rgba(14,179,158,0.2)', borderRadius: 6, fontSize: 12, color: 'var(--cyan-fg)' }}>
                         🤖 {a.name} <span style={{ color: 'var(--tx-3)', fontSize: 10 }}>({a.aiModel})</span>
+                        {/* Recording format: Superadmin-only, set here — see admin.controller.js#setAgentRecordingFormat. */}
+                        <select
+                          value={a.recordingFormat}
+                          onChange={(e) => changeRecordingFormat(a.id, e.target.value as 'FLAC' | 'OPUS')}
+                          title="Call recording format"
+                          style={{ fontSize: 10, background: 'var(--bg-1)', color: 'var(--tx-2)', border: '1px solid var(--line)', borderRadius: 4, padding: '2px 4px', cursor: 'pointer' }}
+                        >
+                          <option value="FLAC">FLAC (lossless)</option>
+                          <option value="OPUS">Opus (lossy)</option>
+                        </select>
                       </span>
                     ))}
                   </div>

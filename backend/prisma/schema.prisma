@@ -488,6 +488,15 @@ model Agent {
   createdAt            DateTime          @default(now())
   updatedAt            DateTime          @updatedAt
   settings             String            @default("{}")
+  // Which format new call recordings for this agent are stored in. Superadmin-
+  // only (see /admin's per-agent control in AdminPanel.tsx and
+  // admin.controller.js#setAgentRecordingFormat) — deliberately NOT in
+  // AGENT_COLUMNS or `settings`, so a Member's normal agent-save request can
+  // never touch it. FLAC (lossless) is the safe default because recordings feed
+  // STT/voice-cloning/sentiment training; OPUS (lossy) is the Superadmin's
+  // per-agent opt-in where storage/bandwidth matters more than fidelity. See
+  // backend/src/constants/recordingFormat.js for the two allowed values.
+  recordingFormat      String            @default("FLAC")
   // The DLT-approved voice template this agent's opening is registered under.
   // Required for Indian outbound: a template is only meaningful if the words
   // actually spoken match it, so the greeting is pinned to the approved body

@@ -5,6 +5,7 @@ import * as userMgmt from '../services/userManagement.service.js';
 import * as audit from '../services/audit.service.js';
 import { writeAudit, AUDIT_ACTIONS, AUDIT_CATEGORIES } from '../services/audit.service.js';
 import { ROLES } from '../constants/roles.js';
+import { RECORDING_FORMATS, isRecordingFormat } from '../constants/recordingFormat.js';
 
 // ─── Admin Analytics ──────────────────────────────────────────────────────────
 
@@ -224,6 +225,51 @@ export const forceLogoutUser = async (req, res) => {
 
   logger.info({ adminId: req.user?.userId, targetId: req.params.id, count }, 'User sessions revoked');
   return res.json({ success: true, revokedSessions: count });
+};
+
+// ─── Agent Management ─────────────────────────────────────────────────────────
+
+/**
+ * PATCH /admin/agents/:id/recording-format
+ * Body: { recordingFormat: 'FLAC' | 'OPUS' }
+ *
+ * Superadmin-only by construction, not just by route guard: `recordingFormat`
+ * is a dedicated Agent column, deliberately left out of AGENT_COLUMNS in
+ * agent.controller.js, so a Member's normal agent-save request has no way to
+ * reach it even if the field name leaked into a payload. This route is the
+ * only writer.
+ */
+export const setAgentRecordingFormat = async (req, res) => {
+  const { recordingFormat } = req.body ?? {};
+  if (!isRecordingFormat(recordingFormat)) {
+    return res.status(400).json({ error: `recordingFormat must be one of: ${Object.values(RECORDING_FORMATS).join(', ')}` });
+  }
+
+  const before = await prisma.agent.findUnique({
+    where: { id: req.params.id },
+    select: { id: true, name: true, recordingFormat: true },
+  });
+  if (!before) return res.status(404).json({ error: 'Agent not found' });
+
+  const format = recordingFormat.toUpperCase();
+  const agent = await prisma.agent.update({
+    where: { id: req.params.id },
+    data: { recordingFormat: format },
+    select: { id: true, name: true, recordingFormat: true },
+  });
+
+  await writeAudit(req, {
+    action: AUDIT_ACTIONS.AGENT_RECORDING_FORMAT_UPDATE,
+    category: AUDIT_CATEGORIES.AGENT,
+    targetType: 'Agent',
+    targetId: agent.id,
+    targetLabel: agent.name,
+    before: { recordingFormat: before.recordingFormat },
+    after: { recordingFormat: agent.recordingFormat },
+  });
+
+  logger.info({ adminId: req.user?.userId, agentId: agent.id, format }, 'Agent recording format changed');
+  return res.json({ success: true, agent });
 };
 
 // ─── Audit Log ────────────────────────────────────────────────────────────────

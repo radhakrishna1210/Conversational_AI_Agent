@@ -15,6 +15,7 @@
 
 import path from 'path';
 import fs from 'fs';
+import fsp from 'fs/promises';
 import multer from 'multer';
 import prisma from '../config/prisma.js';
 import logger from '../lib/logger.js';
@@ -22,7 +23,8 @@ import { settleCall, assertCanStartCall } from '../services/billing/settlement.s
 import { env } from '../config/env.js';
 import { extractAndStoreCallVariables, appointmentTimeZone } from '../services/postCallExtraction.service.js';
 import { withCallFacts } from '../services/postCallExtraction.utils.js';
-import { recordingFilename } from '../services/callRecordingStore.js';
+import { recordingFilename, resolveRecordingFormat } from '../services/callRecordingStore.js';
+import { transcodeRecording } from '../services/voice/audioTranscode.js';
 
 const RECORDINGS_DIR = path.resolve(env.UPLOAD_DIR || 'uploads', 'call-recordings');
 fs.mkdirSync(RECORDINGS_DIR, { recursive: true });
@@ -421,9 +423,38 @@ export const saveCallRecording = async (req, res) => {
       fs.unlink(path.join(RECORDINGS_DIR, path.basename(row.recordingPath)), () => {});
     }
 
+    // The browser always uploads webm/opus (EditAgent.tsx's MediaRecorder) at
+    // whatever bitrate MediaRecorder defaults to, which runs well above the
+    // 32kbps mono target the OPUS choice is supposed to mean — so OPUS still
+    // needs a real transcode here, not just a rename. Both formats go through
+    // the same path phone-call recordings use, for the same reason: one
+    // encoder, one set of settings, no drift between call types.
+    let finalFilename = path.basename(req.file.path);
+    let finalMime = req.file.mimetype || 'audio/webm';
+    const originalExt = path.extname(finalFilename) || '.webm';
+
+    const format = await resolveRecordingFormat(agentId);
+    try {
+      const inputBuffer = await fsp.readFile(req.file.path);
+      const { buffer, mime, ext } = await transcodeRecording(
+        inputBuffer,
+        format,
+        { mime: finalMime, ext: originalExt },
+      );
+      if (ext !== originalExt) {
+        const transcodedFilename = finalFilename.slice(0, -originalExt.length) + ext;
+        await fsp.writeFile(path.join(RECORDINGS_DIR, transcodedFilename), buffer);
+        await fsp.unlink(req.file.path).catch(() => {});
+        finalFilename = transcodedFilename;
+        finalMime = mime;
+      }
+    } catch (err) {
+      logger.warn({ callId, err: err.message }, 'Web-call recording transcode failed — keeping the browser upload as-is');
+    }
+
     const data = {
-      recordingPath: path.basename(req.file.path),
-      recordingMime: req.file.mimetype || 'audio/webm',
+      recordingPath: finalFilename,
+      recordingMime: finalMime,
     };
 
     let updated;

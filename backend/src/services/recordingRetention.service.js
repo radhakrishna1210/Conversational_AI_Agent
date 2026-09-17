@@ -222,11 +222,20 @@ export async function reattachOrphanRecordings({
 }
 
 /**
- * The two formats these two writers produce: browsers upload webm/opus, the
- * phone bridges hand over wav. Derived from the extension because the request's
- * declared mime type died with the request that failed.
+ * The formats these writers can produce: browsers upload webm/opus, the phone
+ * bridges hand over wav — and, per an agent's recordingFormat, either can now
+ * be transcoded to flac or opus before it ever reaches disk (audioTranscode.js).
+ * Derived from the extension because the request's declared mime type died
+ * with the request that failed.
  */
-const mimeForRecording = (name) => (path.extname(name).toLowerCase() === '.wav' ? 'audio/wav' : 'audio/webm');
+const mimeForRecording = (name) => {
+  switch (path.extname(name).toLowerCase()) {
+    case '.wav': return 'audio/wav';
+    case '.flac': return 'audio/flac';
+    case '.opus': return 'audio/ogg';
+    default: return 'audio/webm';
+  }
+};
 
 /** Delete files on disk that no AgentCallLog row points at. */
 export async function sweepOrphans(cutoff, { db = prisma, dir = RECORDINGS_DIR } = {}) {
