@@ -1382,7 +1382,15 @@ export default function EditAgent() {
           setVoiceName((agent as { voiceName?: string }).voiceName || 'Not set');
           {
             const savedEngine = (agent as any).voiceEngine;
-            setVoiceEngine(savedEngine === 'xai' || savedEngine === 'elevenlabs' ? savedEngine : 'modular');
+            // 'openai'/'gpt-realtime' included since the backend gained the GPT
+            // Realtime engine: an agent saved with it must still open the bundled
+            // transport on a test call, not silently fall back to the modular one.
+            setVoiceEngine(
+              savedEngine === 'xai' || savedEngine === 'elevenlabs'
+                || savedEngine === 'openai' || savedEngine === 'gpt-realtime'
+                ? savedEngine
+                : 'modular',
+            );
           }
           setMaxDuration(agent.maxDuration ?? 30);
           setSilenceTimeout(agent.silenceTimeout ?? 5);
