@@ -39,7 +39,7 @@ import { getRenderedWelcome, neutralGreeting, loadAgent } from './agentRuntime.s
 import { resolveAgentVoice } from './voice.service.js';
 import { warmGreetingAudio, greetingSynthesisOpts } from './voice/greetingAudio.js';
 
-const BUNDLED_ENGINES = new Set(['xai', 'elevenlabs']);
+const BUNDLED_ENGINES = new Set(['xai', 'elevenlabs', 'openai', 'gpt-realtime', 'openai-realtime']);
 
 /**
  * Does this `settings.voiceEngine` value run on a bundled speech-to-speech

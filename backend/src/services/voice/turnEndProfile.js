@@ -44,10 +44,10 @@ export const TURN_END_PROFILES = {
     description:
       'Replies as soon as the caller pauses. Best for short answers — yes/no, '
       + 'menu choices, confirmations. Can cut off a caller who thinks mid-sentence.',
-    endpointingMs: 250,
-    graceMs: 250,
-    unfinishedGraceMs: 800,
-    finishedGraceMs: 80,
+    endpointingMs: 200,
+    graceMs: 200,
+    unfinishedGraceMs: 650,
+    finishedGraceMs: 60,
   },
   balanced: {
     id: 'balanced',
@@ -55,10 +55,10 @@ export const TURN_END_PROFILES = {
     description:
       'Waits long enough for a natural mid-sentence pause before answering. '
       + 'The default, and the right choice for most conversations.',
-    endpointingMs: 300,
-    graceMs: 400,
-    unfinishedGraceMs: 1100,
-    finishedGraceMs: 150,
+    endpointingMs: 250,
+    graceMs: 300,
+    unfinishedGraceMs: 900,
+    finishedGraceMs: 120,
   },
   patient: {
     id: 'patient',
@@ -66,10 +66,10 @@ export const TURN_END_PROFILES = {
     description:
       'Gives the caller room to hesitate, spell a name, or read out a number '
       + 'without being interrupted. Slower to answer.',
-    endpointingMs: 400,
-    graceMs: 700,
-    unfinishedGraceMs: 1600,
-    finishedGraceMs: 300,
+    endpointingMs: 350,
+    graceMs: 600,
+    unfinishedGraceMs: 1500,
+    finishedGraceMs: 250,
   },
 };
 
@@ -120,6 +120,58 @@ export function turnEndProfileFor(settings = {}) {
 }
 
 /**
+ * Detect if the last utterance from the assistant was asking a complex, high-cognitive-load
+ * question (e.g. 16-digit card number, order/tracking number, policy number, address, spelling).
+ *
+ * When callers are asked for numbers, dates, or card details, they often hesitate, look for
+ * their wallet/receipt, or pause between digit groups. A static 250ms VAD timer would cut them off.
+ *
+ * @param {string} [lastAssistantText]
+ * @returns {boolean}
+ */
+export function detectCognitiveLoadQuestion(lastAssistantText) {
+  if (!lastAssistantText || typeof lastAssistantText !== 'string') return false;
+  const text = lastAssistantText.trim();
+  if (!text) return false;
+
+  const COGNITIVE_PATTERNS = [
+    /\b(16[- ]digit|card number|account number|policy number|tracking (number|id)|order (number|id)|ssn|passport|spell your|read (out |me )?(the |your )?number|what is your (full )?address|routing number|ifsc|cvv|expiry)\b/i,
+    /\b(digit|pin code|zip code|license|registration number|reference number|confirmation code|otp)\b/i,
+    // Hindi / Hinglish patterns (no ASCII \b on Devanagari strings)
+    /(कार्ड नंबर|खाता नंबर|पॉलिसी नंबर|ऑर्डर नंबर|आधार|पिन कोड|पता क्या है|नंबर बताइए|नंबर बोलिए|नंबर बताएं)/i,
+    /\b(card number|account number|policy number|order number|aadhaar|pin code|address bataiye|number bataiye)\b/i,
+  ];
+
+  return COGNITIVE_PATTERNS.some((pattern) => pattern.test(text));
+}
+
+/**
+ * Dynamically adapt the turn end profile based on previous conversation context.
+ * Automatically expands silence grace to 1500ms when high cognitive load is detected,
+ * while keeping standard dialogue crisp and fast (200ms–250ms).
+ *
+ * @param {TurnEndProfile} baseProfile
+ * @param {string} [lastAssistantText]
+ * @returns {TurnEndProfile}
+ */
+export function dynamicTurnEndProfileFor(baseProfile, lastAssistantText = '') {
+  if (!baseProfile) return turnEndProfileFor({});
+  const isCognitive = detectCognitiveLoadQuestion(lastAssistantText);
+
+  if (!isCognitive) {
+    return { ...baseProfile };
+  }
+
+  // Dynamic expansion for complex cognitive inputs
+  return {
+    ...baseProfile,
+    graceMs: Math.max(baseProfile.graceMs, 800),
+    unfinishedGraceMs: Math.max(baseProfile.unfinishedGraceMs, 1500),
+    dynamicExpanded: true,
+  };
+}
+
+/**
  * Worst-case real silence before this profile commits an end of turn.
  *
  * PUBLISHED TO THE BROWSER so its RMS-VAD backstop can sit clear of the server's
@@ -138,3 +190,4 @@ export function maxCommitMsFor(profile) {
 
 /** Profiles as a plain list, for the agent editor's picker. */
 export const turnEndProfileList = () => Object.values(TURN_END_PROFILES);
+

@@ -27,6 +27,7 @@ import { resolveAgentVoice, streamSynthesizeVoice } from './voice.service.js';
 import { createTokenTtsStream, supportsTokenStreaming, synthesisProviderName, supportsSsmlBreaks } from './voice/ttsStreamFactory.js';
 import { createReplyTextFilter, filterReplyText, stripSpeechMarkup } from './voice/disfluency.js';
 import { groqService } from './groq.service.js';
+import { sarvamLLMService } from './llm/sarvam.service.js';
 import { transcribeAudio } from './stt.service.js';
 import { isLikelySttHallucination, stripAgentEcho } from './stt/speechGate.js';
 // Circular-ish import: kbChunking.service.js imports invalidateKbCaches back
@@ -307,6 +308,8 @@ export async function getAgentKbText(workspaceId, agentId) {
  * that — and only that — stays behind the toggle.
  */
 const HUMAN_SPEECH_RULES = `- Talk the way people talk, not the way they write: contractions always ("I'll", "that's", "we've"), short sentences, and it's fine to open with "And", "But" or "So".
+- Be ultra-concise: speak in under 15-20 words per response whenever possible. Keep answers short, punchy, and conversational.
+- Never use markdown formatting, bold/italics, bullet points, or numbered lists — every character you write is spoken directly over telephony.
 - Vary how you open. Do not begin consecutive replies with the same word, and never open every reply with the caller's name or with "Certainly".
 - React before you answer, the way a person does — a brief "Alright", "Got it", "Sure" or "Right" costs nothing and is most of what makes speech sound human.
 - Never narrate or use stage directions. No "*pauses*", no "(thinking)", no emoji — every character you write is spoken aloud.`;
@@ -489,6 +492,7 @@ export function resolveLlmForAgent(agent, { lowLatency = false, assigned } = {})
     : p === 'gemini' ? Boolean(process.env.GEMINI_API_KEY)
     : p === 'azure' ? Boolean(process.env.AZURE_OPENAI_API_KEY)
     : p === 'groq' ? Boolean(process.env.GROQ_API_KEY)
+    : p === 'sarvam' ? Boolean(process.env.SARVAM_API_KEY)
     : true;
   if (!hasKey(provider)) {
     if (process.env.GEMINI_API_KEY) {
@@ -497,39 +501,27 @@ export function resolveLlmForAgent(agent, { lowLatency = false, assigned } = {})
     } else if (process.env.OPENAI_API_KEY) {
       provider = 'openai';
       model = 'gpt-4o-mini';
+    } else if (process.env.GROQ_API_KEY) {
+      provider = 'groq';
+      model = 'openai/gpt-oss-20b';
+    } else if (process.env.SARVAM_API_KEY) {
+      provider = 'sarvam';
+      model = 'sarvam-105b-conversations';
     }
   }
 
-  // Groq (ultra-low-latency LPU) — selected as the agent's AI Model. Its service
-  // is OpenAI-compatible but separate from getLLMProviderWithFallback. Chosen
-  // explicitly now (not an automatic override) so it shows in the model picker.
+  // Groq (ultra-low-latency LPU) — selected as the agent's AI Model.
   if (provider === 'groq') {
-    return { llm: groqService, provider: 'groq', model: process.env.GROQ_MODEL || model };
+    return { llm: groqService, provider: 'groq', model: model || process.env.GROQ_MODEL || 'openai/gpt-oss-20b' };
   }
 
-  // Live voice turns prioritize time-to-first-token. Flash Lite uses the same
-  // Gemini API contract and grounding prompt with substantially lower latency.
-  //
-  // WHICH Flash Lite is not a detail, and it is not a matter of picking the
-  // newest. Measured from this deployment against the live API on 2026-08-19,
-  // same agent, same 2.5k-token prompt, thinking off, 10 consecutive turns:
-  //
-  //   gemini-3.1-flash-lite   time-to-first-token  1.0s … 20.6s   (p50 ~5s)
-  //   gemini-3.5-flash-lite   time-to-first-token  1.0s …  1.2s   (p50 1.05s)
-  //   gemini-3.5-flash        time-to-first-token           ~12s
-  //   gemini-3.6-flash        time-to-first-token  4.2s … 18.3s
-  //
-  // The old choice was not slow on average so much as UNBOUNDED, and a voice
-  // call is judged on its worst turns: logs/latency.log shows the tail landing
-  // as 13-17s of dead air mid-conversation. Prompt size barely moved it (a
-  // 343-token prompt also produced an 8.9s first token), so this is capacity on
-  // Google's side, not something the prompt can be trimmed out of. The fix is
-  // to stop asking that endpoint.
-  //
-  // Overridable because the ranking above is a property of Google's serving
-  // fleet on a given day, not a law — re-measure with scripts/measure-llm-ttft.js
-  // before changing it, and set VOICE_LLM_MODEL rather than editing this line.
-  if (lowLatency && provider === 'gemini') {
+  // Sarvam LLM
+  if (provider === 'sarvam') {
+    return { llm: sarvamLLMService, provider: 'sarvam', model: model || 'sarvam-105b-conversations' };
+  }
+
+  // Only fallback to VOICE_LLM_MODEL if agent does not specify a model
+  if (lowLatency && provider === 'gemini' && !fromAgent.model) {
     model = process.env.VOICE_LLM_MODEL || 'gemini-3.5-flash-lite';
   }
 
@@ -1251,12 +1243,16 @@ async function _prepareConverse(workspaceId, agentId, messages, { voiceMode = fa
     spokenWelcome,
     holdPauseSec: allowHold && voiceMode ? holdPauseSecFor(safeJson(agent.settings, {})) : null,
   });
-  // Brevity in voice mode is enforced by the prompt, not the token cap —
-  // Gemini 2.5's internal "thinking" tokens count against maxTokens, so a
-  // tight cap truncates replies mid-sentence. Thinking is disabled for ALL
-  // conversation turns (chat AND voice): a persona chat grounded in a KB
-  // doesn't need a reasoning pass, and it costs ~2-3s per reply.
-  const options = { systemPrompt, chatHistory, maxTokens: voiceMode ? 320 : 2000, thinkingBudget: 0 };
+  // Voice token budget: lean output tokens for sub-100ms TTFT.
+  // Thinking is disabled for ALL conversation turns (chat AND voice): a persona
+  // chat grounded in a KB doesn't need a reasoning pass, and it costs ~2-3s per reply.
+  const defaultVoiceMaxTokens = Number(process.env.VOICE_MAX_TOKENS) || 75;
+  const options = {
+    systemPrompt,
+    chatHistory,
+    maxTokens: voiceMode ? defaultVoiceMaxTokens : 2000,
+    thinkingBudget: 0,
+  };
   const config = { model, temperature: DEFAULT_TEMPERATURE };
   return { agent, message, llm, provider, model, config, options, voiceMode, ragMs };
 }
@@ -2032,7 +2028,7 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
   // merely-late token is not. It is also clear of Groq, whose measured first
   // SPOKEN token is ~560ms (see groq.service.js) — there the hedge should never
   // fire at all, which is the point of moving to it.
-  const LLM_FIRST_TOKEN_TIMEOUT_MS = Number(process.env.VOICE_LLM_FIRST_TOKEN_TIMEOUT_MS) || 2500;
+  const LLM_FIRST_TOKEN_TIMEOUT_MS = Number(process.env.VOICE_LLM_FIRST_TOKEN_TIMEOUT_MS) || 2000;
   const LLM_SPIKE_TIMEOUT_MS = Number(process.env.VOICE_LLM_SPIKE_TIMEOUT_MS) || 4000;
   // A stream that STOPS mid-reply, and a TTS socket that never says it is done.
   // Neither had any bound, and on the phone bridge a turn that never resolves
@@ -2517,10 +2513,11 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
     }
     if (first && !first.done) {
       llmTtftMs = Math.round(performance.now() - llmStartedAt);
-      // First sentence = earliest terminator that ends a ≥25-char prefix AND is
+      // First sentence = earliest terminator that ends a ≥20-char prefix AND is
       // followed by whitespace (never end-of-buffer: "3." mid-number must not
       // cut). Includes the Hindi danda for Devanagari replies.
       const boundary = /[.!?…।॥]["')\]]?\s/g;
+      const conjunctionBoundary = /[,;]?\s+(?:and|but|so|because|however|although|or|yet|aur|lekin|kyunki)\s+/i;
       let splitIdx = -1;
       // Where the hold sits in `reply`, once seen. The hold is a seam of its own:
       // everything before it is handed to synthesis at that moment, and
@@ -2550,7 +2547,14 @@ export async function voiceTurnStream(workspaceId, agentId, audioBuffer, mimeTyp
           boundary.lastIndex = 0;
           let m;
           while ((m = boundary.exec(reply)) !== null) {
-            if (m.index + m[0].length >= 25) { splitIdx = m.index + m[0].length; break; }
+            if (m.index + m[0].length >= 20) { splitIdx = m.index + m[0].length; break; }
+          }
+          // Conjunction lookahead splitting: split early at natural conjunctions if buffer accumulates sufficient tokens
+          if (splitIdx < 0 && process.env.VOICE_CONJUNCTION_SPLIT !== 'false' && reply.length >= 35) {
+            const conjMatch = reply.slice(18).match(conjunctionBoundary);
+            if (conjMatch && conjMatch.index !== undefined) {
+              splitIdx = 18 + conjMatch.index + 1;
+            }
           }
           if (splitIdx > 0) segments.push(streamTtsForText(reply.slice(0, splitIdx)));
         }

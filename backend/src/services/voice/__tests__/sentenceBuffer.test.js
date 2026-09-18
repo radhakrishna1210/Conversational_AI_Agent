@@ -1,7 +1,6 @@
-// backend/src/services/voice/__tests__/sentenceBuffer.test.js
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { takeCompleteSentences, cleanForSpeech } from '../sentenceBuffer.js';
+import { takeCompleteSentences, cleanForSpeech, takeFirstSpeechChunk } from '../sentenceBuffer.js';
 
 test('sentenceBuffer', async (t) => {
   await t.test('holds text until a terminator arrives', () => {
@@ -35,6 +34,28 @@ test('sentenceBuffer', async (t) => {
     const { chunk, rest } = takeCompleteSentences('मैं आपकी मदद कर सकती हूँ। और');
     assert.equal(chunk, 'मैं आपकी मदद कर सकती हूँ।');
     assert.equal(rest, ' और');
+  });
+
+  await t.test('splits on conjunction lookaheads when buffer accumulates enough text', () => {
+    const text = 'I found your booking details from yesterday, and I can confirm your reservation without any delay';
+    const { chunk, rest } = takeCompleteSentences(text, { conjunctionMinChars: 30 });
+    assert.ok(chunk.length > 0, 'should split at conjunction');
+    assert.ok(chunk.includes('yesterday'), 'should cut around conjunction boundary');
+    assert.ok(rest.includes('and I can confirm'), 'rest contains remaining clause');
+  });
+
+  await t.test('takeFirstSpeechChunk extracts the first 3-4 words immediately', () => {
+    const stream = 'Hello there, I can definitely help you with that order';
+    const { chunk, rest } = takeFirstSpeechChunk(stream, { minWords: 3, maxWords: 4 });
+    assert.equal(chunk, 'Hello there, I can');
+    assert.equal(rest, 'definitely help you with that order');
+  });
+
+  await t.test('takeFirstSpeechChunk holds if fewer than minWords arrived', () => {
+    const stream = 'Hello there';
+    const { chunk, rest } = takeFirstSpeechChunk(stream, { minWords: 3 });
+    assert.equal(chunk, '');
+    assert.equal(rest, 'Hello there');
   });
 
   await t.test('releases at a word break past maxLen when unpunctuated', () => {

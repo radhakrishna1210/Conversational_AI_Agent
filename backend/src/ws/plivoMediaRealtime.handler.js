@@ -34,6 +34,7 @@ import logger from '../lib/logger.js';
 import { getAgentKbText, renderWelcome } from '../services/agentRuntime.service.js';
 import { createRealtimeSession } from '../services/voice/realtimeEngine.factory.js';
 import { isModelAllowed } from '../services/platform/modelCatalog.js';
+import { isBundledEngine } from '../services/outboundCall.service.js';
 import { createAmbiencePump } from '../services/voice/ambiencePump.js';
 import { createUlawPacer } from '../services/voice/ulawPacer.js';
 import { createCallFinalizer } from './callFinalizer.js';
@@ -118,7 +119,7 @@ export function handlePlivoMediaUpgrade(ws, { workspaceId, agentId, callLogId = 
           const agent = await prisma.agent.findFirst({ where: { id: agentId, workspaceId } });
           if (!agent) throw new Error('Agent not found in this workspace');
           const settings = safeJson(agent.settings, {});
-          if (settings.voiceEngine !== 'xai' && settings.voiceEngine !== 'elevenlabs') {
+          if (!isBundledEngine(settings.voiceEngine)) {
             throw new Error('Agent is not configured to use a bundled Conversational Agent');
           }
           if (!(await isModelAllowed('conversational', settings.voiceEngine))) {

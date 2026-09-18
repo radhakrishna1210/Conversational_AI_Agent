@@ -16,6 +16,8 @@ import {
   toSarvamLanguage,
   SARVAM_AUTODETECT,
   STT_LANGUAGES,
+  detectLanguageShift,
+  resolveSwappedVoiceProfile,
 } from '../sttLanguage.js';
 
 describe('toSarvamLanguage', () => {
@@ -97,3 +99,62 @@ describe('the shared table', () => {
     }
   });
 });
+
+describe('detectLanguageShift', () => {
+  test('detects Devanagari Hindi shift from English caller', () => {
+    const res = detectLanguageShift('नमस्ते, मुझे मदद चाहिए', 'english');
+    assert.equal(res.detected, true);
+    assert.equal(res.language, 'hindi');
+    assert.equal(res.code, 'hi-IN');
+    assert.equal(res.provider, 'sarvam');
+  });
+
+  test('detects Hinglish keywords when caller switches to Hindi', () => {
+    const res = detectLanguageShift('namaste mujhe order status bataiye', 'english');
+    assert.equal(res.detected, true);
+    assert.equal(res.language, 'hindi');
+  });
+
+  test('detects Spanish phrase when caller switches to Spanish', () => {
+    const res = detectLanguageShift('hola como estas, por favor necesito ayuda', 'english');
+    assert.equal(res.detected, true);
+    assert.equal(res.language, 'spanish');
+    assert.equal(res.code, 'es');
+    assert.equal(res.provider, 'deepgram');
+  });
+
+  test('detects French phrase when caller switches to French', () => {
+    const res = detectLanguageShift('bonjour comment allez-vous, merci', 'english');
+    assert.equal(res.detected, true);
+    assert.equal(res.language, 'french');
+    assert.equal(res.code, 'fr');
+  });
+
+  test('does not trigger shift if current language matches detected language', () => {
+    const res = detectLanguageShift('नमस्ते कैसे हो', 'hindi');
+    assert.equal(res.detected, false);
+  });
+
+  test('does not trigger shift for standard English on English call', () => {
+    const res = detectLanguageShift('I would like to check my subscription plan please', 'english');
+    assert.equal(res.detected, false);
+  });
+});
+
+describe('resolveSwappedVoiceProfile', () => {
+  test('returns Sarvam STT config for Hindi', () => {
+    const profile = resolveSwappedVoiceProfile('hindi');
+    assert.equal(profile.language, 'hindi');
+    assert.equal(profile.sttProvider, 'sarvam');
+    assert.equal(profile.sttCode, 'hi-IN');
+    assert.match(profile.systemPromptDirective, /hindi/i);
+  });
+
+  test('returns Deepgram STT config for Spanish', () => {
+    const profile = resolveSwappedVoiceProfile('spanish');
+    assert.equal(profile.language, 'spanish');
+    assert.equal(profile.sttProvider, 'deepgram');
+    assert.equal(profile.sttCode, 'es');
+  });
+});
+

@@ -10,7 +10,8 @@
 export const GEMINI_MODEL_MAPPING = {
   "gemini-3.5-flash-lite": "gemini-3.5-flash-lite",
   "gemini-3.5-flash": "gemini-3.5-flash",
-  'gemini-3.1-flash-lite': 'gemini-3.1-flash-lite',
+  "gemini-3.1-flash": "gemini-3.1-flash-lite",
+  "gemini-3.1-flash-lite": "gemini-3.1-flash-lite",
   "gemini-2.5-flash": "gemini-2.5-flash",
   // Retired by Google ("no longer available to new users" — a 404 on every
   // call, not a deprecation warning). Kept as a KEY so agents whose stored
@@ -29,6 +30,7 @@ export const GEMINI_MODEL_MAPPING = {
  *
  *   model                  thinkingBudget:0   thinkingLevel:'low'   omitted
  *   gemini-2.5-flash       ok, 0 thoughts     HTTP 400              190 thoughts
+ *   gemini-3.1-flash       ok, 0 thoughts     ok, 152 thoughts      0 thoughts
  *   gemini-3.1-flash-lite  ok, 0 thoughts     ok, 152 thoughts      0 thoughts
  *   gemini-3.5-flash-lite  HTTP 400           ok, 0 thoughts        0 thoughts
  *   gemini-3.5-flash       ok, 0 thoughts     ok, 179 thoughts      188 thoughts
@@ -41,6 +43,7 @@ export const GEMINI_MODEL_MAPPING = {
  */
 const THINKING_OFF_STYLE = {
   "gemini-2.5-flash": "budget",
+  "gemini-3.1-flash": "budget",
   "gemini-3.1-flash-lite": "budget",
   "gemini-3.5-flash": "budget",
   "gemini-3.5-flash-lite": "none",
