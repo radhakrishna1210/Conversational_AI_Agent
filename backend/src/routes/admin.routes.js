@@ -127,6 +127,11 @@ router.post('/telephony/workspaces/:workspaceId/offboard', authenticate, isAdmin
 router.get('/telephony/numbers/available', authenticate, isAdmin, telephony.searchNumbers);
 router.get('/telephony/numbers', authenticate, isAdmin, telephony.listNumbers);
 router.post('/telephony/numbers/rent', authenticate, isAdmin, telephony.postRentNumber);
+// Lends a client a number the main account already holds — no purchase, no
+// subaccount. The client-facing `POST /workspaces/:id/compliance/numbers` can do
+// the same thing, but only for a workspace the caller belongs to, which the
+// platform owner never does.
+router.post('/telephony/numbers/attach', authenticate, isAdmin, telephony.postAttachNumber);
 router.patch('/telephony/numbers/:numberId', authenticate, isAdmin, telephony.patchNumber);
 router.delete('/telephony/numbers/:numberId', authenticate, isAdmin, telephony.deleteNumber);
 

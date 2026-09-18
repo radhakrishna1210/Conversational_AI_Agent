@@ -429,6 +429,52 @@ export const postRentNumber = async (req, res) => {
   }
 };
 
+/**
+ * POST /admin/telephony/numbers/attach  { workspaceId, phoneNumber, series?, dailyDialCap? }
+ *
+ * Gives a client a number the MAIN account already holds, instead of buying one
+ * into a subaccount for them. Nothing is purchased and no wallet is touched —
+ * the operator is lending their own number, so there is no price to agree.
+ *
+ * Audited as a NUMBER_ASSIGN like renting is: from the client's side the two are
+ * the same event, and "when did this number become theirs" is the question a
+ * carrier dispute actually asks.
+ */
+export const postAttachNumber = async (req, res) => {
+  const { workspaceId, phoneNumber, series, dailyDialCap } = req.body ?? {};
+  if (!workspaceId || !phoneNumber) return res.status(400).json({ error: 'workspaceId and phoneNumber are required.' });
+
+  try {
+    const result = await carrierNumbers.attachMainAccountNumber(String(workspaceId), {
+      phoneNumber: String(phoneNumber),
+      series: series ? String(series) : undefined,
+      dailyDialCap: Number.isInteger(dailyDialCap) ? dailyDialCap : undefined,
+    });
+    await writeAudit(req, {
+      action: AUDIT_ACTIONS.NUMBER_ASSIGN,
+      category: AUDIT_CATEGORIES.NUMBER,
+      targetType: 'VoiceNumber',
+      targetId: result.number?.id ?? null,
+      targetLabel: String(phoneNumber),
+      workspaceId: String(workspaceId),
+      // `source` separates a lent number from a rented one in the audit trail;
+      // only one of the two has money behind it.
+      metadata: {
+        ok: result.ok,
+        source: 'MAIN_ACCOUNT',
+        voiceApp: result.voiceApp ?? null,
+        error: result.error ?? null,
+      },
+      status: result.ok ? 'success' : 'failure',
+      errorMessage: result.ok ? null : result.error,
+    });
+    if (!result.ok) return res.status(409).json({ error: result.error });
+    res.status(201).json({ number: result.number, voiceApp: result.voiceApp });
+  } catch (err) {
+    return failCarrier(res, err, 'attach that number');
+  }
+};
+
 /** DELETE /admin/telephony/numbers/:numberId  { workspaceId, confirm } */
 export const deleteNumber = async (req, res) => {
   const workspaceId = String(req.body?.workspaceId ?? req.query.workspaceId ?? '');

@@ -513,6 +513,119 @@ interface NumberRow {
   assignedAt: string;
 }
 
+interface PlatformWorkspace { id: string; name: string; slug: string }
+
+/**
+ * Lending a client one of the MAIN account's own numbers.
+ *
+ * Deliberately not the same thing as renting. Renting buys a number into the
+ * client's own carrier subaccount and debits their wallet for it; this hands
+ * over a number the operator already holds and already pays for, so there is no
+ * purchase, no price and no subaccount.
+ *
+ * The workspace list comes from `/workspaces`, not `/telephony/workspaces` —
+ * the carrier list only knows workspaces that have started compliance
+ * onboarding, and lending a number does not require them to have.
+ */
+function AttachNumber({ onDone }: { onDone: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [workspaces, setWorkspaces] = useState<PlatformWorkspace[] | null>(null);
+  const [workspaceId, setWorkspaceId] = useState('');
+  const [phoneNumber, setPhoneNumber] = useState('+91');
+  const [series, setSeries] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open || workspaces) return;
+    adminFetch<{ workspaces: PlatformWorkspace[] }>('/workspaces')
+      .then(r => setWorkspaces(r.workspaces))
+      .catch(() => setWorkspaces([]));
+  }, [open, workspaces]);
+
+  const submit = async () => {
+    setBusy(true); setError(null); setNotice(null);
+    try {
+      const r = await adminFetch<{
+        number: NumberRow;
+        voiceApp?: { before: string | null; after: string | null; attached: boolean };
+      }>('/telephony/numbers/attach', {
+        method: 'POST',
+        body: JSON.stringify({
+          workspaceId,
+          phoneNumber: phoneNumber.trim(),
+          ...(series ? { series } : {}),
+        }),
+      });
+      setNotice(
+        `${r.number.phoneNumber} is now this workspace's number.`
+        + (r.voiceApp?.attached ? ` Pointed at voice application ${r.voiceApp.after}.` : '')
+        + ' It has no inbound agent yet — set one to take calls on it.',
+      );
+      setPhoneNumber('+91');
+      onDone();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'That did not go through.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button style={{ ...btn(), marginBottom: 14 }} onClick={() => setOpen(true)}>
+        <Link2 size={12} style={{ verticalAlign: -2 }} /> Attach a main-account number
+      </button>
+    );
+  }
+
+  return (
+    <div style={{ ...card, marginBottom: 14 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 10 }}>
+        <strong style={{ fontSize: 13.5 }}>Attach a main-account number</strong>
+        <button style={btn()} onClick={() => setOpen(false)}><X size={12} style={{ verticalAlign: -2 }} /></button>
+      </div>
+      <p style={{ fontSize: 12.5, color: 'var(--tx-3)', margin: '0 0 12px', maxWidth: 620, lineHeight: 1.5 }}>
+        Hands a client a number the main Plivo account already holds. Nothing is bought and nobody is
+        charged — no subaccount is created and the number stays out of the renewal sweep. Buy the number
+        in the Plivo console first; this only records who it now belongs to.
+      </p>
+
+      {error && <Banner tone="err">{error}</Banner>}
+      {notice && <Banner tone="ok">{notice}</Banner>}
+
+      <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+        <select style={{ ...input, minWidth: 240 }} value={workspaceId} onChange={e => setWorkspaceId(e.target.value)}>
+          <option value="">{workspaces === null ? 'Loading workspaces…' : 'Pick a workspace'}</option>
+          {(workspaces ?? []).map(w => <option key={w.id} value={w.id}>{w.name}</option>)}
+        </select>
+        <input
+          style={{ ...input, ...mono, minWidth: 170 }}
+          value={phoneNumber}
+          onChange={e => setPhoneNumber(e.target.value)}
+          placeholder="+912269851741"
+        />
+        <select style={input} value={series} onChange={e => setSeries(e.target.value)}>
+          {/* Blank lets the server classify from the digits and record an honest
+              UNKNOWN when it cannot — only 140 and 1600 are decidable. */}
+          <option value="">Series: from the digits</option>
+          <option value="TRANSACTIONAL_LANDLINE">Transactional landline</option>
+          <option value="PROMOTIONAL_140">Promotional 140</option>
+          <option value="BFSI_1600">BFSI 1600</option>
+        </select>
+        <button
+          style={btn('primary')}
+          disabled={busy || !workspaceId || phoneNumber.trim().length < 12}
+          onClick={() => void submit()}
+        >
+          {busy ? 'Attaching…' : 'Attach'}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function NumbersTab({ onChanged }: { onChanged: () => void }) {
   const [rows, setRows] = useState<NumberRow[] | null>(null);
   const [status, setStatus] = useState('ACTIVE');
@@ -559,6 +672,8 @@ function NumbersTab({ onChanged }: { onChanged: () => void }) {
     <div>
       {error && <Banner tone="err">{error}</Banner>}
       {notice && <Banner tone="ok">{notice}</Banner>}
+
+      <AttachNumber onDone={() => { load(); onChanged(); }} />
 
       <div style={{ display: 'flex', gap: 8, marginBottom: 14, flexWrap: 'wrap', alignItems: 'center' }}>
         <select style={input} value={status} onChange={e => setStatus(e.target.value)}>

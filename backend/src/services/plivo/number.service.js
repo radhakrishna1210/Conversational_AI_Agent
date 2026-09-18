@@ -1,4 +1,5 @@
-// Renting Indian numbers from Plivo into a client's subaccount.
+// Renting Indian numbers from Plivo into a client's subaccount, and lending a
+// client one of the main account's own numbers (`attachMainAccountNumber`).
 //
 // This is the step the whole compliance pipeline exists to reach. It can only
 // run once plivo/compliance.service.js has an APPROVED application for the
@@ -456,6 +457,147 @@ export async function rentNumber(workspaceId, { phoneNumber } = {}) {
   );
 
   return { ok: true, number: result.number, carrier: bought };
+}
+
+// ── Attach an existing main-account number ──────────────────────────────────
+
+/**
+ * Lend a number the MAIN account already holds to a workspace.
+ *
+ * The other half of `rentNumber()`. Renting provisions a number INTO a client's
+ * own subaccount, which is right when the client is paying for it and carries
+ * their own DLT registration. This is the operator handing over one of their
+ * own numbers instead: nothing is bought, nothing is charged, and no subaccount
+ * is created.
+ *
+ * `subaccountId` is deliberately left null, and that null is load-bearing —
+ * telephony/dialCredentials.js dials a number with MAIN-account credentials
+ * precisely when its row names no subaccount. Writing a subaccount here would
+ * make every call from this number fail closed.
+ *
+ * `nextRenewalAt` is left null too, which keeps the number out of the renewal
+ * sweep: the client never agreed to a monthly price for a number we already pay
+ * for, and charging one is a refund conversation.
+ *
+ * Deliberately NOT gated on `assertProvisionable()`. That gate exists because
+ * Plivo will not sell an Indian number without an APPROVED carrier application
+ * of the client's own — an irrelevant question when the number is already
+ * bought and held by us. The operator's own registration is what this number
+ * carries, so the DLT header on it stays the operator's responsibility; the
+ * client's use case still governs what may lawfully be said on the call.
+ *
+ * @param {string} workspaceId
+ * @param {object} opts
+ * @param {string} opts.phoneNumber        E.164, e.g. "+912269851741"
+ * @param {string} [opts.series]           NUMBER_SERIES; classified from the digits when omitted
+ * @param {number} [opts.dailyDialCap]
+ * @returns {Promise<{ok: boolean, error?: string, number?: object, carrier?: object, voiceApp?: object}>}
+ */
+export async function attachMainAccountNumber(workspaceId, { phoneNumber, series, dailyDialCap } = {}) {
+  const e164 = toE164(phoneNumber);
+  if (!isIndianNumber(e164)) {
+    return { ok: false, error: 'Provide the number in E.164 form, e.g. +912269851741.' };
+  }
+
+  const workspace = await prisma.workspace.findUnique({
+    where: { id: workspaceId },
+    select: { id: true },
+  });
+  if (!workspace) return { ok: false, error: 'No such workspace.' };
+
+  // Refuse before the carrier is asked: assignNumber() would refuse this too,
+  // but saying so here keeps a duplicate attach from looking like a Plivo fault.
+  const existing = await prisma.voiceNumber.findUnique({ where: { phoneNumber: e164 } });
+  if (existing) {
+    return {
+      ok: false,
+      error: existing.workspaceId === workspaceId
+        ? 'This number is already assigned to this workspace.'
+        : 'That number is already held by another customer.',
+    };
+  }
+
+  const credentials = requireMain();
+
+  // Does the main account actually hold it? A typo here is silent and expensive:
+  // the row would route a number we do not own, inbound would never arrive, and
+  // the digits string would then be unavailable when the real number is attached.
+  let carrier;
+  try {
+    carrier = await plivoRequest(`/Number/${carrierNumber(e164)}/`, { credentials });
+  } catch (err) {
+    if (err instanceof PlivoError && err.status === 404) {
+      return {
+        ok: false,
+        error: `The main Plivo account does not hold ${e164}. Buy it in the Plivo console first, `
+          + 'or check the digits.',
+      };
+    }
+    throw err;
+  }
+
+  // A number sitting in a subaccount is not ours to lend from the main account:
+  // recorded with a null subaccountId it would be dialled with main credentials,
+  // which is the mismatch dialCredentials.js refuses calls over.
+  //
+  // Plivo answers with a resource URI (".../Subaccount/SAxxx/") rather than a
+  // bare auth id, so the id is pulled back out for a message an operator can
+  // paste into the console search box.
+  const rawSub = carrier?.sub_account ?? carrier?.subaccount ?? null;
+  const heldBy = rawSub ? (String(rawSub).match(/(SA[A-Z0-9]+)/i)?.[1] ?? String(rawSub)) : null;
+  if (heldBy) {
+    return {
+      ok: false,
+      error: `${e164} is held by carrier subaccount ${heldBy}, not the main account. `
+        + 'Move it to the main account in the Plivo console, or rent it to the client instead.',
+    };
+  }
+
+  // Inbound reaches this platform only through a voice application whose answer
+  // URL points here. Without one Plivo falls back to `default_number_app` and
+  // inbound calls land nowhere, silently — the same trap rentNumber() refuses
+  // over. Attach ours when the number is not already on it.
+  const appId = process.env.PLIVO_VOICE_APP_ID || null;
+  const currentAppId = carrier?.app_id ? String(carrier.app_id) : null;
+  const voiceApp = { before: currentAppId, after: currentAppId, attached: false };
+
+  if (!appId && !currentAppId) {
+    return {
+      ok: false,
+      error: `${e164} has no Plivo voice application attached and PLIVO_VOICE_APP_ID is not set on `
+        + 'this server, so inbound calls to it would never reach this platform. Point the number at '
+        + `an application whose answer URL is ${resolveAnswerUrlBase() || 'this deployment'} first.`,
+    };
+  }
+
+  if (appId && currentAppId !== appId) {
+    await plivoRequest(`/Number/${carrierNumber(e164)}/`, {
+      method: 'POST',
+      json: { app_id: appId, alias: `ws_${workspaceId}` },
+      credentials,
+      idempotent: false,
+    });
+    voiceApp.after = appId;
+    voiceApp.attached = true;
+  }
+
+  const result = await assignNumber(workspaceId, {
+    phoneNumber: e164,
+    provider: TELEPHONY_PROVIDER.PLIVO,
+    providerNumberId: carrierNumber(e164),
+    // subaccountId omitted on purpose — see the note above.
+    ...(series ? { series } : {}),
+    ...(Number.isInteger(dailyDialCap) ? { dailyDialCap } : {}),
+    // No billing fields: nothing was bought and nobody was charged.
+  });
+  if (!result.ok) return result;
+
+  logger.info(
+    { workspaceId, phoneNumber: e164, series: result.number.series, voiceApp },
+    'Attached a main-account Plivo number to the workspace',
+  );
+
+  return { ok: true, number: result.number, carrier, voiceApp };
 }
 
 // ── Release ─────────────────────────────────────────────────────────────────
