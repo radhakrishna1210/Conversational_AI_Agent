@@ -38,14 +38,17 @@ const notConfigured = (res) => res.status(503).json({
  * thing to offer in the picker, and means listing anything else would offer
  * numbers that silently dial out on Twilio instead.
  *
- * Twilio rows are excluded because the live Twilio API below already returns
- * them, and a number in both places would appear twice.
+ * Twilio rows are included. They used to be excluded here because the live
+ * Twilio listing below returned them anyway and a number in both places showed
+ * twice — but that listing returned the PLATFORM's whole inventory to every
+ * workspace, so it is gone. This table is now the only place any carrier's
+ * number is tied to one tenant, Twilio included.
  */
 const assignedCarrierNumbers = async (workspaceId) => {
   if (!workspaceId) return [];
   try {
     const rows = await prisma.voiceNumber.findMany({
-      where: { workspaceId, status: 'ACTIVE', provider: { not: 'TWILIO' } },
+      where: { workspaceId, status: 'ACTIVE' },
       select: { phoneNumber: true, provider: true },
       orderBy: { assignedAt: 'desc' },
       take: 50,
@@ -111,40 +114,38 @@ export const listCallerNumbers = async (req, res) => {
     unavailableCarrierNumbers(req.params.workspaceId),
   ]);
 
-  // Twilio missing is no longer fatal. An India-only deployment routes through
-  // Plivo and may hold no Twilio credentials at all; 503-ing here
-  // would hide every number it does own behind a message about a carrier it
-  // does not use.
-  if (!twilioReady()) {
-    if (carrierNumbers.length || unavailable.length) {
-      return res.json({ owned: carrierNumbers, verified: [], unavailable });
-    }
-    return notConfigured(res);
-  }
+  // A workspace may dial only from numbers assigned to IT.
+  //
+  // Every number the PLATFORM's Twilio account owns used to be merged in here,
+  // unfiltered, which showed each client the whole parent account's inventory
+  // and let any of them dial as any other — a caller ID is a tenancy fact, and
+  // this was the one carrier that did not treat it as one.
+  //
+  // Tenancy runs through VoiceNumber for every carrier now. To lend a client a
+  // Twilio number, record it there with provider TWILIO, exactly as a Plivo
+  // number held by the main account is.
+  const owned = carrierNumbers;
+
+  // Twilio absent is not an error. An India-only deployment routes through
+  // Plivo and may hold no Twilio credentials at all; 503-ing here put a message
+  // about a carrier it does not use — naming env vars — in front of every
+  // workspace that simply has no number yet.
+  if (!twilioReady()) return res.json({ owned, verified: [], unavailable });
 
   try {
-    const [ownedRes, verifiedRes] = await Promise.all([
-      tw('/IncomingPhoneNumbers.json?PageSize=50'),
-      tw('/OutgoingCallerIds.json?PageSize=50'),
-    ]);
-    const owned = ownedRes.ok ? (await ownedRes.json()).incoming_phone_numbers ?? [] : [];
+    // Only the BYO caller IDs a client verified as their own. `owned` no longer
+    // depends on Twilio, so there is nothing here that can take this
+    // deployment's real numbers off the list.
+    const verifiedRes = await tw('/OutgoingCallerIds.json?PageSize=50');
     const verified = verifiedRes.ok ? (await verifiedRes.json()).outgoing_caller_ids ?? [] : [];
     res.json({
-      owned: [
-        ...owned.map((n) => ({ phoneNumber: n.phone_number, label: n.friendly_name, source: 'twilio' })),
-        ...carrierNumbers,
-      ],
+      owned,
       verified: verified.map((n) => ({ phoneNumber: n.phone_number, label: n.friendly_name, source: 'own' })),
       unavailable,
     });
   } catch (err) {
     logger.error('listCallerNumbers failed', err);
-    // Same reasoning as the unconfigured branch: Twilio being unreachable must
-    // not take the India numbers off the list.
-    if (carrierNumbers.length || unavailable.length) {
-      return res.json({ owned: carrierNumbers, verified: [], unavailable });
-    }
-    res.status(502).json({ error: `Could not load numbers from Twilio: ${err.message}` });
+    res.json({ owned, verified: [], unavailable });
   }
 };
 
